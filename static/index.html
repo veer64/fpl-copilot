@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FPL Copilot</title>
+    <style>
+        body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; }
+        #chat-box { border: 1px solid #ccc; border-radius: 8px; padding: 20px; min-height: 300px; margin-bottom: 15px; background: #fafafa; }
+        .message { margin-bottom: 15px; white-space: pre-wrap; }
+        .user { font-weight: bold; }
+        .assistant { color: #333; }
+        input { width: 75%; padding: 10px; font-size: 16px; }
+        button { padding: 10px 20px; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <h1>⚽ FPL Copilot</h1>
+    <button onclick="resetChat()" style="float: right;">New Conversation</button>
+    <div id="chat-box"></div>
+    <input type="text" id="question" placeholder="Ask about your FPL team..." />
+    <button onclick="sendMessage()">Send</button>
+
+    <script>
+        async function sendMessage() {
+            const input = document.getElementById("question");
+            const question = input.value;
+            if (!question) return;
+
+            const chatBox = document.getElementById("chat-box");
+            chatBox.innerHTML += `<div class="message user">You: ${question}</div>`;
+            input.value = "";
+            chatBox.innerHTML += `<div class="message assistant" id="loading">Thinking...</div>`;
+
+            const response = await fetch("/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: question })
+            });
+            const data = await response.json();
+
+            document.getElementById("loading").remove();
+            chatBox.innerHTML += `<div class="message assistant">${data.answer}</div>`;
+        }
+
+        async function resetChat() {
+            await fetch("/reset", { method: "POST" });
+            document.getElementById("chat-box").innerHTML = "";
+        }
+    </script>
+</body>
+</html>
