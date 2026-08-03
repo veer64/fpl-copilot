@@ -1,0 +1,550 @@
+# Empirical-Bayes Shrinkage — Build Log
+
+**Phase 2, Week 5.** Status: shrinkage method built, validated, and its true scope
+established. A found data bug (#6) and several negative results are documented.
+
+Written **bottom-up**: every concept is defined before use, and the evaluation
+metric (correlation) is worked through so the numbers are interpretable.
+
+**Validation:** cross-season prediction on Understat data (2022→2023, 2023→2024).
+**2025-26 test season remains untouched.**
+
+---
+
+## 1. What shrinkage is, and what it is NOT
+
+### The problem it solves
+
+We want each player's underlying scoring *rate* — e.g. non-penalty expected
+goals per 90 (npxG/90). The naive rate is `stat / minutes × 90`. But with small
+samples this is badly unreliable:
+
+- A striker with 1 goal in 45 minutes → 2.0 goals/90. Ranks him *above* Haaland.
+  Obviously a fluke of a tiny sample.
+- A striker with 27 goals in 2,553 minutes → 0.95/90. Trustworthy — huge sample.
+
+The naive rate treats both as equally valid. Shrinkage fixes this by **pulling
+each player's rate toward a baseline average**, by an amount that depends on how
+little data supports it. Little data → pull hard toward the average. Lots of data
+→ barely pull.
+
+### What it is NOT — the critical framing
+
+**Shrinkage is not a prediction model. It is a noise-cleanup step.** It takes a
+noisy rate and returns a less-noisy version of *the same rate*. It adds no new
+information; its ceiling is "the player's true underlying rate." It can never tell
+you more than the stat itself contains.
+
+Where it fits (master plan §3.4): shrinkage produces one clean *input* — a
+trustworthy attacking-rate estimate — which the full points model then combines
+with minutes (will he play?), fixture (how many goals will his team score, from
+Dixon-Coles?), finishing skill (does he beat his xG?), and team/form context. The
+value *over* the base rate comes from those later layers, not from this step. This
+component's narrow job is to hand the cleanest possible rate to the model that
+does the actual predicting.
+
+---
+
+## 2. The mechanism (bottom-up)
+
+### 2.1 The shrunk rate is a weighted average
+
+$$\text{shrunk} = w \cdot (\text{player's own rate}) + (1-w) \cdot (\text{baseline average})$$
+
+Everything is in **w** — how much we trust the player's own number (0 = ignore the
+player, use the average; 1 = trust the player fully).
+
+### 2.2 The weight formula
+
+$$w = \frac{n}{n + k}$$
+
+- **n** = the player's sample size (here, 90-minute blocks played).
+- **k** = the "half-trust" constant — the sample size at which we weight player and
+  average equally.
+
+Read it three ways: n ≪ k → w≈0 (trust the average); n = k → w=0.5 (equal); n ≫ k
+→ w≈1 (trust the player). **k is the knob that sets how much evidence is needed
+before trusting a player's own rate.**
+
+### 2.3 Worked shrinkage example (goals/90, forwards)
+
+League-average striker rate = 0.42, k = 31 (in 90-blocks):
+
+```
+Kalajdzic — 158 min = 1.76 nineties
+  w = 1.76 / (1.76 + 31) = 0.053   → 5% trust
+  shrunk = 0.053×1.139 + 0.947×0.422 = 0.46   (fluky 1.14 pulled to average)
+
+Haaland — 2553 min = 28.4 nineties
+  w = 28.4 / (28.4 + 31) = 0.478   → 48% trust
+  shrunk = 0.478×0.952 + 0.522×0.422 = 0.675  (real rate mostly preserved)
+```
+
+After shrinkage the ranking **flips correctly**: raw had Kalajdzic (1.14) above
+Haaland (0.95); shrunk has Haaland (0.675) well above Kalajdzic (0.46). The fluke
+is demoted, the real signal rises. That is the entire point.
+
+### 2.4 Where k comes from — the signal-vs-noise idea
+
+k is not guessed. It is set by how much of the observed spread between players is
+**real skill** versus **sampling luck**.
+
+Imagine a fake world where all strikers are truly identical. Even then, over short
+samples, some would look good and some bad *purely by luck* — producing a spread
+of observed rates with zero real differences. That fake spread is **noise**.
+
+The real world adds genuine skill differences on top. So:
+
+$$\text{total observed variance} = \text{true between-player variance (signal)} + \text{sampling noise}$$
+
+- **Total variance** — measured directly (the spread of observed rates).
+- **Sampling noise** — computed or measured (see §3).
+- **Signal** = total − noise (by subtraction).
+
+And k is the ratio:
+
+$$k \approx \frac{\text{noise}}{\text{signal variance}}$$
+
+Lots of signal → small k → shrink little. Mostly noise → large k → shrink hard.
+**The data sets how much to trust each player.** This is the "empirical" in
+empirical Bayes.
+
+### 2.5 Worked variance example (goals/90, forwards 2023-24)
+
+```
+league_g90 (prior)   = 0.422
+total variance       = 0.0416   (measured spread)
+sampling noise       = 0.0280   (computed, §3.1)
+signal variance      = 0.0416 − 0.0280 = 0.0136
+k = 0.422 / 0.0136   ≈ 31 (nineties)
+```
+
+Reading it: **two-thirds of the apparent spread between strikers (0.028 of 0.042)
+is luck, only one-third is real skill.** Because luck dominates, we demand a lot of
+evidence (k≈31 nineties ≈ most of a season) before trusting a player's own rate.
+
+---
+
+## 3. The noise model — the heart of the investigation
+
+The whole method depends on computing the noise correctly. Getting it wrong
+silently over- or under-shrinks. Two noise models appeared; understanding when
+each applies is the core lesson.
+
+### 3.1 Poisson-count noise — correct for GOALS
+
+A **goal** is a count (0, 1, 2…). Counts of rare events follow the Poisson
+distribution, whose defining law is **variance = mean**. Deriving the rate-noise
+from this:
+
+- A player at rate μ over m minutes is expected to score `μ × m/90`; its count
+  variance equals that (Poisson law).
+- Converting a count to a per-90 rate multiplies variance by `(90/m)²` (the rule
+  `Var(cX) = c²Var(X)`).
+- Simplifying: **noise(rate) = league_rate / (minutes/90)**.
+
+Shape check: few minutes → divide by small → big noise ✓; many minutes → tiny
+noise ✓. This is correct **for goals**.
+
+### 3.2 Why it is WRONG for xG
+
+xG is **not a count**. It is the sum of the probabilities of each shot becoming a
+goal (0.1 + 0.3 + 0.5…) — a continuous quantity. Poisson's "variance = mean" does
+not apply. Reusing the count formula on xG **overestimates the noise**, inflates k,
+and over-shrinks. This is exactly what went wrong (§4).
+
+### 3.3 Measuring noise empirically — the split-half method
+
+When you cannot trust a formula, **measure** the noise directly. A player has one
+true rate; split his season in half and each half gives a noisy estimate of it.
+The two halves are the *same player with the same true rate*, so any difference
+between them is pure noise — by definition.
+
+- Split each season into **odd vs even gameweeks** (a fair, form-neutral split).
+- Compute npxG/90 in each half; take the difference.
+- The variance of those differences (halved, because a difference contains two
+  doses of noise) **is** the sampling noise — measured, no model assumed.
+
+**Result:** measured xG/90 noise = **0.0053**, versus the wrong Poisson-formula
+noise of ~0.028 — **5× smaller.** npxG is a far cleaner signal than the count
+formula implied. This is the empirical-Bayes philosophy paying off: measure the
+noise rather than assume a model for it.
+
+---
+
+## 4. The investigation — how the surprise unfolded
+
+This section is the real story: shrinkage initially *hurt*, and fixing it taught
+the method's true scope.
+
+### 4.1 The metric — correlation (worked)
+
+We test: does last season's rate predict next season's actual rate? For each
+player we pair **A** = last-season rate (raw or shrunk) with **B** = next-season
+actual rate, and correlate A against B across all players.
+
+$$r = \frac{\sum(x_i-\bar x)(y_i-\bar y)}{\sqrt{\sum(x_i-\bar x)^2}\sqrt{\sum(y_i-\bar y)^2}}$$
+
+Correlation runs −1 to +1: **+1** = last season perfectly predicts next; **0** =
+tells you nothing. Higher = better predictor. Each prediction uses **one** prior
+season, at **season level** (a player's whole-season rate, not per-gameweek —
+gameweeks are far too noisy). B (the truth) is identical across raw/shrunk tests;
+only A changes.
+
+### 4.2 The surprise — shrinkage hurt everywhere
+
+First attempt (npxG/90, single pooled noise):
+
+| position | raw | shrunk |
+|---|---|---|
+| FWD | 0.675 | 0.646 |
+| MID | 0.691 | 0.675 |
+| DEF | 0.482 | 0.368 |
+
+Shrinkage made prediction **worse** on every position — the opposite of its
+purpose. Diagnosis: k was too big, because the **noise was overestimated** — we
+reused the goals/Poisson formula on npxG (§3.2).
+
+### 4.3 Correct noise, but defenders exploded
+
+Plugging in the measured noise (0.0053) fixed FWD/MID (0.675→0.674, 0.691→0.684)
+but **broke defenders**: k ≈ 128,000,000, correlation −0.089.
+
+Cause: k = noise/signal explodes when signal ≈ 0. Defenders barely shoot, so their
+*total* spread in npxG/90 is tiny; subtracting a noise value measured across
+*everyone* (dominated by forwards) wiped out their entire spread → signal ≈ 0 → k
+explodes → every defender shrunk to the same number → zero variance → garbage
+correlation.
+
+**Root cause: one pooled noise value for positions on totally different scales.**
+
+### 4.4 Per-position noise — fixed defenders, but a new puzzle
+
+Measuring split-half noise *within each position*:
+
+```
+FWD noise = 0.0195   (shoot most, biggest swings)
+MID noise = 0.0059
+DEF noise = 0.0016   (barely shoot — 12× less than forwards)
+```
+
+One number could never fit all three. With per-position noise:
+
+| position | raw | shrunk | k |
+|---|---|---|---|
+| FWD | 0.675 | 0.605 | ≈47 |
+| MID | 0.691 | 0.681 | ≈13 |
+| DEF | 0.482 | 0.520 | ≈18 |
+
+Defenders now *improve* (0.48→0.52). But a **puzzle**: forwards — the position we
+predict *best* (0.675) — got the *heaviest* shrinkage (k≈47) and it hurt them.
+
+### 4.5 Resolving the puzzle — two kinds of noise
+
+The split-half measures **within-season** bounce (odd vs even gameweeks). Forwards
+bounce a lot week-to-week (shot quality swings), so within-season noise is big → k
+big → over-shrink.
+
+But that bounce **washes out over a full season**. What shrinkage-for-prediction
+needs is **cross-season** noise — whether the season *average* reflects durable
+skill. The proof it does: forwards' raw rate predicts next season at 0.675, the
+best of any position — a number that good *cannot* come from an unreliable
+estimate.
+
+We conflated within-season noise (large for forwards) with cross-season noise
+(small for forwards). Two fixes, both tested:
+
+**Option 1 — measure cross-season noise directly** (season-to-season bounce via
+stable Understat id):
+
+```
+          cross-season   within-season
+FWD          0.0092         0.0195      (half — bounce washes out)
+MID          0.0045         0.0059
+DEF          0.0016         0.0016      (same — defenders don't average out)
+```
+
+**Option 2 — skip the noise formula entirely; gridsearch k directly against
+next-season correlation** (optimize the thing we actually care about):
+
+| position | best k | reading |
+|---|---|---|
+| FWD | ≈2 | barely shrink |
+| MID | ≈2 | barely shrink |
+| DEF | ≈40 | shrink hard |
+
+Both agree, and it is the **opposite** of the within-season formula for forwards.
+The gridsearch curves are decisive: forwards' correlation *falls* as k rises
+(k=2→0.676, k=80→0.542), while defenders' *rises* (k=0→0.482, k=40→0.522).
+
+### 4.6 Robustness — the tuned k values were mostly false precision
+
+The k values above (FWD/MID≈2, DEF≈40) came from just **2 season-pairs**. Before
+trusting them, three checks — and they materially revised the conclusion.
+
+**Check 1 — more data (8 season-pairs, Understat back to 2016, n≈500–970 vs
+114–230).** The *direction* held (FWD/MID low-shrink, DEF moderate), but the
+extremes regressed hard toward the middle: DEF npxG's "best k" moved 40→20, xA
+MID's 5→10. **A best k that drifts with more data is partly noise**, not stable
+signal. The correlation curves are flat-topped, so the argmax is dominated by
+estimation error.
+
+**Check 2 — does a single round k=10 match the tuned k?** Across all six
+stat×position cells, universal k=10 landed within **0.01** of the tuned best in
+every case (largest gap 0.009, most ≤0.003). The elaborate per-position-per-stat
+tuning buys essentially nothing.
+
+**Check 3 — the honest test: pick k on EARLY seasons, evaluate on LATE seasons.**
+This is the only test that can't leak (the earlier gridsearch chose k with
+knowledge of the same correlations it reported). Picking k on 2016–2020 and
+scoring on 2020–2024:
+
+| stat/pos | early-chosen k on late | universal k=10 on late |
+|---|---|---|
+| npxG FWD | 0.657 | 0.651 |
+| npxG MID | 0.708 | 0.704 |
+| npxG DEF | 0.461 | 0.461 |
+| xA FWD | 0.523 | 0.521 |
+| xA MID | 0.680 | **0.682** |
+| xA DEF | 0.733 | **0.736** |
+
+The honestly-chosen k beats k=10 by at most 0.006, and for xA MID/DEF **k=10
+actually wins** — the tuning didn't even reliably pick the better value. This is
+the clean proof: **per-position/per-stat k tuning provides no reliable
+out-of-sample advantage.** Chasing it would have been overfitting to noise.
+
+**The one stable exception: FWD npxG.** Across *every* test (2-season, 8-season,
+early/late), forwards' npxG consistently preferred low k, and the curve always
+declined monotonically as k rose — no drift, no wobble. This is mechanistically
+sensible: forwards take the most shots, so their season npxG is the least-noisy
+attacking rate we have, and deserves the least shrinkage. This exception is a real
+*story*, not a fitted number, so it survives.
+
+**Final rule (this supersedes §4.5's tuned values):**
+- **FWD npxG: k = 2** (barely shrink — most reliable rate)
+- **Everything else (npxG MID/DEF, all xA): k = 10**
+- **Prior:** per-position, per-season average (unchanged; only k is simplified)
+
+---
+
+## 5. The principle
+
+**Shrinkage strength should match the signal-to-noise ratio — but only at a
+resolution the data can actually support.**
+
+The *direction* is real and survives every test:
+- **Attacking rates for shooters (FWD npxG):** strong, stable signal → **barely
+  shrink** (k=2). Trust the player.
+- **Weak/faint rates:** more shrinkage helps → **k=10**.
+
+But the *precise* per-position-per-stat tuning (§4.6) turned out to be false
+precision — with proper held-out testing, a near-universal k=10 (with the single
+FWD-npxG exception) matches or beats the tuned values. So the honest principle is
+two-part:
+
+1. **Shrink noisy rates, trust clean ones** — the signal-to-noise idea is sound.
+2. **But estimate the shrinkage strength at a resolution the data supports** —
+   with ~2 seasons the per-cell optima were noise; a coarse rule (k=10, FWD-npxG
+   k=2) is more robust and predicts just as well out-of-sample.
+
+This kills two naive instincts at once: "always shrink" (wrong — clean signals
+should barely shrink) **and** "tune everything precisely" (wrong — flat-topped
+curves on thin data make precise tuning overfitting).
+
+**The deeper methodological lesson:** we twice tried to *derive* k from a noise
+formula and were misled — the Poisson formula was wrong for xG, and the
+within-season split measured the wrong bounce. What worked was **measuring the
+outcome we actually care about** (next-season prediction) and tuning k against it.
+When you can measure the outcome, optimize for it directly rather than routing
+through a formula that may measure the wrong thing. This is empirical Bayes in its
+truest form.
+
+---
+
+## 6. Found bug — #6: `element` and `id` reshuffle across seasons
+
+**The bug:** the initial cross-season validation joined a player's season-N rate to
+their season-N+1 actual on vaastav's `element` column. But **`element` reshuffles
+every season** — element 234 is Balogun one season, Fábio Vieira the next. The join
+matched *different players* to each other.
+
+**Verified:** across 2023-24 → 2024-25, `element` matched 787 rows, **0 of which
+were the same player**. The `id` column and the `player_id_crosswalk_final.csv`
+(element == player_id, single-season, 2025-26 only) are equally useless
+cross-season.
+
+**Impact:** the first goals-shrinkage result (raw 0.30 → shrunk 0.43, pooled) was
+**invalid** — it compared shrunk rates against random other players' next seasons.
+The apparent 0.30→0.43 "improvement" and the pooled 0.43 (mostly position-level
+signal, a Simpson's-paradox artifact) are both discarded.
+
+**The fix:** Understat's own `id` **is stable across seasons** (confirmed: 352/352
+name-matches across 2023→2024). All cross-season work moved to
+`understat_season_aggregates.parquet`, keyed on Understat `id`. This file also has
+npxG/xA natively and 10 seasons of history. Requires `pd.to_numeric` on load
+(Bug #2 — columns stored as strings).
+
+---
+
+## 7. Negative result — position × price-tier priors do not help
+
+The master plan (§3.1) suggests shrinking toward **position × price-tier** priors
+rather than a single position prior (a £12m forward toward the elite-forward
+average, a £4.5m forward toward the budget average). Tested by attaching FPL price
+(name-matched, ~78% coverage) and tiering within each position-season:
+
+| position | position-only prior | position × tier prior |
+|---|---|---|
+| FWD | 0.645 | 0.643 |
+| MID | 0.702 | 0.704 |
+| DEF | 0.564 | 0.551 |
+
+**No improvement anywhere** (differences within noise). Reason: a player's own npxG
+**already encodes his quality** — expensive forwards *have* high npxG. Price and
+npxG are strongly correlated, so once shrinking uses the player's own npxG, price
+adds nothing. Price would help if the rate were uninformative; npxG is
+informative, so price is redundant *for this purpose*.
+
+**Where price still earns its place:** the minutes/nailedness model (we already use
+it there, and it helps). Price predicts *whether a player plays* — which npxG
+cannot. So price is valuable for minutes, just not for shrinking attacking rates.
+
+(Caveat: Understat's multi-letter position labels — "D F M", "F M S" — made the
+position filter loose, adding some noise. But a real effect this flat would not be
+rescued by cleaner labels.)
+
+---
+
+## 7.5 Finishing skill and shot volume — the shot-derived signals
+
+Prompted by the question "shouldn't we capture that elite players are better
+finishers?" — and specifically the hypothesis that finishing is concentrated in
+expensive players (Haaland/Salah/Son).
+
+### Finishing (goals − xG) — mostly noise, and NOT price-related
+
+Finishing skill = non-penalty goals minus npxG, per 90 (positive = converts above
+chance quality). Tested for persistence (does one season predict the next?):
+
+| position | finishing persistence | npxG persistence |
+|---|---|---|
+| FWD | 0.190 | 0.681 |
+| MID | 0.070 | 0.744 |
+| DEF | −0.065 | 0.462 |
+
+**Finishing barely persists; chance-generation (npxG) strongly does.** For
+forwards finishing shows a weak 0.19; for mids/defenders it is noise. This matches
+the analytics consensus: what looks like "elite finishing" is mostly **elite
+chance-getting** (high npxG), converted at roughly the expected rate.
+
+**The price hypothesis was tested and rejected.** Splitting forwards by price tier:
+
+| tier | finishing persistence | avg finishing/90 |
+|---|---|---|
+| cheap (£5.3m) | 0.279 | −0.018 |
+| mid (£6.6m) | 0.188 | −0.020 |
+| premium (£9.1m) | 0.192 | −0.037 |
+
+Persistence does **not** rise with price (if anything cheap forwards persist
+*more*), and premium forwards slightly *under*-finish (−0.037). So expensive
+strikers score a lot because they generate huge npxG, **not** because they beat it.
+Finishing does not earn a component, price-tiered or otherwise.
+
+### Shot volume — a REAL signal, specifically for defenders
+
+Separating "finishing" from three ideas raised: (1) good chances created for a
+player and (2) a player creating his own chances are both **already captured by
+npxG**; (3) maintaining output vs tough opponents is **fixture strength**, already
+handled by Dixon-Coles — correctly *not* finishing. The one genuinely new,
+testable idea was **shot volume / shot-derived signal**.
+
+Persistence of shot traits (how repeatable each is):
+
+| position | shots/90 | xg/shot | npxG/90 |
+|---|---|---|---|
+| FWD | 0.631 | 0.648 | 0.696 |
+| MID | **0.811** | 0.584 | 0.776 |
+| DEF | 0.722 | 0.236 | 0.496 |
+
+Shot volume is extremely stable for mids (0.811, beating npxG) — many midfielders
+have a fixed habit of shooting from distance. But *persistence ≠ usefulness*, so
+the real test is whether shot volume improves next-season **goal** prediction on
+top of npxG. Tested with a held-out early→late split (train 2016–2020, predict
+2020–2024 — the honest test that killed the shrinkage k-tuning):
+
+| position | npxG only | npxG + shots | out-of-sample gain |
+|---|---|---|---|
+| FWD | 0.494 | 0.495 | +0.002 |
+| MID | 0.615 | 0.631 | +0.016 |
+| **DEF** | **0.331** | **0.411** | **+0.081** |
+
+**Defenders gain a real, robust +0.081 out-of-sample** — a ~24% relative
+improvement on the position where attacking prediction was weakest, and it *grew*
+vs in-sample (+0.070), so it is genuine signal, not overfitting. Forwards gain
+nothing (npxG already bakes in their shots); mids gain a little.
+
+**Why:** a defender's npxG is tiny and noisy, but *how often they shoot* —
+marauding full-backs, set-piece targets — is a stable trait flagging genuine
+attacking threat that small npxG numbers miss. It separates an attacking defender
+from a pure stopper.
+
+**Decision:**
+- **DEF:** include shot volume alongside npxG (real out-of-sample lift).
+- **MID:** minor include (+0.016, small but survived held-out test).
+- **FWD:** skip — npxG alone is best.
+- **Finishing (goals−xG):** not used — weak and non-persistent; trust npxG.
+
+
+
+---
+
+## 8. Open items
+
+### 8.1 Multi-season priors — not yet tested
+Every prediction currently uses **one** prior season. Combining 2-3 prior seasons
+would give a steadier, less noisy prior (more minutes, more shots). Likely helps
+most for the heavily-shrunk group (defenders). High-value next test.
+
+### 8.2 True positions (RW/ST/CAM/CDM…) — deferred enrichment
+FPL's four buckets lump a CDM and a CAM together as "MID" despite very different
+scoring profiles. Finer positions (from FBref/Understat) would give more meaningful
+priors. Deferred: it is a data-join project (naming mismatches, new signings), and
+should be tested for actual lift before committing.
+
+### 8.3 Finishing skill — the signal that genuinely beats xG
+Shrinkage cleans xG but cannot exceed it. The real value-add *over* xG is
+**finishing** — players who consistently score above their xG. That is a separate,
+persistent signal worth modelling in the points layer (§3.4). Not built here.
+
+### 8.4 Extend to other stats
+Only npxG validated so far. xA (for creativity) and the goals/assists count
+versions want the same per-position signal-to-noise treatment. For lumpy counts on
+low minutes, the Poisson-count noise (§3.1) is appropriate and shrinkage should
+genuinely help — the opposite regime from full-season npxG.
+
+### 8.5 Final k confirmed on 8 seasons + held-out test — RESOLVED
+The 2-season tuned k's were tested on 8 season-pairs and via an early→late held-out
+split (§4.6). Verdict: per-cell tuning is false precision. **Final rule: FWD npxG
+k=2, everything else k=10.** Only remaining step is one confirmation pass on the
+sealed 2025-26 test at the very end (not yet done — do not tune against it).
+
+---
+
+## 9. Summary
+
+| finding | result |
+|---|---|
+| Shrinkage's role | noise-cleanup step, not a prediction model; feeds the points model |
+| Correct noise for goals | Poisson-count formula (variance = mean) |
+| Correct noise for xG | must be **measured** (split-half); count formula overestimates 5× |
+| Noise must be **per-position** | FWD 0.0195, MID 0.0059, DEF 0.0016 — pooling breaks defenders |
+| Per-cell k tuning | **false precision** — 8-season + held-out early/late test showed no reliable out-of-sample gain |
+| **Final k** | **FWD npxG = 2; everything else (npxG MID/DEF, all xA) = 10** |
+| xA finding | DEF predicts xA *best* (0.71) — set-piece/cross roles are repeatable & stable |
+| Finishing (goals−xG) | weak/non-persistent (FWD 0.19, MID/DEF noise); NOT price-related; not used |
+| Shot volume | real out-of-sample signal for **DEF** (+0.081); minor for MID; skip FWD |
+| The principle | shrink noisy rates, trust clean ones — but estimate strength only at a resolution the data supports |
+| Bug #6 | `element` reshuffles across seasons; use Understat `id`; old 0.30→0.43 invalid |
+| Price-tier priors | tested, redundant with npxG (price still valuable for minutes) |
+
+**2025-26 test season remains untouched.**

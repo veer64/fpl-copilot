@@ -1,5 +1,10 @@
-github_actions_key
-github_actions_key.pub
-__pycache__/
+﻿data/
+.venv/
+**/__pycache__/
 *.pyc
+.ipynb_checkpoints/
+
 .env
+github_actions_key
+*.key
+*_key
