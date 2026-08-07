@@ -9,12 +9,14 @@ dependencies = [
     "duckdb>=1.5.4",
     "fastapi>=0.139.0",
     "highspy>=1.15.1",
+    "hypothesis>=6.165.2",
     "lightgbm>=4.7.0",
     "matplotlib>=3.11.1",
     "pandas>=3.0.3",
     "psycopg2-binary>=2.9.12",
     "pulp>=3.3.2",
     "pyarrow>=25.0.0",
+    "pytest>=9.1.1",
     "python-dotenv>=1.2.2",
     "rapidfuzz>=3.14.5",
     "requests>=2.32.5",
@@ -28,4 +30,9 @@ dependencies = [
 dev = [
     "ipykernel>=7.3.0",
     "notebook>=7.6.1",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning:pulp",
 ]

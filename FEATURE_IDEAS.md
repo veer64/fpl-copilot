@@ -83,3 +83,11 @@ exactly the rotation-risk band where FPL decisions are hardest.
 Related to the depth-chart/backup-promotion idea (Kelleher example) — both are
 about modelling a player's ROLE in the squad, not just their raw minutes
 history. Worth designing together.
+
+
+- Per-player bench weight: replace flat bench_weight with each bench player's
+  e_minutes/90 (multiplied by the mode weight). Principled version of the
+  bench term. Master plan §3.6 ("scaled by autosub probability").
+- Full auto-sub modelling (Level 3): model real FPL bench order + position
+  legality so a bench player only scores when a compatible starter fails.
+  Complex; small slice of objective. Documented future work.
