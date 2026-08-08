@@ -4,6 +4,11 @@
 # gating), and validates against actuals. See ASSEMBLY_LOG.md for the full story.
 #
 # Run: `python assembly.py` (retrains all components — a few minutes).
+#
+# CHANGE (2026-08): bonus.get_bonus_model() now returns a 4th value, bonus_mean —
+# the recalibration constant, computed from cutoff-respecting data inside the bonus
+# module. Previously assembly computed it from the FULL 2025-26 season, which is a
+# leak in any walk-forward context. See LEAKAGE.md.
 
 import pandas as pd
 import numpy as np
@@ -32,7 +37,7 @@ def build_predictions():
     rates, priors = get_rates_2526("2025")
     fixtures = get_fixtures_2526()
     dc_out = get_dc_2526()
-    bps_model, bps_to_bonus, BPS_FEATURES = get_bonus_model()
+    bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean = get_bonus_model()
 
     # --- 1. skeleton (one row per player-gw, all IDs) ---
     cw = pd.read_csv(BASE + r"\data\history\player_id_crosswalk_final.csv")
@@ -110,8 +115,8 @@ def build_predictions():
         "saves": 0, "yellow_cards": 0, "red_cards": 0, "goals_conceded": 0, "penalties_missed": 0, "own_goals": 0})
     a["pred_bps"] = bps_model.predict(bps_input[BPS_FEATURES])
     a["exp_bonus"] = bps_to_bonus(a["pred_bps"].values) * a["minutes_frac"]
-    actual_bonus_mean = pd.to_numeric(df[df["season"] == "2025-26"]["bonus"], errors="coerce").mean()
-    a["exp_bonus"] *= actual_bonus_mean / a["exp_bonus"].mean()
+    # recalibration constant now comes from bonus.py (cutoff-respecting, no leak)
+    a["exp_bonus"] *= bonus_mean / a["exp_bonus"].mean()
     a["e_points"] = a["e_points_core"] + a["exp_bonus"]
     return a
 

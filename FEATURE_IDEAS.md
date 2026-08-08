@@ -91,3 +91,160 @@ history. Worth designing together.
 - Full auto-sub modelling (Level 3): model real FPL bench order + position
   legality so a bench player only scores when a compatible starter fails.
   Complex; small slice of objective. Documented future work.
+
+
+  ## Interpretability — "why this squad?" via component breakdown
+
+**Idea:** when a user asks *"why did you give me this squad / this captain / this transfer?"*,
+the agent should answer with the decomposed model's own component breakdown — not a black-box
+"the model said so."
+
+**Why this is easy for us (and hard for everyone else):** our points model is already
+transparent. Every prediction is a sum of readable terms already sitting in
+`predictions_2526.parquet`:
+
+```
+e_points = pts_appear + pts_goals + pts_assists + pts_cs + pts_dc + exp_bonus
+```
+
+So the explanation is literally the breakdown. No SHAP, no post-hoc explainer needed — the
+decomposition IS the explanation. (We confirmed this in the LightGBM benchmark: a black-box
+model needs SHAP to explain itself; ours doesn't.)
+
+**What the feature looks like:**
+- "Haaland is captain because his 6.3 expected points break down as: 2.9 goals (easy home
+  fixture, high npxG), 1.8 appearance (nailed starter), 1.5 clean-sheet-adjacent... — the
+  highest ceiling in your XI."
+- "This defender is in over a pricier one because his DC points (0.9) plus clean-sheet
+  probability (strong fixture) beat the alternative at £1.5m less."
+- Squad-level: explain the optimizer's picks by pointing at the enabler logic (cheap
+  bench frees budget for a premium) + the component reasons each starter was chosen.
+
+**Two layers of "why":**
+1. **Points level** — why does this player score X? → component breakdown (above). Trivial,
+   already have the data.
+2. **Squad level** — why is this player IN the squad vs an alternative? → the optimizer's
+   constraint interactions (budget, position, max-3-per-club). Harder: needs the optimizer
+   to surface *why* it made a swap, e.g. shadow prices or a "next-best alternative" diff.
+
+**Implementation notes:**
+- Layer 1 powers the agent's `explain_prediction` tool directly (master plan §5.4) — feed the
+  component columns to the LLM as structured context, let it phrase them naturally.
+- Layer 2 is the genuinely novel bit: run the optimizer with the player forced OUT, diff the
+  objective, and report the point cost of dropping them. "Removing Haaland costs 4.1 pts and
+  frees £14m — here's what that £14m buys instead." This is the interview-gold version.
+- Keep it grounded: numbers come from the components/optimizer only, never invented (ties into
+  the grounding contract, master plan §5.5).
+
+**Priority:** Layer 1 is near-free and should ship with the agent. Layer 2 (optimizer
+"why-not" via re-solve) is a stretch but is the standout demo moment — nobody else's FPL
+agent explains its optimizer's trade-offs with real re-solved numbers.
+
+---
+
+## Leak #4 — Attacking rates used the current (predicted) season — FOUND & FIXED (2026-08)
+
+**What it was:** `attacking_rates.py` built each player's npxG/90 and xA/90 from the
+**2025-26 season's own full-season Understat totals** — the very season being predicted.
+A season total is computed from all 38 gameweeks, so predicting GW1 used a rate that
+already "knew" the player's GW2-38 output. Future information leaking backward into
+earlier-gameweek predictions.
+
+**Why it slipped in:** the rate *feels* like a fixed player trait, not a time-sensitive
+feature, so using "2025-26's rate for 2025-26" seemed natural when wiring the live
+assembly. The shrinkage method itself was always validated CROSS-season
+(Shrinkage_log §4.1: last season's rate predicts next season's), so the leak entered
+only at the assembly wiring step, not in the method's design.
+
+**Severity:** soft. It leaked *skill level* (a slow-moving quantity), not outcomes, and
+only through a secondary feature — SHAP on the LightGBM benchmark showed minutes
+dominates (mean|SHAP| 0.665) while attacking features contribute little. Worst-case
+impact was early season (GW1-5), where in-season history is thin.
+
+**The fix:** rates for a predicted season are now built from **prior seasons only**,
+pooled. For 2025-26 that is 2022+2023+2024 Understat totals, counts summed per player
+(more minutes -> steadier prior, Shrinkage_log §8.1). This is the design-correct,
+leak-free input the shrinkage method was validated for. Same shrinkage math, same k
+(FWD npxG=2, else=10), same return shape — only the source seasons changed.
+`get_rates_2526()` kept as a backward-compat shim routing to the leak-free `get_rates()`.
+
+**Measured impact (the honest verdict):**
+
+| metric            | before (leaky) | after (leak-free) |
+|-------------------|----------------|-------------------|
+| Spearman (rank)   | 0.716          | 0.715             |
+| MAE               | 1.13           | 1.14              |
+| Mean pred/actual  | 1.36 / 1.17    | 1.38 / 1.17       |
+| 70+ band pred/act | 3.54 / 3.54    | 3.85 / 3.54       |
+
+**Reading it:** ranking is essentially unchanged (0.716 -> 0.715, within run-to-run
+noise), which *proves the leak was not inflating the headline result* — the rate is a
+minor, slow-moving feature and swapping current- for prior-season rates barely moved
+the order. Calibration loosened slightly (70+ band now over-predicts 3.85 vs 3.54),
+because pooled 2022-24 rates of established players run a touch higher than the
+current-season version. Acceptable: ranking is what FPL decisions need, and it held.
+
+**Follow-ups (future work, not blockers):**
+- Time-decay across the pooled prior seasons (weight recent seasons higher) — would
+  reduce the slight upward calibration drift.
+- A GW1 new-signing has no prior-season rate -> falls back to the position-average
+  prior (already handled in assembly). Fine, but a finer prior (e.g. from a lower
+  league) is a possible enhancement.
+
+  ---
+
+## Blend prior-season attacking rates with current-season form
+
+**The gap:** after the leakage fix, attacking rates come purely from **prior seasons**
+(2022-24 pooled). This is leak-free and correct, but it makes the rate *blind to the
+current season* in three situations that matter for real FPL decisions:
+
+1. **New signings** — a player arriving from another league has no prior Premier League
+   Understat rate at all. They fall back to the position average for the entire season,
+   even if they are scoring every week by GW10.
+2. **Breakouts** — a player who was mediocre in 2022-24 but is on fire this season keeps
+   being rated on their old, worse form. Systematically **under-predicted**.
+3. **Decliners** — the mirror image. An ageing or out-of-form player keeps their old good
+   rate and is **over-predicted**.
+
+The assembly log already named this: *"Model is 'steady' — rates are season-level, so it
+favors proven premiums and won't catch a differential's hot streak."*
+
+**Partially mitigated today:** the minutes model *does* use current-season rolling
+features, so a breakout who becomes nailed correctly gets more expected minutes. But the
+**rate itself** (npxG/90, xA/90) stays stale — so the model gives them "more minutes at
+their old scoring rate." Better than nothing, still wrong.
+
+**The fix (empirical Bayes across seasons, not just within):** blend the prior-season
+rate with the **current-season accumulated** rate, weighted by how much current-season
+evidence exists:
+
+```
+rate_asof(gw) = w · current_season_rate(games 1..gw-1) + (1-w) · prior_season_rate
+w = n90_current / (n90_current + k)
+```
+
+Early season -> w≈0, so we lean on the prior (correct: 2 games of data proves nothing).
+By GW20 -> w is substantial, so a genuine breakout is recognised. Same shrinkage logic
+already validated in the component, just applied across the season boundary rather than
+within a single season. New signings get w rising from zero as they accumulate minutes,
+instead of being stuck on the position average forever.
+
+**Why it's leak-free:** the current-season component uses only gameweeks strictly BEFORE
+the one being predicted — the same shift-then-roll discipline used everywhere else. This
+is exactly what the `up_to_gw` "time dial" on the other components enables, and it would
+give `attacking_rates.py` one too (it currently has none because prior-season rates don't
+vary by gameweek).
+
+**Data requirement — the real blocker:** current-season per-gameweek xG must come from
+somewhere. Options:
+- **vaastav's per-GW `expected_goals` / `expected_assists`** (already on disk, 2022-23+).
+  Catch: penalty-INCLUSIVE, whereas the model uses npxG (non-penalty). Would need
+  penalties netted out, or accept the imprecision for penalty takers.
+- **Match-level Understat** (has true per-match npxG, stable IDs) — requires a new data
+  pull; the season-aggregate file currently on disk has no gameweek breakdown.
+
+**Priority:** high for product quality (this is the difference between an agent that spots
+a differential and one that only ever recommends proven premiums), but it needs the data
+decision resolved first. Tune `k` on the **validation season (2024-25)**, never on the
+sealed 2025-26 test.

@@ -1,6 +1,6 @@
 # dixon_coles.py
 # Dixon-Coles team-goals model: clean-sheet probabilities + fixture goal expectations.
-# Module form for assembly: get_fixtures_2526() trains on all pre-2025-26 matches and
+# Module form for assembly: get_fixtures() fits DC on matches before a cutoff and
 # returns 2025-26 fixture predictions (per fixture: lam_home/away, p_home/away_cs).
 #
 # Final config (verified):
@@ -9,6 +9,16 @@
 #   Low-score  : DC rho correction (negligible, kept for completeness)
 #   Blend      : goal expectations (lambda) use PURE MARKET (w=0, best WDL 53.7%);
 #                clean sheets use w=0.2 (0.2*DC + 0.8*market, best CS Brier 0.1718)
+#
+# WALK-FORWARD (2026-08): get_fixtures(cutoff_date=d) fits the DC model on all
+# matches strictly BEFORE d, so team strengths update as the season unfolds.
+# cutoff_date=None reproduces the original (fit on all pre-2025-26 matches).
+#
+# SCOPE NOTE: because LAM_BLEND_W = 0.0, the goal expectations (lam_home/lam_away)
+# come PURELY from Bet365 odds, which are inherently point-in-time — they carry no
+# leak and are unaffected by the cutoff. The DC fit only influences CLEAN SHEETS,
+# at 20% weight (CS_BLEND_W). So walk-forward here is a correctness fix with a
+# deliberately small footprint.
 
 import pandas as pd
 import numpy as np
@@ -76,19 +86,36 @@ def _implied_lambdas(pH, pD, pA):
     return np.exp(minimize(mm, [np.log(1.4), np.log(1.1)], method="Nelder-Mead").x)
 
 
-def get_fixtures_2526():
-    """Train DC on all pre-2025-26 matches, return 2025-26 fixture predictions.
-    Returns DataFrame[season, home, away, lam_home, lam_away, p_home_cs, p_away_cs].
+def get_fixtures(cutoff_date=None, predict_dates=None):
+    """Fit DC on matches strictly before cutoff_date, return 2025-26 fixture predictions.
+      cutoff_date   : datetime/date. None -> fit on all pre-2025-26 matches (original).
+      predict_dates : optional iterable of dates to restrict the returned fixtures to.
+    Returns DataFrame[season, home, away, match_date, lam_home, lam_away,
+                      p_home_cs, p_away_cs].
     lam_* use pure market (best WDL); p_*_cs use the 0.2 DC blend (best CS Brier)."""
     matches = _load_matches()
     teams = sorted(set(matches["home"]) | set(matches["away"]))
-    train_m = matches[matches["season"] < PREDICT_SEASON].copy()
-    ref = matches[matches["season"] == PREDICT_SEASON]["date_parsed"].min()
+
+    if cutoff_date is None:
+        train_m = matches[matches["season"] < PREDICT_SEASON].copy()
+        ref = matches[matches["season"] == PREDICT_SEASON]["date_parsed"].min()
+    else:
+        cutoff = pd.to_datetime(cutoff_date)
+        train_m = matches[matches["date_parsed"] < cutoff].copy()
+        ref = cutoff
+
     params, idx, nt = _fit_dc_decay(train_m, teams, ref, HALF_LIFE_DAYS)
     atk, dfc, hadv, rho = params[:nt], params[nt:2 * nt], params[-2], params[-1]
 
     df = matches[matches["season"] == PREDICT_SEASON].copy()
     df = df[df["home"].isin(idx) & df["away"].isin(idx)].copy()
+    if predict_dates is not None:
+        want = set(pd.to_datetime(list(predict_dates)).date)
+        df = df[df["date_parsed"].dt.date.isin(want)].copy()
+    if len(df) == 0:
+        return pd.DataFrame(columns=["season", "home", "away", "match_date",
+                                     "lam_home", "lam_away", "p_home_cs", "p_away_cs"])
+
     inv = 1 / df[["b365h", "b365d", "b365a"]].values
     df[["p_H", "p_D", "p_A"]] = inv / inv.sum(axis=1, keepdims=True)
     lp = np.array([_implied_lambdas(r.p_H, r.p_D, r.p_A) for r in df.itertuples()])
@@ -108,6 +135,11 @@ def get_fixtures_2526():
     df["match_date"] = df["date_parsed"].dt.date
     return df[["season", "home", "away", "match_date",
                "lam_home", "lam_away", "p_home_cs", "p_away_cs"]]
+
+
+# Backward-compat shim: original behaviour (fit on all pre-2025-26 matches)
+def get_fixtures_2526():
+    return get_fixtures(cutoff_date=None)
 
 
 if __name__ == "__main__":
