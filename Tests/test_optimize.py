@@ -163,6 +163,86 @@ def test_locking_forces_players_in():
 
 
 # ---------------------------------------------------------------------------
+# Unit test: banning forces players out, result still legal
+# ---------------------------------------------------------------------------
+def test_banning_forces_players_out():
+    pool = make_random_pool(seed=7)
+    # Ban the two highest-scoring players. These are exactly the players the
+    # optimizer WANTS most, so if the ban is ignored they will show up.
+    top_two = pool.nlargest(2, "e_points")["element"].tolist()
+
+    prob, sol = optimize_squad(pool, mode="balanced", banned_elements=top_two)
+    assert pulp.LpStatus[prob.status] == "Optimal"
+
+    team = get_team(pool, sol)
+    for elem in top_two:
+        assert elem not in team["element"].values, f"banned element {elem} in squad"
+
+    assert_legal_squad(pool, sol)
+
+
+# ---------------------------------------------------------------------------
+# Unit test: banning a player genuinely costs points (the ban actually binds)
+# ---------------------------------------------------------------------------
+def test_banning_reduces_objective():
+    """A legal-squad check alone would pass even if bans silently did nothing.
+    This asserts the ban CHANGES the answer: removing the best player from the
+    pool must make the optimal squad worse, never better."""
+    pool = make_random_pool(seed=7)
+    best = pool.nlargest(1, "e_points")["element"].tolist()
+
+    prob_free, _ = optimize_squad(pool, mode="balanced")
+    prob_banned, _ = optimize_squad(pool, mode="balanced", banned_elements=best)
+
+    assert pulp.LpStatus[prob_free.status] == "Optimal"
+    assert pulp.LpStatus[prob_banned.status] == "Optimal"
+    assert pulp.value(prob_banned.objective) < pulp.value(prob_free.objective)
+
+
+# ---------------------------------------------------------------------------
+# Unit test: locking and banning the same player is a caller bug, not a coin flip
+# ---------------------------------------------------------------------------
+def test_lock_and_ban_clash_raises():
+    pool = make_random_pool(seed=7)
+    elem = pool.iloc[0]["element"]
+    with pytest.raises(ValueError):
+        optimize_squad(pool, mode="balanced",
+                       locked_elements=[elem], banned_elements=[elem])
+
+
+# ---------------------------------------------------------------------------
+# Unit test: banning an element that isn't in the pool is a no-op, not an error
+# ---------------------------------------------------------------------------
+def test_banning_missing_element_is_noop():
+    """Deliberate asymmetry with locking. A banned player may simply have no
+    fixture this gameweek, which already achieves the ban -- erroring would be
+    wrong. A missing LOCKED player is still an error (see optimize.py)."""
+    pool = make_random_pool(seed=7)
+    prob, sol = optimize_squad(pool, mode="balanced", banned_elements=[999_999])
+    assert pulp.LpStatus[prob.status] == "Optimal"
+    assert_legal_squad(pool, sol)
+
+
+# ---------------------------------------------------------------------------
+# Property test: bans hold across every named mode and any random pool
+# ---------------------------------------------------------------------------
+@settings(max_examples=10, deadline=None)
+@given(seed=st.integers(min_value=0, max_value=10_000))
+def test_banning_holds_across_modes(seed):
+    pool = make_random_pool(seed)
+    banned = pool.nlargest(3, "e_points")["element"].tolist()
+    for mode in MODES:
+        prob, sol = optimize_squad(pool, mode=mode, banned_elements=banned)
+        assert pulp.LpStatus[prob.status] == "Optimal", \
+            f"seed {seed}, mode {mode}: status {pulp.LpStatus[prob.status]}"
+        team = get_team(pool, sol)
+        for elem in banned:
+            assert elem not in team["element"].values, \
+                f"seed {seed}, mode {mode}: banned {elem} in squad"
+        assert_legal_squad(pool, sol)
+
+
+# ---------------------------------------------------------------------------
 # Unit test: an impossible pool is reported Infeasible, not a wrong answer
 # ---------------------------------------------------------------------------
 def test_infeasible_pool_reports_infeasible():

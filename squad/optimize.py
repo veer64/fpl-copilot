@@ -35,6 +35,20 @@ Any number of players can be forced into the squad, by element ID or by name:
     optimize_squad(df, locked_elements=[381])
     optimize_by_names(df, lock_names=["Salah", "Haaland"])
 
+BANNING
+-------
+The mirror of locking: any number of players can be forbidden from the squad.
+
+    optimize_squad(df, banned_elements=[381])
+    optimize_by_names(df, ban_names=["Salah"])
+
+This exists for the season simulator. To decide "should I transfer this player
+out?", you need the best squad available WITHOUT him — which you cannot ask for
+using locks alone. Banning also covers injuries and suspensions.
+
+A player cannot be both locked and banned; that raises an error rather than
+silently resolving one way.
+
 Input files (relative to repo root):
     data/predictions_2526.parquet          -- e_points per player-GW (from assembly.py)
     data/history/all_seasons_fixed.parquet -- has the price column ("value")
@@ -139,13 +153,15 @@ def resolve_bench_weight(mode=None, bench_weight=None):
 # ---------------------------------------------------------------------------
 # The optimizer
 # ---------------------------------------------------------------------------
-def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None):
+def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
+                   banned_elements=None):
     """Build and solve the MIP for one gameweek: 15 + XI + captain.
 
     df               : output of load_gw_data()
     mode             : named bench preset -- one of MODES (default "balanced")
     bench_weight     : raw bench weight; overrides `mode` if given
     locked_elements  : optional list of element IDs forced into the squad
+    banned_elements  : optional list of element IDs forbidden from the squad
 
     Returns (prob, sol):
         prob -- the solved PuLP problem (check pulp.LpStatus[prob.status])
@@ -154,6 +170,15 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None):
     """
     if locked_elements is None:
         locked_elements = []
+    if banned_elements is None:
+        banned_elements = []
+
+    # A player cannot be both required and forbidden -- that is a caller bug,
+    # and silently picking a winner would hide it.
+    clash = set(locked_elements) & set(banned_elements)
+    if clash:
+        raise ValueError(f"Elements both locked and banned: {sorted(clash)}")
+
     w = resolve_bench_weight(mode, bench_weight)
 
     prob = pulp.LpProblem("fpl_squad_xi", pulp.LpMaximize)
@@ -215,18 +240,26 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None):
             raise ValueError(f"Locked element {elem} not found in GW data.")
         prob += pick[matches[0]] == 1
 
+    # --- banned players: forbid from the squad ---
+    # A missing banned player is NOT an error: he may simply not appear in this
+    # gameweek's data (blank gameweek, no fixture), which already achieves the ban.
+    for elem in banned_elements:
+        matches = df.index[df["element"] == elem]
+        if len(matches) > 0:
+            prob += pick[matches[0]] == 0
+
     prob.solve(pulp.PULP_CBC_CMD(msg=False))  # msg=False silences the solver log
     return prob, {"pick": pick, "start": start, "captain": captain}
 
 
-def resolve_names(df, lock_names):
+def resolve_names(df, names, action="lock"):
     """Turn a list of name searches into a list of element IDs.
 
     Substring, case-insensitive. Warns (and skips) on no-match or
-    multi-match so we never silently lock the wrong player.
+    multi-match so we never silently lock or ban the wrong player.
     """
-    locked_elements = []
-    for nm in lock_names:
+    elements = []
+    for nm in names:
         matches = df[df["name"].str.contains(nm, case=False, na=False)]
         if len(matches) == 0:
             print(f"[skip] no player matches '{nm}'")
@@ -234,18 +267,22 @@ def resolve_names(df, lock_names):
             print(f"[skip] '{nm}' matches {len(matches)} players -- be more specific:")
             print(matches[["name", "team"]].to_string(index=False))
         else:
-            locked_elements.append(matches.iloc[0]["element"])
-            print(f"[lock] {matches.iloc[0]['name']}")
-    return locked_elements
+            elements.append(matches.iloc[0]["element"])
+            print(f"[{action}] {matches.iloc[0]['name']}")
+    return elements
 
 
-def optimize_by_names(df, lock_names=None, mode=None, bench_weight=None):
-    """Convenience wrapper: lock players by name, then optimize the rest."""
+def optimize_by_names(df, lock_names=None, ban_names=None, mode=None, bench_weight=None):
+    """Convenience wrapper: lock and/or ban players by name, then optimize the rest."""
     if lock_names is None:
         lock_names = []
-    locked_elements = resolve_names(df, lock_names)
+    if ban_names is None:
+        ban_names = []
+    locked_elements = resolve_names(df, lock_names, action="lock")
+    banned_elements = resolve_names(df, ban_names, action="ban")
     return optimize_squad(
-        df, mode=mode, bench_weight=bench_weight, locked_elements=locked_elements
+        df, mode=mode, bench_weight=bench_weight,
+        locked_elements=locked_elements, banned_elements=banned_elements
     )
 
 
