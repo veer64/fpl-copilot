@@ -14,9 +14,9 @@ import pandas as pd
 import numpy as np
 from scipy.stats import spearmanr
 
-from minutes import get_minutes_2526
-from attacking_rates import get_rates_2526
-from dixon_coles import get_fixtures_2526
+from minutes import get_minutes
+from attacking_rates import get_rates
+from dixon_coles import get_fixtures
 from defensive import get_dc_2526
 from bonus import get_bonus_model
 
@@ -27,17 +27,100 @@ LEAGUE_AVG_LAMBDA = 1.40
 TEAM_MAP = {"Man United": "Man Utd", "Tottenham": "Spurs"}
 DC_BASE = {"DEF": 0.125, "MID": 0.136, "FWD": 0.058, "GK": 0.0}
 
+MLFLOW_URI = "http://127.0.0.1:5000"
+MLFLOW_EXPERIMENT = "fpl-components"
 
-def build_predictions():
+METRIC_GLOSSARY = """# Assembly — what these metrics mean
+
+This is the PARENT run. The five component runs nested beneath it are the pieces;
+this run scores what they produce once combined through the master equation.
+
+Each component has its own glossary on its own run page. This one covers only the
+final combined prediction: expected FPL points per player per gameweek.
+
+**spearman** — rank correlation between predicted and actual points. 1.0 means the
+ordering is perfect, 0.0 means no signal. Higher is better.
+THIS IS THE HEADLINE METRIC, because the optimizer only needs the right ORDER of
+players, not the exact point totals. Getting the ranking right is the whole job.
+
+**pearson** — straight-line correlation between predicted and actual. Reported as
+secondary. It is more sensitive to a few huge hauls than spearman is.
+
+**mae** — typical error in predicted points, in actual FPL points. Lower is better.
+Treat this as secondary too: a model that predicts 2.1 for everyone can win on MAE
+while being useless for picking a squad.
+
+**mae_fair_baseline** — the bar to beat. For each player it predicts their own
+running average of past gameweeks. If `mae` is not below this, the model is adding
+nothing over "just use their average so far."
+
+**mean_predicted / mean_actual** — average predicted vs average real points.
+Not quality scores. A calibration check: if predicted sits well above actual, the
+model is systematically over-predicting, even if the ranking is fine.
+
+**n_predictions** — player-gameweek rows produced. A tripwire: a full season is
+about 29,338. A sharp drop means a join broke somewhere upstream.
+
+**cal_pred_70plus / cal_actual_70plus** (and the other bands) — average predicted
+vs average actual points, split by expected minutes. This is where over-prediction
+hides. The 70+ band is the one that matters most: those are the players the
+optimizer will actually pick. A gap there is a real, known issue.
+"""
+
+
+def _calibration_table(a):
+    """Predicted vs actual points, bucketed by expected minutes. The band table is
+    where systematic over- or under-prediction shows up."""
+    v = a.dropna(subset=["actual_points", "e_points"]).copy()
+    v["band"] = pd.cut(v["e_minutes"], [0, 15, 45, 70, 90], labels=["<15", "15-45", "45-70", "70+"])
+    t = (v.groupby("band", observed=True)
+         .agg(pred=("e_points", "mean"), actual=("actual_points", "mean"), n=("e_points", "size"))
+         .reset_index())
+    return t.round(3)
+
+
+def _eval_metrics(a):
+    """Score the final combined prediction. See METRIC_GLOSSARY."""
+    a = a.copy()
+    a["actual_points"] = pd.to_numeric(a["actual_points"], errors="coerce")
+    val = a.dropna(subset=["actual_points", "e_points"]).copy()
+
+    m = {
+        "spearman": float(spearmanr(val["e_points"], val["actual_points"]).correlation),
+        "pearson": float(val["e_points"].corr(val["actual_points"])),
+        "mae": float((val["e_points"] - val["actual_points"]).abs().mean()),
+        "mean_predicted": float(val["e_points"].mean()),
+        "mean_actual": float(val["actual_points"].mean()),
+        "n_predictions": float(len(val)),
+    }
+
+    # The bar to beat: each player's own running average of past gameweeks.
+    vs = val.sort_values(["element", "gw"])
+    vs["fair"] = vs.groupby("element")["actual_points"].transform(lambda s: s.shift(1).expanding().mean())
+    f = vs.dropna(subset=["fair"])
+    if len(f):
+        m["mae_fair_baseline"] = float((f["fair"] - f["actual_points"]).abs().mean())
+        m["mae_on_baseline_rows"] = float((f["e_points"] - f["actual_points"]).abs().mean())
+
+    # Calibration by minutes band, flattened so each band is its own metric.
+    for _, r in _calibration_table(a).iterrows():
+        tag = str(r["band"]).replace("-", "_").replace("<", "under").replace("+", "plus")
+        m[f"cal_pred_{tag}"] = float(r["pred"])
+        m[f"cal_actual_{tag}"] = float(r["actual"])
+
+    return m
+
+
+def build_predictions(log_mlflow=False):
     df = pd.read_parquet(BASE + r"\data\history\all_seasons_fixed.parquet")
 
-    # --- run the five components ---
+    # --- run the five components (each logs a NESTED child run if enabled) ---
     print("Running components...")
-    mins_out = get_minutes_2526()
-    rates, priors = get_rates_2526("2025")
-    fixtures = get_fixtures_2526()
-    dc_out = get_dc_2526()
-    bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean = get_bonus_model()
+    mins_out = get_minutes(up_to_gw=None, log_mlflow=log_mlflow)
+    rates, priors = get_rates("2025-26", log_mlflow=log_mlflow)
+    fixtures = get_fixtures(cutoff_date=None, log_mlflow=log_mlflow)
+    dc_out = get_dc_2526(log_mlflow=log_mlflow)
+    bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean = get_bonus_model(log_mlflow=log_mlflow)
 
     # --- 1. skeleton (one row per player-gw, all IDs) ---
     cw = pd.read_csv(BASE + r"\data\history\player_id_crosswalk_final.csv")
@@ -139,15 +222,52 @@ def validate(a):
 
 
 if __name__ == "__main__":
-    a = build_predictions()
-    predictions = a[["element", "player_id", "understat_id", "gw", "name", "position", "team",
-                     "e_minutes", "e_points", "e_points_core", "exp_bonus",
-                     "pts_goals", "pts_assists", "pts_cs", "pts_dc", "pts_appear"]].copy()
-    print(f"\nFinal predictions: {len(predictions)} player-gameweeks")
-    validate(a)
+    import sys
+    log = "--mlflow" in sys.argv
+
+    PRED_COLS = ["element", "player_id", "understat_id", "gw", "name", "position", "team",
+                 "e_minutes", "e_points", "e_points_core", "exp_bonus",
+                 "pts_goals", "pts_assists", "pts_cs", "pts_dc", "pts_appear"]
     out_path = BASE + r"\data\predictions_2526.parquet"
-    predictions.to_parquet(out_path, index=False)
-    print(f"\nSaved -> {out_path}")
+
+    if log:
+        # Open the PARENT run FIRST, so every component run nests inside it.
+        import mlflow
+        mlflow.set_tracking_uri(MLFLOW_URI)
+        mlflow.set_experiment(MLFLOW_EXPERIMENT)
+        with mlflow.start_run(run_name="assembly_static") as parent:
+            mlflow.set_tag("component", "assembly")
+            mlflow.set_tag("mlflow.note.content", METRIC_GLOSSARY)
+            mlflow.log_params({
+                "predict_season": "2025-26",
+                "league_avg_lambda": LEAGUE_AVG_LAMBDA,
+                "goal_pts": str(GOAL_PTS),
+                "cs_pts": str(CS_PTS),
+                "dc_base_fallback": str(DC_BASE),
+                "p_sub_appearance_assumption": 0.30,
+                "fixture_scale_clip": "0.5 to 2.0",
+                "gating": "all performance terms multiplied by playing probability",
+            })
+
+            a = build_predictions(log_mlflow=True)
+            predictions = a[PRED_COLS].copy()
+            print(f"\nFinal predictions: {len(predictions)} player-gameweeks")
+            validate(a)
+            predictions.to_parquet(out_path, index=False)
+            print(f"\nSaved -> {out_path}")
+
+            mlflow.log_metrics(_eval_metrics(a))
+            mlflow.log_text(METRIC_GLOSSARY, "METRICS_README.md")
+            mlflow.log_text(_calibration_table(a).to_csv(index=False), "calibration_by_band.csv")
+            print(f"\nMLflow parent run: {parent.info.run_id}")
+    else:
+        a = build_predictions(log_mlflow=False)
+        predictions = a[PRED_COLS].copy()
+        print(f"\nFinal predictions: {len(predictions)} player-gameweeks")
+        validate(a)
+        predictions.to_parquet(out_path, index=False)
+        print(f"\nSaved -> {out_path}")
+
     print("\nTop distinct players by peak E[points]:")
     print(predictions.sort_values("e_points", ascending=False).drop_duplicates("element")
           .head(10)[["name", "position", "team", "e_points"]].to_string(index=False))

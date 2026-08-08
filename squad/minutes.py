@@ -144,7 +144,7 @@ def _log_to_mlflow(models, params, metrics, run_name):
     import mlflow
     mlflow.set_tracking_uri(MLFLOW_URI)
     mlflow.set_experiment(MLFLOW_EXPERIMENT)
-    with mlflow.start_run(run_name=run_name):
+    with mlflow.start_run(run_name=run_name, nested=True):
         mlflow.set_tag("component", "minutes")
         # Shows as the Description panel at the top of the run page in the UI.
         mlflow.set_tag("mlflow.note.content", METRIC_GLOSSARY)
