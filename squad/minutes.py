@@ -22,6 +22,9 @@ import numpy as np
 import lightgbm as lgb
 from sklearn.isotonic import IsotonicRegression
 
+MLFLOW_URI = "http://127.0.0.1:5000"
+MLFLOW_EXPERIMENT = "fpl-components"
+
 BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
 TRAIN_SEASONS = ["2022-23", "2023-24", "2024-25"]
 PREDICT_SEASON = "2025-26"
@@ -110,9 +113,80 @@ def _train_mask(frame, up_to_gw):
     return m
 
 
-def get_minutes(up_to_gw=None, predict_gws=None):
+# What each logged metric means, in plain English. Logged with every run so the
+# numbers are never orphaned from their explanation.
+METRIC_GLOSSARY = """# Minutes model — what these metrics mean
+
+**brier_p_start** — how good the "will they start?" probability is.
+Take the predicted chance, subtract what actually happened (1 = started, 0 = didn't),
+square it, average over every row. 0 is perfect, 0.25 is a coin flip. Lower is better.
+
+**brier_p60** — same idea, for "given they started, did they reach 60 minutes?"
+Scored only on rows where the player actually started. Lower is better.
+
+**rmse_e_minutes** — typical error in expected minutes, in minutes.
+An RMSE of 23 means predictions are off by roughly 23 minutes on average.
+Lower is better. This one is in real units, so it's the easiest to sanity-check.
+
+**mean_e_minutes** — average predicted minutes across all rows.
+Not a quality score. A sanity check: if this drifts far from the actual average,
+the model is systematically over- or under-predicting playing time.
+
+**n_predicted** — how many player-gameweek rows got a prediction.
+Not a quality score. A tripwire: if this suddenly drops, something broke silently
+(a bad join, a dropped feature, a filter gone wrong). Expected: 29,338 for a full season.
+"""
+
+
+def _log_to_mlflow(models, params, metrics, run_name):
+    """Log one component run: params, metrics, fitted sub-models, and a plain-English
+    glossary so the metrics are self-explaining in the UI."""
+    import mlflow
+    mlflow.set_tracking_uri(MLFLOW_URI)
+    mlflow.set_experiment(MLFLOW_EXPERIMENT)
+    with mlflow.start_run(run_name=run_name):
+        mlflow.set_tag("component", "minutes")
+        # Shows as the Description panel at the top of the run page in the UI.
+        mlflow.set_tag("mlflow.note.content", METRIC_GLOSSARY)
+        mlflow.log_params(params)
+        mlflow.log_metrics(metrics)
+        mlflow.log_text(METRIC_GLOSSARY, "METRICS_README.md")
+        for name, model in models.items():
+            if name == "iso_sub":
+                mlflow.sklearn.log_model(model, name=f"minutes_{name}")
+            else:
+                mlflow.lightgbm.log_model(model, name=f"minutes_{name}")
+
+
+def _eval_metrics(pf):
+    """Evaluation metrics for this run, scored on the sealed 2025-26 season.
+    See METRIC_GLOSSARY for what each one means in plain English."""
+    m = {}
+
+    # "Will they start?" — predicted probability vs actual 0/1. Lower = better.
+    m["brier_p_start"] = float(((pf["p_start"] - pf["starts"]) ** 2).mean())
+
+    # "Did a starter reach 60 mins?" — only scored on rows where they started.
+    st = pf[pf["starts"] == 1]
+    if len(st):
+        actual_60 = (st["minutes_capped"] >= 60).astype(float)
+        m["brier_p60"] = float(((st["p60"] - actual_60) ** 2).mean())
+
+    # Typical error in expected minutes, in real minutes. Lower = better.
+    m["rmse_e_minutes"] = float(np.sqrt(((pf["e_minutes"] - pf["minutes_capped"]) ** 2).mean()))
+
+    # Sanity checks, not quality scores.
+    m["mean_e_minutes"] = float(pf["e_minutes"].mean())
+    m["n_predicted"] = float(len(pf))
+
+    return m
+
+
+def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False):
     """Train on prior seasons (+ current season before up_to_gw), predict.
-    Returns mins_out: DataFrame[element, gw, name, position, p_start, p60, e_minutes]."""
+    Returns mins_out: DataFrame[element, gw, name, position, p_start, p60, e_minutes].
+    log_mlflow=True logs params/metrics/models as ONE MLflow run (default off, so
+    assembly.py and the 38-GW walk-forward stay unchanged and fast)."""
     df = pd.read_parquet(BASE + r"\data\history\all_seasons_fixed.parquet")
     col = _prepare(df)
     cs, sd, bd = _build_frames(col)
@@ -160,6 +234,30 @@ def get_minutes(up_to_gw=None, predict_gws=None):
     pf["min_sub"] = m_msub.predict(pf[SUBRF])
     pf["e_minutes"] = pf["p_start"] * pf["min_start"] + (1 - pf["p_start"]) * pf["p_sub"] * pf["min_sub"]
 
+    if log_mlflow:
+        _log_to_mlflow(
+            models={"p_start": m_ps, "p60": m_p60, "p_sub": m_sub,
+                    "iso_sub": iso, "min_start": m_mins, "min_sub": m_msub},
+            params={
+                "up_to_gw": up_to_gw,
+                "predict_gws": "all" if predict_gws is None else str(predict_gws),
+                "train_seasons": ",".join(TRAIN_SEASONS),
+                "predict_season": PREDICT_SEASON,
+                "n_train_p_start": len(trc),
+                "n_train_p60": len(tr2),
+                "n_train_p_sub": len(tr3),
+                "n_train_min_start": len(tr4),
+                "n_train_min_sub": len(tr5),
+                "p_start_cfg": "lgbm 300/31 lr0.05",
+                "p60_cfg": "lgbm 100/7 mcs100 l2=1",
+                "p_sub_cfg": "lgbm 200/15 + isotonic",
+                "min_start_cfg": "lgbm 200/15",
+                "min_sub_cfg": "lgbm 100/7 mcs100 l2=1",
+            },
+            metrics=_eval_metrics(pf),
+            run_name=f"minutes_gw{up_to_gw}" if up_to_gw else "minutes_static",
+        )
+
     return pf[["element", "GW", "name", "position", "p_start", "p60", "e_minutes"]].rename(columns={"GW": "gw"})
 
 
@@ -169,7 +267,9 @@ def get_minutes_2526():
 
 
 if __name__ == "__main__":
-    mins_out = get_minutes_2526()
+    import sys
+    log = "--mlflow" in sys.argv
+    mins_out = get_minutes(up_to_gw=None, log_mlflow=log)
     print(f"Minutes predicted for 2025-26: {len(mins_out)} player-GWs")
     print(f"Mean e_minutes: {mins_out['e_minutes'].mean():.1f}")
     print("\nTop e_minutes (should be nailed players):")
