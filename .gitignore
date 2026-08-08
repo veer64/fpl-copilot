@@ -8,3 +8,7 @@
 github_actions_key
 *.key
 *_key
+
+mlartifacts/
+mlruns/
+mlflow.db
