@@ -10,6 +10,22 @@ FPL rules enforced:
     - at most 3 players from any single club
     - exactly 11 starters in a legal formation (1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD)
     - exactly 1 captain, who must be a starter (captain scores 2x)
+    - exactly 1 vice-captain, a different starter (takes the armband if the
+      captain plays 0 minutes)
+
+VICE-CAPTAIN
+------------
+The vice only scores when the captain blanks, so his expected contribution is
+almost zero -- but he must still be CHOSEN, and chosen sensibly. Left out of the
+objective entirely, the solver would pick any starter at random, since all
+choices score identically.
+
+So the vice carries a deliberately tiny objective weight (VICE_WEIGHT). It is a
+tie-breaker, not a real term: large enough to make the solver prefer the best
+remaining starter, small enough that it can never change which 15 are bought or
+who starts. Do not raise it to "value the vice properly" -- the honest version of
+that is weighting by P(captain does not play), which needs the minutes model and
+belongs in a later revision.
 
 BENCH WEIGHT
 ------------
@@ -74,6 +90,11 @@ POSITION_LIMITS = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}   # squad counts (exac
 FORMATION = {"GK": (1, 1), "DEF": (3, 5), "MID": (2, 5), "FWD": (1, 3)}  # XI (min, max)
 MAX_PER_CLUB = 3
 POS_ORDER = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
+
+# Tie-breaker weight for the vice-captain. Deliberately tiny: it decides WHICH
+# starter gets the armband if the captain blanks, without ever influencing which
+# 15 are bought or who starts. See the VICE-CAPTAIN note in the module docstring.
+VICE_WEIGHT = 0.001
 
 # named bench-weight presets (raw bench_weight always overrides these)
 MODES = {
@@ -165,7 +186,7 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
 
     Returns (prob, sol):
         prob -- the solved PuLP problem (check pulp.LpStatus[prob.status])
-        sol  -- dict of the three variable sets: {"pick","start","captain"},
+        sol  -- dict of the four variable sets: {"pick","start","captain","vice"},
                 each {row_index: binary variable}
     """
     if locked_elements is None:
@@ -183,19 +204,21 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
 
     prob = pulp.LpProblem("fpl_squad_xi", pulp.LpMaximize)
 
-    # three sets of on/off decision variables per player
+    # four sets of on/off decision variables per player
     pick    = {i: pulp.LpVariable(f"pick_{i}",    cat="Binary") for i in df.index}
     start   = {i: pulp.LpVariable(f"start_{i}",   cat="Binary") for i in df.index}
     captain = {i: pulp.LpVariable(f"captain_{i}", cat="Binary") for i in df.index}
+    vice    = {i: pulp.LpVariable(f"vice_{i}",    cat="Binary") for i in df.index}
 
     pts = df["e_points"]
 
-    # --- objective: XI points + captain again (2x) + weighted bench ---
+    # --- objective: XI points + captain again (2x) + weighted bench + vice tiebreak ---
     # a bench player is "picked but not starting" -> (pick - start)
     prob += (
         pulp.lpSum(start[i]   * pts[i] for i in df.index)
         + pulp.lpSum(captain[i] * pts[i] for i in df.index)
         + w * pulp.lpSum((pick[i] - start[i]) * pts[i] for i in df.index)
+        + VICE_WEIGHT * pulp.lpSum(vice[i] * pts[i] for i in df.index)
     )
 
     # --- squad-level rules (on `pick`) ---
@@ -233,6 +256,12 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
     for i in df.index:                       # captain must be a starter
         prob += captain[i] <= start[i]
 
+    # --- vice-captain rules ---
+    prob += pulp.lpSum(vice[i] for i in df.index) == 1
+    for i in df.index:
+        prob += vice[i] <= start[i]          # vice must be a starter
+        prob += captain[i] + vice[i] <= 1    # and cannot also be the captain
+
     # --- locked players: force into the squad ---
     for elem in locked_elements:
         matches = df.index[df["element"] == elem]
@@ -249,7 +278,7 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
             prob += pick[matches[0]] == 0
 
     prob.solve(pulp.PULP_CBC_CMD(msg=False))  # msg=False silences the solver log
-    return prob, {"pick": pick, "start": start, "captain": captain}
+    return prob, {"pick": pick, "start": start, "captain": captain, "vice": vice}
 
 
 def resolve_names(df, names, action="lock"):
@@ -291,13 +320,16 @@ def optimize_by_names(df, lock_names=None, ban_names=None, mode=None, bench_weig
 # ---------------------------------------------------------------------------
 def get_team(df, sol):
     """Return the selected 15 as a dataframe with a `role` column
-    (CAPTAIN / start / bench), sorted starters-first then by position."""
+    (CAPTAIN / VICE / start / bench), sorted starters-first then by position."""
     pick, start, captain = sol["pick"], sol["start"], sol["captain"]
+    vice = sol.get("vice", {})               # tolerate older solutions without vice
     rows = []
     for i in df.index:
         if pick[i].value() == 1:
             if captain[i].value() == 1:
                 role = "CAPTAIN"
+            elif i in vice and vice[i].value() == 1:
+                role = "VICE"
             elif start[i].value() == 1:
                 role = "start"
             else:
@@ -331,6 +363,7 @@ def show_team(df, sol):
     team = get_team(df, sol)
     display = team.copy()
     display.loc[display["role"] == "CAPTAIN", "name"] += "  (C)"
+    display.loc[display["role"] == "VICE", "name"] += "  (V)"
 
     print(display[["name", "position", "team", "value", "e_points", "role"]]
           .to_string(index=False))

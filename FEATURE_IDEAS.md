@@ -248,3 +248,47 @@ somewhere. Options:
 a differential and one that only ever recommends proven premiums), but it needs the data
 decision resolved first. Tune `k` on the **validation season (2024-25)**, never on the
 sealed 2025-26 test.
+
+## Multi-transfer search in the season simulator
+
+**Status:** not implemented — v1 limitation, deliberately scoped out.
+
+### What v1 does
+Each gameweek, the simulator evaluates single transfers only. It locks 14 of the
+current 15 players, leaves one slot open, and lets the MIP fill it. Repeating that
+across all 15 droppable players gives 15 candidate squads; the best one wins.
+
+Cost: ~15 solves per gameweek, ~570 per season, roughly 7 minutes.
+
+### What it cannot find
+Any move that only pays off as a **combination**. The clearest example: selling two
+mid-price defenders to afford one premium forward. Neither sale is an improvement on
+its own, so a one-at-a-time search rejects both and never reaches the better squad.
+
+This is a real blind spot, not a rounding error. Combination moves are exactly the
+kind of decision good FPL managers make, and the kind the MIP is theoretically well
+suited to — the single-transfer loop is what artificially prevents it.
+
+### Why it is not a formation problem
+Worth stating because it looks like one. A dropped MID must be replaced by a MID,
+since the 15 is fixed at 2 GK / 5 DEF / 5 MID / 3 FWD by FPL rule. But formation
+flexibility does not live in the 15 — the starting XI and captain are re-chosen free
+every gameweek from whichever 15 are held. Locking `pick` never touches `start` or
+`captain`. So no formation optionality is lost by this approach.
+
+### How to fix it properly
+Do not extend the loop to pairs — 15 x 800 x 800 is not searchable. Instead, express
+transfers inside the MIP itself: add buy/sell binaries per player, a squad-continuity
+constraint linking this gameweek's 15 to last gameweek's, and a -4 point penalty term
+for each transfer beyond the free allowance. The solver then chooses how many
+transfers to make and which, in one solve, optimally.
+
+This is the same formulation the master plan describes for multi-gameweek transfer
+planning (rolling horizon H = 5-8, time-decay weights on future gameweeks). The
+single-gameweek transfer MIP is the natural first step toward it, and would replace
+the 15-solve loop entirely rather than sitting alongside it.
+
+### When to do it
+After the v1 backtest produces a number. The point of v1 is a working end-to-end
+season simulation with honest accounting; adding search sophistication before there
+is a baseline to compare against makes the improvement unmeasurable.

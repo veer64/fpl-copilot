@@ -109,6 +109,12 @@ def assert_legal_squad(df, sol):
     caps = team[team["role"] == "CAPTAIN"]
     assert len(caps) == 1, f"{len(caps)} captains != 1"
 
+    # exactly 1 vice-captain, a starter, and NOT the same player as the captain
+    vices = team[team["role"] == "VICE"]
+    assert len(vices) == 1, f"{len(vices)} vice-captains != 1"
+    assert vices.iloc[0]["element"] != caps.iloc[0]["element"], \
+        "captain and vice are the same player"
+
     # legal starting formation
     f = starters["position"].value_counts().to_dict()
     assert f.get("GK", 0) == 1, f"GK starting = {f.get('GK', 0)}, must be 1"
@@ -240,6 +246,57 @@ def test_banning_holds_across_modes(seed):
             assert elem not in team["element"].values, \
                 f"seed {seed}, mode {mode}: banned {elem} in squad"
         assert_legal_squad(pool, sol)
+
+
+# ---------------------------------------------------------------------------
+# Unit test: the vice tie-break picks the best remaining starter
+# ---------------------------------------------------------------------------
+def test_vice_is_best_non_captain_starter():
+    """VICE_WEIGHT exists so the solver does not pick the armband at random.
+    With a positive weight, the vice must be the highest-scoring starter who
+    is not already the captain."""
+    pool = make_random_pool(seed=7)
+    prob, sol = optimize_squad(pool, mode="balanced")
+    assert pulp.LpStatus[prob.status] == "Optimal"
+
+    team = get_team(pool, sol)
+    starters = team[team["role"] != "bench"]
+    non_captain = starters[starters["role"] != "CAPTAIN"]
+    best = non_captain["e_points"].max()
+
+    vice_pts = team.loc[team["role"] == "VICE", "e_points"].iloc[0]
+    assert vice_pts == best, f"vice has {vice_pts}, best available was {best}"
+
+
+# ---------------------------------------------------------------------------
+# Unit test: the vice tie-break never distorts the actual squad
+# ---------------------------------------------------------------------------
+def test_vice_weight_does_not_change_squad():
+    """The whole justification for a TINY VICE_WEIGHT is that it breaks ties
+    without influencing which 15 are bought or who starts. If raising it changed
+    the squad, the weight would be doing real work it should not be doing."""
+    import optimize
+
+    pool = make_random_pool(seed=7)
+    _, sol_default = optimize_squad(pool, mode="balanced")
+    baseline = get_team(pool, sol_default)
+
+    original = optimize.VICE_WEIGHT
+    try:
+        optimize.VICE_WEIGHT = 0.0          # no vice preference at all
+        _, sol_zero = optimize_squad(pool, mode="balanced")
+    finally:
+        optimize.VICE_WEIGHT = original
+
+    zeroed = get_team(pool, sol_zero)
+
+    assert set(baseline["element"]) == set(zeroed["element"]), \
+        "vice weight changed which 15 players were bought"
+
+    def starters(t):
+        return set(t[t["role"] != "bench"]["element"])
+    assert starters(baseline) == starters(zeroed), \
+        "vice weight changed the starting XI"
 
 
 # ---------------------------------------------------------------------------
