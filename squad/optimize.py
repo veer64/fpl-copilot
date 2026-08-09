@@ -175,7 +175,7 @@ def resolve_bench_weight(mode=None, bench_weight=None):
 # The optimizer
 # ---------------------------------------------------------------------------
 def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
-                   banned_elements=None):
+                   banned_elements=None, budget=None):
     """Build and solve the MIP for one gameweek: 15 + XI + captain.
 
     df               : output of load_gw_data()
@@ -183,6 +183,7 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
     bench_weight     : raw bench weight; overrides `mode` if given
     locked_elements  : optional list of element IDs forced into the squad
     banned_elements  : optional list of element IDs forbidden from the squad
+    budget           : spending limit in tenths; defaults to the full BUDGET
 
     Returns (prob, sol):
         prob -- the solved PuLP problem (check pulp.LpStatus[prob.status])
@@ -199,6 +200,13 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
     clash = set(locked_elements) & set(banned_elements)
     if clash:
         raise ValueError(f"Elements both locked and banned: {sorted(clash)}")
+
+    # A fresh manager has the full BUDGET. A mid-season manager does not -- he has
+    # his squad's SELL value plus whatever is in the bank, which is strictly less
+    # than 100m once prices have moved. The simulator passes that real figure in.
+    # Defaulting to BUDGET keeps every standalone call behaving exactly as before.
+    if budget is None:
+        budget = BUDGET
 
     w = resolve_bench_weight(mode, bench_weight)
 
@@ -229,7 +237,7 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
             pick[i] for i in df.index if df.loc[i, "position"] == pos
         ) == n
 
-    prob += pulp.lpSum(pick[i] * df.loc[i, "value"] for i in df.index) <= BUDGET
+    prob += pulp.lpSum(pick[i] * df.loc[i, "value"] for i in df.index) <= budget
 
     for team in df["team"].unique():
         prob += pulp.lpSum(
