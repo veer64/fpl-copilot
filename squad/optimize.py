@@ -96,6 +96,28 @@ POS_ORDER = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
 # 15 are bought or who starts. See the VICE-CAPTAIN note in the module docstring.
 VICE_WEIGHT = 0.001
 
+
+def _default_solver():
+    """Pick the best available MIP solver.
+
+    CBC ships with PuLP and always works. HiGHS is a modern open-source solver,
+    roughly twice as fast on this problem for an IDENTICAL objective (verified on
+    GW1: 61.2512 both ways, 1.24s vs 0.64s).
+
+    Speed stops being a nicety once the multi-GW transfer MIP arrives: that model
+    is perhaps fifty times this size (750 players x 8 gameweeks x buy/sell/hold
+    binaries), and a solver that merely copes here will crawl there.
+
+    Falls back to CBC silently if highspy is not installed, so the module never
+    hard-depends on an optional package.
+    """
+    try:
+        if "HiGHS" in pulp.listSolvers(onlyAvailable=True):
+            return pulp.HiGHS(msg=False)
+    except Exception:
+        pass
+    return pulp.PULP_CBC_CMD(msg=False)
+
 # named bench-weight presets (raw bench_weight always overrides these)
 MODES = {
     "best_11": 0.0,       # pure starting XI, ghost bench
@@ -175,7 +197,7 @@ def resolve_bench_weight(mode=None, bench_weight=None):
 # The optimizer
 # ---------------------------------------------------------------------------
 def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
-                   banned_elements=None, budget=None):
+                   banned_elements=None, budget=None, solver=None):
     """Build and solve the MIP for one gameweek: 15 + XI + captain.
 
     df               : output of load_gw_data()
@@ -184,6 +206,7 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
     locked_elements  : optional list of element IDs forced into the squad
     banned_elements  : optional list of element IDs forbidden from the squad
     budget           : spending limit in tenths; defaults to the full BUDGET
+    solver           : PuLP solver instance; defaults to HiGHS, else CBC
 
     Returns (prob, sol):
         prob -- the solved PuLP problem (check pulp.LpStatus[prob.status])
@@ -285,7 +308,7 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
         if len(matches) > 0:
             prob += pick[matches[0]] == 0
 
-    prob.solve(pulp.PULP_CBC_CMD(msg=False))  # msg=False silences the solver log
+    prob.solve(solver or _default_solver())   # msg=False silences the solver log
     return prob, {"pick": pick, "start": start, "captain": captain, "vice": vice}
 
 
@@ -326,6 +349,21 @@ def optimize_by_names(df, lock_names=None, ban_names=None, mode=None, bench_weig
 # ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
+# Binary variables come back from the solver as FLOATS, and different solvers
+# round differently: CBC tends to return a clean 1.0 while HiGHS may return
+# 0.9999999997. Comparing with `== 1` therefore silently DROPS players and was
+# producing 12- and 14-man squads the moment the solver changed. Always threshold
+# solver output rather than testing it for exact equality.
+_BINARY_THRESHOLD = 0.5
+
+
+def _is_set(var):
+    """True if a binary decision variable came back as 1, allowing for the
+    floating-point slop every MIP solver leaves behind."""
+    v = var.value()
+    return v is not None and v > _BINARY_THRESHOLD
+
+
 def get_team(df, sol):
     """Return the selected 15 as a dataframe with a `role` column
     (CAPTAIN / VICE / start / bench), sorted starters-first then by position."""
@@ -333,12 +371,12 @@ def get_team(df, sol):
     vice = sol.get("vice", {})               # tolerate older solutions without vice
     rows = []
     for i in df.index:
-        if pick[i].value() == 1:
-            if captain[i].value() == 1:
+        if _is_set(pick[i]):
+            if _is_set(captain[i]):
                 role = "CAPTAIN"
-            elif i in vice and vice[i].value() == 1:
+            elif i in vice and _is_set(vice[i]):
                 role = "VICE"
-            elif start[i].value() == 1:
+            elif _is_set(start[i]):
                 role = "start"
             else:
                 role = "bench"
