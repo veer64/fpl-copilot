@@ -198,8 +198,24 @@ def build_predictions(log_mlflow=False):
         "saves": 0, "yellow_cards": 0, "red_cards": 0, "goals_conceded": 0, "penalties_missed": 0, "own_goals": 0})
     a["pred_bps"] = bps_model.predict(bps_input[BPS_FEATURES])
     a["exp_bonus"] = bps_to_bonus(a["pred_bps"].values) * a["minutes_frac"]
-    # recalibration constant now comes from bonus.py (cutoff-respecting, no leak)
-    a["exp_bonus"] *= bonus_mean / a["exp_bonus"].mean()
+
+    # Recalibration constant comes from bonus.py (cutoff-respecting, no leak).
+    #
+    # NORMALISED PER GAMEWEEK, not across the whole frame. Scaling by the mean of
+    # everything assembled together makes a gameweek's prediction depend on WHICH
+    # OTHER GAMEWEEKS happened to be in the same batch -- harmless when the batch
+    # is always the full season, but indefensible under walk-forward, where the
+    # harness assembles a rolling window. It showed up as gameweek k's prediction
+    # shifting by ~0.03 points depending on what k+1..k+5 contained.
+    #
+    # Per-gameweek normalisation makes each gameweek self-contained: bonus points
+    # are a fixed per-match quantity (three per fixture: 3, 2, 1), so the mean is
+    # a per-gameweek property in the first place. This is the more correct
+    # normalisation on its own terms, not merely the more convenient one.
+    gw_mean = a.groupby("gw")["exp_bonus"].transform("mean")
+    a["exp_bonus"] = np.where(gw_mean > 0,
+                              a["exp_bonus"] * bonus_mean / gw_mean,
+                              a["exp_bonus"])
     a["e_points"] = a["e_points_core"] + a["exp_bonus"]
     return a
 

@@ -124,18 +124,32 @@ def _cold_start_split(log, boundary=8):
 
 def run_experiment(season_df=None, mode="balanced", bench_weight=None,
                    gws=None, n_random=50, n_boot=2000, block_length=5,
+                   policy="single", horizon=1, decay=0.85,
                    run_name=None, notes="", log_mlflow=True, verbose=True):
     """Run one full experiment: simulate, baseline, bootstrap, log.
+
+    policy  : "single" (v1 search, one transfer, never a hit) or "mip"
+              (multi-gameweek transfer MIP).
+    horizon : gameweeks planned ahead. Only meaningful for policy="mip".
+    decay   : per-gameweek discount on future predicted points.
 
     Returns (state, sim_log, results dict). Setting log_mlflow=False runs
     everything and skips only the logging, which is useful when iterating.
     """
     if season_df is None:
-        season_df = load_season()
+        season_df = load_season(horizon_aware=(policy == "mip"))
+
+    if policy == "mip" and "cutoff" not in season_df.columns:
+        raise ValueError(
+            "policy='mip' needs a horizon-aware frame. Load with "
+            "load_season(horizon_aware=True) -- otherwise every future gameweek "
+            "in the plan would be read from its OWN cutoff, which is a leak."
+        )
 
     if verbose:
-        print("Running model...")
-    state, sim_log = simulate_season(season_df, mode=mode, gws=gws, verbose=False)
+        print(f"Running model (policy={policy}, horizon={horizon})...")
+    state, sim_log = simulate_season(season_df, mode=mode, gws=gws, verbose=False,
+                                     policy=policy, horizon=horizon, decay=decay)
 
     if verbose:
         print("Running baselines...")
@@ -198,8 +212,12 @@ def run_experiment(season_df=None, mode="balanced", bench_weight=None,
         "mode": mode,
         "bench_weight": "from mode" if bench_weight is None else bench_weight,
         "predictions": "walkforward_2526 (as-of)",
-        "transfer_policy": "single transfer per GW, never takes a hit",
-        "horizon": 1,
+        "transfer_policy": ("single transfer per GW, never takes a hit"
+                            if policy == "single"
+                            else "multi-GW transfer MIP; solver chooses count and hits"),
+        "policy": policy,
+        "horizon": horizon if policy == "mip" else 1,
+        "decay": decay if policy == "mip" else "n/a",
         "chips_used": "none",
         "sell_price_rule": "exact FPL (half of rise, rounded down)",
         "blank_gw_handling": "owned players injected at e_points=0",
@@ -212,7 +230,7 @@ def run_experiment(season_df=None, mode="balanced", bench_weight=None,
 
     if log_mlflow:
         _log(params, metrics, sim_log, saf_log, hind_log,
-             run_name or f"sim_{mode}_h1")
+             run_name or f"{policy}_h{horizon}_d{decay}")
 
     if verbose:
         _report(metrics)

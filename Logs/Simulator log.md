@@ -18,6 +18,37 @@ Playing the model for the 2025-26 season scores **1889 points** (49.7/gw).
 
 The model sits **4.8 standard deviations** above the random mean.
 
+### Confidence intervals (block bootstrap, 2000 resamples, block length 5)
+
+| Comparison | Margin | 95% CI | Model loses in |
+|---|---:|---|---:|
+| vs set-and-forget | **+521** | [+343, +708] | **0 of 2000** seasons |
+| vs hindsight ceiling | **-665** | [-958, -386] | 2000 of 2000 seasons |
+
+Both margins are real. Even at the pessimistic end of its interval the transfer
+machinery is worth **+343 points**, and even at the optimistic end the gap to
+perfect foresight is **-386**.
+
+**Robust to block length.** The interval excludes zero at every block length
+tested (1, 2, 4, 5, 6, 8, 10) with 0% losses throughout, so the choice of 5 is not
+driving the conclusion:
+
+| Block | CI low | CI high | Excludes zero |
+|---:|---:|---:|---|
+| 1 | +368 | +664 | yes |
+| 2 | +347 | +689 | yes |
+| 4 | +347 | +693 | yes |
+| 5 | +343 | +708 | yes |
+| 6 | +337 | +705 | yes |
+| 8 | +340 | +702 | yes |
+| 10 | +347 | +694 | yes |
+
+**Minor finding worth recording:** the plain bootstrap (block 1) gives [+368, +664]
+and the blocked version only widens it to [+343, +708]. Gameweek-to-gameweek
+dependence is therefore weaker in this data than expected -- the streak effect is
+real but small. Practically, this means the +521 does not rest on a handful of
+lucky runs; it is spread across the season.
+
 ---
 
 ## What each number actually establishes
@@ -161,7 +192,7 @@ Confidence in the 1889 figure rests on these, not on the number looking plausibl
 
 ## Next
 
-1. Block bootstrap for a confidence interval on the 1889.
+1. ~~Block bootstrap for a confidence interval on the 1889.~~ **DONE** -- see above.
 2. Log simulator runs to MLflow — this is exactly the multi-config experiment the
    tracking server was set up for (bench weights, transfer policies, ablations).
 3. Ablations worth running: bench weight sweep, captain-only vs full optimizer,

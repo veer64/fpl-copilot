@@ -63,9 +63,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from optimize import optimize_squad, get_team, BUDGET
 from scoring import assign_bench_order, score_gameweek
 from squad_state import SquadState, sell_price, STARTING_BUDGET
+from transfer_mip import (build_and_solve, plan_to_team,
+                          DEFAULT_HORIZON, DEFAULT_DECAY)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WALKFORWARD_PATH = REPO_ROOT / "data" / "walkforward_2526.parquet"
+# Horizon-aware predictions: one row per (cutoff, gameweek, player). Filtering to
+# cutoff == k gives exactly what a manager standing at gameweek k could know --
+# including his view of k+1..k+5, with form frozen at k. See eval/walkforward.py.
+WALKFORWARD_H_PATH = REPO_ROOT / "data" / "walkforward_h6_2526.parquet"
 HISTORY_PATH = REPO_ROOT / "data" / "history" / "all_seasons_fixed.parquet"
 SEASON = "2025-26"
 
@@ -73,12 +79,32 @@ SEASON = "2025-26"
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
-def load_season(walkforward_path=WALKFORWARD_PATH, history_path=HISTORY_PATH):
+def load_season(walkforward_path=None, history_path=HISTORY_PATH,
+                horizon_aware=False):
     """Load as-of predictions, realized outcomes, and prices for every gameweek.
 
-    Returns a single frame with one row per player-gameweek carrying both the
-    prediction (e_points) and the truth (minutes, actual_points), plus price.
+    horizon_aware=False (default) loads the original file: one prediction per
+    player-gameweek, made with that gameweek's own cutoff. Correct for a
+    single-gameweek policy, which never looks past the gameweek it is playing.
+
+    horizon_aware=True loads the horizon file, which carries a `cutoff` column.
+    The multi-gameweek MIP NEEDS this. Handing it the original file would be a
+    leak that is easy to miss: gameweek k+3's row there was produced with cutoff
+    k+3, so its rolling features were built from gameweeks k+1 and k+2 -- matches
+    that have not been played when the planner is standing at gameweek k.
+
+    Returns a frame with one row per player-gameweek (or per cutoff-gameweek-player
+    when horizon_aware), carrying the prediction, the truth, and the price.
     """
+    if walkforward_path is None:
+        walkforward_path = WALKFORWARD_H_PATH if horizon_aware else WALKFORWARD_PATH
+
+    if horizon_aware and not Path(walkforward_path).exists():
+        raise FileNotFoundError(
+            f"{walkforward_path} not found. Build it first:\n"
+            "    uv run python eval/walkforward.py --horizon 6"
+        )
+
     wf = pd.read_parquet(walkforward_path)
 
     history = pd.read_parquet(history_path)
@@ -99,19 +125,73 @@ def load_season(walkforward_path=WALKFORWARD_PATH, history_path=HISTORY_PATH):
     df["value"] = df["value"].astype(int)
     df["actual_points"] = pd.to_numeric(df["actual_points"], errors="coerce").fillna(0)
     df["minutes"] = pd.to_numeric(df["minutes"], errors="coerce").fillna(0)
+
+    # A horizon-aware frame can carry rows with no prediction at all, and they are
+    # meaningful rather than corrupt. Freezing form at cutoff k builds the minutes
+    # frame from the players who HAD a gameweek-k row; a player who first appears
+    # at k+2 (new signing, returning from injury, no gameweek-k fixture) is in the
+    # later skeleton but absent from the frozen frame, so he arrives with NaN.
+    #
+    # That is exactly right: at cutoff k the manager knows nothing about him. He is
+    # dropped from the pool rather than filled with a guess, so the optimizer cannot
+    # buy a player it has no basis for valuing. If he is already OWNED,
+    # _pool_with_owned puts him back at e_points = 0, which keeps the squad intact
+    # without pretending to a prediction.
+    n_before = len(df)
+    df = df[df["e_points"].notna()].copy()
+    dropped = n_before - len(df)
+    if dropped:
+        print(f"[load_season] dropped {dropped} rows ({100*dropped/n_before:.1f}%) "
+              "with no prediction -- players not yet visible at their cutoff")
+
     return df
 
 
-def gw_slice(season_df, gw):
-    """One gameweek's player pool, in the shape optimize.py expects."""
-    d = season_df[season_df["gw"] == gw].copy()
+def gw_slice(season_df, gw, cutoff=None):
+    """One gameweek's player pool, in the shape optimize.py expects.
+
+    cutoff : when the frame is horizon-aware, which vantage point to read from.
+             cutoff=k returns the view a manager standing at gameweek k had of
+             gameweek gw. Passing None on a horizon-aware frame would silently
+             return SIX rows per player -- one per cutoff -- so it is refused.
+    """
+    d = season_df[season_df["gw"] == gw]
+
+    if "cutoff" in season_df.columns:
+        if cutoff is None:
+            raise ValueError(
+                "this frame is horizon-aware and needs an explicit cutoff; "
+                "without one every player would appear once per cutoff"
+            )
+        d = d[d["cutoff"] == cutoff]
+        if len(d) == 0:
+            # No view of this gameweek from that vantage point -- it is beyond
+            # the horizon the harness was built with.
+            raise ValueError(
+                f"no predictions for GW{gw} from cutoff GW{cutoff}; the harness "
+                f"horizon is shorter than {gw - cutoff + 1} gameweeks"
+            )
+    elif cutoff is not None and cutoff != gw:
+        raise ValueError(
+            f"cutoff={cutoff} requested for GW{gw}, but this frame has no cutoff "
+            "column -- it holds only same-gameweek predictions. Load with "
+            "horizon_aware=True."
+        )
+
     cols = ["element", "name", "position", "team", "value", "e_points"]
-    return d[cols].reset_index(drop=True)
+    return d[cols].copy().reset_index(drop=True)
 
 
 def gw_actuals(season_df, gw):
-    """One gameweek's realized outcomes, in the shape scoring.py expects."""
+    """One gameweek's realized outcomes, in the shape scoring.py expects.
+
+    On a horizon-aware frame a player appears once per cutoff, but what ACTUALLY
+    happened is identical across all of them -- so one row per player is taken.
+    Without this every player would be counted up to six times.
+    """
     d = season_df[season_df["gw"] == gw]
+    if "cutoff" in season_df.columns:
+        d = d.drop_duplicates(subset="element", keep="first")
     return d[["element", "minutes", "total_points"]].copy() if "total_points" in d.columns \
         else d[["element", "minutes", "actual_points"]].rename(
             columns={"actual_points": "total_points"}).copy()
@@ -250,13 +330,119 @@ def decide_gameweek(pool, state, prices, mode="balanced", allow_transfer=True):
 # ---------------------------------------------------------------------------
 # The season loop
 # ---------------------------------------------------------------------------
-def simulate_season(season_df, mode="balanced", gws=None, verbose=True):
+def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
+                        mode="balanced", horizon=DEFAULT_HORIZON,
+                        decay=DEFAULT_DECAY):
+    """Plan `horizon` gameweeks ahead with the transfer MIP, return this week's move.
+
+    Rolling horizon: the solver produces a plan for GW..GW+horizon-1, but only the
+    FIRST gameweek is executed. Next gameweek the whole thing is re-solved with
+    fresh data, so the plan is a guide rather than a commitment.
+
+    The window shrinks near the end of the season (at GW36 only GW36-38 remain).
+    That is correct, not degradation -- a manager in May genuinely has no future to
+    save for. The effective horizon is returned so the behaviour stays visible in
+    the log rather than hidden.
+
+    Returns (team, transfers, plan_step, effective_horizon) where transfers is a
+    list of (out, in) pairs -- the MIP may choose several, or none.
+    """
+    # Every gameweek in the plan is read from THIS gameweek's cutoff. That is the
+    # whole point: gameweek k+3 as seen from k, not gameweek k+3 as seen from k+3.
+    horizon_aware = "cutoff" in season_df.columns
+    future = [g for g in all_gws if g >= gw][:horizon]
+
+    pools = {}
+    for g in future:
+        try:
+            raw = gw_slice(season_df, g, cutoff=gw if horizon_aware else None)
+        except ValueError:
+            # Beyond what the harness was built for -- plan with what exists
+            # rather than failing the whole season.
+            break
+        pools[g] = _pool_with_owned(raw, state, prices)
+    future = list(pools.keys())
+
+    purchase_prices = dict(zip(state.squad["element"],
+                               state.squad["purchase_price"]))
+
+    status, plan = build_and_solve(
+        pools,
+        current_squad=state.elements,
+        purchase_prices=purchase_prices,
+        bank=state.bank,
+        free_transfers=state.free_transfers,
+        mode=mode,
+        decay=decay,
+    )
+    if plan is None:
+        raise RuntimeError(f"GW{gw}: transfer MIP returned {status}")
+
+    step = plan[0]
+    team = assign_bench_order(plan_to_team(step, pools[gw]))
+
+    # Pair each sale with a purchase. Positions must match, because the 15 is
+    # fixed at 2/5/5/3 -- so a sold MID is always replaced by a bought MID.
+    pos_of = dict(zip(pools[gw]["element"], pools[gw]["position"]))
+    sells = list(step["sells"])
+    buys = list(step["buys"])
+    transfers = []
+    for out_elem in sells:
+        match = next((b for b in buys if pos_of.get(b) == pos_of.get(out_elem)), None)
+        if match is None:
+            raise RuntimeError(
+                f"GW{gw}: sold {out_elem} ({pos_of.get(out_elem)}) with no "
+                "matching purchase -- the squad composition constraint should "
+                "have made this impossible"
+            )
+        buys.remove(match)
+        transfers.append((out_elem, match))
+
+    return team, transfers, step, len(future)
+
+
+def _pool_with_owned(pool, state, prices):
+    """Ensure every owned player has a row, even in a blank gameweek.
+
+    Same reasoning as _adjusted_pool, but WITHOUT rewriting prices: the MIP does
+    its own sell-price accounting internally, so handing it adjusted prices would
+    apply the discount twice.
+    """
+    missing = [e for e in state.elements if e not in set(pool["element"])]
+    if not missing:
+        return pool
+
+    rows = []
+    for e in missing:
+        s = state.squad[state.squad["element"] == e].iloc[0]
+        bought = int(s["purchase_price"])
+        rows.append({
+            "element": e,
+            "name": s.get("name", f"element_{e}"),
+            "position": s["position"],
+            "team": s.get("team", "UNKNOWN"),
+            "value": int(prices.get(e, bought)),
+            "e_points": 0.0,          # blank gameweek: cannot score
+        })
+    return pd.concat([pool, pd.DataFrame(rows)], ignore_index=True)
+
+
+def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
+                    policy="single", horizon=DEFAULT_HORIZON, decay=DEFAULT_DECAY):
     """Run the full season. Returns (final_state, decision_log DataFrame).
 
-    The decision log is one row per gameweek recording the squad, the transfer,
+    policy : "single" -- the v1 search: try keeping, try selling each of the 15,
+             take the best. One transfer maximum, never takes a hit.
+             "mip"    -- the multi-gameweek transfer MIP: the solver decides how
+             many transfers to make, which, and whether a hit is worth paying,
+             planning `horizon` gameweeks ahead and executing only the first.
+
+    The decision log is one row per gameweek recording the squad, the transfers,
     the captain, and the points. It is what makes the result auditable rather
     than a single number to be taken on trust.
     """
+    if policy not in ("single", "mip"):
+        raise ValueError(f"unknown policy {policy!r}; expected 'single' or 'mip'")
     if gws is None:
         gws = sorted(season_df["gw"].unique())
 
@@ -264,9 +450,11 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True):
     state = None
 
     for gw in gws:
-        pool = gw_slice(season_df, gw)
+        pool = gw_slice(season_df, gw,
+                        cutoff=gw if "cutoff" in season_df.columns else None)
         actuals = gw_actuals(season_df, gw)
         prices = dict(zip(pool["element"], pool["value"]))
+        effective_horizon = 1
 
         # -- decide --
         if state is None:
@@ -276,16 +464,18 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True):
                 raise RuntimeError(f"GW{gw}: initial squad is {pulp.LpStatus[prob.status]}")
             team = solution_to_squad(pool, sol)
             transfer = None
+            transfers = []
 
             start = team.copy()
             start["purchase_price"] = start["value"].astype(int)
             state = SquadState(start,
                                bank=STARTING_BUDGET - int(start["purchase_price"].sum()),
                                free_transfers=1)
-        else:
+        elif policy == "single":
             team, transfer = decide_gameweek(pool, state, prices, mode=mode)
             if team is None:
                 raise RuntimeError(f"GW{gw}: no feasible squad found")
+            transfers = [] if transfer is None else [transfer]
 
             if transfer is not None:
                 out_elem, in_elem = transfer
@@ -295,20 +485,36 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True):
                 in_row = pool[pool["element"] == in_elem].iloc[0]
                 state.make_transfer(out_elem, in_elem, in_row, prices)
 
+        else:  # policy == "mip"
+            team, transfers, step, eff_h = decide_gameweek_mip(
+                season_df, gw, state, pool, prices, gws,
+                mode=mode, horizon=horizon, decay=decay)
+            effective_horizon = eff_h
+
+            # Applied as ONE atomic move: the MIP reasoned about the whole set,
+            # and executing them one at a time can fail on an intermediate step
+            # even when the set is affordable together.
+            in_rows = {b: pool[pool["element"] == b].iloc[0]
+                       for _, b in transfers}
+            state.make_transfers(transfers, in_rows, prices)
+
         # -- keep the state's roles in step with what was just chosen --
         roles = team.set_index("element")[["role", "bench_order"]]
         state.squad = state.squad.drop(columns=["role", "bench_order"], errors="ignore")
         state.squad = state.squad.merge(
             roles, left_on="element", right_index=True, how="left")
 
-        n_transfers = 0 if transfer is None else 1
-        paid = state.spend_transfers(n_transfers)
+        n_transfers = len(transfers)
+        # spend_transfers returns how many were PAID; capture the free allowance
+        # BEFORE spending, since scoring needs the allowance that applied.
+        free_before = state.free_transfers
+        state.spend_transfers(n_transfers)
 
         # -- score --
         result = score_gameweek(
             state.squad, actuals,
             transfers_made=n_transfers,
-            free_transfers=n_transfers if paid == 0 else 0,
+            free_transfers=free_before,
         )
         state.end_gameweek(result["points"])
 
@@ -324,8 +530,11 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True):
             "doubled_role": result["doubled_role"],
             "n_subs": len(result["subs_made"]),
             "bench_points": result["bench_points"],
-            "transfer_out": transfer[0] if transfer else None,
-            "transfer_in": transfer[1] if transfer else None,
+            "n_transfers": n_transfers,
+            "transfer_out": transfers[0][0] if transfers else None,
+            "transfer_in": transfers[0][1] if transfers else None,
+            "all_transfers": list(transfers),
+            "effective_horizon": effective_horizon,
             "bank": state.bank,
             "free_transfers": state.free_transfers,
             "squad_value": state.sell_value(prices),
@@ -333,7 +542,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True):
         })
 
         if verbose:
-            t = "-" if transfer is None else f"{transfer[0]}->{transfer[1]}"
+            t = "-" if not transfers else ", ".join(f"{a}->{b}" for a, b in transfers)
             print(f"GW{gw:2d}  {result['points']:3d} pts  "
                   f"(total {state.total_points:4d})  transfer {t:>12}  "
                   f"bank {state.bank/10:.1f}  bench {result['bench_points']:2d}")

@@ -19,6 +19,22 @@
 # leak and are unaffected by the cutoff. The DC fit only influences CLEAN SHEETS,
 # at 20% weight (CS_BLEND_W). So walk-forward here is a correctness fix with a
 # deliberately small footprint.
+#
+# ODDS AVAILABILITY (2026-08): the above holds only for fixtures whose odds have
+# actually been PUBLISHED. A rolling-horizon transfer planner standing at gameweek
+# k wants goal expectations for k+3, and bookmakers have usually not priced that
+# match yet. Two consequences, one per environment:
+#
+#   PROD      — the odds feed simply returns nothing for unpriced fixtures.
+#   BACKTEST  — the historical file has every match, so using them is a mild leak:
+#               those odds reflect team news the manager could not have had.
+#
+# Both are handled by the SAME mechanism, so there is no separate prod path to
+# write later. Odds are used where they exist; Dixon-Coles fills the gap where they
+# do not — precisely the job the DC fit was built for and has so far barely been
+# used for. `odds_available_until` lets the backtest SIMULATE the prod constraint;
+# leaving it None means "use whatever odds are present", which is what prod does
+# naturally.
 
 import pandas as pd
 import numpy as np
@@ -189,10 +205,29 @@ def _eval_metrics(df, n_train, hadv, rho):
     return m
 
 
-def get_fixtures(cutoff_date=None, predict_dates=None, log_mlflow=False):
+def _odds_are_usable(df, odds_available_until):
+    """Which fixtures may use market odds.
+
+    A fixture qualifies only if its odds are BOTH present in the data and, when a
+    horizon is given, published by then. Everything else falls back to the DC fit.
+    """
+    present = df[["b365h", "b365d", "b365a"]].notna().all(axis=1)
+    if odds_available_until is None:
+        return present
+    limit = pd.to_datetime(odds_available_until)
+    return present & (df["date_parsed"] <= limit)
+
+
+def get_fixtures(cutoff_date=None, predict_dates=None, odds_available_until=None,
+                 log_mlflow=False):
     """Fit DC on matches strictly before cutoff_date, return 2025-26 fixture predictions.
       cutoff_date   : datetime/date. None -> fit on all pre-2025-26 matches (original).
       predict_dates : optional iterable of dates to restrict the returned fixtures to.
+      odds_available_until : date beyond which market odds are treated as UNPUBLISHED,
+                      so those fixtures fall back to the pure Dixon-Coles fit. None
+                      means "use whatever odds are present" — exactly what prod does,
+                      since an odds feed returns nothing for unpriced games. The
+                      backtest passes a date to simulate that same constraint.
       log_mlflow    : True logs params/metrics/strengths as ONE MLflow run (default off,
                       so assembly.py and the 38-GW walk-forward stay unchanged and fast).
     Returns DataFrame[season, home, away, match_date, lam_home, lam_away,
@@ -219,20 +254,43 @@ def get_fixtures(cutoff_date=None, predict_dates=None, log_mlflow=False):
         df = df[df["date_parsed"].dt.date.isin(want)].copy()
     if len(df) == 0:
         return pd.DataFrame(columns=["season", "home", "away", "match_date",
-                                     "lam_home", "lam_away", "p_home_cs", "p_away_cs"])
+                                     "lam_home", "lam_away", "p_home_cs", "p_away_cs",
+                                     "odds_used"])
 
-    inv = 1 / df[["b365h", "b365d", "b365a"]].values
-    df[["p_H", "p_D", "p_A"]] = inv / inv.sum(axis=1, keepdims=True)
-    lp = np.array([_implied_lambdas(r.p_H, r.p_D, r.p_A) for r in df.itertuples()])
-    df["mkt_lam_h"], df["mkt_lam_a"] = lp[:, 0], lp[:, 1]
+    # Dixon-Coles goal expectations: always computable, no odds required. This is
+    # the fallback for any fixture the market has not priced.
     hi = df["home"].map(idx).values; ai = df["away"].map(idx).values
     df["dc_lam_h"] = np.exp(atk[hi] + dfc[ai] + hadv)
     df["dc_lam_a"] = np.exp(atk[ai] + dfc[hi])
 
-    df["lam_home"] = LAM_BLEND_W * df["dc_lam_h"] + (1 - LAM_BLEND_W) * df["mkt_lam_h"]
-    df["lam_away"] = LAM_BLEND_W * df["dc_lam_a"] + (1 - LAM_BLEND_W) * df["mkt_lam_a"]
-    cs_lh = CS_BLEND_W * df["dc_lam_h"] + (1 - CS_BLEND_W) * df["mkt_lam_h"]
-    cs_la = CS_BLEND_W * df["dc_lam_a"] + (1 - CS_BLEND_W) * df["mkt_lam_a"]
+    # Market-implied goal expectations, only where odds are usable.
+    usable = _odds_are_usable(df, odds_available_until)
+    df["odds_used"] = usable
+    df["mkt_lam_h"] = np.nan
+    df["mkt_lam_a"] = np.nan
+    df["p_H"] = np.nan; df["p_D"] = np.nan; df["p_A"] = np.nan
+
+    if usable.any():
+        sub = df.loc[usable]
+        inv = 1 / sub[["b365h", "b365d", "b365a"]].values
+        probs = inv / inv.sum(axis=1, keepdims=True)
+        df.loc[usable, ["p_H", "p_D", "p_A"]] = probs
+        lp = np.array([_implied_lambdas(*row) for row in probs])
+        df.loc[usable, "mkt_lam_h"] = lp[:, 0]
+        df.loc[usable, "mkt_lam_a"] = lp[:, 1]
+
+    # Blend per fixture. Where odds exist the tuned weights apply; where they do
+    # not, the weight collapses to pure DC. Writing it as a per-row weight rather
+    # than two code paths keeps the tuned configuration in exactly one place.
+    lam_w = np.where(usable, LAM_BLEND_W, 1.0)
+    cs_w = np.where(usable, CS_BLEND_W, 1.0)
+    mkt_h = df["mkt_lam_h"].fillna(df["dc_lam_h"])
+    mkt_a = df["mkt_lam_a"].fillna(df["dc_lam_a"])
+
+    df["lam_home"] = lam_w * df["dc_lam_h"] + (1 - lam_w) * mkt_h
+    df["lam_away"] = lam_w * df["dc_lam_a"] + (1 - lam_w) * mkt_a
+    cs_lh = cs_w * df["dc_lam_h"] + (1 - cs_w) * mkt_h
+    cs_la = cs_w * df["dc_lam_a"] + (1 - cs_w) * mkt_a
     df["p_home_cs"] = np.exp(-cs_la)
     df["p_away_cs"] = np.exp(-cs_lh)
 
@@ -252,13 +310,15 @@ def get_fixtures(cutoff_date=None, predict_dates=None, log_mlflow=False):
                 "n_teams": nt,
                 "optimizer": "L-BFGS-B on weighted Poisson NLL",
                 "odds_source": "Bet365 (B365H/D/A)",
+                "odds_available_until": str(odds_available_until),
+                "odds_coverage_pct": round(100 * float(usable.mean()), 1),
             },
             metrics=_eval_metrics(df, n_train=len(train_m), hadv=hadv, rho=rho),
             run_name=f"dc_{cutoff_date}" if cutoff_date else "dc_static",
         )
 
     return df[["season", "home", "away", "match_date",
-               "lam_home", "lam_away", "p_home_cs", "p_away_cs"]]
+               "lam_home", "lam_away", "p_home_cs", "p_away_cs", "odds_used"]]
 
 
 # Backward-compat shim: original behaviour (fit on all pre-2025-26 matches)

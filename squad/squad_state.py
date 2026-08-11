@@ -157,6 +157,71 @@ class SquadState:
         )
         self.bank = new_bank
 
+    def make_transfers(self, pairs, in_rows, prices):
+        """Execute SEVERAL transfers as one atomic move, pooling the money.
+
+        FPL settles a set of transfers together: every sale completes, then every
+        purchase draws on the combined pot. Executing them one at a time is not
+        equivalent -- selling a 6.5m to buy a 14m fails on its own even when a
+        second transfer in the same move frees the cash. That is a real failure
+        the multi-transfer MIP triggers, because it reasons about the whole set.
+
+        pairs   : list of (out_element, in_element)
+        in_rows : {in_element: Series with element, position, value}
+        prices  : {element: current price}, to value the outgoing players
+
+        Either the whole set applies or none of it does -- a half-applied set
+        would leave the squad in a position no legal FPL manager could hold.
+        """
+        if not pairs:
+            return
+
+        outs = [o for o, _ in pairs]
+        ins = [i for _, i in pairs]
+        if len(set(outs)) != len(outs):
+            raise ValueError(f"the same player is sold twice: {outs}")
+        if len(set(ins)) != len(ins):
+            raise ValueError(f"the same player is bought twice: {ins}")
+
+        owned = set(self.squad["element"])
+        for o in outs:
+            if o not in owned:
+                raise ValueError(f"element {o} is not in this squad")
+        for i in ins:
+            if i in owned and i not in outs:
+                raise ValueError(f"element {i} is already in this squad")
+
+        # Positions must match pairwise: the 15 is fixed at 2/5/5/3.
+        pos = dict(zip(self.squad["element"], self.squad["position"]))
+        for o, i in pairs:
+            if in_rows[i]["position"] != pos[o]:
+                raise ValueError(
+                    f"position mismatch: selling a {pos[o]}, buying a "
+                    f"{in_rows[i]['position']}"
+                )
+
+        received = sum(self.element_sell_price(o, prices) for o in outs)
+        paid = sum(int(in_rows[i]["value"]) for i in ins)
+        new_bank = self.bank + received - paid
+        if new_bank < 0:
+            raise ValueError(
+                f"transfer set unaffordable: bank {self.bank} + {received} "
+                f"- {paid} = {new_bank}"
+            )
+
+        keep = self.squad[~self.squad["element"].isin(outs)]
+        incoming = []
+        for i in ins:
+            row = in_rows[i]
+            rec = {c: row[c] for c in self.squad.columns if c in row}
+            rec["element"] = i
+            rec["position"] = row["position"]
+            rec["purchase_price"] = int(row["value"])
+            incoming.append(rec)
+
+        self.squad = pd.concat([keep, pd.DataFrame(incoming)], ignore_index=True)
+        self.bank = new_bank
+
     def spend_transfers(self, n):
         """Account for n transfers made this gameweek.
 

@@ -63,6 +63,18 @@ from scoring import assign_bench_order, score_gameweek
 from simulator import gw_slice, gw_actuals, solution_to_squad
 
 
+def _slice(season_df, gw):
+    """Cutoff-aware gw_slice.
+
+    A horizon-aware frame holds one row per (cutoff, gameweek, player). A baseline
+    manager standing at gameweek k sees exactly what anyone else standing there
+    sees, so the right vantage point is always cutoff == gw. Without this every
+    player would appear once per cutoff and every count would be inflated.
+    """
+    cutoff = gw if "cutoff" in season_df.columns else None
+    return gw_slice(season_df, gw, cutoff=cutoff)
+
+
 # ---------------------------------------------------------------------------
 # Shared machinery: score a FIXED squad across a whole season
 # ---------------------------------------------------------------------------
@@ -128,6 +140,10 @@ def score_fixed_squad(season_df, squad_15, gws=None, points_col="e_points",
     log, total = [], 0
     for gw in gws:
         pool = season_df[season_df["gw"] == gw]
+        if "cutoff" in season_df.columns:
+            # One vantage point only -- otherwise a player appears once per cutoff
+            # and the dict is silently built from whichever row lands last.
+            pool = pool[pool["cutoff"] == gw]
         gw_points = dict(zip(pool["element"], pool[points_col]))
 
         squad = _reassign_roles(squad_15, gw_points)
@@ -161,7 +177,7 @@ def set_and_forget(season_df, mode="balanced", gws=None):
     zero transfers.
     """
     first_gw = min(gws) if gws else int(season_df["gw"].min())
-    pool = gw_slice(season_df, first_gw)
+    pool = _slice(season_df, first_gw)
 
     prob, sol = optimize_squad(pool, mode=mode)
     if pulp.LpStatus[prob.status] != "Optimal":
@@ -185,10 +201,14 @@ def hindsight_set_and_forget(season_df, mode="balanced", gws=None):
     """
     first_gw = min(gws) if gws else int(season_df["gw"].min())
 
-    season_totals = (season_df.groupby("element")["actual_points"].sum()
+    # Dedupe FIRST. On a horizon-aware frame a player's gameweek appears once per
+    # cutoff, so summing raw would count his actual points up to six times and
+    # inflate the ceiling accordingly.
+    season_totals = (season_df.drop_duplicates(subset=["element", "gw"])
+                     .groupby("element")["actual_points"].sum()
                      .rename("season_points"))
 
-    pool = gw_slice(season_df, first_gw).copy()
+    pool = _slice(season_df, first_gw).copy()
     pool["e_points"] = pool["element"].map(season_totals).fillna(0.0)
 
     prob, sol = optimize_squad(pool, mode=mode)
@@ -253,7 +273,7 @@ def random_baseline(season_df, n_runs=50, seed=0, gws=None):
     """
     rng = np.random.default_rng(seed)
     first_gw = min(gws) if gws else int(season_df["gw"].min())
-    pool = gw_slice(season_df, first_gw)
+    pool = _slice(season_df, first_gw)
 
     totals, logs = [], []
     for i in range(n_runs):
