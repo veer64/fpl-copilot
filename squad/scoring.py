@@ -13,15 +13,17 @@ WHAT IT MODELS
 1. Autosubs. A starter who played 0 minutes is replaced by a bench player, in
    bench order, but only if the replacement keeps the formation legal. This is
    applied by FPL automatically after all matches finish.
-2. Captaincy. The captain's points are doubled. If the captain played 0 minutes,
-   the vice-captain is doubled instead. If both blanked, nobody is doubled.
+2. Captaincy. The captain's points are doubled — tripled if the Triple Captain
+   chip is played. If the captain played 0 minutes, the vice-captain takes the
+   armband instead, chip included. If both blanked, nobody is multiplied.
 3. Transfer hits. Each transfer beyond the free allowance costs 4 points,
    subtracted from that gameweek's total.
 
 WHAT IT DOES NOT MODEL (v1, deliberate)
 ---------------------------------------
-- Chips (wildcard, bench boost, triple captain, free hit). The simulator does not
-  use chips in v1, so scoring them would be untested code.
+- Wildcard, bench boost and free hit. Only Triple Captain is scored here; the
+  others change the squad or the XI rather than the multiplier, so they belong to
+  the optimizer and simulator rather than to this function.
 - Double gameweeks. `actuals` is expected to be pre-aggregated to one row per
   player per gameweek, so a player with two fixtures arrives as a single summed
   row. Minutes are summed too, which means a player who played 0 in one fixture
@@ -169,7 +171,8 @@ def resolve_captain(squad, minutes, final_xi):
     return None, "none"
 
 
-def score_gameweek(squad, actuals, transfers_made=0, free_transfers=1):
+def score_gameweek(squad, actuals, transfers_made=0, free_transfers=1,
+                   triple_captain=False):
     """Score one gameweek. PURE — no I/O, no state.
 
     squad          : DataFrame, the 15 players, with columns
@@ -179,12 +182,17 @@ def score_gameweek(squad, actuals, transfers_made=0, free_transfers=1):
                      player for THIS gameweek (pre-aggregated for doubles)
     transfers_made : how many transfers were made this gameweek
     free_transfers : how many were free
+    triple_captain : play the Triple Captain chip this gameweek — the armband
+                     multiplies by 3 instead of 2. Falls through to the vice on a
+                     blank exactly as the normal armband does, which is FPL's
+                     rule: the chip attaches to the armband, not to the player.
 
     Returns a dict:
         points        -- final points after the captain bonus and any hit
         raw_points    -- points before the hit was deducted
         hit           -- points lost to extra transfers (>= 0)
-        captain_bonus -- extra points from doubling
+        captain_bonus -- extra points from the armband (1x the doubled player's
+                         score normally, 2x under Triple Captain)
         doubled       -- element that was doubled (None if nobody)
         doubled_role  -- "captain", "vice", or "none"
         final_xi      -- the 11 elements that actually scored
@@ -198,7 +206,10 @@ def score_gameweek(squad, actuals, transfers_made=0, free_transfers=1):
     doubled, doubled_role = resolve_captain(squad, minutes, final_xi)
 
     raw = sum(points.get(e, 0) for e in final_xi)
-    captain_bonus = points.get(doubled, 0) if doubled is not None else 0
+    # The armband adds EXTRA copies on top of the one already counted in the XI:
+    # one extra for a normal captain (2x total), two for Triple Captain (3x).
+    extra = 2 if triple_captain else 1
+    captain_bonus = points.get(doubled, 0) * extra if doubled is not None else 0
     raw += captain_bonus
 
     # Extra transfers cost 4 points each. Never negative: unused free transfers

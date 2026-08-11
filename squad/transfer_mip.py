@@ -133,6 +133,7 @@ def build_and_solve(
     mode="balanced",
     bench_weight=None,
     decay=DEFAULT_DECAY,
+    wildcard_step=None,
     solver=None,
 ):
     """Solve the multi-gameweek transfer plan.
@@ -144,6 +145,10 @@ def build_and_solve(
     bank             : money in hand, in tenths
     free_transfers   : free transfers available in the first gameweek
     decay            : per-gameweek discount on future predicted points
+    wildcard_step    : horizon index (0 = the executed gameweek) at which transfers
+                       are free, or None. Budget, squad composition and club limits
+                       still apply. Banking is untouched, so the following gameweek
+                       resumes with its normal free transfer.
 
     Returns (status, plan) where plan is a list of per-gameweek dicts.
     """
@@ -329,7 +334,13 @@ def build_and_solve(
             # The opening 15 is a free pick, not fifteen transfers.
             prob += hits[0] == 0
             continue
-        prob += hits[t] >= used[t] - ft[t]
+        # A wildcard makes transfers free for one gameweek. Rather than inflating
+        # ft (which is capped at MAX_FREE_TRANSFERS and banks forward, so a large
+        # value would leak free transfers into later weeks), the hit penalty is
+        # switched off for that step alone. 15 is large enough never to bind: a
+        # 15-man squad admits at most 15 transfers.
+        relief = 15 if t == wildcard_step else 0
+        prob += hits[t] >= used[t] - ft[t] - relief
 
     prob.solve(solver or _default_solver())
     status = pulp.LpStatus[prob.status]

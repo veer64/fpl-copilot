@@ -159,3 +159,11 @@ tuned on the **validation season (2024-25)**.
 - **Open limitation:** prior-season attacking rates are blind to new signings, breakouts
   and decliners. Blending prior-season with current-season accumulated rates is logged
   in FEATURE_IDEAS.md — it needs a per-gameweek xG data decision first.
+
+
+  DC λ calibration check (2026-08-10) — negative result.
+Regressed market λ on DC λ, 2024-25 validation, 760 team-matches.
+Fit: market = 0.075 + 0.886 × DC. R² = 0.607.
+Residual std after linear correction 0.341, vs raw gap 0.345 — a scalar recovers ~1%.
+Conclusion: DC λ is not miscalibrated, merely less informed. It runs mildly hot (mean 1.485 vs 1.391) and mildly flat (std 0.478 vs 0.544), but ~40% of the disagreement is about which fixtures score, not by how much. Handoff option 2 ("check whether DC is simply miscalibrated") is closed. The ~69-point odds advantage is not recoverable by rescaling; option 3 (learned calibration) would face the same 0.607 ceiling.
+ODDS_HORIZON_GWS = 0 confirmed correct — current gameweek only, gw_end boundary, matches prod fallback behaviour.

@@ -281,3 +281,35 @@ this filter so codes run 0-3, not 0-4.
 The AM chip may persist or return. Any season using the chip will contain AM
 rows — the filter should stay permanently in the modeling pipeline rather than
 being treated as a one-off 2024-25 patch.
+
+## Walk-forward prediction files — which is which (2026-08-11)
+
+Three files, identical shape, DIFFERENT odds assumptions. The filename is the
+only thing distinguishing them, so check here before trusting a season total.
+
+| File | ODDS_HORIZON_GWS | What it assumes |
+|---|---|---|
+| `walkforward_h6_2526.parquet` | **0** | Odds for the CURRENT gameweek only. Everything further out falls back to Dixon-Coles. This is production reality and the default. |
+| `walkforward_h6_2526_odds2.parquet` | 2 | Odds through k+2. Optimistic — bookmakers have not reliably priced two gameweeks ahead at a Friday deadline. Kept only to reproduce earlier numbers. |
+| `walkforward_2526.parquet` | n/a | Original single-cutoff file, no `cutoff` column. Correct for the v1 single-transfer policy ONLY. |
+
+**Editing `ODDS_HORIZON_GWS` does not regenerate anything.** The constant on disk
+describes the LAST build, not the file you are about to read. Rebuild with
+`uv run python eval/walkforward.py --horizon 6` (~8-20 min) after changing it.
+
+### The leak this hid
+`load_season()` defaults to `horizon_aware=False`, which loads the single-cutoff
+file. Combined with `policy="mip"` that is a real leak: the planner reads gameweek
+k+1 as-of-k+1 rather than as-of-k. `experiment.py` raises on this; calling
+`simulate_season` directly does NOT. Measured cost at H=3/decay 0.45: ~8 points
+(2083 vs 2075) — small at a short horizon, larger at H=6.
+
+### The finding that came out of it
+On the honest file the transfer MIP scores **1886** (H=3, decay 0.45; DC-only grid
+peaks at 1973 at decay 0.3). The v1 single-transfer search scores **1889** and is
+INVARIANT to this change, since it only ever reads `cutoff == gw` rows.
+
+**Without odds beyond the current gameweek, the multi-gameweek MIP's advantage over
+the single-transfer search essentially disappears.** Its edge was coming from
+odds-informed future gameweeks, not from the optimization itself. Decay 0.45 was
+tuned on the odds file and is not the DC-only optimum — re-tune before quoting.

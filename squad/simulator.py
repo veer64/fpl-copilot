@@ -38,7 +38,10 @@ KNOWN v1 LIMITATIONS (documented, not hidden)
 - SINGLE transfers only. Combination moves ("sell two mid-price defenders to
   afford one premium") are invisible to this search. See FEATURE_IDEAS.md; the
   proper fix is a transfer MIP, not a bigger loop.
-- NO CHIPS. No wildcard, bench boost, triple captain or free hit.
+- NO CHIP LOGIC. Bench boost and free hit do not exist. A wildcard or a triple
+  captain can be FORCED at a chosen gameweek (simulate_season's wildcard_gw and
+  triple_captain_gw) purely to measure what one is worth; the simulator never
+  decides to play a chip itself.
 - NEVER TAKES A HIT. It only spends free transfers, so it never pays 4 points for
   a second move. The machinery for hits exists in scoring.py and squad_state.py
   and is tested; the v1 policy simply does not use it.
@@ -332,7 +335,7 @@ def decide_gameweek(pool, state, prices, mode="balanced", allow_transfer=True):
 # ---------------------------------------------------------------------------
 def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
                         mode="balanced", horizon=DEFAULT_HORIZON,
-                        decay=DEFAULT_DECAY):
+                        decay=DEFAULT_DECAY, wildcard=False):
     """Plan `horizon` gameweeks ahead with the transfer MIP, return this week's move.
 
     Rolling horizon: the solver produces a plan for GW..GW+horizon-1, but only the
@@ -346,6 +349,9 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
 
     Returns (team, transfers, plan_step, effective_horizon) where transfers is a
     list of (out, in) pairs -- the MIP may choose several, or none.
+
+    wildcard=True makes transfers free for THIS gameweek only (horizon step 0).
+    Since only the first step is ever executed, a wildcard is always step 0.
     """
     # Every gameweek in the plan is read from THIS gameweek's cutoff. That is the
     # whole point: gameweek k+3 as seen from k, not gameweek k+3 as seen from k+3.
@@ -374,6 +380,7 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
         free_transfers=state.free_transfers,
         mode=mode,
         decay=decay,
+        wildcard_step=0 if wildcard else None,
     )
     if plan is None:
         raise RuntimeError(f"GW{gw}: transfer MIP returned {status}")
@@ -428,7 +435,8 @@ def _pool_with_owned(pool, state, prices):
 
 
 def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
-                    policy="single", horizon=DEFAULT_HORIZON, decay=DEFAULT_DECAY):
+                    policy="single", horizon=DEFAULT_HORIZON, decay=DEFAULT_DECAY,
+                    wildcard_gw=None, triple_captain_gw=None):
     """Run the full season. Returns (final_state, decision_log DataFrame).
 
     policy : "single" -- the v1 search: try keeping, try selling each of the 15,
@@ -437,12 +445,28 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
              many transfers to make, which, and whether a hit is worth paying,
              planning `horizon` gameweeks ahead and executing only the first.
 
+    wildcard_gw : gameweek at which to FORCE a wildcard (unlimited free transfers
+             for that week alone), or None. This is a measurement instrument, not
+             chip logic: the week is chosen by the caller, not by the solver, so
+             sweeping it across the season gives the value of a perfectly-timed
+             wildcard -- an upper bound on what any timing rule could earn.
+             Requires policy="mip"; a wildcard in the first gameweek is a no-op
+             because the opening squad is already a free pick.
+
+    triple_captain_gw : gameweek at which to FORCE the Triple Captain chip, or
+             None. Also a measurement instrument. Unlike the wildcard it changes
+             no decision -- same squad, same transfers -- so the rest of the
+             season is identical with and without it, and the gain is exactly
+             that week's captain_bonus. Works under either policy.
+
     The decision log is one row per gameweek recording the squad, the transfers,
     the captain, and the points. It is what makes the result auditable rather
     than a single number to be taken on trust.
     """
     if policy not in ("single", "mip"):
         raise ValueError(f"unknown policy {policy!r}; expected 'single' or 'mip'")
+    if wildcard_gw is not None and policy != "mip":
+        raise ValueError("wildcard_gw requires policy='mip'")
     if gws is None:
         gws = sorted(season_df["gw"].unique())
 
@@ -455,6 +479,9 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
         actuals = gw_actuals(season_df, gw)
         prices = dict(zip(pool["element"], pool["value"]))
         effective_horizon = 1
+        is_wildcard = False
+        is_triple_captain = (triple_captain_gw is not None
+                             and gw == triple_captain_gw)
 
         # -- decide --
         if state is None:
@@ -486,9 +513,11 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                 state.make_transfer(out_elem, in_elem, in_row, prices)
 
         else:  # policy == "mip"
+            is_wildcard = (wildcard_gw is not None and gw == wildcard_gw)
             team, transfers, step, eff_h = decide_gameweek_mip(
                 season_df, gw, state, pool, prices, gws,
-                mode=mode, horizon=horizon, decay=decay)
+                mode=mode, horizon=horizon, decay=decay,
+                wildcard=is_wildcard)
             effective_horizon = eff_h
 
             # Applied as ONE atomic move: the MIP reasoned about the whole set,
@@ -507,14 +536,24 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
         n_transfers = len(transfers)
         # spend_transfers returns how many were PAID; capture the free allowance
         # BEFORE spending, since scoring needs the allowance that applied.
-        free_before = state.free_transfers
-        state.spend_transfers(n_transfers)
+        #
+        # A wildcard makes every transfer free AND consumes no banked transfers,
+        # so both the charge and the spend are skipped. Reporting the allowance as
+        # the transfer count is what makes score_gameweek bill zero, and leaving
+        # state.free_transfers untouched means the bank carries into next week
+        # exactly as FPL does.
+        if is_wildcard:
+            free_before = n_transfers
+        else:
+            free_before = state.free_transfers
+            state.spend_transfers(n_transfers)
 
         # -- score --
         result = score_gameweek(
             state.squad, actuals,
             transfers_made=n_transfers,
             free_transfers=free_before,
+            triple_captain=is_triple_captain,
         )
         state.end_gameweek(result["points"])
 
@@ -535,6 +574,8 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             "transfer_in": transfers[0][1] if transfers else None,
             "all_transfers": list(transfers),
             "effective_horizon": effective_horizon,
+            "wildcard": is_wildcard,
+            "triple_captain": is_triple_captain,
             "bank": state.bank,
             "free_transfers": state.free_transfers,
             "squad_value": state.sell_value(prices),
@@ -543,9 +584,12 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
 
         if verbose:
             t = "-" if not transfers else ", ".join(f"{a}->{b}" for a, b in transfers)
+            wc = "  WILDCARD" if is_wildcard else ""
+            if is_triple_captain:
+                wc += "  TRIPLE-CAP"
             print(f"GW{gw:2d}  {result['points']:3d} pts  "
                   f"(total {state.total_points:4d})  transfer {t:>12}  "
-                  f"bank {state.bank/10:.1f}  bench {result['bench_points']:2d}")
+                  f"bank {state.bank/10:.1f}  bench {result['bench_points']:2d}{wc}")
 
     return state, pd.DataFrame(log)
 
