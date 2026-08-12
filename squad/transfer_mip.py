@@ -250,7 +250,14 @@ def build_and_solve(
             prob += pulp.lpSum(pick[(i, t)] for i in players
                                if attrs[i]["position"] == pos) == n
 
-        teams = {attrs[i]["team"] for i in players}
+        # SORTED, and that is load-bearing. A set of strings iterates in an order
+        # that depends on Python's per-process string hash randomisation, so the
+        # club constraints were emitted in a different order in every process.
+        # That changes nothing about the feasible region, but it changes which of
+        # several EXACTLY TIED optima the solver returns -- and with a weak
+        # ranking signal, ties are everywhere. Measured effect: the same season,
+        # same data, same config returned 1973 or 1984 depending on the run.
+        teams = sorted({attrs[i]["team"] for i in players})
         for team in teams:
             prob += pulp.lpSum(pick[(i, t)] for i in players
                                if attrs[i]["team"] == team) <= MAX_PER_CLUB
@@ -321,6 +328,14 @@ def build_and_solve(
     spend = dict(used)
     if is_first_squad:
         spend[0] = 0
+    # A wildcard costs no BANKED transfers either. Without this the relief on the
+    # hit constraint is useless: ft[1] <= ft[0] - used[0] + hits[0] + 1 still
+    # debits every wildcard transfer, so with hits driven to zero the chain
+    # forces used[0] <= ft[0] + 1 -- two transfers, not unlimited. The chip was
+    # silently reduced to one extra free transfer at every horizon above T=1,
+    # which is why it only looked correct on a truncated one-gameweek season.
+    if wildcard_step is not None:
+        spend[wildcard_step] = 0
 
     prob += ft[0] == free_transfers
     for t in range(1, T):

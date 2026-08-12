@@ -38,8 +38,8 @@ KNOWN v1 LIMITATIONS (documented, not hidden)
 - SINGLE transfers only. Combination moves ("sell two mid-price defenders to
   afford one premium") are invisible to this search. See FEATURE_IDEAS.md; the
   proper fix is a transfer MIP, not a bigger loop.
-- NO CHIP LOGIC. Bench boost and free hit do not exist. A wildcard or a triple
-  captain can be FORCED at a chosen gameweek (simulate_season's wildcard_gw and
+- NO CHIP LOGIC. Bench boost and free hit do not exist. Wildcards and a triple
+  captain can be FORCED at chosen gameweeks (simulate_season's wildcard_gws and
   triple_captain_gw) purely to measure what one is worth; the simulator never
   decides to play a chip itself.
 - NEVER TAKES A HIT. It only spends free transfers, so it never pays 4 points for
@@ -58,6 +58,7 @@ score. See _adjusted_pool for how they are kept representable in the MIP.
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pulp
 
@@ -77,6 +78,11 @@ WALKFORWARD_PATH = REPO_ROOT / "data" / "walkforward_2526.parquet"
 WALKFORWARD_H_PATH = REPO_ROOT / "data" / "walkforward_h6_2526.parquet"
 HISTORY_PATH = REPO_ROOT / "data" / "history" / "all_seasons_fixed.parquet"
 SEASON = "2025-26"
+
+# FPL grants two wildcards a season, one per half. The split is announced rather
+# than fixed -- in recent seasons the first-half chip has expired around GW19-20 --
+# so it is a parameter with a sensible default, not a hard-coded rule.
+DEFAULT_SECOND_HALF_START = 20
 
 
 # ---------------------------------------------------------------------------
@@ -436,7 +442,8 @@ def _pool_with_owned(pool, state, prices):
 
 def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                     policy="single", horizon=DEFAULT_HORIZON, decay=DEFAULT_DECAY,
-                    wildcard_gw=None, triple_captain_gw=None):
+                    wildcard_gws=None, triple_captain_gw=None,
+                    second_half_start=DEFAULT_SECOND_HALF_START):
     """Run the full season. Returns (final_state, decision_log DataFrame).
 
     policy : "single" -- the v1 search: try keeping, try selling each of the 15,
@@ -445,13 +452,20 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
              many transfers to make, which, and whether a hit is worth paying,
              planning `horizon` gameweeks ahead and executing only the first.
 
-    wildcard_gw : gameweek at which to FORCE a wildcard (unlimited free transfers
-             for that week alone), or None. This is a measurement instrument, not
-             chip logic: the week is chosen by the caller, not by the solver, so
-             sweeping it across the season gives the value of a perfectly-timed
-             wildcard -- an upper bound on what any timing rule could earn.
-             Requires policy="mip"; a wildcard in the first gameweek is a no-op
-             because the opening squad is already a free pick.
+    wildcard_gws : gameweek(s) at which to FORCE a wildcard (unlimited free
+             transfers for that week alone). Accepts an int, a list of up to two,
+             or None. FPL allows two per season -- one in each half -- and that
+             rule is ENFORCED here: two wildcards in the same half raises.
+
+             This is a measurement instrument, not chip logic: the weeks are
+             chosen by the caller, not by the solver, so sweeping them gives the
+             value of a perfectly-timed wildcard -- an upper bound on what any
+             timing rule could earn. Requires policy="mip"; a wildcard in the
+             first gameweek is a no-op because the opening squad is already free.
+
+             When two are played, the second acts on the squad the first built.
+             That interaction is why two wildcards cannot be measured by adding
+             two solo runs together -- they must be played in the same season.
 
     triple_captain_gw : gameweek at which to FORCE the Triple Captain chip, or
              None. Also a measurement instrument. Unlike the wildcard it changes
@@ -459,14 +473,39 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
              season is identical with and without it, and the gain is exactly
              that week's captain_bonus. Works under either policy.
 
+    second_half_start : first gameweek of the second half, for the one-per-half
+             rule. FPL sets this by announcement each season rather than by a
+             fixed number, so it is a parameter rather than a constant.
+
     The decision log is one row per gameweek recording the squad, the transfers,
     the captain, and the points. It is what makes the result auditable rather
     than a single number to be taken on trust.
     """
     if policy not in ("single", "mip"):
         raise ValueError(f"unknown policy {policy!r}; expected 'single' or 'mip'")
-    if wildcard_gw is not None and policy != "mip":
-        raise ValueError("wildcard_gw requires policy='mip'")
+
+    # Accept an int, an iterable, or None -- callers sweeping one wildcard should
+    # not have to wrap it in a list.
+    if wildcard_gws is None:
+        wildcard_gws = set()
+    elif isinstance(wildcard_gws, (int, np.integer)):
+        wildcard_gws = {int(wildcard_gws)}
+    else:
+        wildcard_gws = {int(g) for g in wildcard_gws}
+
+    if wildcard_gws:
+        if policy != "mip":
+            raise ValueError("wildcard_gws requires policy='mip'")
+        if len(wildcard_gws) > 2:
+            raise ValueError(
+                f"FPL allows two wildcards per season, got {len(wildcard_gws)}")
+        first = {g for g in wildcard_gws if g < second_half_start}
+        second = {g for g in wildcard_gws if g >= second_half_start}
+        if len(first) > 1 or len(second) > 1:
+            raise ValueError(
+                f"one wildcard per half only (halves split at GW{second_half_start}): "
+                f"got {sorted(first)} in the first and {sorted(second)} in the second")
+
     if gws is None:
         gws = sorted(season_df["gw"].unique())
 
@@ -513,7 +552,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                 state.make_transfer(out_elem, in_elem, in_row, prices)
 
         else:  # policy == "mip"
-            is_wildcard = (wildcard_gw is not None and gw == wildcard_gw)
+            is_wildcard = (gw in wildcard_gws)
             team, transfers, step, eff_h = decide_gameweek_mip(
                 season_df, gw, state, pool, prices, gws,
                 mode=mode, horizon=horizon, decay=decay,
