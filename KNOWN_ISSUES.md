@@ -313,3 +313,63 @@ INVARIANT to this change, since it only ever reads `cutoff == gw` rows.
 the single-transfer search essentially disappears.** Its edge was coming from
 odds-informed future gameweeks, not from the optimization itself. Decay 0.45 was
 tuned on the odds file and is not the DC-only optimum — re-tune before quoting.
+
+
+## #9 — Core-Insights availability fields: two defects (found 2026-08-12)
+
+`data/history/core_insights_gameweek_stats.parquet` carries `status`, `news`,
+`chance_of_playing_this_round` and `chance_of_playing_next_round` — the only
+per-gameweek availability data in the project. vaastav has none of it
+(`players_raw.csv` is a single end-of-season snapshot, and stops after 2019-20).
+
+The file IS a genuine per-week capture: a full 38x38 pairwise comparison found
+exactly one non-adjacent identical pair. Adjacent weeks differ as expected
+(GW15 vs GW16: 88.4% of players share a status). But two defects must be handled.
+
+### Defect A — GW1 is a GW15 snapshot. DROP IT.
+GW1 and GW15 are 100% identical across `status`, `news` and
+`chance_of_playing_next_round`, for all 759 players in both. GW1 was backfilled
+from a GW15-era pull.
+
+Using it is a serious leak: it tells the model at GW1 who was injured in December.
+Drop GW1's availability fields entirely — do not impute.
+
+Unfortunate, because cold start (GW1-7 runs at 38.3 pts/gw vs 52.3 after) is
+exactly where availability would help most. Gvardiol was a GW1 failure.
+
+### Defect B — GW2-10 encode NULL as 0.0. RECODE.
+In those weeks `chance_of_playing_next_round` is non-null for all 752 players.
+FPL only populates this field for doubtful players, so full coverage is wrong.
+
+The crosstab shows what happened. GW5:
+
+| status | 0.0 | 25 | 50 | 75 | 100 |
+|---|---|---|---|---|---|
+| a (available)   | **459** | 0 | 0 | 0 | 92 |
+| d (doubtful)    | 0 | 10 | 11 | 10 | 0 |
+| i (injured)     | 35 | 0 | 0 | 0 | 0 |
+| u (unavailable) | 130 | 0 | 0 | 0 | 0 |
+| s (suspended)   | 4 | 0 | 0 | 0 | 0 |
+
+459 AVAILABLE players carrying 0.0 is contradictory. Nulls were written as zero —
+and zero is a meaningful value here ("will not play"), so this is not a harmless
+placeholder. Everything else is coherent: d maps to 25/50/75, i/u/s map to 0.
+
+Fix: in GW2-10, set `chance_of_playing_*` to NULL where `status == 'a'` and the
+value is 0.0. Genuine zeros (status i/u/s) stay. From GW11 the field behaves
+normally (427 non-null of 752).
+
+### Caveat on all of it
+One row per gameweek, captured at whatever moment Core-Insights pulled — not
+necessarily the Friday deadline. Probably close, but not provably as-of.
+
+The better long-term source is `Randdalf/fplcache` (GitHub, Unlicense): the FPL
+`bootstrap-static` endpoint cached 4x daily as `{year}/{month}/{day}/{time}.json.xz`,
+~7,450 commits. Timestamps let you select the pre-deadline snapshot exactly, and
+it is the same field the production agent would read live — no train/serve
+mismatch. Coverage for 2025-26 not yet verified.
+
+Paid alternatives (API-Football /sidelined, Sportmonks sidelinedHistory) supply
+injury start/end dates rather than as-of snapshots. End dates leak — nobody knew
+on 5 Feb that an injury would end on 20 Feb — so they are second choice despite
+richer detail.

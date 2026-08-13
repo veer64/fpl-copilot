@@ -237,6 +237,33 @@ class SquadState:
         self.total_points += int(points_scored)
         self.free_transfers = min(MAX_FREE_TRANSFERS, self.free_transfers + 1)
 
+    # -- chip support --------------------------------------------------------
+
+    def snapshot(self):
+        """Everything a Free Hit has to put back afterwards.
+
+        The squad frame is DEEP copied. make_transfers rebuilds `squad` by
+        concatenation and rewrites purchase_price on the incoming rows, so a
+        shallow copy would let the chip week's prices leak backwards into the
+        squad that is supposed to be restored.
+
+        total_points is deliberately NOT captured. A Free Hit reverts the squad,
+        not the score it earned -- those points are banked like any other week.
+        """
+        return {
+            "squad": self.squad.copy(deep=True),
+            "bank": int(self.bank),
+            "free_transfers": int(self.free_transfers),
+        }
+
+    def restore(self, snap):
+        """Put back a snapshot(), leaving the squad indistinguishable from the
+        one held before the chip week -- same players, same purchase prices,
+        same bank, same free transfers. A Free Hit consumes none of them."""
+        self.squad = snap["squad"].copy(deep=True)
+        self.bank = int(snap["bank"])
+        self.free_transfers = int(snap["free_transfers"])
+
     # -- convenience ---------------------------------------------------------
 
     @property

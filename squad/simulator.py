@@ -440,9 +440,36 @@ def _pool_with_owned(pool, state, prices):
     return pd.concat([pool, pd.DataFrame(rows)], ignore_index=True)
 
 
+def _chip_weeks(value, chip_name, second_half_start):
+    """Normalise an int / iterable / None into a set of gameweeks and enforce
+    FPL's two-per-season, one-per-half rule.
+
+    Shared by every chip that has that rule so they cannot drift apart: the
+    wildcard grew this validation first, and the free hit needs exactly it.
+    """
+    if value is None:
+        return set()
+    if isinstance(value, (int, np.integer)):
+        weeks = {int(value)}
+    else:
+        weeks = {int(g) for g in value}
+
+    if len(weeks) > 2:
+        raise ValueError(f"FPL allows two {chip_name} per season, got {len(weeks)}")
+    first = {g for g in weeks if g < second_half_start}
+    second = {g for g in weeks if g >= second_half_start}
+    if len(first) > 1 or len(second) > 1:
+        raise ValueError(
+            f"one {chip_name.rstrip('s')} per half only (halves split at "
+            f"GW{second_half_start}): got {sorted(first)} in the first and "
+            f"{sorted(second)} in the second")
+    return weeks
+
+
 def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                     policy="single", horizon=DEFAULT_HORIZON, decay=DEFAULT_DECAY,
                     wildcard_gws=None, triple_captain_gw=None,
+                    free_hit_gws=None,
                     second_half_start=DEFAULT_SECOND_HALF_START):
     """Run the full season. Returns (final_state, decision_log DataFrame).
 
@@ -473,6 +500,21 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
              season is identical with and without it, and the gain is exactly
              that week's captain_bonus. Works under either policy.
 
+    free_hit_gws : gameweek(s) at which to FORCE a Free Hit -- unlimited free
+             transfers for one gameweek, after which the squad REVERTS to
+             exactly what it was before: same players, same purchase prices,
+             same bank, same free transfers. Accepts an int, a list of up to
+             two, or None, with the same one-per-half rule as wildcard_gws.
+
+             Because the squad is handed back, the chip week is solved with a
+             horizon of ONE. Planning ahead would be meaningless -- next week is
+             played by the squad being restored -- and it is precisely what lets
+             a Free Hit go all-in on a single gameweek.
+
+             A Free Hit and a wildcard cannot be played in the same gameweek.
+             Like the others this is a measurement instrument, not chip logic:
+             the week is chosen by the caller, never by the solver.
+
     second_half_start : first gameweek of the second half, for the one-per-half
              rule. FPL sets this by announcement each season rather than by a
              fixed number, so it is a parameter rather than a constant.
@@ -484,27 +526,16 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
     if policy not in ("single", "mip"):
         raise ValueError(f"unknown policy {policy!r}; expected 'single' or 'mip'")
 
-    # Accept an int, an iterable, or None -- callers sweeping one wildcard should
-    # not have to wrap it in a list.
-    if wildcard_gws is None:
-        wildcard_gws = set()
-    elif isinstance(wildcard_gws, (int, np.integer)):
-        wildcard_gws = {int(wildcard_gws)}
-    else:
-        wildcard_gws = {int(g) for g in wildcard_gws}
+    wildcard_gws = _chip_weeks(wildcard_gws, "wildcards", second_half_start)
+    free_hit_gws = _chip_weeks(free_hit_gws, "free hits", second_half_start)
 
-    if wildcard_gws:
-        if policy != "mip":
-            raise ValueError("wildcard_gws requires policy='mip'")
-        if len(wildcard_gws) > 2:
-            raise ValueError(
-                f"FPL allows two wildcards per season, got {len(wildcard_gws)}")
-        first = {g for g in wildcard_gws if g < second_half_start}
-        second = {g for g in wildcard_gws if g >= second_half_start}
-        if len(first) > 1 or len(second) > 1:
-            raise ValueError(
-                f"one wildcard per half only (halves split at GW{second_half_start}): "
-                f"got {sorted(first)} in the first and {sorted(second)} in the second")
+    clash = wildcard_gws & free_hit_gws
+    if clash:
+        raise ValueError(
+            f"only one chip per gameweek: wildcard and free hit both at "
+            f"GW{sorted(clash)}")
+    if (wildcard_gws or free_hit_gws) and policy != "mip":
+        raise ValueError("wildcard_gws and free_hit_gws require policy='mip'")
 
     if gws is None:
         gws = sorted(season_df["gw"].unique())
@@ -519,6 +550,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
         prices = dict(zip(pool["element"], pool["value"]))
         effective_horizon = 1
         is_wildcard = False
+        is_free_hit = False
         is_triple_captain = (triple_captain_gw is not None
                              and gw == triple_captain_gw)
 
@@ -553,10 +585,24 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
 
         else:  # policy == "mip"
             is_wildcard = (gw in wildcard_gws)
+            is_free_hit = (gw in free_hit_gws)
+
+            if is_free_hit:
+                # Taken BEFORE any transfer touches the state, and restored after
+                # scoring, so the chip week leaves no trace on the squad.
+                pre_chip = state.snapshot()
+
+            # A Free Hit squad is handed back at the final whistle, so planning
+            # ahead with it is meaningless -- next week is played by the squad
+            # being restored, not this one. The horizon collapses to the single
+            # gameweek being bought, which is also what lets the chip go all-in
+            # on one week: chase a double, dodge a blank, ignore the consequences.
+            eff_horizon = 1 if is_free_hit else horizon
+
             team, transfers, step, eff_h = decide_gameweek_mip(
                 season_df, gw, state, pool, prices, gws,
-                mode=mode, horizon=horizon, decay=decay,
-                wildcard=is_wildcard)
+                mode=mode, horizon=eff_horizon, decay=decay,
+                wildcard=is_wildcard or is_free_hit)
             effective_horizon = eff_h
 
             # Applied as ONE atomic move: the MIP reasoned about the whole set,
@@ -581,7 +627,10 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
         # the transfer count is what makes score_gameweek bill zero, and leaving
         # state.free_transfers untouched means the bank carries into next week
         # exactly as FPL does.
-        if is_wildcard:
+        # A Free Hit is the same bargain as a wildcard for one week: every
+        # transfer free, no banked transfer consumed. The difference comes after
+        # scoring, when the squad is handed back.
+        if is_wildcard or is_free_hit:
             free_before = n_transfers
         else:
             free_before = state.free_transfers
@@ -594,16 +643,29 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             free_transfers=free_before,
             triple_captain=is_triple_captain,
         )
+        # What actually took the field, captured before a Free Hit hands the
+        # squad back. On every other gameweek these are the same thing.
+        cap_row = state.squad[state.squad["role"] == "CAPTAIN"]
+        played_captain = (cap_row["name"].iloc[0]
+                          if len(cap_row) and "name" in cap_row else None)
+        played_elements = list(state.elements)
+        played_value = state.sell_value(prices)
+
+        if is_free_hit:
+            # The squad reverts; the points do not. Restoring BEFORE
+            # end_gameweek means next week's free transfer is earned on the
+            # pre-chip balance, which is what FPL does.
+            state.restore(pre_chip)
+
         state.end_gameweek(result["points"])
 
-        cap_row = state.squad[state.squad["role"] == "CAPTAIN"]
         log.append({
             "gw": gw,
             "points": result["points"],
             "raw_points": result["raw_points"],
             "hit": result["hit"],
             "total_points": state.total_points,
-            "captain": cap_row["name"].iloc[0] if len(cap_row) and "name" in cap_row else None,
+            "captain": played_captain,
             "captain_bonus": result["captain_bonus"],
             "doubled_role": result["doubled_role"],
             "n_subs": len(result["subs_made"]),
@@ -615,15 +677,21 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             "effective_horizon": effective_horizon,
             "wildcard": is_wildcard,
             "triple_captain": is_triple_captain,
+            "free_hit": is_free_hit,
+            # bank and free_transfers describe the state CARRIED FORWARD, so on a
+            # Free Hit week they are the restored values. elements, squad_value
+            # and captain describe the squad that actually played.
             "bank": state.bank,
             "free_transfers": state.free_transfers,
-            "squad_value": state.sell_value(prices),
-            "elements": list(state.elements),
+            "squad_value": played_value,
+            "elements": played_elements,
         })
 
         if verbose:
             t = "-" if not transfers else ", ".join(f"{a}->{b}" for a, b in transfers)
             wc = "  WILDCARD" if is_wildcard else ""
+            if is_free_hit:
+                wc += "  FREE-HIT"
             if is_triple_captain:
                 wc += "  TRIPLE-CAP"
             print(f"GW{gw:2d}  {result['points']:3d} pts  "
