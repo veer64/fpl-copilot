@@ -373,3 +373,55 @@ Paid alternatives (API-Football /sidelined, Sportmonks sidelinedHistory) supply
 injury start/end dates rather than as-of snapshots. End dates leak — nobody knew
 on 5 Feb that an injury would end on 20 Feb — so they are second choice despite
 richer detail.
+---
+
+## #10 — `minutes.py` defaults to `availability=True`, but the canonical walk-forward
+   file was built WITHOUT it (found 2026-08-13)
+
+**Status:** Live trap. Documented and guarded by a test; deliberately NOT resolved,
+because resolving it means moving the project's baseline.
+
+### The trap
+
+`squad/minutes.py` now defaults to `availability=True` (adopted 2026-08-13; see
+`Logs/availability_log.md`). `data/walkforward_h6_2526.parquet` was built BEFORE that
+adoption, so it holds pre-adoption predictions.
+
+**Regenerating that file with today's default silently moves the baseline from 1984
+to 1938.** Nothing errors. Every number in every log that quotes 1984 becomes
+incomparable, and the change is invisible unless you already knew to look.
+
+    data/walkforward_h6_2526.parquet     availability=False   -> season 1984
+    data/walkforward_h6_2526_av.parquet  availability=True    -> season 1938
+
+This is the same shape as the stale-odds incident: `ODDS_HORIZON_GWS = 0` read from
+source while the parquet on disk had been built at 2. Source and artefact disagreed,
+nothing failed loudly, and an hour went into attributing the difference to a code
+edit. Same failure mode, so it gets a loud guard rather than a comment.
+
+### Why it is not simply fixed
+
+Rebuilding the canonical file is the "clean" move and is exactly what must not happen
+by accident. The availability model is better on component metrics but does NOT
+improve the season total, so adopting it as the baseline would change the reference
+every prior experiment is quoted against, in exchange for nothing measurable. That is
+a deliberate decision, not a chore — it needs to be made explicitly.
+
+### The guard
+
+`Tests/test_walkforward_provenance.py` fingerprints the canonical file (row count,
+horizon-0 Spearman and MAE). Regenerating it with availability on moves Spearman from
+0.715 to 0.745 and the test fails with an explanation. The fingerprint is meant to be
+updated by hand, deliberately, when the baseline is intentionally moved.
+
+Going forward `eval/walkforward.py` stamps `minutes_availability` into its output, so
+new files describe their own provenance. Files without that column predate the stamp
+and are pre-adoption by definition.
+
+### If you DO decide to move the baseline
+
+1. Rebuild: `uv run python eval/walkforward.py --horizon 6`
+2. Re-run the season to get the new reference number.
+3. Update the fingerprint in `Tests/test_walkforward_provenance.py`.
+4. Update every log that quotes 1984 — or state plainly that pre-2026-08-13 numbers
+   are on the old baseline and are not comparable.

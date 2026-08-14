@@ -328,6 +328,15 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
 
     result = pd.concat(out, ignore_index=True)
 
+    # Provenance stamp. minutes.py defaults to availability=True since 2026-08-13, and
+    # rebuilding this file with that default silently moves the season baseline from
+    # 1984 to 1938 with nothing erroring -- the same shape as the stale-odds incident,
+    # where source read ODDS_HORIZON_GWS = 0 while the parquet had been built at 2.
+    # Stamping it means a file always describes how it was made. Absence of the column
+    # means the file predates the stamp, hence pre-adoption. See KNOWN_ISSUES.md #10.
+    result["minutes_availability"] = bool(
+        getattr(minutes_mod, "AVAILABILITY_DEFAULT", True))
+
     if save_path:
         result.to_parquet(save_path, index=False)
         if verbose:

@@ -22,6 +22,13 @@ import numpy as np
 import lightgbm as lgb
 from sklearn.isotonic import IsotonicRegression
 
+import availability_features as avf
+
+# The default `availability` for get_minutes, exposed so callers (notably the
+# walk-forward harness) can STAMP what they built with rather than guess. Flipping
+# this changes the season baseline; see KNOWN_ISSUES.md #10 before you do.
+AVAILABILITY_DEFAULT = True
+
 MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
 
@@ -182,39 +189,56 @@ def _eval_metrics(pf):
     return m
 
 
-def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False):
+def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=None):
     """Train on prior seasons (+ current season before up_to_gw), predict.
     Returns mins_out: DataFrame[element, gw, name, position, p_start, p60, e_minutes].
     log_mlflow=True logs params/metrics/models as ONE MLflow run (default off, so
-    assembly.py and the 38-GW walk-forward stay unchanged and fast)."""
+    assembly.py and the 38-GW walk-forward stay unchanged and fast).
+
+    availability=True (default, adopted 2026-08-13) adds the FPL availability block --
+    status, chance_of_playing, flag duration, transitions, news recency. It improves
+    P(start) (Brier 0.0803 -> 0.0710, AUC 0.949 -> 0.961) and E[minutes] (RMSE 22.02 ->
+    20.32), with the gain concentrated on the first gameweek of an absence (Brier
+    0.2397 -> 0.0782) and on players coming back (E[min] 27.1 -> 42.9 vs 43.1 actual).
+    P(60+|started) is unchanged, correctly: given a player starts, availability adds
+    nothing. availability=False reproduces the pre-adoption model exactly, which is
+    what data/walkforward_h6_2526.parquet and the 1984 baseline were built from."""
+    availability = AVAILABILITY_DEFAULT if availability is None else availability
+    AV = avf.FEATURES if availability else []
+
     df = pd.read_parquet(BASE + r"\data\history\all_seasons_fixed.parquet")
     col = _prepare(df)
+    if AV:
+        col = avf.attach(col)
     cs, sd, bd = _build_frames(col)
 
     FP = S1 + ["has_no_history", "prev_start_rate", "prev_avg_minutes", "prev_games", "transfer_status"]
     S2 = S1 + ["past60_rate_3", "past60_rate_5", "last_start_minutes"]
+    # Extended lists for FITTING only. The base lists stay the dropna subset below, so
+    # a null availability column can never silently delete a player-gameweek.
+    xFP, xS2, xS1, xSUBF, xSUBRF = FP + AV, S2 + AV, S1 + AV, SUBF + AV, SUBRF + AV
 
     trc = cs[_train_mask(cs, up_to_gw)]
     m_ps = lgb.LGBMClassifier(n_estimators=300, learning_rate=0.05, num_leaves=31,
-                              random_state=42, verbose=-1).fit(trc[FP], trc["starts"])
+                              random_state=42, verbose=-1).fit(trc[xFP], trc["starts"])
 
     tr2 = sd[_train_mask(sd, up_to_gw)]
     m_p60 = lgb.LGBMClassifier(n_estimators=100, num_leaves=7, min_child_samples=100, reg_lambda=1.0,
-                               learning_rate=0.05, random_state=42, verbose=-1).fit(tr2[S2], tr2["played_60"])
+                               learning_rate=0.05, random_state=42, verbose=-1).fit(tr2[xS2], tr2["played_60"])
 
     tr3 = bd[_train_mask(bd, up_to_gw)].dropna(subset=SUBF)
     m_sub = lgb.LGBMClassifier(n_estimators=200, num_leaves=15, min_child_samples=50,
-                               learning_rate=0.05, random_state=42, verbose=-1).fit(tr3[SUBF], tr3["came_on"])
-    iso = IsotonicRegression(out_of_bounds="clip").fit(m_sub.predict_proba(tr3[SUBF])[:, 1], tr3["came_on"])
+                               learning_rate=0.05, random_state=42, verbose=-1).fit(tr3[xSUBF], tr3["came_on"])
+    iso = IsotonicRegression(out_of_bounds="clip").fit(m_sub.predict_proba(tr3[xSUBF])[:, 1], tr3["came_on"])
 
     tr4 = sd[_train_mask(sd, up_to_gw)].dropna(subset=S1)
     m_mins = lgb.LGBMRegressor(n_estimators=200, num_leaves=15, min_child_samples=50,
-                               learning_rate=0.05, random_state=42, verbose=-1).fit(tr4[S1], tr4["minutes_capped"])
+                               learning_rate=0.05, random_state=42, verbose=-1).fit(tr4[xS1], tr4["minutes_capped"])
 
     subs = bd[bd["came_on"] == 1].copy()
     tr5 = subs[_train_mask(subs, up_to_gw)].dropna(subset=SUBRF)
     m_msub = lgb.LGBMRegressor(n_estimators=100, num_leaves=7, min_child_samples=100, reg_lambda=1.0,
-                               learning_rate=0.05, random_state=42, verbose=-1).fit(tr5[SUBRF], tr5["minutes_capped"])
+                               learning_rate=0.05, random_state=42, verbose=-1).fit(tr5[xSUBRF], tr5["minutes_capped"])
 
     # predict
     sr = sd[["season", "element", "GW", "past60_rate_3", "past60_rate_5", "last_start_minutes"]]
@@ -227,11 +251,11 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False):
     if len(pf) == 0:
         return pd.DataFrame(columns=["element", "gw", "name", "position", "p_start", "p60", "e_minutes"])
 
-    pf["p_start"] = m_ps.predict_proba(pf[FP])[:, 1]
-    pf["p60"] = m_p60.predict_proba(pf[S2])[:, 1]
-    pf["p_sub"] = iso.predict(m_sub.predict_proba(pf[SUBF])[:, 1])
-    pf["min_start"] = m_mins.predict(pf[S1])
-    pf["min_sub"] = m_msub.predict(pf[SUBRF])
+    pf["p_start"] = m_ps.predict_proba(pf[xFP])[:, 1]
+    pf["p60"] = m_p60.predict_proba(pf[xS2])[:, 1]
+    pf["p_sub"] = iso.predict(m_sub.predict_proba(pf[xSUBF])[:, 1])
+    pf["min_start"] = m_mins.predict(pf[xS1])
+    pf["min_sub"] = m_msub.predict(pf[xSUBRF])
     pf["e_minutes"] = pf["p_start"] * pf["min_start"] + (1 - pf["p_start"]) * pf["p_sub"] * pf["min_sub"]
 
     if log_mlflow:
@@ -240,6 +264,7 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False):
                     "iso_sub": iso, "min_start": m_mins, "min_sub": m_msub},
             params={
                 "up_to_gw": up_to_gw,
+                "availability": availability,
                 "predict_gws": "all" if predict_gws is None else str(predict_gws),
                 "train_seasons": ",".join(TRAIN_SEASONS),
                 "predict_season": PREDICT_SEASON,
@@ -257,6 +282,12 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False):
             metrics=_eval_metrics(pf),
             run_name=f"minutes_gw{up_to_gw}" if up_to_gw else "minutes_static",
         )
+
+    # Kept for evaluation/diagnostics (eval_minutes_av.py); the return value is what
+    # assembly and the walk-forward actually consume.
+    get_minutes.last_models = {"p_start": (m_ps, xFP), "p60": (m_p60, xS2),
+                               "min_start": (m_mins, xS1)}
+    get_minutes.last_frame = pf
 
     return pf[["element", "GW", "name", "position", "p_start", "p60", "e_minutes"]].rename(columns={"GW": "gw"})
 

@@ -12,3 +12,5 @@ github_actions_key
 mlartifacts/
 mlruns/
 mlflow.db
+
+fplcache/
