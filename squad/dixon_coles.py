@@ -218,9 +218,17 @@ def _odds_are_usable(df, odds_available_until):
     return present & (df["date_parsed"] <= limit)
 
 
-def get_fixtures(cutoff_date=None, predict_dates=None, odds_available_until=None,
+def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
+                 odds_available_until=None,
                  log_mlflow=False):
-    """Fit DC on matches strictly before cutoff_date, return 2025-26 fixture predictions.
+    """Fit DC on matches strictly before cutoff_date, return fixture predictions.
+
+    `predict_season` defaults to PREDICT_SEASON (2025-26) so existing callers are
+    unchanged. It must be threaded through the BODY, not just declared: a
+    parameter that is accepted and ignored is worse than no parameter, because the
+    caller believes it took effect. This one silently returned 2025-26 fixtures for
+    a 2023-24 request, which made every fixture-dependent term NaN and, after the
+    groupby-sum in collapse_to_gameweek, an apparently harmless 0.0.
       cutoff_date   : datetime/date. None -> fit on all pre-2025-26 matches (original).
       predict_dates : optional iterable of dates to restrict the returned fixtures to.
       odds_available_until : date beyond which market odds are treated as UNPUBLISHED,
@@ -233,12 +241,13 @@ def get_fixtures(cutoff_date=None, predict_dates=None, odds_available_until=None
     Returns DataFrame[season, home, away, match_date, lam_home, lam_away,
                       p_home_cs, p_away_cs].
     lam_* use pure market (best WDL); p_*_cs use the 0.2 DC blend (best CS Brier)."""
+    predict_season = PREDICT_SEASON if predict_season is None else predict_season
     matches = _load_matches()
     teams = sorted(set(matches["home"]) | set(matches["away"]))
 
     if cutoff_date is None:
-        train_m = matches[matches["season"] < PREDICT_SEASON].copy()
-        ref = matches[matches["season"] == PREDICT_SEASON]["date_parsed"].min()
+        train_m = matches[matches["season"] < predict_season].copy()
+        ref = matches[matches["season"] == predict_season]["date_parsed"].min()
     else:
         cutoff = pd.to_datetime(cutoff_date)
         train_m = matches[matches["date_parsed"] < cutoff].copy()
@@ -247,7 +256,7 @@ def get_fixtures(cutoff_date=None, predict_dates=None, odds_available_until=None
     params, idx, nt = _fit_dc_decay(train_m, teams, ref, HALF_LIFE_DAYS)
     atk, dfc, hadv, rho = params[:nt], params[nt:2 * nt], params[-2], params[-1]
 
-    df = matches[matches["season"] == PREDICT_SEASON].copy()
+    df = matches[matches["season"] == predict_season].copy()
     df = df[df["home"].isin(idx) & df["away"].isin(idx)].copy()
     if predict_dates is not None:
         want = set(pd.to_datetime(list(predict_dates)).date)
@@ -303,7 +312,7 @@ def get_fixtures(cutoff_date=None, predict_dates=None, odds_available_until=None
             params={
                 "cutoff_date": str(cutoff_date),
                 "predict_dates": "all" if predict_dates is None else f"{len(df)} dates",
-                "predict_season": PREDICT_SEASON,
+                "predict_season": predict_season,
                 "half_life_days": HALF_LIFE_DAYS,
                 "lam_blend_w": LAM_BLEND_W,
                 "cs_blend_w": CS_BLEND_W,

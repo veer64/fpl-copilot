@@ -15,7 +15,7 @@ is by rank: a component can be badly biased and still pick the right players, an
 component can be unbiased and still rank them wrongly.
 
 Usage:
-    uv run python analyse_coldstart.py
+    uv run python eval/analyse_coldstart.py
 """
 
 import sys
@@ -25,7 +25,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 WF = REPO / "data" / "walkforward_h6_2526.parquet"

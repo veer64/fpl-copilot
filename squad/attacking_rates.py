@@ -41,6 +41,12 @@ EVAL_SEASON = "2025"
 # Understat labels by start-year: "2024" == 2024-25. Predicting 2025-26 uses
 # 2022,2023,2024 (the three seasons before it).
 PRIOR_SEASONS = {
+    # Each season is predicted from the THREE Understat seasons before it, never
+    # its own -- the leak fixed in LEAKAGE.md #4. Understat labels by start year.
+    "2021-22": ["2018", "2019", "2020"],
+    "2022-23": ["2019", "2020", "2021"],
+    "2023-24": ["2020", "2021", "2022"],
+    "2024-25": ["2021", "2022", "2023"],
     "2025-26": ["2022", "2023", "2024"],
 }
 

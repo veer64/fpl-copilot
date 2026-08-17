@@ -20,9 +20,9 @@ We use the `asof_*` columns: the deadline-accurate reconstruction. Production re
 bootstrap-static live at the deadline and sees precisely that state.
 
 Usage:
-    uv run python measure_availability.py --arms baseline zeros_all both
-    uv run python measure_availability.py --metrics-only
-    uv run python measure_availability.py --report
+    uv run python eval/measure_availability.py --arms baseline zeros_all both
+    uv run python eval/measure_availability.py --metrics-only
+    uv run python eval/measure_availability.py --report
 """
 
 import argparse
@@ -34,7 +34,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 WALKFWD = REPO / "data" / "walkforward_h6_2526.parquet"

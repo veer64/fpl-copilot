@@ -11,9 +11,9 @@ only sharpens the obvious zeros will move Brier and barely move AUC on the rows
 where a squad decision is actually made.
 
 Usage:
-    uv run python eval_minutes_av.py                 # baseline vs full block
-    uv run python eval_minutes_av.py --ablate        # leave-one-out per feature
-    uv run python eval_minutes_av.py --importance
+    uv run python eval/eval_minutes_av.py                 # baseline vs full block
+    uv run python eval/eval_minutes_av.py --ablate        # leave-one-out per feature
+    uv run python eval/eval_minutes_av.py --importance
 """
 
 import argparse
@@ -25,7 +25,9 @@ import pandas as pd
 from scipy.stats import spearmanr
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 import availability_features as avf  # noqa: E402

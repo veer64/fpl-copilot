@@ -1,6 +1,6 @@
 """Tests for the path-controlled harness summary statistic.
 
-The harness itself is falsified end-to-end by falsify_pathcontrol.py (which needs a
+The harness itself is falsified end-to-end by eval/falsify_pathcontrol.py (which needs a
 full season and is far too slow for the unit suite). What is pinned here is the
 summary layer, because that is where a real defect was found: averaging a
 single-gameweek treatment over every anchor divided a +53 effect by 38 and reported

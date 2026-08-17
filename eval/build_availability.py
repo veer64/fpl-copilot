@@ -12,8 +12,8 @@ Snapshot timestamps come from the cache path {year}/{month}/{day}/{HHMM}.json.xz
 which cache.py writes from the GitHub Actions runner clock (UTC).
 
 Usage:
-    uv run python build_availability.py                    # 2025-26
-    uv run python build_availability.py --season 2024-25
+    uv run python eval/build_availability.py                    # 2025-26
+    uv run python eval/build_availability.py --season 2024-25
 """
 
 import argparse
@@ -24,8 +24,13 @@ from pathlib import Path
 
 import pandas as pd
 
-CACHE = Path("fplcache/cache")
-OUT_DIR = Path("data")
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py. These were working-directory-relative and so only resolved when run
+# from the repo root; anchoring them to the file removes that dependence.
+REPO = Path(__file__).resolve().parent.parent
+
+CACHE = REPO / "fplcache" / "cache"
+OUT_DIR = REPO / "data"
 
 FIELDS = [
     "status",

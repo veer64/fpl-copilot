@@ -1,7 +1,39 @@
 # Availability signal — extraction, override test, feature test
 
+> ## ⚠ SUPERSEDED BASELINE — figures below are NOT comparable to current builds
+>
+> **Added 2026-08-14.** Every number in this log predates three changes that each
+> moved the prediction surface it was measured on. The numbers are left in place
+> deliberately — they are the record of what was believed at the time — but they
+> must not be compared against anything built after 2026-08-14.
+>
+> **1. Baseline migration (M3).** The canonical walk-forward file was rebuilt with
+> `availability=True`. It had been `availability=False`. Horizon-0 Spearman moved
+> 0.715 → 0.745, MAE 1.15 → 1.11. **Any figure quoting a season total of 1984 is on
+> the pre-migration baseline.** The pre-migration artefact is preserved as
+> `data/walkforward_h6_2526_prefix.parquet` and still reproduces 1984 exactly, so
+> these numbers remain checkable — they are stale, not lost.
+>
+> **2. Double-gameweek handling.** The master equation now runs per player-FIXTURE
+> and sums, so a double carries both opponents. Previously three independent
+> defects priced a double as a single fixture (minutes_frac capped at one fixture,
+> the Dixon-Coles join kept an arbitrary fixture, the DC join took a max). Doubled
+> players' predictions roughly doubled. **Any chip-timing or fixture-structure
+> conclusion drawn before this is invalid**, because the planner could not see a
+> double at all.
+>
+> **3. Odds horizon fixed at 0 (project decision, not a tunable).** Only the current
+> gameweek's market is reliably published at a Friday deadline; reading odds for
+> later gameweeks is a leak. Figures built at `ODDS_HORIZON_GWS = 2` are inflated
+> relative to current builds — measured at roughly +39 points on one paired
+> comparison. That drop is the removal of a leak, not a regression.
+>
+> Current canonical: `data/walkforward_h6_2526.parquet`, stamped
+> `minutes_availability=True`, `odds_horizon_gws=0`, `dgw_handling='per_fixture'`.
+
+
 Source: `fplcache/` (Randdalf/fplcache, Unlicense, gitignored). Built by
-`build_availability.py` -> `data/availability_{2122..2526}.parquet`.
+`eval/build_availability.py` -> `data/availability_{2122..2526}.parquet`.
 
 ## What the data is
 
@@ -163,7 +195,7 @@ question of this shape, not just this one.
 
 # Path-controlled harness (Instrument A) — built, falsified, validated
 
-`squad/pathcontrol.py`, `falsify_pathcontrol.py`, `validate_pathcontrol.py`.
+`squad/pathcontrol.py`, `eval/falsify_pathcontrol.py`, `eval/validate_pathcontrol.py`.
 Crossover windowed restart: both arms restarted from the SAME state at every anchor,
 run freely for W gameweeks, discarded. W is a dial on admitted compounding.
 

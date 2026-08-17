@@ -16,7 +16,7 @@ PREDICTIONS, fixed before running (see squad/degrade.py for the reasoning):
 Every arm sees the identical jitter draw, so the comparison is paired throughout.
 
 Usage:
-    uv run python measure_degradation.py --draws 8 --eps 0.25 --shard 0 --nshards 3
+    uv run python eval/measure_degradation.py --draws 8 --eps 0.25 --shard 0 --nshards 3
 """
 
 import argparse
@@ -26,7 +26,9 @@ from pathlib import Path
 
 import pandas as pd
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 import degrade  # noqa: E402

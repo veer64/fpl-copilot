@@ -10,7 +10,7 @@ Config: H=3, decay=0.3, mode=balanced, bench_weight=0.2, horizon_aware=True,
 baseline 1984, three repeats per arm for determinism.
 
 Usage:
-    uv run python measure_minutes_av.py --reps 3
+    uv run python eval/measure_minutes_av.py --reps 3
 """
 
 import argparse
@@ -20,7 +20,9 @@ from pathlib import Path
 import pandas as pd
 from scipy.stats import spearmanr
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 from bootstrap import compare_strategies  # noqa: E402

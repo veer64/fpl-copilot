@@ -12,18 +12,25 @@ Answers, in order:
 
 Read-only: touches no model code, writes nothing.
 
-Usage: uv run python analyse_availability.py [--asof]
+Usage: uv run python eval/analyse_availability.py [--asof]
        --asof uses the deadline-accurate reconstruction instead of the raw snapshot.
 """
 
 import argparse
 import re
+from pathlib import Path
 
 import pandas as pd
 
-AVAIL = "data/availability_2526.parquet"
-WALKFWD = "data/walkforward_h6_2526.parquet"
-HISTORY = "data/history/all_seasons_fixed.parquet"
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here. These were bare relative strings and so
+# only resolved when run from the repo root; anchoring them to the file removes the
+# dependence on the working directory entirely.
+REPO = Path(__file__).resolve().parent.parent
+
+AVAIL = REPO / "data" / "availability_2526.parquet"
+WALKFWD = REPO / "data" / "walkforward_h6_2526.parquet"
+HISTORY = REPO / "data" / "history" / "all_seasons_fixed.parquet"
 SEASON = "2025-26"
 
 # FPL status codes. `d` is the only partial state; the rest are binary.

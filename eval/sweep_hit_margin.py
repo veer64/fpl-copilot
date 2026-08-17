@@ -22,7 +22,7 @@ removes both. `transfers` and `n_hit_moves` are reported per arm precisely so th
 collapse is visible rather than inferred.
 
 Usage:
-    uv run python sweep_hit_margin.py --margins 0 1 2 4 8
+    uv run python eval/sweep_hit_margin.py --margins 0 1 2 4 8
 """
 
 import argparse
@@ -31,7 +31,9 @@ from pathlib import Path
 
 import pandas as pd
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 import scoring  # noqa: E402

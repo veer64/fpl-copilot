@@ -119,7 +119,21 @@ from optimize import (
 )
 from squad_state import sell_price, MAX_FREE_TRANSFERS
 
-HIT_COST = 4
+HIT_COST = 4          # FPL's actual charge. Never change this: it is a game rule.
+
+# The DECISION bar the solver must clear before paying a hit. Defaults to the real
+# charge, which is the current behaviour.
+#
+# Setting it above HIT_COST does NOT change what a hit costs when the gameweek is
+# scored -- FPL still deducts 4. It raises the predicted gain the solver demands
+# before it is willing to pay that 4.
+#
+# This is a GAMEWEEK-level bar, not a per-transfer filter, and the distinction is
+# load-bearing. Raising this coefficient leaves the MIP free to choose combination
+# moves; it only requires the week's aggregate to clear a higher bar. A per-transfer
+# minimum-gain filter was tested in Logs/wildcard_and_determinism.md and destroyed
+# local gain monotonically (W1 +7.6 -> -1.0 as lambda went 0 -> 3) because it cut
+# the low-gain budget-enabling legs that make combination moves possible.
 DEFAULT_HORIZON = 6
 DEFAULT_DECAY = 0.85
 
@@ -135,6 +149,7 @@ def build_and_solve(
     decay=DEFAULT_DECAY,
     wildcard_step=None,
     solver=None,
+    hit_bar=None,
 ):
     """Solve the multi-gameweek transfer plan.
 
@@ -152,6 +167,8 @@ def build_and_solve(
 
     Returns (status, plan) where plan is a list of per-gameweek dicts.
     """
+    hit_bar = HIT_COST if hit_bar is None else hit_bar
+
     w_bench = resolve_bench_weight(mode, bench_weight)
     gws = list(pool_by_gw.keys())
     T = len(gws)
@@ -239,7 +256,7 @@ def build_and_solve(
             obj.append(d * p * cap[(i, t)])
             obj.append(d * VICE_WEIGHT * p * vice[(i, t)])
             obj.append(d * w_bench * p * (pick[(i, t)] - start[(i, t)]))
-        obj.append(-d * HIT_COST * hits[t])
+        obj.append(-d * hit_bar * hits[t])
     prob += pulp.lpSum(obj)
 
     # ---- per-gameweek squad and XI rules --------------------------------

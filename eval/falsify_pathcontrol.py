@@ -24,8 +24,8 @@ look cleaner. These four checks are what stops it becoming a significance machin
      useless as one that reports significance for everything.
 
 Usage:
-    uv run python falsify_pathcontrol.py
-    uv run python falsify_pathcontrol.py --quick    # fewer anchors
+    uv run python eval/falsify_pathcontrol.py
+    uv run python eval/falsify_pathcontrol.py --quick    # fewer anchors
 """
 
 import argparse
@@ -34,7 +34,9 @@ from pathlib import Path
 
 import pandas as pd
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 import pathcontrol as pc  # noqa: E402

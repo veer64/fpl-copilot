@@ -33,13 +33,15 @@ EXTRA = ["saves", "yellow_cards", "red_cards", "goals_conceded", "penalties_miss
 BPS_FEATURES = COMP + ["is_def", "is_mid", "is_gk"] + EXTRA
 
 
-def _cutoff_mask(d, up_to_gw):
+def _cutoff_mask(d, up_to_gw, train_until=None, predict_season=None):
     """Rows usable for training/curve/mean: all seasons <= 2024-25, plus
     current-season gameweeks strictly before up_to_gw.
     up_to_gw=None -> prior seasons only (original intent)."""
-    m = d["season"] <= TRAIN_UNTIL_SEASON
+    train_until = TRAIN_UNTIL_SEASON if train_until is None else train_until
+    predict_season = PREDICT_SEASON if predict_season is None else predict_season
+    m = d["season"] <= train_until
     if up_to_gw is not None:
-        m = m | ((d["season"] == PREDICT_SEASON) & (d["GW"] < up_to_gw))
+        m = m | ((d["season"] == predict_season) & (d["GW"] < up_to_gw))
     return m
 
 
@@ -115,7 +117,8 @@ def _eval_metrics(bps_model, bps_to_bonus, held_out, n_curve_bins, n_train, bonu
     return m
 
 
-def get_bonus_model(up_to_gw=None, log_mlflow=False):
+def get_bonus_model(up_to_gw=None, log_mlflow=False, train_until=None,
+                    predict_season=None):
     """Train the BPS predictor + build the BPS->bonus curve + the recalibration mean,
     all from data at or before the cutoff.
     Returns (bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean).
@@ -128,7 +131,7 @@ def get_bonus_model(up_to_gw=None, log_mlflow=False):
         d[c] = pd.to_numeric(d[c], errors="coerce")
 
     # everything below is built from cutoff-eligible rows ONLY (leak fix #2 and #3)
-    elig = d[_cutoff_mask(d, up_to_gw)].copy()
+    elig = d[_cutoff_mask(d, up_to_gw, train_until, predict_season)].copy()
 
     # Piece 2: empirical BPS -> expected-bonus curve (bucket by 5, average bonus)
     elig["bps_bin"] = (elig["bps"] // 5) * 5
@@ -154,11 +157,11 @@ def get_bonus_model(up_to_gw=None, log_mlflow=False):
     # assembly applies it (across every row it is scoring).
     dfa = df[df["position"] != "AM"].copy()
     dfa["bonus"] = pd.to_numeric(dfa["bonus"], errors="coerce")
-    bonus_mean = dfa[_cutoff_mask(dfa, up_to_gw)]["bonus"].mean()
+    bonus_mean = dfa[_cutoff_mask(dfa, up_to_gw, train_until, predict_season)]["bonus"].mean()
 
     if log_mlflow:
         # Held-out = everything the cutoff EXCLUDED from training. The honest future.
-        held_out = d[~_cutoff_mask(d, up_to_gw)].copy()
+        held_out = d[~_cutoff_mask(d, up_to_gw, train_until, predict_season)].copy()
         for col, pos in [("is_def", "DEF"), ("is_mid", "MID"), ("is_gk", "GK")]:
             held_out[col] = (held_out["position"] == pos).astype(int)
         _log_to_mlflow(

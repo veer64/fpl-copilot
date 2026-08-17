@@ -23,7 +23,7 @@ Falsification suite for Instrument B. Run before trusting any interval it produc
                               solver and the whole instrument is inert.
 
 Usage:
-    uv run python falsify_perturbation.py
+    uv run python eval/falsify_perturbation.py
 """
 
 import sys
@@ -32,7 +32,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 import perturb  # noqa: E402

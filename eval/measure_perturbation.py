@@ -8,8 +8,8 @@ record the paired difference. Shardable so several processes can share the work 
 independent of how far any other shard has got.
 
 Usage:
-    uv run python measure_perturbation.py --draws 25 --eps 0.25
-    uv run python measure_perturbation.py --draws 8 --eps 0.001 0.1 0.5 --shard 0 --nshards 3
+    uv run python eval/measure_perturbation.py --draws 25 --eps 0.25
+    uv run python eval/measure_perturbation.py --draws 8 --eps 0.001 0.1 0.5 --shard 0 --nshards 3
 """
 
 import argparse
@@ -19,7 +19,9 @@ from pathlib import Path
 
 import pandas as pd
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 import perturb  # noqa: E402

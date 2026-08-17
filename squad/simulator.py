@@ -89,7 +89,7 @@ DEFAULT_SECOND_HALF_START = 20
 # Data loading
 # ---------------------------------------------------------------------------
 def load_season(walkforward_path=None, history_path=HISTORY_PATH,
-                horizon_aware=False):
+                horizon_aware=False, season=None):
     """Load as-of predictions, realized outcomes, and prices for every gameweek.
 
     horizon_aware=False (default) loads the original file: one prediction per
@@ -117,7 +117,8 @@ def load_season(walkforward_path=None, history_path=HISTORY_PATH,
     wf = pd.read_parquet(walkforward_path)
 
     history = pd.read_parquet(history_path)
-    history = history[history["season"] == SEASON]
+    # Season is a parameter for the multi-season port (M2). Default keeps 2025-26.
+    history = history[history["season"] == (SEASON if season is None else season)]
     prices = (history[["element", "round", "value"]]
               .rename(columns={"round": "gw"})
               .drop_duplicates(subset=["element", "gw"], keep="first"))
@@ -341,7 +342,7 @@ def decide_gameweek(pool, state, prices, mode="balanced", allow_transfer=True):
 # ---------------------------------------------------------------------------
 def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
                         mode="balanced", horizon=DEFAULT_HORIZON,
-                        decay=DEFAULT_DECAY, wildcard=False):
+                        decay=DEFAULT_DECAY, wildcard=False, hit_bar=None):
     """Plan `horizon` gameweeks ahead with the transfer MIP, return this week's move.
 
     Rolling horizon: the solver produces a plan for GW..GW+horizon-1, but only the
@@ -387,6 +388,7 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
         mode=mode,
         decay=decay,
         wildcard_step=0 if wildcard else None,
+        hit_bar=hit_bar,
     )
     if plan is None:
         raise RuntimeError(f"GW{gw}: transfer MIP returned {status}")
@@ -470,7 +472,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                     policy="single", horizon=DEFAULT_HORIZON, decay=DEFAULT_DECAY,
                     wildcard_gws=None, triple_captain_gw=None,
                     free_hit_gws=None,
-                    second_half_start=DEFAULT_SECOND_HALF_START):
+                    second_half_start=DEFAULT_SECOND_HALF_START, hit_bar=None):
     """Run the full season. Returns (final_state, decision_log DataFrame).
 
     policy : "single" -- the v1 search: try keeping, try selling each of the 15,
@@ -602,7 +604,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             team, transfers, step, eff_h = decide_gameweek_mip(
                 season_df, gw, state, pool, prices, gws,
                 mode=mode, horizon=eff_horizon, decay=decay,
-                wildcard=is_wildcard or is_free_hit)
+                wildcard=is_wildcard or is_free_hit, hit_bar=hit_bar)
             effective_horizon = eff_h
 
             # Applied as ONE atomic move: the MIP reasoned about the whole set,

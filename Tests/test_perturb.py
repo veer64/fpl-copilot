@@ -1,6 +1,6 @@
 """Tests for the Instrument B perturbation layer.
 
-The season-scale falsification lives in falsify_perturbation.py (five full sims, far
+The season-scale falsification lives in eval/falsify_perturbation.py (five full sims, far
 too slow for the unit suite). What is pinned here is the jitter table, because every
 interval Instrument B produces depends on two properties that would fail silently:
 

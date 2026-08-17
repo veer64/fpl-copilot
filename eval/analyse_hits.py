@@ -21,7 +21,7 @@ on actuals. A transfer sold again inside the window keeps its full window credit
 which slightly flatters both arms equally.
 
 Usage:
-    uv run python analyse_hits.py
+    uv run python eval/analyse_hits.py
 """
 
 import sys
@@ -30,7 +30,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REPO = Path(__file__).resolve().parent
+# Lives in eval/, so the repo root is two levels up -- same convention as
+# walkforward.py, which has always sat here.
+REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
 HORIZON, DECAY = 3, 0.3

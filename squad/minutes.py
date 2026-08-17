@@ -111,12 +111,14 @@ def _build_frames(col):
     return cs, sd, bd
 
 
-def _train_mask(frame, up_to_gw):
+def _train_mask(frame, up_to_gw, train_seasons=None, predict_season=None):
     """Rows eligible for TRAINING: all prior seasons, plus current-season GWs < up_to_gw.
     up_to_gw=None -> prior seasons only (original behaviour)."""
-    m = frame["season"].isin(TRAIN_SEASONS)
+    train_seasons = TRAIN_SEASONS if train_seasons is None else train_seasons
+    predict_season = PREDICT_SEASON if predict_season is None else predict_season
+    m = frame["season"].isin(train_seasons)
     if up_to_gw is not None:
-        m = m | ((frame["season"] == PREDICT_SEASON) & (frame["GW"] < up_to_gw))
+        m = m | ((frame["season"] == predict_season) & (frame["GW"] < up_to_gw))
     return m
 
 
@@ -189,7 +191,8 @@ def _eval_metrics(pf):
     return m
 
 
-def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=None):
+def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=None,
+                per_fixture=False, train_seasons=None, predict_season=None):
     """Train on prior seasons (+ current season before up_to_gw), predict.
     Returns mins_out: DataFrame[element, gw, name, position, p_start, p60, e_minutes].
     log_mlflow=True logs params/metrics/models as ONE MLflow run (default off, so
@@ -202,7 +205,33 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
     0.2397 -> 0.0782) and on players coming back (E[min] 27.1 -> 42.9 vs 43.1 actual).
     P(60+|started) is unchanged, correctly: given a player starts, availability adds
     nothing. availability=False reproduces the pre-adoption model exactly, which is
-    what data/walkforward_h6_2526.parquet and the 1984 baseline were built from."""
+    what data/walkforward_h6_2526.parquet and the 1984 baseline were built from.
+
+    per_fixture=True asks the model for ONE ORDINARY FIXTURE rather than for the
+    gameweek as a whole, by forcing `is_double_gw` to 0 at prediction time. Nothing
+    is retrained and no config changes -- the same fitted models are asked a
+    different question about the same player.
+
+    Why this is the right question for a per-fixture assembly. The two minutes
+    regressors are fitted on `minutes_capped`, and the double-gameweek collapse
+    SUMS minutes before capping at 90. So a player who played 90+90 carries the
+    target 90, identical to a single-match 90, while a player who played 90+45
+    also carries 90 against a true per-match average of 67.5. The target therefore
+    overstates per-match minutes on double rows, and `is_double_gw` lets the model
+    act on that -- which is why double rows predict ~10% above the same player's
+    adjacent single gameweeks (p_start 1.27x, e_minutes 1.10x, max 88.64) despite
+    never approaching a genuine two-fixture total.
+
+    Left uncorrected, a per-fixture assembly would apply that inflated figure to
+    BOTH fixtures and land at ~2.2x a single gameweek instead of ~2.0x. Forcing the
+    flag to 0 removes a measurable training artefact; it does not add an assumption.
+
+    Single-gameweek rows already carry is_double_gw = 0, so their predictions are
+    bit-identical with the flag either way. Only double rows move, and only down."""
+    # Season parameters exist for the multi-season port (M2). Defaults reproduce
+    # the 2025-26 canonical build exactly.
+    train_seasons = TRAIN_SEASONS if train_seasons is None else train_seasons
+    predict_season = PREDICT_SEASON if predict_season is None else predict_season
     availability = AVAILABILITY_DEFAULT if availability is None else availability
     AV = avf.FEATURES if availability else []
 
@@ -218,25 +247,25 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
     # a null availability column can never silently delete a player-gameweek.
     xFP, xS2, xS1, xSUBF, xSUBRF = FP + AV, S2 + AV, S1 + AV, SUBF + AV, SUBRF + AV
 
-    trc = cs[_train_mask(cs, up_to_gw)]
+    trc = cs[_train_mask(cs, up_to_gw, train_seasons, predict_season)]
     m_ps = lgb.LGBMClassifier(n_estimators=300, learning_rate=0.05, num_leaves=31,
                               random_state=42, verbose=-1).fit(trc[xFP], trc["starts"])
 
-    tr2 = sd[_train_mask(sd, up_to_gw)]
+    tr2 = sd[_train_mask(sd, up_to_gw, train_seasons, predict_season)]
     m_p60 = lgb.LGBMClassifier(n_estimators=100, num_leaves=7, min_child_samples=100, reg_lambda=1.0,
                                learning_rate=0.05, random_state=42, verbose=-1).fit(tr2[xS2], tr2["played_60"])
 
-    tr3 = bd[_train_mask(bd, up_to_gw)].dropna(subset=SUBF)
+    tr3 = bd[_train_mask(bd, up_to_gw, train_seasons, predict_season)].dropna(subset=SUBF)
     m_sub = lgb.LGBMClassifier(n_estimators=200, num_leaves=15, min_child_samples=50,
                                learning_rate=0.05, random_state=42, verbose=-1).fit(tr3[xSUBF], tr3["came_on"])
     iso = IsotonicRegression(out_of_bounds="clip").fit(m_sub.predict_proba(tr3[xSUBF])[:, 1], tr3["came_on"])
 
-    tr4 = sd[_train_mask(sd, up_to_gw)].dropna(subset=S1)
+    tr4 = sd[_train_mask(sd, up_to_gw, train_seasons, predict_season)].dropna(subset=S1)
     m_mins = lgb.LGBMRegressor(n_estimators=200, num_leaves=15, min_child_samples=50,
                                learning_rate=0.05, random_state=42, verbose=-1).fit(tr4[xS1], tr4["minutes_capped"])
 
     subs = bd[bd["came_on"] == 1].copy()
-    tr5 = subs[_train_mask(subs, up_to_gw)].dropna(subset=SUBRF)
+    tr5 = subs[_train_mask(subs, up_to_gw, train_seasons, predict_season)].dropna(subset=SUBRF)
     m_msub = lgb.LGBMRegressor(n_estimators=100, num_leaves=7, min_child_samples=100, reg_lambda=1.0,
                                learning_rate=0.05, random_state=42, verbose=-1).fit(tr5[xSUBRF], tr5["minutes_capped"])
 
@@ -245,11 +274,17 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
     csx = cs.merge(sr, on=["season", "element", "GW"], how="left")
     csx[["past60_rate_3", "past60_rate_5", "last_start_minutes"]] = \
         csx[["past60_rate_3", "past60_rate_5", "last_start_minutes"]].fillna(0)
-    pf = csx[csx["season"] == PREDICT_SEASON].dropna(subset=SUBF + S1).copy()
+    pf = csx[csx["season"] == predict_season].dropna(subset=SUBF + S1).copy()
     if predict_gws is not None:
         pf = pf[pf["GW"].isin(predict_gws)]
     if len(pf) == 0:
         return pd.DataFrame(columns=["element", "gw", "name", "position", "p_start", "p60", "e_minutes"])
+
+    if per_fixture:
+        # Ask for one ordinary fixture. See the docstring for why the flag is an
+        # artefact of the capped-sum target rather than a learned double effect.
+        # No-op for single-gameweek rows, which already carry 0.
+        pf["is_double_gw"] = 0
 
     pf["p_start"] = m_ps.predict_proba(pf[xFP])[:, 1]
     pf["p60"] = m_p60.predict_proba(pf[xS2])[:, 1]
@@ -283,7 +318,7 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
             run_name=f"minutes_gw{up_to_gw}" if up_to_gw else "minutes_static",
         )
 
-    # Kept for evaluation/diagnostics (eval_minutes_av.py); the return value is what
+    # Kept for evaluation/diagnostics (eval/eval_minutes_av.py); the return value is what
     # assembly and the walk-forward actually consume.
     get_minutes.last_models = {"p_start": (m_ps, xFP), "p60": (m_p60, xS2),
                                "min_start": (m_mins, xS1)}

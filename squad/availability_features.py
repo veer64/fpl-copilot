@@ -1,7 +1,7 @@
 # availability_features.py
 # FPL availability (status / chance_of_playing / news) as minutes-model features.
 #
-# Source: data/availability_{season}.parquet, built by build_availability.py from the
+# Source: data/availability_{season}.parquet, built by eval/build_availability.py from the
 # fplcache bootstrap-static archive. Adopted 2026-08-13; see Logs/availability_log.md
 # for the measurement that justified it and for what it does NOT buy.
 #
@@ -25,7 +25,7 @@
 # the last snapshot before a deadline can be up to ~6h stale and misses late-breaking
 # news -- Gvardiol's GW1 injury landed 68 minutes after that snapshot and 3.5h before
 # the deadline. The asof_* columns reconstruct the true deadline state from news_added
-# without leaking. See build_availability.py.
+# without leaking. See eval/build_availability.py.
 
 import re
 from pathlib import Path
@@ -58,6 +58,8 @@ def is_departure(status: pd.Series, news: pd.Series) -> pd.Series:
     break the dominant case.
     """
     return ((status == "u") | news.fillna("").str.contains(DEPARTURE)).astype(int)
+
+
 # `u` is 100% departures (6,442 of 6,442 in 2025-26) -- loan, permanent transfer or
 # release. Not one injury. It is a permanent exclusion rather than a temporary state,
 # so it gets a level well away from i/d/s.
@@ -89,7 +91,7 @@ def load(data_dir=None) -> pd.DataFrame:
     if not paths:
         raise FileNotFoundError(
             f"no {AVAIL_GLOB} under {d}. Build them first:\n"
-            "    uv run python build_availability.py --season 2024-25"
+            "    uv run python eval/build_availability.py --season 2024-25"
         )
     av = pd.concat([pd.read_parquet(p) for p in paths], ignore_index=True)
     if "season" not in av.columns:

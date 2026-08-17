@@ -95,10 +95,33 @@ DEFAULT_HORIZON = 6
 # for a gameweek k+3 match are not published at gameweek k, and they encode team
 # news the manager could not have had.
 #
-# The exact number varies by bookmaker and is not worth guessing at precisely --
-# it is a parameter so the ablation sweep can measure what the odds are actually
-# worth versus the DC fallback.
+# FIXED PROJECT DECISION (2026-08-14). NOT a tunable parameter. Do not sweep it.
+#
+# Odds are used for the CURRENT gameweek only; beyond that Dixon-Coles fills in.
+# At a Friday deadline only the current gameweek's market is reliably published,
+# so reading odds for a gameweek the market has not yet priced is a leak, however
+# mild -- those prices encode team news and lineup information the manager could
+# not have had at the moment of deciding.
+#
+# This LOWERS the season total relative to horizon 2. That drop is not a
+# regression; it is the removal of a leak. Any figure built at horizon 2 -- which
+# includes the whole odds-variant sweep grid in Logs/Transfer mip log.md -- is not
+# comparable with figures built here.
 ODDS_HORIZON_GWS = 0
+
+# Provenance, pinned rather than inherited. minutes.py's default has moved once
+# already (availability adopted 2026-08-13) and a file that inherits a default
+# silently changes meaning when that default moves -- KNOWN_ISSUES #10, the same
+# shape as the stale-odds incident. Both values are stamped into every row of the
+# output, so a file always describes how it was made.
+#
+# AVAILABILITY = True is the M3 baseline migration, made deliberately. The
+# availability block was adopted on the minutes model's own component metrics
+# (P(start) AUC 0.9491 -> 0.9607, E[min] MAE 12.82 -> 11.24, first-week-flagged
+# Brier 0.2397 -> 0.0782) and minutes.py has defaulted to it since. The canonical
+# artefact now matches the code. Season totals built on this file are a NEW
+# baseline and are not comparable with 1984.
+AVAILABILITY = True
 
 GOAL_PTS = assembly.GOAL_PTS
 CS_PTS = assembly.CS_PTS
@@ -108,107 +131,22 @@ DC_BASE = assembly.DC_BASE
 
 
 # ---------------------------------------------------------------------------
-# Assembly with components supplied by the caller
+# Assembly
 # ---------------------------------------------------------------------------
-def assemble(df, cw, mins_out, rates, priors, fixtures, dc_out,
-             bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean, gws=None):
-    """assembly.build_predictions() with the component calls lifted out, so the
-    harness can supply per-cutoff components. Logic is otherwise identical."""
-    v = df[(df["season"] == "2025-26") & (df["position"] != "AM")].copy()
-    skel = v[["element", "GW", "name", "position", "team", "minutes", "total_points"]].copy()
-    skel["element"] = pd.to_numeric(skel["element"], errors="coerce").astype(int)
-    skel = skel.rename(columns={"GW": "gw", "total_points": "actual_points"})
-    if gws is not None:
-        skel = skel[skel["gw"].isin(gws)]
-    skel = skel.merge(cw[["element", "player_id", "understat_id"]], on="element", how="left")
-    asm = (skel.sort_values(["element", "gw"]).groupby(["element", "gw"], as_index=False)
-           .agg({"name": "first", "position": "first", "team": "first", "minutes": "sum",
-                 "actual_points": "sum", "player_id": "first", "understat_id": "first"}))
-
-    asm = asm.merge(mins_out[["element", "gw", "p_start", "p60", "e_minutes"]],
-                    on=["element", "gw"], how="left")
-
-    rates_clean = rates.sort_values("npxg90", ascending=False).drop_duplicates(
-        "understat_id", keep="first").copy()
-    asm["understat_id_num"] = pd.to_numeric(asm["understat_id"], errors="coerce")
-    rates_clean["understat_id"] = pd.to_numeric(rates_clean["understat_id"], errors="coerce")
-    asm = asm.merge(rates_clean, left_on="understat_id_num", right_on="understat_id",
-                    how="left", suffixes=("", "_r"))
-    pos_lab = {"FWD": "F", "MID": "M", "DEF": "D", "GK": "D"}
-
-    def fb(row, stat):
-        return priors.get(pos_lab.get(row["position"], "M"), priors["M"])[stat]
-
-    nn = asm["npxg90"].isna()
-    nx = asm["xa90"].isna()
-    if nn.any():
-        asm.loc[nn, "npxg90"] = asm[nn].apply(lambda r: fb(r, "npxg"), axis=1)
-    if nx.any():
-        asm.loc[nx, "xa90"] = asm[nx].apply(lambda r: fb(r, "xa"), axis=1)
-    assert asm.duplicated(["element", "gw"]).sum() == 0
-
-    fx = fixtures.copy()
-    fx["home"] = fx["home"].map(lambda t: TEAM_MAP.get(t, t))
-    fx["away"] = fx["away"].map(lambda t: TEAM_MAP.get(t, t))
-    home = fx[["home", "match_date", "lam_home", "lam_away", "p_home_cs"]].copy()
-    home.columns = ["team", "match_date", "team_lambda", "opp_lambda", "p_cs"]
-    away = fx[["away", "match_date", "lam_away", "lam_home", "p_away_cs"]].copy()
-    away.columns = ["team", "match_date", "team_lambda", "opp_lambda", "p_cs"]
-    tf = pd.concat([home, away], ignore_index=True)
-    vv = df[df["season"] == "2025-26"].copy()
-    vv["match_date"] = pd.to_datetime(vv["kickoff_time"]).dt.date
-    tgd = vv[["team", "GW", "match_date"]].drop_duplicates().rename(columns={"GW": "gw"})
-    tf["match_date"] = pd.to_datetime(tf["match_date"]).dt.date
-    tgd["match_date"] = pd.to_datetime(tgd["match_date"]).dt.date
-    tf = tf.merge(tgd, on=["team", "match_date"], how="left")
-    asm = asm.merge(
-        tf[["team", "gw", "team_lambda", "opp_lambda", "p_cs"]].drop_duplicates(["team", "gw"]),
-        on=["team", "gw"], how="left")
-
-    asm = asm.merge(dc_out[["player_id", "gw", "p_dc_hit"]], on=["player_id", "gw"], how="left")
-    need = asm["p_dc_hit"].isna()
-    asm.loc[need, "p_dc_hit"] = asm.loc[need, "position"].map(DC_BASE).fillna(0.10)
-    asm = (asm.sort_values("p_dc_hit", ascending=False)
-           .drop_duplicates(["element", "gw"], keep="first")
-           .sort_values(["element", "gw"]).reset_index(drop=True))
-
-    a = asm.copy()
-    a["minutes_frac"] = (a["e_minutes"] / 90.0).clip(0, 1)
-    a["fixture_scale"] = (a["team_lambda"] / LEAGUE_AVG_LAMBDA).fillna(1.0).clip(0.5, 2.0)
-    a["e_goals"] = a["npxg90"] * a["minutes_frac"] * a["fixture_scale"]
-    a["e_assists"] = a["xa90"] * a["minutes_frac"] * a["fixture_scale"]
-    a["pts_goals"] = a["e_goals"] * a["position"].map(GOAL_PTS)
-    a["pts_assists"] = a["e_assists"] * 3
-    a["p_60plus"] = a["p_start"] * a["p60"]
-    a["p_play_any"] = a["p_start"] + (1 - a["p_start"]) * 0.30
-    a["pts_appear"] = a["p_60plus"] * 2 + (a["p_play_any"] - a["p_60plus"]).clip(lower=0) * 1
-    a["pts_cs"] = a["p_cs"] * a["position"].map(CS_PTS) * a["p_60plus"]
-    a["pts_dc"] = a["p_dc_hit"] * 2 * a["minutes_frac"]
-    a["e_points_core"] = (a["pts_appear"] + a["pts_goals"] + a["pts_assists"]
-                          + a["pts_cs"] + a["pts_dc"])
-
-    bps_input = pd.DataFrame({
-        "goals_scored": a["e_goals"], "assists": a["e_assists"],
-        "clean_sheets": a["p_cs"] * a["p_60plus"], "minutes": a["e_minutes"],
-        "is_def": (a["position"] == "DEF").astype(int),
-        "is_mid": (a["position"] == "MID").astype(int),
-        "is_gk": (a["position"] == "GK").astype(int),
-        "saves": 0, "yellow_cards": 0, "red_cards": 0, "goals_conceded": 0,
-        "penalties_missed": 0, "own_goals": 0})
-    a["pred_bps"] = bps_model.predict(bps_input[BPS_FEATURES])
-    a["exp_bonus"] = bps_to_bonus(a["pred_bps"].values) * a["minutes_frac"]
-
-    # Normalised PER GAMEWEEK -- must match assembly.py exactly, and matters far
-    # more here. Scaling by the mean across the whole assembled batch would make
-    # gameweek k's prediction depend on which of k+1..k+5 were computed alongside
-    # it, so the same gameweek would score differently at different horizons.
-    gw_mean = a.groupby("gw")["exp_bonus"].transform("mean")
-    a["exp_bonus"] = np.where(gw_mean > 0,
-                              a["exp_bonus"] * bonus_mean / gw_mean,
-                              a["exp_bonus"])
-    a["e_points"] = a["e_points_core"] + a["exp_bonus"]
-    return a
-
+# There is NO assembly code in this file any more. The master equation lives in
+# exactly one place, squad/assembly.py::assemble_fixtures, and this harness calls
+# it with per-cutoff components.
+#
+# It used to be duplicated here, because the harness needs to supply its own
+# components rather than let assembly run them. The two copies drifted, and that
+# is precisely how three double-gameweek defects survived being fixed: they were
+# corrected in squad/assembly.py while this copy kept computing the old answer,
+# and this copy is the one that produces the file the simulator reads.
+#
+#   assemble_fixtures(...)   -> one row per player-FIXTURE
+#   collapse_to_gameweek(..) -> one row per (element, gw), the grain everything
+#                               downstream expects
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Feature freezing
@@ -286,7 +224,11 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
         targets = [g for g in all_gws if k <= g < k + horizon]
 
         # Components trained/refit with cutoff k.
-        m_k = minutes_mod.get_minutes(up_to_gw=k, predict_gws=[k])
+        # per_fixture=True asks for ONE ordinary fixture, so a doubled player's
+        # answer can be applied to each of his fixtures without double-counting
+        # the capped-sum training artefact. availability is pinned, not inherited.
+        m_k = minutes_mod.get_minutes(up_to_gw=k, predict_gws=[k],
+                                      per_fixture=True, availability=AVAILABILITY)
         bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean = \
             bonus_mod.get_bonus_model(up_to_gw=k)
         # Odds are treated as published only ODDS_HORIZON_GWS gameweeks ahead of
@@ -315,9 +257,14 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
         else:
             dc_k = dc_all[dc_all["gw"] == k]
 
-        a_k = assemble(df, cw, m_k, rates, priors, f_k, dc_k,
-                       bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
-                       gws=targets)
+        # Per-fixture equation, then summed back to one row per (element, gw) --
+        # the grain the simulator and optimizer expect. Both functions are the
+        # ones squad/assembly.py uses for the static build; there is no second
+        # implementation.
+        a_k = assembly.collapse_to_gameweek(
+            assembly.assemble_fixtures(df, cw, m_k, rates, priors, f_k, dc_k,
+                                       bps_model, bps_to_bonus, BPS_FEATURES,
+                                       bonus_mean, gws=targets))
         a_k["cutoff"] = k
         a_k["horizon_step"] = a_k["gw"] - k
         out.append(a_k)
@@ -334,8 +281,31 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
     # where source read ODDS_HORIZON_GWS = 0 while the parquet had been built at 2.
     # Stamping it means a file always describes how it was made. Absence of the column
     # means the file predates the stamp, hence pre-adoption. See KNOWN_ISSUES.md #10.
-    result["minutes_availability"] = bool(
-        getattr(minutes_mod, "AVAILABILITY_DEFAULT", True))
+    result["minutes_availability"] = bool(AVAILABILITY)
+    result["odds_horizon_gws"] = (-1 if ODDS_HORIZON_GWS is None
+                                  else int(ODDS_HORIZON_GWS))
+    # "per_fixture" means the equation was evaluated once per player-fixture and
+    # summed, so double gameweeks carry both opponents. Files stamped "per_gw"
+    # (or missing the column entirely) priced a double as a single fixture and
+    # are not comparable for anything chip-related.
+    result["dgw_handling"] = "per_fixture"
+    # Whether the D1 scoring terms (saves, conceded, cards, penalty share) were in
+    # the equation when this file was built. Added 2026-08-17 after the D1
+    # contamination incident: D1 landed in assembly.py mid-session, every file
+    # rebuilt afterwards carried the terms silently, and "baseline"
+    # margin-calibration figures were measured on D1 files. Files missing this
+    # column predate the stamp -- establish their status from the data (pts_saves
+    # non-zero on GK rows) before comparing them with anything. KNOWN_ISSUES #13.
+    result["d1_terms_active"] = bool(assembly.D1_TERMS_ACTIVE)
+    # Clean sheets and conceded from one distribution (opp_lambda) or from the
+    # separately-blended p_cs. Equation-changing flag, so stamped -- the #13
+    # lesson. See assembly.CS_UNIFIED.
+    result["cs_unified"] = bool(assembly.CS_UNIFIED)
+    # Note on a file that no longer exists: data/walkforward_h6_dconly_2526.parquet
+    # is referenced by the MLflow/Simulator/Transfer-MIP handoff as the horizon-0
+    # variant kept alongside a horizon-2 default. With ODDS_HORIZON_GWS fixed at 0
+    # the distinction is gone -- this file IS the horizon-0 build -- and the
+    # dconly artefact is absent from disk in any case. Nothing to retire.
 
     if save_path:
         result.to_parquet(save_path, index=False)

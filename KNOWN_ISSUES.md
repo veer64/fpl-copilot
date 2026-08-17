@@ -425,3 +425,307 @@ and are pre-adoption by definition.
 3. Update the fingerprint in `Tests/test_walkforward_provenance.py`.
 4. Update every log that quotes 1984 — or state plainly that pre-2026-08-13 numbers
    are on the old baseline and are not comparable.
+
+---
+
+## #11 — 2021-22 and 2022-23 are NOT portable to the walk-forward harness
+   (decided 2026-08-14)
+
+**Status:** Standing decision, not a bug. Recorded so a future session does not
+retry the port without knowing why it was refused.
+
+### The constraint
+
+`starts` — the target of the P(start) model, and the gate on every minutes-derived
+term — does not exist in vaastav before 2022-23:
+
+| season  | rows   | `starts` non-null | %     |
+|---------|--------|-------------------|-------|
+| 2021-22 | 25,447 | 0                 | 0.0   |
+| 2022-23 | 26,505 | 18,014            | 68.0  |
+| 2023-24 | 29,725 | 29,725            | 100.0 |
+| 2024-25 | 27,605 | 27,605            | 100.0 |
+| 2025-26 | 29,757 | 29,757            | 100.0 |
+
+2021-22 has no label at all. 2022-23 has a partial label (the GW1–15 quarantine,
+KNOWN_ISSUES #4) and — more decisively — no PRIOR season carrying the label, so
+the minutes model could only be trained on later seasons. That is training on the
+future, which is the exact leak the walk-forward harness exists to prevent.
+
+### Why the obvious workaround is refused
+
+The tempting fix is to infer `starts` from `minutes` for the missing seasons.
+
+**That reintroduces the defect the quarantine was created to isolate.** 2022-23
+GW1–15 was quarantined precisely because minutes cannot distinguish a subbed-off
+starter from an early substitute: 2,005 rows had `starts=0` with `minutes>=90`,
+and an 11-slot budget check showed no team-gameweek reaching 11 confirmed
+starters, so the corruption was far wider than the unambiguous cases. Inferring
+the label season-wide would bake that same ambiguity into the target itself, and
+every downstream figure from those seasons would silently inherit it.
+
+**Three seasons on a clean label is better evidence than five with two built on a
+known-bad target.**
+
+### What this means for M2
+
+The multi-season replication set is **2023-24, 2024-25 and 2025-26**. Not five.
+Any claim resting on cross-season replication is a three-season claim.
+
+### The guard
+
+`eval/walkforward_season.py::train_seasons_for()` returns only prior LABELLED
+seasons and `walk_forward()` raises for a season with none, pointing at this
+entry. It cannot silently fall back to training on the future.
+
+---
+
+## #12 — Crosswalk ONE-TO-ONE wrong matches: a defect class the duplicate sweep
+   cannot see (found 2026-08-14)
+
+**Status:** Two instances found and corrected. A post-build audit now guards
+against it. The class is not fully closed — see "What the audit cannot catch".
+
+### The defect
+
+A vaastav `element` mapped to the WRONG Understat `id`, where the mapping is still
+one-to-one. Nothing is duplicated, nothing errors, and the player simply carries
+another player's attacking rates for a whole season.
+
+**KNOWN_ISSUES #3's duplicate sweep cannot detect this.** That sweep checks whether
+an id is claimed twice. Here each id is claimed exactly once — it is just pointing
+at the wrong person.
+
+### The two instances
+
+Both are Brazilian/Portuguese full-legal-name cases at Nottingham Forest, and both
+were found by ACCIDENT while chasing an unmatched player, never by any check on the
+matched ones.
+
+**1. 2024-25.** Element 653 "Felipe Rodrigues da Silva" (Forest DEF, 891 min, 0G 0A)
+claimed Understat 12766 "Jota Silva" (Forest MID, 799 min, 3G 1A) via a club+token
+pass scoring 66.7. A defender took a forward's identity.
+
+Root cause: the token-uniqueness test was evaluated against UNCLAIMED club-mates
+only. The other "Silva" at the club had already been matched and was therefore
+invisible, so "silva" looked discriminating when it is not. Fixed by testing
+uniqueness against every club-mate in the season, claimed or not.
+
+**2. 2025-26 — the canonical file.** `player_id_crosswalk_final.csv`, element 511
+"Felipe Rodrigues da Silva" (Forest DEF, 1340 min, 1G 0A) → 12766 "Jota Silva"
+(7 min). Correct id is 13068 "Morato", who IS Felipe Rodrigues da Silva:
+1340v1333 min, 1v1 G, 0v0 A.
+
+This one had a measurable effect. Attacking rates pool prior seasons and require 450
+minutes; Jota Silva's 2024 row has 799, so it CLEARED the threshold and was used
+rather than falling back to a prior:
+
+    id 12766 (used)      npxG/90 0.3085   xA/90 0.3779
+    id 13068 (correct)   npxG/90 0.0110   xA/90 0.0000
+
+A centre-back was given a winger's attacking rate — ~28x the npxG. His `pts_goals`
+averaged 0.403 against a DEF cohort mean of 0.137, the 91st percentile of defenders
+for predicted goal points, for a player who scored once.
+
+**Mitigation:** element 511 was never selected in any gameweek of the canonical run
+and appeared in no transfer, so the realised path was unaffected. He does sit in the
+pairwise-margin population as an inflated DEF.
+
+### The guard
+
+`eval/build_crosswalk.py::_audit()` runs automatically after every build. For every
+matched pair with 450+ minutes it compares minutes and goals across the two
+independent sources:
+
+- **minutes**: tolerance `max(240, 35% of the larger value)` — scaled, because 60
+  minutes apart is nothing on 2,500 and damning on 150. **RAISES on failure.**
+- **goals**: absolute margin of 3, which absorbs definitional differences without
+  absorbing a different player. **RAISES on failure.**
+- **club**: **WARNS only.** Mid-season transfers produce genuine false positives
+  (Ouattara, Ramsey, Garnacho, Nelson, Doak all legitimately show one club in
+  vaastav and another in Understat).
+
+### What the audit CANNOT catch
+
+It catches wrong matches whose profiles disagree. It cannot catch a wrong match
+between two players with similar minutes and goals at the same club — Arsenal's
+three Gabriels would pass it. **The uniqueness rule remains the primary defence and
+the audit is a second net with known holes.**
+
+### Practical rule
+
+Any crosswalk that is built, edited or extended gets the audit run over it. The
+2025-26 canonical file was built by the original fuzzy-then-manual process and had
+never had this audit applied until now; it has now been audited and corrected, and
+the canonical walk-forward file was rebuilt on the corrected version.
+
+---
+
+## Open puzzle — 2024-25: worst minutes model, best-calibrated margins (2026-08-14)
+
+Not a bug. Recorded because it sits underneath a number the project may lean on.
+
+    season    P(start) AUC   E[min] MAE      started beta (H=3 decayed)
+    2023-24       0.9601        11.44               0.540
+    2024-25       0.9533        12.44               0.662   <- worst model, best beta
+    2025-26       0.9605        11.27               0.389
+
+2024-25 has the weakest minutes model of the three portable seasons AND the
+best-calibrated pairwise margins between players. The two move in opposite
+directions and **there is no account of why**.
+
+The minutes gap itself was investigated and is largely explained — 2024-25 is
+intrinsically harder (most rotation, shortest appearances, fewest full 90s, weakest
+week-to-week start persistence at 0.7021 against 0.7281 and 0.7231), with 62% of the
+MAE gap attributable to band mix rather than worse within-band prediction. AM
+leakage, feature coverage and training composition were all ruled out.
+
+What is unexplained is the calibration direction. This matters because 2024-25 is
+the MIDDLE observation in the 6-10 implied-hit-bar range
+(`Logs/margin_calibration_log.md`); anyone treating that range as a stable estimate
+should know its middle value is unexplained.
+
+**2026-08-17: the beta column above is contaminated** — those values were measured
+on files carrying D1 terms while described as baseline (see #13 and the retraction
+header in `Logs/margin_calibration_log.md`). The puzzle may dissolve entirely on
+clean files; do not investigate it before re-measuring.
+
+---
+
+## #13 — D1 scoring terms entered `assembly.py` before the "baseline"
+   measurements ran; every rebuilt file carried them with no stamp
+   (found 2026-08-17)
+
+**Status:** Incident recorded. Logs retracted, stamp and guard added. No D1
+verdict is implied here — adopting or reverting D1 is a separate, still-open
+decision that must be made on clean before/after measurements.
+
+### What happened
+
+D1 (saves, goals conceded, cards, penalty share) was implemented into
+`squad/assembly.py` on 2026-08-14. The pairwise margin-calibration measurements
+ran AFTER that, on walk-forward files regenerated with the modified equation —
+while describing those files as the pre-D1 baseline. Nothing errored, because no
+stamp existed to say whether a file carried the terms.
+
+Same class as #10 (the availability footgun) and the stale-odds incident: source
+and artefact disagree, nothing fails loudly, and downstream conclusions inherit
+the mismatch invisibly. This is the third instance of the class; the lesson is
+that ANY equation-changing flag must be stamped into the artefact the moment it
+exists, not when it first causes a problem.
+
+### What was contaminated
+
+- `Logs/margin_calibration_log.md` — the entire β table, the "~2.5× starter-band
+  exaggeration", the three-season replication, and the implied 6–10 hit bar.
+  Retracted via header. The verified clean pair: baseline GK β at step 0 is
+  **0.847** (`data/walkforward_h6_2526_baseline.parquet`, D1 disabled, stamps
+  otherwise identical), with-D1 is **0.425**. The log's 0.41-region "baseline"
+  was in fact the with-D1 measurement.
+- `Logs/hit_threshold_log.md` — motivating figures void; the grid may have read
+  the same files and needs re-running. The decision (threshold stays 4) stands
+  on its own, but its stated rationale is unverified either way.
+- The "Open puzzle" β column directly above this entry (0.540 / 0.662 / 0.389) —
+  same source.
+- The first D1 comparison report's "baseline" columns (β 0.945/0.837, the
+  three-season Spearman table) are worse than contaminated: untraceable to any
+  file on disk, and inconsistent with the verified re-measurement.
+
+### The fix
+
+`squad/assembly.py` now carries `D1_TERMS_ACTIVE`, which both GATES the D1 terms
+in `_finish_equation` and is STAMPED into every walk-forward file as
+`d1_terms_active` — a per-row provenance column exactly like
+`minutes_availability` / `odds_horizon_gws` / `dgw_handling`, written by both
+`eval/walkforward.py` and `eval/walkforward_season.py`. Because gate and stamp
+read the same constant, an artefact cannot disagree with the code silently.
+
+`Tests/test_walkforward_provenance.py` requires the stamp on the canonical file
+and asserts it matches `assembly.D1_TERMS_ACTIVE`
+(`test_d1_stamp_matches_code`), so a rebuild under a flipped flag fails loudly.
+
+Files missing the column predate the stamp. Establish their status from the data
+— `pts_saves` non-zero on GK rows means D1 was active — before comparing them
+with anything.
+
+---
+
+## #14 -- "Sheffield United" vs "Sheffield Utd": a team-name join failure that
+   manufactured a season of zero predictions (found 2026-08-17)
+
+**Status:** Fixed (TEAM_MAP + per-team guard + neutral fill) and 2023-24
+rebuilt. Recorded because it is the THIRD instance of the silent-fallback
+family (#10 availability, #13 D1 stamp): a fallback that manufactures
+plausible-looking values instead of failing loudly.
+
+### What happened
+
+The odds source names the club "Sheffield United"; vaastav names it
+"Sheffield Utd". TEAM_MAP had no entry for it, so the Dixon-Coles fixture join
+(on team + match_date, squad/assembly.py) failed for EVERY Sheffield fixture
+in their Premier League seasons on disk: 2019-20, 2020-21 and 2023-24. All 38
+of their 2023-24 fixtures have complete Bet365 prices in
+odds_all_seasons.parquet -- the odds were never missing, only the name match.
+
+Downstream, the failure compounded through two silent fallbacks:
+
+1. team_lambda NaN -> fixture_scale fell back to a neutral 1.0 (by design).
+2. p_cs NaN -> pts_cs NaN -> e_points_core NaN per fixture -> and the
+   per-gameweek collapse SUMS an all-NaN column into a clean 0.0.
+
+Net effect: every Sheffield Utd player carried e_points = 0.000 for every
+gameweek of 2023-24 -- 1,429 step-0 rows (5.0% of the season), including 36 GK
+and 134 DEF rows in the starter band with realised minutes averaging 78 and
+realised points averaging 1.8. A file full of structurally-valid-looking rows
+whose predictions were join-failure artefacts.
+
+The existing guard (matched_frac < 0.90 raises) could not see it: one team of
+twenty is ~5% of rows. A full-season single-team failure is invisible to a
+global threshold by construction.
+
+### What was contaminated
+
+Every 2023-24 walk-forward measurement made before 2026-08-17 included these
+rows. Specifically, from the D1/GK work: the three-season before/after tables,
+the top-k selection measurement, the model-agreement measurement, the adoption
+metrics in Logs/d1_log.md section 8 (2023-24 aggregate Spearman 0.668 -- the gap
+to the other seasons' 0.74-0.75 was substantially this artefact), and the GK
+investigation step-1 baseline beta for 2023-24 (0.560, corrected to ~0.83 on
+market-complete rows -- see Logs/gk_investigation_log.md sections 6-7). The
+retracted margin-calibration and hit-threshold logs also included them, on top
+of their #13 contamination. Any earlier handoff figure for 2023-24 inherits
+the same rows.
+
+**2025-26 and 2024-25 are unaffected** -- zero null-market rows in either
+season (Sheffield were not in the league). Prior-season POOLED RATES are also
+unaffected: they read vaastav only and never touch the odds join.
+
+### The fix (2026-08-17)
+
+1. TEAM_MAP gained "Sheffield United" -> "Sheffield Utd". The full audit of
+   every team name in odds_all_seasons.parquet against every vaastav team
+   name across all ten seasons found this to be the ONLY unmatched name in
+   either direction; nothing else remains silent.
+2. A PER-TEAM guard beside the global one: any team with >= 3 fixture rows
+   matching below 50% raises with the team named. A stale name mapping fails
+   ~100% of one team's joins, so 50% separates that class cleanly from the
+   occasional genuinely unpriced fixture.
+3. The deeper fallback is closed: residual guard-passing unmatched fixtures
+   now get NEUTRAL market values (lambda 1.40 both ways, p_cs = exp(-1.40)
+   ~= 0.25) instead of NaN, so a join failure can no longer reach the
+   NaN-sum-to-zero path and a player keeps his minutes/rates-based prediction
+   under a neutral-fixture assumption.
+4. 2023-24 rebuilt, both canonical (Variant B) and no-D1 baseline. The
+   contaminated artefacts are preserved as
+   data/walkforward_h6_2023_24_sheffbug.parquet and
+   data/walkforward_h6_2023_24_baseline_sheffbug.parquet, so every figure
+   they produced stays checkable.
+
+### The family pattern, third confirmation
+
+#10: an availability default that silently moved the baseline. #13: an
+equation change with no stamp, so "baseline" measurements ran on modified
+files. #14: a join failure whose NaN summed to a clean 0.0. In all three, the
+failure produced OUTPUT THAT LOOKED VALID. The recurring lesson: every
+fallback needs either a loud guard at the failure grain (per-team here, not
+just global) or an explicit, stated neutral value -- never an accidental zero.
