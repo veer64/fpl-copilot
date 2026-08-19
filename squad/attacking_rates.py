@@ -31,6 +31,21 @@ import numpy as np
 BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
 MIN_TIME = 450        # ~5 full matches of pooled time for a usable rate
 
+# --- D2 Phase 3: cross-season blend (adopted per Logs/rate_blend_log.md) ----
+# rate = w*(current season to date) + (1-w)*(prior season), w = n90/(n90+K).
+# K = 8 was tuned on 2023-24/2024-25 ONLY, pre-registered, and replicated on
+# sealed 2025-26 (Spearman +0.098 npxG / +0.044 xA over the static rates).
+# This flag GATES the blend in get_rates AND is STAMPED into every
+# walk-forward file as `rate_blend_active` (+ `rate_blend_k`) -- the
+# KNOWN_ISSUES #13 lesson: an equation-input change must be visible in the
+# artefact. False restores the legacy static pooled-3-season shrinkage.
+RATE_BLEND_ACTIVE = True
+RATE_BLEND_K = 8.0
+# The blend prior is the SINGLE immediately-previous season, from the D2
+# per-match files -- exactly the design that was tuned and replicated.
+BLEND_PRIOR = {"2023-24": "2022-23", "2024-25": "2023-24", "2025-26": "2024-25"}
+_MATCHES_CACHE = {}
+
 MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
 
@@ -65,12 +80,36 @@ def _load_understat():
     return us
 
 
-def _pool_prior_seasons(us, prior_seasons, pos_label):
+def _primary_position(us, prior_seasons):
+    """ONE position label per player across the pooled prior seasons.
+
+    ROOT FIX for the duplicate-understat_id defect: the old pools filtered on
+    position.str.contains(pos_label), so a player whose label differed across
+    seasons (or read "F M S") entered TWO pools and get_rates returned his id
+    twice -- assembly papered over it with a drop_duplicates. The primary
+    label is taken from the player's highest-minutes prior season; the first
+    F/M/D character of that season's position string is the primary role
+    (Understat lists the main role first)."""
+    pool = us[us["understat_season"].isin(prior_seasons)]
+    top = pool.sort_values("time", ascending=False).drop_duplicates("id", keep="first")
+
+    def lab(p):
+        for ch in str(p):
+            if ch in "FMD":
+                return ch
+        return None
+    return top.set_index("id")["position"].map(lab)
+
+
+def _pool_prior_seasons(us, prior_seasons, pos_label, primary=None):
     """Pool a player's counts across the prior seasons (one row per player).
     Summing counts (npxG, xA, time, ...) weights naturally by minutes played:
-    a 3-season regular gets a stable rate, a one-season player a noisier one."""
-    pool = us[(us["understat_season"].isin(prior_seasons))
-              & (us["position"].str.contains(pos_label, na=False))].copy()
+    a 3-season regular gets a stable rate, a one-season player a noisier one.
+    Each player belongs to exactly ONE pool, decided by _primary_position."""
+    if primary is None:
+        primary = _primary_position(us, prior_seasons)
+    ids = primary[primary == pos_label].index
+    pool = us[(us["understat_season"].isin(prior_seasons)) & (us["id"].isin(ids))].copy()
     if pool.empty:
         return pool
     # sum the count-like columns per player across the prior seasons
@@ -190,22 +229,140 @@ def _eval_metrics(rates, priors, us, eval_season, pos_counts, mean_w):
     return m
 
 
-def get_rates(predict_season="2025-26", prior_seasons=None, log_mlflow=False):
+def _grp_from_match_pos(p):
+    """Per-match position string -> group. 'Sub' carries no role information."""
+    if p in (None, "Sub") or (isinstance(p, float) and np.isnan(p)):
+        return None
+    if p == "GK":
+        return "GK"
+    if p in ("DC", "DL", "DR"):
+        return "D"
+    if "M" in str(p):
+        return "M"
+    if str(p).startswith("FW"):
+        return "F"
+    return None
+
+
+def _season_sums(season):
+    """Per-player sums + modal position group from the D2 per-match file.
+    Cached: the walk-forward calls get_rates once per cutoff."""
+    if season not in _MATCHES_CACHE:
+        df = pd.read_parquet(
+            BASE + r"\data\history\understat_matches_"
+            + season.replace("-", "_") + ".parquet")
+        df["grp"] = df["position"].map(_grp_from_match_pos)
+        _MATCHES_CACHE[season] = df
+    return _MATCHES_CACHE[season]
+
+
+def _blended_rates(predict_season, up_to_gw):
+    """The k=8 blend, exactly as tuned in eval/measure_rate_blend.py:
+      prior   = player's rate over the single previous season (>= MIN_TIME),
+                fallback position-average then league-average prior rate;
+      current = ratio-of-sums over gws < up_to_gw (None -> no current data);
+      rate    = w*current + (1-w)*prior,  w = n90/(n90 + RATE_BLEND_K).
+    GK-group players are excluded (attacking rates are an outfield concept)."""
+    prior_season = BLEND_PRIOR.get(predict_season)
+    if prior_season is None:
+        raise ValueError(
+            f"RATE_BLEND_ACTIVE but no per-match prior file mapped for "
+            f"{predict_season!r}. Pull it with eval/understat_matches.py or "
+            "set RATE_BLEND_ACTIVE = False deliberately.")
+
+    pr = _season_sums(prior_season)
+    per = (pr.groupby("understat_player_id")
+           .agg(npxG=("npxG", "sum"), xA=("xA", "sum"), minutes=("minutes", "sum"),
+                grp=("grp", lambda s: s.dropna().mode().iloc[0] if s.dropna().size else None))
+           .reset_index())
+    per = per[per["grp"] != "GK"]
+    outf = per[per["grp"].notna()]
+    pos_prior = {g: {"npxg": sub["npxG"].sum() / sub["minutes"].sum() * 90,
+                     "xa": sub["xA"].sum() / sub["minutes"].sum() * 90}
+                 for g, sub in outf.groupby("grp")}
+    league = {"npxg": outf["npxG"].sum() / outf["minutes"].sum() * 90,
+              "xa": outf["xA"].sum() / outf["minutes"].sum() * 90}
+    elig = per[per["minutes"] >= MIN_TIME].set_index("understat_player_id")
+    prior_grp = per.set_index("understat_player_id")["grp"]
+
+    cur = _season_sums(predict_season)
+    cur = cur[cur["gw"] < up_to_gw] if up_to_gw is not None else cur.iloc[0:0]
+    cu = (cur.groupby("understat_player_id")
+          .agg(npxG=("npxG", "sum"), xA=("xA", "sum"), minutes=("minutes", "sum"),
+               grp=("grp", lambda s: s.dropna().mode().iloc[0] if s.dropna().size else None))
+          ) if len(cur) else pd.DataFrame(columns=["npxG", "xA", "minutes", "grp"])
+
+    ids = set(elig.index) | set(cu.index)
+    rows = []
+    for pid in ids:
+        grp = None
+        if pid in cu.index and cu.at[pid, "grp"] is not None:
+            grp = cu.at[pid, "grp"]
+        if grp is None:
+            grp = prior_grp.get(pid)
+        if grp == "GK":
+            continue
+        if pid in elig.index:
+            p_np = elig.at[pid, "npxG"] / elig.at[pid, "minutes"] * 90
+            p_xa = elig.at[pid, "xA"] / elig.at[pid, "minutes"] * 90
+        elif grp in pos_prior:
+            p_np, p_xa = pos_prior[grp]["npxg"], pos_prior[grp]["xa"]
+        else:
+            p_np, p_xa = league["npxg"], league["xa"]
+        if pid in cu.index and cu.at[pid, "minutes"] > 0:
+            m = float(cu.at[pid, "minutes"])
+            c_np = cu.at[pid, "npxG"] / m * 90
+            c_xa = cu.at[pid, "xA"] / m * 90
+        else:
+            m, c_np, c_xa = 0.0, 0.0, 0.0
+        w = (m / 90.0) / (m / 90.0 + RATE_BLEND_K)
+        rows.append({"understat_id": str(pid),
+                     "npxg90": w * c_np + (1 - w) * p_np,
+                     "xa90": w * c_xa + (1 - w) * p_xa})
+    rates = pd.DataFrame(rows)
+    assert not rates.duplicated("understat_id").any()
+    priors = {g: pos_prior.get(g, league) for g in ("F", "M", "D")}
+    return rates, priors
+
+
+def assert_crosswalk_unique(crosswalk):
+    """KNOWN_ISSUES #3 guard: no Understat ID claimed by two elements, and no
+    element claiming two Understat IDs. Called before every crosswalk join."""
+    cw = crosswalk.dropna(subset=["understat_id"])
+    for col in ("understat_id", "element"):
+        dup = cw[cw.duplicated(col, keep=False)]
+        if len(dup):
+            raise AssertionError(
+                f"crosswalk has duplicate {col} claims (KNOWN_ISSUES #3):\n"
+                + dup.sort_values(col).head(20).to_string(index=False))
+
+
+def get_rates(predict_season="2025-26", prior_seasons=None, up_to_gw=None,
+              log_mlflow=False):
     """Produce the assembly inputs for the predicted season, built from PRIOR
     seasons only (leak-free). Returns:
-      rates  : DataFrame[understat_id, npxg90, xa90]  (plain shrunk rates)
+      rates  : DataFrame[understat_id, npxg90, xa90]
       priors : {pos_label: {'npxg': float, 'xa': float}}  position-average fallbacks
-    log_mlflow=True logs params/metrics/rates as ONE MLflow run (default off, so
-    assembly.py and the 38-GW walk-forward stay unchanged and fast).
+
+    RATE_BLEND_ACTIVE=True (production): the k=8 cross-season blend, which is
+    CUTOFF-DEPENDENT -- pass up_to_gw=k so current-season form uses gws < k
+    only. up_to_gw=None means no current-season information (season start /
+    static builds). RATE_BLEND_ACTIVE=False: the legacy static pooled-3-season
+    shrinkage, constant across gameweeks (up_to_gw ignored).
+    log_mlflow applies to the legacy path only.
     """
+    if RATE_BLEND_ACTIVE:
+        return _blended_rates(predict_season, up_to_gw)
+
     if prior_seasons is None:
         prior_seasons = PRIOR_SEASONS[predict_season]
 
     us = _load_understat()
+    primary = _primary_position(us, prior_seasons)
     npxg_rows, xa_rows, priors = [], [], {}
     pos_counts, w_all = {}, []
     for pos in ["F", "M", "D"]:
-        pooled = _pool_prior_seasons(us, prior_seasons, pos)
+        pooled = _pool_prior_seasons(us, prior_seasons, pos, primary=primary)
         if pooled.empty:
             continue
         npxg, npxg_prior = _shrunk_rate(pooled, pos, "npxG")

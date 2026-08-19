@@ -15,7 +15,7 @@ import numpy as np
 from scipy.stats import spearmanr, poisson
 
 from minutes import get_minutes
-from attacking_rates import get_rates
+from attacking_rates import get_rates, assert_crosswalk_unique
 from dixon_coles import get_fixtures
 from defensive import get_dc_2526
 from bonus import get_bonus_model
@@ -239,6 +239,11 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
     under a rule that was not in force. Verified against 2023-24: reconstructing
     total_points WITHOUT the DC term reconciles on 29,725 of 29,725 rows.
     """
+    # KNOWN_ISSUES #3 guard: the crosswalk is about to be joined against
+    # understat-keyed rates; a duplicate id claim would silently give two
+    # players the same rate row. Cheap (841 rows), runs on every assembly.
+    assert_crosswalk_unique(cw)
+
     v = df[(df["season"] == season) & (df["position"] != "AM")].copy()
     skel = v[["element", "GW", "fixture", "name", "position", "team", "opponent_team",
               "was_home", "kickoff_time", "minutes", "total_points"]].copy()

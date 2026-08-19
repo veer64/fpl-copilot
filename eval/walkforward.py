@@ -209,8 +209,10 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
     if cutoffs is None:
         cutoffs = all_gws
 
-    # Constant across cutoffs: prior-season rates do not vary by gameweek.
-    rates, priors = rates_mod.get_rates("2025-26")
+    # Attacking rates: under the k=8 blend these are CUTOFF-DEPENDENT (current-
+    # season form accumulates), so they are fetched inside the loop with
+    # up_to_gw=k. The legacy static path ignores up_to_gw, so this call site is
+    # correct under either setting of RATE_BLEND_ACTIVE.
 
     # Defensive is internally walk-forward and produces every gameweek in one
     # call. Its gameweek-k row trains only on gameweeks before k, so the k rows
@@ -227,6 +229,7 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
         # per_fixture=True asks for ONE ordinary fixture, so a doubled player's
         # answer can be applied to each of his fixtures without double-counting
         # the capped-sum training artefact. availability is pinned, not inherited.
+        rates, priors = rates_mod.get_rates("2025-26", up_to_gw=k)
         m_k = minutes_mod.get_minutes(up_to_gw=k, predict_gws=[k],
                                       per_fixture=True, availability=AVAILABILITY)
         bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean = \
@@ -301,6 +304,11 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
     # separately-blended p_cs. Equation-changing flag, so stamped -- the #13
     # lesson. See assembly.CS_UNIFIED.
     result["cs_unified"] = bool(assembly.CS_UNIFIED)
+    # Attacking-rate source: k=8 cross-season blend (cutoff-dependent) vs the
+    # legacy static pooled-3-season shrinkage. Equation-input change -> stamped.
+    # See attacking_rates.RATE_BLEND_ACTIVE and Logs/rate_blend_log.md.
+    result["rate_blend_active"] = bool(rates_mod.RATE_BLEND_ACTIVE)
+    result["rate_blend_k"] = float(rates_mod.RATE_BLEND_K)
     # Note on a file that no longer exists: data/walkforward_h6_dconly_2526.parquet
     # is referenced by the MLflow/Simulator/Transfer-MIP handoff as the horizon-0
     # variant kept alongside a horizon-2 default. With ODDS_HORIZON_GWS fixed at 0

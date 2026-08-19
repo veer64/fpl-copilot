@@ -106,14 +106,14 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
         print(f"season {season}: train on {tr}, DC rule {'ON' if dc_enabled else 'OFF'}, "
               f"{len(all_gws)} gameweeks, crosswalk {len(cw)} rows")
 
-    # Prior-season attacking rates: constant across cutoffs, refit for THIS season.
-    # The calibration is per-season by construction -- get_rates pools the three
-    # Understat seasons before `season` and never its own.
-    rates, priors = rates_mod.get_rates(season)
-
     out = []
     for k in cutoffs:
         t0 = time.time()
+        # Attacking rates: under the k=8 blend these are CUTOFF-DEPENDENT
+        # (current-season form accumulates gameweek by gameweek), so they are
+        # fetched per cutoff with up_to_gw=k. Legacy static path ignores
+        # up_to_gw, so this call site is correct under either gate setting.
+        rates, priors = rates_mod.get_rates(season, up_to_gw=k)
         cutoff_date = gw_start.loc[k].tz_localize(None)
         targets = [g for g in all_gws if k <= g < k + horizon]
 
@@ -164,6 +164,10 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
     # CS/conceded unified on opp_lambda or not. Equation-changing flag ->
     # stamped (the #13 lesson). See assembly.CS_UNIFIED.
     result["cs_unified"] = bool(assembly.CS_UNIFIED)
+    # Attacking-rate source: k=8 blend vs legacy static. See
+    # attacking_rates.RATE_BLEND_ACTIVE and Logs/rate_blend_log.md.
+    result["rate_blend_active"] = bool(rates_mod.RATE_BLEND_ACTIVE)
+    result["rate_blend_k"] = float(rates_mod.RATE_BLEND_K)
     result["train_seasons"] = ",".join(tr)
 
     if save_path:

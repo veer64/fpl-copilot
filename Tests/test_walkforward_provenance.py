@@ -79,7 +79,8 @@ def _step0(df):
 def test_canonical_provenance_stamps(canonical):
     """The file must declare how it was made, on every row."""
     for col in ("minutes_availability", "odds_horizon_gws", "dgw_handling",
-                "d1_terms_active", "cs_unified"):
+                "d1_terms_active", "cs_unified", "rate_blend_active",
+                "rate_blend_k"):
         assert col in canonical.columns, (
             f"canonical file is missing the `{col}` provenance stamp -- it predates "
             "the stamp and its provenance cannot be established." + WHY)
