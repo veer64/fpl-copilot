@@ -41,6 +41,12 @@ import numpy as np
 from scipy.stats import poisson
 from scipy.optimize import minimize
 
+# D4 Phase 2: synthetic market-lambda for unpriced fixtures. The gate constant
+# SYNTHETIC_LAMBDA_ACTIVE lives in synthetic_lambda.py (the owning module) and
+# is stamped into every walk-forward artefact by both writers. Import is cheap:
+# the module loads its data lazily.
+import synthetic_lambda
+
 BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
 PREDICT_SEASON = "2025-26"
 HALF_LIFE_DAYS = 365
@@ -288,11 +294,32 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
         df.loc[usable, "mkt_lam_h"] = lp[:, 0]
         df.loc[usable, "mkt_lam_a"] = lp[:, 1]
 
-    # Blend per fixture. Where odds exist the tuned weights apply; where they do
-    # not, the weight collapses to pure DC. Writing it as a per-row weight rather
-    # than two code paths keeps the tuned configuration in exactly one place.
-    lam_w = np.where(usable, LAM_BLEND_W, 1.0)
-    cs_w = np.where(usable, CS_BLEND_W, 1.0)
+    # D4 Phase 2: where odds are NOT usable and the gate is on, fill the market
+    # lambdas from the synthetic model instead of collapsing to pure DC. The
+    # synthetic value stands in for the market it approximates, so the ordinary
+    # tuned weights apply to it (lambda pure synthetic, CS 0.2*DC + 0.8*synth).
+    # lambda_source makes the fill verifiable per fixture: odds | synthetic | dc.
+    df["lambda_source"] = np.where(usable, "odds", "dc")
+    synth_filled = pd.Series(False, index=df.index)
+    if (synthetic_lambda.SYNTHETIC_LAMBDA_ACTIVE and cutoff_date is not None
+            and (~usable).any()):
+        syn = synthetic_lambda.get_synthetic(
+            predict_season, cutoff,
+            df.loc[~usable, ["home", "away", "date_parsed"]])
+        got = syn["syn_lam_h"].notna() & syn["syn_lam_a"].notna()
+        ii = syn.index[got]
+        df.loc[ii, "mkt_lam_h"] = syn.loc[ii, "syn_lam_h"]
+        df.loc[ii, "mkt_lam_a"] = syn.loc[ii, "syn_lam_a"]
+        synth_filled.loc[ii] = True
+        df.loc[ii, "lambda_source"] = "synthetic"
+
+    # Blend per fixture. Where a market value exists (real or synthetic) the
+    # tuned weights apply; where neither does, the weight collapses to pure DC.
+    # Writing it as a per-row weight rather than two code paths keeps the tuned
+    # configuration in exactly one place.
+    priced = usable.values | synth_filled.values
+    lam_w = np.where(priced, LAM_BLEND_W, 1.0)
+    cs_w = np.where(priced, CS_BLEND_W, 1.0)
     mkt_h = df["mkt_lam_h"].fillna(df["dc_lam_h"])
     mkt_a = df["mkt_lam_a"].fillna(df["dc_lam_a"])
 
@@ -327,7 +354,8 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
         )
 
     return df[["season", "home", "away", "match_date",
-               "lam_home", "lam_away", "p_home_cs", "p_away_cs", "odds_used"]]
+               "lam_home", "lam_away", "p_home_cs", "p_away_cs", "odds_used",
+               "lambda_source"]]
 
 
 # Backward-compat shim: original behaviour (fit on all pre-2025-26 matches)

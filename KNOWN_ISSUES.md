@@ -729,3 +729,74 @@ files. #14: a join failure whose NaN summed to a clean 0.0. In all three, the
 failure produced OUTPUT THAT LOOKED VALID. The recurring lesson: every
 fallback needs either a loud guard at the failure grain (per-team here, not
 just global) or an explicit, stated neutral value -- never an accidental zero.
+
+## #15 -- walkforward_season.py passed an EMPTY defensive-contribution frame, so
+every canonical file priced the 2025-26 DC rule at position BASE RATES
+
+**Status:** Fixed 2026-08-19 (shared path + test guard); canonical files rebuilt,
+pre-fix files preserved as `*_dcbase.parquet`. **Fourth member of the
+silent-fallback family** (#10 availability default, #13 D1 stamp, #14 join-failure
+zeros).
+
+### What happened
+
+Two walk-forward writers, two defensive-contribution paths:
+
+- `eval/walkforward.py` (2025-26-only writer) wired `defensive.get_dc_2526()` --
+  the per-player walk-forward model, p_dc_hit up to ~0.80.
+- `eval/walkforward_season.py` (the M2 multi-season writer) passed
+  `pd.DataFrame(columns=["player_id", "gw", "p_dc_hit"])` for EVERY season --
+  including 2025-26, where it sets `dc_enabled=True`.
+
+With dc_enabled=True and an empty frame, assembly's fallback chain
+(own-gameweek estimate -> position base rate) landed every player-fixture on
+`DC_BASE` (GK 0.0, FWD 0.058, DEF 0.125, MID 0.136). No guard fired: the
+fallback is legitimate for genuinely-missing rows, and nothing distinguished
+"a few missing rows" from "the entire frame missing".
+
+The canonical lineage runs through walkforward_season.py (the D1-era and
+rate-blend rebuild scripts loop all three seasons through it), so **every
+canonical file since the M2 port priced defensive contribution at position
+base rates**: canonical 2025-26 `p_dc_hit` max was exactly 0.136 with ~8
+distinct values, versus ~0.80 and hundreds of distinct values from the model.
+
+### How it was found
+
+The D4 Phase 2 provenance check (stamps must match on everything except the
+flag under test) refused to compare a walkforward.py-built file against the
+canonical: three stamp columns differed, and chasing WHY exposed the p_dc_hit
+distributions (max 0.136 vs 0.798).
+
+### What was contaminated
+
+Every 2025-26 figure measured on canonical files between the M2 port
+(2026-08-14) and 2026-08-19 was measured with defensive contribution
+flat-rated by position: the D1 close metrics, the rate-blend integration
+metrics, the GK-investigation betas (GK is untouched by DC points -- GK
+base rate 0.0 -- so its BETA path is least affected, but DEF/MID orderings
+fed every comparison), and the D4 Phase 2 verdict (re-measured on fixed
+files -- see Logs/overnight_2026-08-19_log.md). 2023-24 and 2024-25 files are
+UNAFFECTED in output terms: dc_enabled=False zeroes the term either way.
+
+### The fix
+
+One shared path: `defensive.get_dc_hits(season, cutoff_gw, targets)`
+(module-cached, per-player rows at the cutoff frozen across the horizon,
+empty-but-typed for pre-rule seasons), called by BOTH writers. Guard:
+`Tests/test_dc_hits_wiring.py` asserts canonical 2025-26 p_dc_hit variance
+exceeds anything base rates can produce (max > 0.2, DEF nunique > 100).
+
+### The naming trap that helped hide it
+
+"DC" means TWO unrelated things in this repo: `p_dc_hit` / `defensive.py` is
+the DEFENSIVE CONTRIBUTION scoring rule (2025-26+); `dixon_coles.py` is the
+team-GOALS model. Logs use "DC" for both. A reader auditing "the DC join"
+can convince themselves the wiring is fine while looking at the wrong DC.
+When writing about either, name the module.
+
+### The family lesson, fourth confirmation
+
+A legitimate per-row fallback (position base rate for a player with no model
+row) becomes a silent whole-population default when the input is empty at the
+FRAME grain. Fallbacks need a guard at the grain they can fail at -- here,
+"what fraction of rows fell back" per build, not per row.

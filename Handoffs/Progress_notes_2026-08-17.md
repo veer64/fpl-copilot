@@ -13,7 +13,9 @@ file is the running status.)
 | **D1** | Four missing scoring terms + penalty share | **COMPLETE — closed 2026-08-17.** Adopted as Variant B (cards as prior-season position rates; per-player rolling cards measured harmful and excluded). Full record: `Logs/d1_log.md`. Final config stamped in every artefact: `d1_terms_active=True`, `cs_unified=False`, 0.2 CS blend retained, availability=True, odds horizon 0, per-fixture DGW, hit bar 4, post-audit crosswalk incl. the Sheffield fix (KNOWN_ISSUES #14). |
 | **D2** | Understat per-match npxG pull | **COMPLETE — adopted 2026-08-18** (Phases 1–3). Per-match data pulled and verified for four seasons (`eval/understat_matches.py`, incremental-by-design); k=8 cross-season blend tuned on 2023-24/2024-25, pre-registered, replicated on sealed 2025-26 (npxG ρ 0.461→0.559); integrated as the production rate source (`rate_blend_active=True` stamped). Full record: `Logs/rate_blend_log.md`. OPEN: cold start for the ~32% no-prior players is untouched. |
 | **D3** | DGW prediction audit | **COMPLETE.** Per-fixture grain closed the three DGW under-counting defects; doubles counted and guarded by test (`test_doubles_are_counted`, 409 doubled player-gameweeks at horizon 0 in 2025-26). |
-| **D4** | Synthetic forward odds | **UNSTARTED.** Entry gate (D3) is now satisfied. |
+| **D4** | Synthetic forward odds | **CLOSED 2026-08-20 — NOT adopted.** Phase 1 succeeded as a modelling result (sealed 2025-26 R² 0.851 vs DC-alone 0.595, +0.10 edge sustained across horizon steps 1–6, pre-registered, independently leakage-audited). Phase 2 found no pipeline benefit on three independent grains: forward-step accuracy flat, top-k at/below chance, per-decision corr(pred gain, real gain) 0.301 base vs 0.264 synth, paired sign test 11–16 (p=0.442). Durable finding: forward-step degradation is minutes/form-driven, not fixture-driven — future horizon work redirects there. One consistent effect: MID/FWD margin β toward 1 and GK/DEF away in 60/60 cells each — the GK-investigation H1 double-count signature from an independent intervention. Code/model retained behind `synthetic_lambda_active=False`; retest if minutes-at-horizon improves. Full record: `Logs/d4_market_lambda_log.md` (§13 closure), `Logs/overnight_2026-08-19_log.md`. |
+| **D5** | Player-prop odds evaluation | **UNSTARTED — blocked on the spend decision** (~$100–300 evaluation month; see 2026-08-20 section below). |
+| **Phase P** | Policy work (opening squad, early WC, hits, chips) | **UNSTARTED.** |
 
 ## Open workstream carried past D1
 
@@ -37,3 +39,31 @@ test season.
 
 Both are the same silent-fallback family as #10; the pattern and lesson are
 written up in #14.
+
+## Adopted 2026-08-19/20 (outside the D-item list)
+
+- **DC-wiring fix (KNOWN_ISSUES #15):** walkforward_season.py passed an empty
+  defensive-contribution frame even for 2025-26, so every canonical file
+  priced the DC rule at position base rates (max 0.136) instead of the
+  per-player model (max ~0.80). Fixed at the root: one shared path
+  (`defensive.get_dc_hits`) in BOTH writers; guarded by
+  `Tests/test_dc_hits_wiring.py`; canonical files rebuilt (pre-fix preserved
+  as `*_dcbase.parquet`; 2023-24/2024-25 verified bit-identical — the fix is
+  2025-26-only in effect). New 2025-26 step-0 baseline: agg ρ 0.7471 /
+  MAE 1.0732; starter-band ρ GK 0.190, DEF 0.285, MID 0.214, FWD 0.157.
+  Logs quoting the older 2025-26 figures are superseded (see #15).
+
+## D6 / D5 / D7 status (2026-08-20)
+
+- **D6 free half (live availability poller): BUILT AND PARKED.**
+  `eval/poll_availability.py` + `Logs/d6_live_availability_log.md`. One live
+  smoke test scheduled: GW1 2026-27 window (2026-08-21, deadline 17:30 UTC),
+  run manually via `--watch` from ~13:30 UTC; afterward-checklist in log §8.
+  No scheduler, no ongoing operation, no integration — production wiring
+  deferred (droplet is the likely home; log §7 records the options and why
+  the value cannot be measured retrospectively). Expected magnitude ~47
+  rows/season (42 a→not-a flips).
+- **D6 paid half (FFS / Rotowire subscriptions): UNSTARTED.**
+- **D5 (player-prop odds): still BLOCKED on the spend decision
+  (~$100–300 evaluation month).**
+- **D7: skip list — no work, by design.**

@@ -49,6 +49,7 @@ sys.path.insert(0, str(REPO / "squad"))
 import assembly  # noqa: E402
 import attacking_rates as rates_mod  # noqa: E402
 import bonus as bonus_mod  # noqa: E402
+import defensive as def_mod  # noqa: E402
 import dixon_coles as dc_mod  # noqa: E402
 import minutes as minutes_mod  # noqa: E402
 
@@ -137,10 +138,14 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
                 frames.append(f)
             m_k = pd.concat(frames, ignore_index=True)
 
+        # DC hits from the SHARED path (KNOWN_ISSUES #15). Empty for pre-rule
+        # seasons; for 2025-26 this is the per-player model at cutoff k frozen
+        # across the horizon -- this writer previously passed an empty frame
+        # even for 2025-26, so canonical files carried position BASE RATES.
+        dc_k = def_mod.get_dc_hits(season, k, targets)
         a_k = assembly.collapse_to_gameweek(
             assembly.assemble_fixtures(
-                df, cw, m_k, rates, priors, f_k,
-                pd.DataFrame(columns=["player_id", "gw", "p_dc_hit"]),
+                df, cw, m_k, rates, priors, f_k, dc_k,
                 bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
                 gws=targets, season=season, dc_enabled=dc_enabled))
         a_k["cutoff"] = k
@@ -168,6 +173,10 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
     # attacking_rates.RATE_BLEND_ACTIVE and Logs/rate_blend_log.md.
     result["rate_blend_active"] = bool(rates_mod.RATE_BLEND_ACTIVE)
     result["rate_blend_k"] = float(rates_mod.RATE_BLEND_K)
+    # D4 Phase 2: synthetic market-lambda fill for unpriced forward fixtures.
+    # Equation-input change -> stamped from the gating constant (#13 lesson).
+    import synthetic_lambda as synth_mod
+    result["synthetic_lambda_active"] = bool(synth_mod.SYNTHETIC_LAMBDA_ACTIVE)
     result["train_seasons"] = ",".join(tr)
 
     if save_path:

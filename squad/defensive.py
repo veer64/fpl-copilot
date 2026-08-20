@@ -214,6 +214,48 @@ def get_dc_2526(recency_weight=False, log_mlflow=False):
     return dc_out
 
 
+# --- shared walk-forward DC-hits path (2026-08-19, KNOWN_ISSUES #15) --------
+# Both walk-forward writers MUST get their p_dc_hit frames from here. Before
+# this existed, walkforward.py wired get_dc_2526() while walkforward_season.py
+# passed an EMPTY frame -- so the canonical files (built by the season writer)
+# silently priced defensive contribution at position BASE RATES (max 0.136)
+# instead of the per-player model (max ~0.80). Fourth member of the
+# silent-fallback family (#10, #13, #14).
+#
+# NAMING TRAP: "DC" is overloaded in this repo. p_dc_hit / this module =
+# DEFENSIVE CONTRIBUTION (the 2025-26 scoring rule). dixon_coles.py = the
+# team-GOALS model. The two are unrelated; read "DC" in logs with care.
+
+# Seasons the defensive-contribution rule exists for (2025-26 onward). The
+# writers' season format ("2025-26"), not this module's SEASON constant.
+DC_RULE_SEASONS = {"2025-26"}
+_DC_HITS_CACHE = {}
+
+
+def get_dc_hits(season, cutoff_gw, target_gws):
+    """p_dc_hit rows for one walk-forward cutoff, frozen across the horizon.
+
+    Returns DataFrame[player_id, position, p_dc_hit, gw] -- the player's own
+    gameweek-`cutoff_gw` estimate repeated for each target gameweek (form as
+    of the cutoff persists; the same freeze the other components use). Empty
+    for a cutoff gameweek the model has no features for yet (early season):
+    assembly then falls back to position base rates, the honest cold start.
+
+    Pre-rule seasons return the empty-but-typed frame; the caller also zeroes
+    the term via dc_enabled, so this is belt and braces."""
+    cols = ["player_id", "position", "p_dc_hit", "gw"]
+    if season not in DC_RULE_SEASONS:
+        return pd.DataFrame(columns=cols)
+    if "full" not in _DC_HITS_CACHE:
+        _DC_HITS_CACHE["full"] = get_dc_2526()
+    at_k = _DC_HITS_CACHE["full"]
+    at_k = at_k[at_k["gw"] == cutoff_gw][["player_id", "position", "p_dc_hit"]]
+    if len(at_k) == 0:
+        return pd.DataFrame(columns=cols)
+    frames = [at_k.assign(gw=g) for g in target_gws]
+    return pd.concat(frames, ignore_index=True)[cols]
+
+
 if __name__ == "__main__":
     import sys
     log = "--mlflow" in sys.argv

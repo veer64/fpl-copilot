@@ -214,10 +214,10 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
     # up_to_gw=k. The legacy static path ignores up_to_gw, so this call site is
     # correct under either setting of RATE_BLEND_ACTIVE.
 
-    # Defensive is internally walk-forward and produces every gameweek in one
-    # call. Its gameweek-k row trains only on gameweeks before k, so the k rows
-    # are honest; future gameweeks get k's value via freezing below.
-    dc_all = def_mod.get_dc_2526()
+    # Defensive contribution comes from the SHARED path (defensive.get_dc_hits,
+    # module-cached) so both writers price it identically -- KNOWN_ISSUES #15:
+    # this writer wired the per-player model while walkforward_season.py passed
+    # an empty frame, and the canonical files silently carried base rates.
 
     out = []
     for k in cutoffs:
@@ -247,18 +247,14 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
         f_k = dc_mod.get_fixtures(cutoff_date=cutoff_date,
                                   odds_available_until=odds_until)
 
-        # Freeze minutes and defensive forward across the horizon.
+        # Freeze minutes forward across the horizon; DC hits come pre-frozen
+        # from the shared path.
         if len(targets) > 1:
             m_k = _freeze_forward(
                 m_k, targets,
                 key_cols=["element", "name", "position"],
                 value_cols=["p_start", "p60", "e_minutes"])
-            dc_k = _freeze_forward(
-                dc_all[dc_all["gw"] == k], targets,
-                key_cols=["player_id", "position"],
-                value_cols=["p_dc_hit"])
-        else:
-            dc_k = dc_all[dc_all["gw"] == k]
+        dc_k = def_mod.get_dc_hits("2025-26", k, targets)
 
         # Per-fixture equation, then summed back to one row per (element, gw) --
         # the grain the simulator and optimizer expect. Both functions are the
@@ -309,6 +305,12 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
     # See attacking_rates.RATE_BLEND_ACTIVE and Logs/rate_blend_log.md.
     result["rate_blend_active"] = bool(rates_mod.RATE_BLEND_ACTIVE)
     result["rate_blend_k"] = float(rates_mod.RATE_BLEND_K)
+    # D4 Phase 2: whether unpriced forward fixtures were filled with synthetic
+    # market-lambda instead of the pure-DC fallback. Equation-input change ->
+    # stamped from the gating constant itself (the #13 lesson). See
+    # squad/synthetic_lambda.py and Logs/d4_market_lambda_log.md.
+    import synthetic_lambda as synth_mod
+    result["synthetic_lambda_active"] = bool(synth_mod.SYNTHETIC_LAMBDA_ACTIVE)
     # Note on a file that no longer exists: data/walkforward_h6_dconly_2526.parquet
     # is referenced by the MLflow/Simulator/Transfer-MIP handoff as the horizon-0
     # variant kept alongside a horizon-2 default. With ODDS_HORIZON_GWS fixed at 0
