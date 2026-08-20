@@ -111,9 +111,17 @@ def _default_solver():
     Falls back to CBC silently if highspy is not installed, so the module never
     hard-depends on an optional package.
     """
+    # FPL_SOLVER_THREADS caps HiGHS's threads per process. HiGHS multi-threads
+    # by default, so N parallel simulations x unbounded threads oversubscribes
+    # the machine -- measured 2026-08-20: the same season's sims ran 11-14 min
+    # solo and 40-78 min under five unthrottled processes. Parallel sweep
+    # drivers set this to 2; unset keeps the old single-process behaviour.
+    import os
+    threads = os.environ.get("FPL_SOLVER_THREADS")
     try:
         if "HiGHS" in pulp.listSolvers(onlyAvailable=True):
-            return pulp.HiGHS(msg=False)
+            return (pulp.HiGHS(msg=False, threads=int(threads)) if threads
+                    else pulp.HiGHS(msg=False))
     except Exception:
         pass
     return pulp.PULP_CBC_CMD(msg=False)

@@ -84,7 +84,7 @@ trade is strictly unprofitable for any decay below 1.0 and merely tied at 1.0.
 TIME DECAY
 ----------
 A GW+6 prediction deserves less trust than a GW+1 prediction, so future gameweeks
-are discounted by DECAY^t (default 0.85). At t=5 that is 0.44 -- the solver still
+are discounted by DECAY^t (default 0.45 since 2026-08-20; see the constant) -- the solver still
 plans ahead, but will not sacrifice real points now for speculative points later.
 
 ROLLING HORIZON
@@ -121,6 +121,21 @@ from squad_state import sell_price, MAX_FREE_TRANSFERS
 
 HIT_COST = 4          # FPL's actual charge. Never change this: it is a game rule.
 
+# Bench-aware Bench Boost (P4 follow-up, 2026-08-20). When a Bench Boost is
+# scheduled for a gameweek inside the planning horizon, that step's bench
+# weight becomes 1.0 -- all fifteen players score that week, so the bench is
+# not a discounted afterthought but part of the objective. P4 measured the
+# bench-UNaware Bench Boost at +2.3 points against the plan's +22 estimate,
+# because the solver leaves cheap fillers on the bench; this is the
+# bench-slot idea the interim plan flagged as the one unexplored optimizer
+# direction. Gated (the #13 lesson) and stamped into every decision log as
+# `bench_boost_aware` by the simulator. ADOPTED 2026-08-20 (P4 log
+# sections 9/11/12): bench-aware packages measured +25/+31 (d0.85) and a
+# 46-point boosted bench (d0.45); inert unless a Bench Boost is actually
+# scheduled inside the horizon (property-tested), so ordinary solves are
+# byte-identical either way.
+BENCH_BOOST_AWARE = True
+
 # The DECISION bar the solver must clear before paying a hit. Defaults to the real
 # charge, which is the current behaviour.
 #
@@ -135,7 +150,12 @@ HIT_COST = 4          # FPL's actual charge. Never change this: it is a game rul
 # local gain monotonically (W1 +7.6 -> -1.0 as lambda went 0 -> 3) because it cut
 # the low-gain budget-enabling legs that make combination moves possible.
 DEFAULT_HORIZON = 6
-DEFAULT_DECAY = 0.85
+# ADOPTED 2026-08-20 (P4 log section 13): 0.45, a MECHANISM-BASED choice.
+# 0.85 was inherited from a config stamp and never swept; season totals
+# cannot rank decays (M1). H=6 stays: bench-aware Bench Boost needs the
+# boost week inside the horizon (bb-5). Both are stamped into every
+# decision-log row by the simulator.
+DEFAULT_DECAY = 0.45
 
 
 def build_and_solve(
@@ -150,6 +170,7 @@ def build_and_solve(
     wildcard_step=None,
     solver=None,
     hit_bar=None,
+    bench_boost_step=None,
 ):
     """Solve the multi-gameweek transfer plan.
 
@@ -164,6 +185,11 @@ def build_and_solve(
                        are free, or None. Budget, squad composition and club limits
                        still apply. Banking is untouched, so the following gameweek
                        resumes with its normal free transfer.
+    bench_boost_step : horizon index of a scheduled Bench Boost, or None. Under
+                       BENCH_BOOST_AWARE that step's bench weight is 1.0 -- all
+                       fifteen score that week -- so the solver can build toward
+                       the boost as it enters the horizon. Ignored when the gate
+                       is off.
 
     Returns (status, plan) where plan is a list of per-gameweek dicts.
     """
@@ -248,6 +274,10 @@ def build_and_solve(
     obj = []
     for t in range(T):
         d = decay ** t
+        # Bench-aware Bench Boost: the boost week's bench scores in full, so
+        # its bench weight is 1.0; every other step keeps the tuned weight.
+        wb_t = (1.0 if (BENCH_BOOST_AWARE and bench_boost_step is not None
+                        and t == bench_boost_step) else w_bench)
         for i in players:
             p = pts[(i, t)]
             if p == 0:
@@ -255,7 +285,7 @@ def build_and_solve(
             obj.append(d * p * start[(i, t)])
             obj.append(d * p * cap[(i, t)])
             obj.append(d * VICE_WEIGHT * p * vice[(i, t)])
-            obj.append(d * w_bench * p * (pick[(i, t)] - start[(i, t)]))
+            obj.append(d * wb_t * p * (pick[(i, t)] - start[(i, t)]))
         obj.append(-d * hit_bar * hits[t])
     prob += pulp.lpSum(obj)
 

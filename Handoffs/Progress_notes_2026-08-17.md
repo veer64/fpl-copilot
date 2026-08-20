@@ -15,7 +15,7 @@ file is the running status.)
 | **D3** | DGW prediction audit | **COMPLETE.** Per-fixture grain closed the three DGW under-counting defects; doubles counted and guarded by test (`test_doubles_are_counted`, 409 doubled player-gameweeks at horizon 0 in 2025-26). |
 | **D4** | Synthetic forward odds | **CLOSED 2026-08-20 — NOT adopted.** Phase 1 succeeded as a modelling result (sealed 2025-26 R² 0.851 vs DC-alone 0.595, +0.10 edge sustained across horizon steps 1–6, pre-registered, independently leakage-audited). Phase 2 found no pipeline benefit on three independent grains: forward-step accuracy flat, top-k at/below chance, per-decision corr(pred gain, real gain) 0.301 base vs 0.264 synth, paired sign test 11–16 (p=0.442). Durable finding: forward-step degradation is minutes/form-driven, not fixture-driven — future horizon work redirects there. One consistent effect: MID/FWD margin β toward 1 and GK/DEF away in 60/60 cells each — the GK-investigation H1 double-count signature from an independent intervention. Code/model retained behind `synthetic_lambda_active=False`; retest if minutes-at-horizon improves. Full record: `Logs/d4_market_lambda_log.md` (§13 closure), `Logs/overnight_2026-08-19_log.md`. |
 | **D5** | Player-prop odds evaluation | **UNSTARTED — blocked on the spend decision** (~$100–300 evaluation month; see 2026-08-20 section below). |
-| **Phase P** | Policy work (opening squad, early WC, hits, chips) | **UNSTARTED.** |
+| **Phase P** | Policy work | **P4 chips ADOPTED 2026-08-20** (rules of record: p4_chip_policy_log.md §12; standard config now H=6 decay=0.45, §13; bench-aware BB on). P1-P3, P5 unstarted. |
 
 ## Open workstream carried past D1
 

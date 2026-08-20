@@ -342,7 +342,8 @@ def decide_gameweek(pool, state, prices, mode="balanced", allow_transfer=True):
 # ---------------------------------------------------------------------------
 def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
                         mode="balanced", horizon=DEFAULT_HORIZON,
-                        decay=DEFAULT_DECAY, wildcard=False, hit_bar=None):
+                        decay=DEFAULT_DECAY, wildcard=False, hit_bar=None,
+                        bench_boost_gw=None):
     """Plan `horizon` gameweeks ahead with the transfer MIP, return this week's move.
 
     Rolling horizon: the solver produces a plan for GW..GW+horizon-1, but only the
@@ -379,6 +380,12 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
     purchase_prices = dict(zip(state.squad["element"],
                                state.squad["purchase_price"]))
 
+    # A scheduled Bench Boost inside the window gets its horizon index, so the
+    # solver values that step's bench in full and can build toward it as the
+    # boost week approaches (see transfer_mip.BENCH_BOOST_AWARE).
+    bb_step = (future.index(bench_boost_gw)
+               if bench_boost_gw is not None and bench_boost_gw in future
+               else None)
     status, plan = build_and_solve(
         pools,
         current_squad=state.elements,
@@ -389,6 +396,7 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
         decay=decay,
         wildcard_step=0 if wildcard else None,
         hit_bar=hit_bar,
+        bench_boost_step=bb_step,
     )
     if plan is None:
         raise RuntimeError(f"GW{gw}: transfer MIP returned {status}")
@@ -471,7 +479,7 @@ def _chip_weeks(value, chip_name, second_half_start):
 def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                     policy="single", horizon=DEFAULT_HORIZON, decay=DEFAULT_DECAY,
                     wildcard_gws=None, triple_captain_gw=None,
-                    free_hit_gws=None,
+                    free_hit_gws=None, bench_boost_gw=None,
                     second_half_start=DEFAULT_SECOND_HALF_START, hit_bar=None):
     """Run the full season. Returns (final_state, decision_log DataFrame).
 
@@ -604,7 +612,8 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             team, transfers, step, eff_h = decide_gameweek_mip(
                 season_df, gw, state, pool, prices, gws,
                 mode=mode, horizon=eff_horizon, decay=decay,
-                wildcard=is_wildcard or is_free_hit, hit_bar=hit_bar)
+                wildcard=is_wildcard or is_free_hit, hit_bar=hit_bar,
+                bench_boost_gw=bench_boost_gw)
             effective_horizon = eff_h
 
             # Applied as ONE atomic move: the MIP reasoned about the whole set,
@@ -663,6 +672,12 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
 
         log.append({
             "gw": gw,
+            # Provenance stamps (P4 log section 13): the config that made the
+            # decisions must be visible in the artefact -- the #13 lesson.
+            "horizon": int(horizon),
+            "decay": float(decay),
+            "bench_boost_aware": bool(__import__("transfer_mip").BENCH_BOOST_AWARE),
+            "bench_boost_gw": int(bench_boost_gw) if bench_boost_gw else -1,
             "points": result["points"],
             "raw_points": result["raw_points"],
             "hit": result["hit"],
