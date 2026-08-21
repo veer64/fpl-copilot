@@ -214,6 +214,10 @@ def gw_slice(season_df, gw, cutoff=None):
         )
 
     cols = ["element", "name", "position", "team", "value", "e_points"]
+    # P5 plumbing: the probability columns ride along when present -- bench
+    # ordering needs p_play_any and the XI tiebreak needs p_60plus. Old
+    # frames without them still slice cleanly (the gates then refuse loudly).
+    cols += [c for c in ("p_play_any", "p_60plus") if c in d.columns]
     return d[cols].copy().reset_index(drop=True)
 
 
@@ -307,6 +311,10 @@ def _adjusted_pool(pool, state, prices):
                 # assuming a rise would invent money that does not exist.
                 "value": sell_price(bought, int(prices.get(e, bought))),
                 "e_points": 0.0,          # blank gameweek: cannot score
+                # blank gameweek: cannot play either -- explicit zeros, not
+                # NaN, so the P5 orderings never read a silent NaN
+                **{c: 0.0 for c in ("p_play_any", "p_60plus")
+                   if c in pool.columns},
             })
         p = pd.concat([p, pd.DataFrame(rows)], ignore_index=True)
 
@@ -482,6 +490,8 @@ def _pool_with_owned(pool, state, prices):
             "team": s.get("team", "UNKNOWN"),
             "value": int(prices.get(e, bought)),
             "e_points": 0.0,          # blank gameweek: cannot score
+            **{c: 0.0 for c in ("p_play_any", "p_60plus")
+               if c in pool.columns},
         })
     return pd.concat([pool, pd.DataFrame(rows)], ignore_index=True)
 
@@ -818,6 +828,16 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             # AND horizon-aware frame), not the raw constant.
             "opening_horizon_active": bool(opening_horizon_used),
             "opening_robust_active": bool(opening_robust_used),
+            # P5 gates, read live (drivers flip them in-process)
+            "bench_order_by_play": bool(__import__("scoring").BENCH_ORDER_BY_PLAY),
+            "xi_tiebreak_p60": bool(__import__("optimize").XI_TIEBREAK_P60),
+            # P3 gate + effective early bar (read live)
+            "early_hit_discount_active": bool(
+                __import__("transfer_mip").EARLY_HIT_DISCOUNT_ACTIVE),
+            "early_hit_bar": float(
+                __import__("transfer_mip").EARLY_HIT_BAR
+                if __import__("transfer_mip").EARLY_HIT_DISCOUNT_ACTIVE
+                else -1.0),
             "points": result["points"],
             "raw_points": result["raw_points"],
             "hit": result["hit"],

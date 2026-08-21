@@ -149,6 +149,26 @@ BENCH_BOOST_AWARE = True
 # minimum-gain filter was tested in Logs/wildcard_and_determinism.md and destroyed
 # local gain monotonically (W1 +7.6 -> -1.0 as lambda went 0 -> 3) because it cut
 # the low-gain budget-enabling legs that make combination moves possible.
+# P3 (interim plan section 4): early hit tolerance. Persistence costs
+# 27.9 pts/gw in GW1-7 vs 12.7 after (coldstart_log), so a -4 hit that
+# clears dead weight EARLY may be positive-EV in a way it is not later.
+# When active, the SOLVER's hit penalty coefficient in gameweeks
+# 2..EARLY_HIT_LAST_GW becomes EARLY_HIT_BAR instead of the uniform bar;
+# scoring still charges FPL's real 4 (game rule; see the hit_bar note).
+# This is the mirror of the hit-threshold grid (Logs/hit_threshold_log.md
+# raised the bar uniformly and found nothing; this lowers it early only).
+# FORMULATION NOTE: at EARLY_HIT_BAR < HIT_COST * decay (= 1.8 at d=0.45)
+# the anti-degeneracy argument in the module docstring weakens at the
+# early->normal boundary (a GW7 solve could in principle inflate hits[t]
+# to bank a transfer worth more next week); bar=1 crosses this, bars 2-3
+# do not. Flagged in the P3 log; the distortion is confined to the one
+# boundary solve. Gated and stamped per decision-log row
+# (early_hit_discount_active / early_hit_bar). NOT ADOPTED -- measured
+# 2026-08-21, report-only.
+EARLY_HIT_DISCOUNT_ACTIVE = False
+EARLY_HIT_BAR = 4.0
+EARLY_HIT_LAST_GW = 7
+
 DEFAULT_HORIZON = 6
 # ADOPTED 2026-08-20 (P4 log section 13): 0.45, a MECHANISM-BASED choice.
 # 0.85 was inherited from a config stamp and never swept; season totals
@@ -226,18 +246,32 @@ def build_and_solve(
 
     # Predicted points and prices per (player, gameweek). A player absent from a
     # gameweek scores zero there and cannot be bought into it.
-    pts, price, available = {}, {}, {}
+    # P5 piece 2: the XI tiebreak reads the gate LIVE from optimize (drivers
+    # flip it in-process, the BENCH_BOOST_AWARE pattern).
+    xi_tiebreak = bool(__import__("optimize").XI_TIEBREAK_P60)
+    tb_w = float(__import__("optimize").XI_TIEBREAK_WEIGHT)
+
+    pts, price, available, p60 = {}, {}, {}, {}
     for t, gw in enumerate(gws):
         df = pool_by_gw[gw].set_index("element")
+        has_p60 = "p_60plus" in df.columns
+        if xi_tiebreak and not has_p60:
+            raise ValueError(
+                "XI_TIEBREAK_P60 is on but the pool for GW"
+                f"{gw} has no p_60plus column -- plumb it through gw_slice "
+                "rather than silently skipping the tiebreak")
         for i in players:
             if i in df.index:
                 pts[(i, t)] = float(df.loc[i, "e_points"])
                 price[(i, t)] = int(df.loc[i, "value"])
                 available[(i, t)] = True
+                v = df.loc[i, "p_60plus"] if has_p60 else 0.0
+                p60[(i, t)] = 0.0 if pd.isna(v) else float(v)
             else:
                 pts[(i, t)] = 0.0
                 price[(i, t)] = int(purchase_prices.get(i, 40))
                 available[(i, t)] = False
+                p60[(i, t)] = 0.0
 
     owned = set(current_squad)
     is_first_squad = len(owned) == 0
@@ -286,7 +320,15 @@ def build_and_solve(
             obj.append(d * p * cap[(i, t)])
             obj.append(d * VICE_WEIGHT * p * vice[(i, t)])
             obj.append(d * wb_t * p * (pick[(i, t)] - start[(i, t)]))
-        obj.append(-d * hit_bar * hits[t])
+            # P5 piece 2: prefer the likelier finisher when e_points are
+            # within noise (threshold = XI_TIEBREAK_WEIGHT, see optimize.py).
+            if xi_tiebreak and p60[(i, t)] > 0:
+                obj.append(d * tb_w * p60[(i, t)] * start[(i, t)])
+        # P3: early hit discount -- the solver's bar only; scoring charges 4.
+        bar_t = (EARLY_HIT_BAR
+                 if (EARLY_HIT_DISCOUNT_ACTIVE and 2 <= gws[t] <= EARLY_HIT_LAST_GW)
+                 else hit_bar)
+        obj.append(-d * bar_t * hits[t])
     prob += pulp.lpSum(obj)
 
     # ---- per-gameweek squad and XI rules --------------------------------
@@ -437,6 +479,7 @@ def plan_to_team(plan_step, pool):
     squad = set(plan_step["squad"])
     starters = set(plan_step["starters"])
 
+    extra = [c for c in ("p_play_any", "p_60plus") if c in pool.columns]
     rows = []
     for r in pool.itertuples():
         if r.element not in squad:
@@ -449,8 +492,11 @@ def plan_to_team(plan_step, pool):
             role = "start"
         else:
             role = "bench"
-        rows.append({"element": r.element, "name": getattr(r, "name", str(r.element)),
-                     "position": r.position, "team": r.team,
-                     "value": r.value, "e_points": r.e_points, "role": role})
+        row = {"element": r.element, "name": getattr(r, "name", str(r.element)),
+               "position": r.position, "team": r.team,
+               "value": r.value, "e_points": r.e_points, "role": role}
+        for c in extra:
+            row[c] = getattr(r, c)
+        rows.append(row)
 
     return pd.DataFrame(rows)

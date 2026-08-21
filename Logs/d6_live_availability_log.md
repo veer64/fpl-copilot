@@ -130,3 +130,34 @@ but the flips it catches are exactly the Gvardiol class.
 4. **Diff against fplcache** once its GW1 snapshot lands: same (gw, element)
    grain, compare asof_* — anything the live poll saw that fplcache's
    reconstruction missed is the first real measurement of the blind window.
+
+## 9. GW1 smoke test OUTCOME (2026-08-21): window MISSED — partial salvage;
+## full test moves to GW2 (2026-08-28 17:30Z, start 13:30Z = 09:30 local)
+
+**The pre-deadline window was missed on a timezone confusion.** The window
+ran 13:30–17:30 UTC = 09:30–13:30 LOCAL (this machine is UTC−4); by the
+time the watch was to be started (14:12 local), the deadline was 42 min
+gone and the API already reported GW2 as next. Nothing polled during the
+GW1 window. Recorded so the GW2 attempt uses LOCAL times.
+
+**Salvaged (all mechanical checks that don't need the live window):**
+- Post-deadline poll captured at deadline+44min (`--once --force`, 600
+  elements — element count moved 599→600 vs 2026-08-20 with no schema-guard
+  fire). Change detection fired: 137 players changed vs the 2026-08-20
+  poll (a ~28h diff spanning deadline-day news; its minutes_to_deadline
+  column is attributed to GW2 and is NOT meaningful for GW1).
+- `--build` produced `availability_2026_27_live.parquet`: 599 rows, GW1,
+  **columns AND dtypes identical to the historical schema** (checklist §8.3
+  PASSED on real completed-deadline data).
+- **The late-news recovery rule fired live, on 5 players** (asof_source
+  `live_late_news`): Bruno Guimarães, Hirst, Pedro Porro, Van de Ven,
+  P. M. Sarr — all recoveries TO `a` (flag cleared before the deadline,
+  invisible to the 2026-08-20 snapshot, recovered from the post-deadline
+  poll). The mechanism works against the live API.
+
+**Not salvageable for GW1:** checklist §8.1 (cadence), §8.2 (change rows
+near the deadline), and §8.4 — the blind-window diff vs fplcache. Our only
+pre-deadline snapshot is ~28h old, strictly WORSE than fplcache's ≤6h one,
+so the GW1 comparison would measure our gap, not theirs. The first real
+blind-window measurement moves to GW2. The Gvardiol-class question stays
+open one more week.

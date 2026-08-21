@@ -96,6 +96,21 @@ POS_ORDER = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
 # 15 are bought or who starts. See the VICE-CAPTAIN note in the module docstring.
 VICE_WEIGHT = 0.001
 
+# P5 piece 2 (interim plan section 4): XI tie-breaking by p_60plus. When two
+# players' e_points are within noise, prefer the one more likely to finish
+# the match (appearance points are 2 vs 1, and the determinism log showed
+# exactly-tied optima are everywhere). Implemented as a small objective
+# weight on start variables: a lower-e_points player can displace a rival
+# only if his e_points deficit is < WEIGHT x (his p_60plus - the rival's),
+# i.e. at most 0.05 pts. THE NOISE THRESHOLD IS 0.05 because step-0
+# prediction MAE is ~1.07 aggregate / ~2.4 in the starter band -- 0.05 is
+# 2-5% of measurement noise, far below anything the predictions can resolve,
+# while being ~5e4 x solver tolerance so ties break deterministically.
+# Gated and stamped per decision-log row as `xi_tiebreak_p60`. NOT ADOPTED --
+# measured 2026-08-21, report-only.
+XI_TIEBREAK_P60 = False
+XI_TIEBREAK_WEIGHT = 0.05
+
 
 def _default_solver():
     """Pick the best available MIP solver.
@@ -253,12 +268,22 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
 
     # --- objective: XI points + captain again (2x) + weighted bench + vice tiebreak ---
     # a bench player is "picked but not starting" -> (pick - start)
-    prob += (
+    obj = (
         pulp.lpSum(start[i]   * pts[i] for i in df.index)
         + pulp.lpSum(captain[i] * pts[i] for i in df.index)
         + w * pulp.lpSum((pick[i] - start[i]) * pts[i] for i in df.index)
         + VICE_WEIGHT * pulp.lpSum(vice[i] * pts[i] for i in df.index)
     )
+    if XI_TIEBREAK_P60:
+        if "p_60plus" not in df.columns:
+            raise ValueError(
+                "XI_TIEBREAK_P60 is on but the pool has no p_60plus column "
+                "-- plumb it through gw_slice rather than silently skipping "
+                "the tiebreak")
+        p60 = df["p_60plus"].fillna(0.0).astype(float)
+        obj += XI_TIEBREAK_WEIGHT * pulp.lpSum(
+            start[i] * p60[i] for i in df.index)
+    prob += obj
 
     # --- squad-level rules (on `pick`) ---
     prob += pulp.lpSum(pick[i] for i in df.index) == SQUAD_SIZE
@@ -377,6 +402,9 @@ def get_team(df, sol):
     (CAPTAIN / VICE / start / bench), sorted starters-first then by position."""
     pick, start, captain = sol["pick"], sol["start"], sol["captain"]
     vice = sol.get("vice", {})               # tolerate older solutions without vice
+    # Probability columns ride along when the pool carries them -- bench
+    # ordering (scoring.BENCH_ORDER_BY_PLAY) needs p_play_any downstream.
+    extra = [c for c in ("p_play_any", "p_60plus") if c in df.columns]
     rows = []
     for i in df.index:
         if _is_set(pick[i]):
@@ -390,10 +418,12 @@ def get_team(df, sol):
                 role = "bench"
             rows.append((df.loc[i, "element"], df.loc[i, "name"],
                          df.loc[i, "position"], df.loc[i, "team"],
-                         df.loc[i, "value"], df.loc[i, "e_points"], role))
+                         df.loc[i, "value"], df.loc[i, "e_points"], role,
+                         *[df.loc[i, c] for c in extra]))
 
     team = pd.DataFrame(rows, columns=[
-        "element", "name", "position", "team", "value", "e_points", "role"
+        "element", "name", "position", "team", "value", "e_points", "role",
+        *extra
     ])
     team["role_sort"] = (team["role"] == "bench").astype(int)   # starters first
     team["pos_sort"] = team["position"].map(POS_ORDER)

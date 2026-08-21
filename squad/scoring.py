@@ -44,6 +44,17 @@ MIN_FORMATION = {"DEF": 3, "MID": 2, "FWD": 1}
 HIT_COST = 4          # points deducted per transfer beyond the free allowance
 XI_SIZE = 11
 
+# P5 piece 1 (interim plan section 4): order the outfield bench by
+# p_play_any instead of e_points. Bench order only matters for autosubs, and
+# an autosub fires only if that player actually PLAYED -- and e_points is
+# near-useless for ranking bench players by that (Spearman vs
+# actually-played: p_play_any +0.383, e_points +0.067;
+# Logs/wildcard_and_determinism.md). Measured +2 in a clean paired
+# comparison. Gated and stamped per decision-log row as
+# `bench_order_by_play` (the D1_TERMS_ACTIVE pattern). NOT ADOPTED --
+# measured 2026-08-21, report-only.
+BENCH_ORDER_BY_PLAY = False
+
 
 def assign_bench_order(team):
     """Give each bench player an order: 0 for the bench GK, then 1, 2, 3 for the
@@ -66,11 +77,26 @@ def assign_bench_order(team):
     gk = bench[bench["position"] == "GK"]
     t.loc[gk.index, "bench_order"] = 0
 
-    outfield = bench[bench["position"] != "GK"].sort_values("e_points", ascending=False)
+    outfield = bench[bench["position"] != "GK"]
+    if BENCH_ORDER_BY_PLAY:
+        # Order by likelihood of playing; e_points only breaks ties. A frame
+        # without the column fails LOUDLY -- silently falling back to
+        # e_points would be exactly the silent-fallback family (#10/#13/
+        # #14/#15). Injected blank-week rows carry p_play_any = 0.0.
+        if "p_play_any" not in outfield.columns:
+            raise ValueError(
+                "BENCH_ORDER_BY_PLAY is on but the team frame has no "
+                "p_play_any column -- plumb it through gw_slice/pools/"
+                "plan_to_team rather than falling back to e_points")
+        outfield = outfield.assign(
+            _pplay=outfield["p_play_any"].fillna(0.0).astype(float)
+        ).sort_values(["_pplay", "e_points"], ascending=False)
+    else:
+        outfield = outfield.sort_values("e_points", ascending=False)
     for rank, idx in enumerate(outfield.index, start=1):
         t.loc[idx, "bench_order"] = rank
 
-    return t
+    return t.drop(columns=["_pplay"], errors="ignore")
 
 
 def _legal_after_swap(starter_positions, out_pos, in_pos):
