@@ -304,6 +304,17 @@ reshuffle-into-error.** A chip forces a rebuild; when late-season predictions
 are wrong (as 2024-25's are), the rebuild locks the errors in. The chip
 policy's risk is not timing — it is prediction quality at the reshuffle.
 
+## 12a. WC1 review queued (2026-08-21, cross-reference — NOT an adoption)
+
+The overnight WC1 × opening grid (42 sims, Logs/p1_opening_log.md §7)
+supersedes §6's "GW4–6, unresolvable" framing: at W=3, WC1@GW2 is positive
+in all six season×opening arms (cross-season mean ~+41 under both
+openings) while GW4 — inside the adopted "GW4–5" rule — is negative in 4
+of 6 arms and GW6–8 are broadly negative. The rule of record in §12 STANDS
+until a deliberate revision; any revision should cite that grid and note
+its caveat: a GW2 wildcard partly substitutes for fixing the opening squad
+(P1), so the two levers must stay jointly measured.
+
 ## 13. STANDARD CONFIG ADOPTED: H=6, decay=0.45
 
 `transfer_mip.DEFAULT_DECAY` 0.85 → 0.45; DEFAULT_HORIZON stays 6.

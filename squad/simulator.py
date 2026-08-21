@@ -84,6 +84,31 @@ SEASON = "2025-26"
 # so it is a parameter with a sensible default, not a hard-coded rule.
 DEFAULT_SECOND_HALF_START = 20
 
+# P1 Step 1 (interim plan section 4): give the OPENING squad a horizon.
+# The structural bug this gates: the season is seeded from the single-gameweek
+# optimize_squad, so the one decision with an eight-week persistence horizon
+# (coldstart_log: being stuck costs 27.9 pts/gw in GW1-7 vs 12.7 after, ~seven
+# transfers to escape) is the only decision made with no horizon at all. When
+# active, GW1 is built by the SAME multi-gameweek MIP every later transfer
+# decision already uses -- maximising the decay-discounted H-window sum via
+# build_and_solve's free-pick path (empty current_squad) -- reading every
+# future gameweek from GW1's own cutoff, exactly as decide_gameweek_mip does.
+# Gated and stamped per decision-log row as `opening_horizon_active`, the
+# #13 lesson. NOT ADOPTED -- measured 2026-08-20, report-only; flip in-process
+# to run the treated arm (eval/run_p1_opening.py).
+OPENING_HORIZON_ACTIVE = False
+
+# P1 Step 2 (interim plan section 4): the SCENARIO-ROBUST opening solve.
+# The deterministic objective prices robustness at zero; this one samples K
+# scenarios from the model's own uncertainty (squad/opening_robust.py --
+# sampling scheme and recourse approximation documented there) and picks the
+# GW1 fifteen that does best across them, with one repair per week modelled.
+# Takes precedence over OPENING_HORIZON_ACTIVE when both are on. Gated and
+# stamped per decision-log row as `opening_robust_active`. NOT ADOPTED --
+# measured 2026-08-20, report-only; flip in-process to run the treated arm
+# (eval/run_p1_robust.py).
+OPENING_ROBUST_ACTIVE = False
+
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -382,10 +407,21 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
 
     # A scheduled Bench Boost inside the window gets its horizon index, so the
     # solver values that step's bench in full and can build toward it as the
-    # boost week approaches (see transfer_mip.BENCH_BOOST_AWARE).
-    bb_step = (future.index(bench_boost_gw)
-               if bench_boost_gw is not None and bench_boost_gw in future
-               else None)
+    # boost week approaches (see transfer_mip.BENCH_BOOST_AWARE). Accepts an
+    # int (legacy single boost) or an iterable/set (one per half); the two
+    # boost weeks are >= 10 gameweeks apart by the one-per-half rule, so at
+    # most one can sit inside an H<=6 window -- asserted, not assumed.
+    if bench_boost_gw is None:
+        bbs = set()
+    elif isinstance(bench_boost_gw, (int, np.integer)):
+        bbs = {int(bench_boost_gw)}
+    else:
+        bbs = {int(g) for g in bench_boost_gw}
+    bb_in = [g for g in future if g in bbs]
+    assert len(bb_in) <= 1, (
+        f"GW{gw}: {len(bb_in)} bench boosts inside one horizon window "
+        f"({bb_in}) -- the solver takes a single bench_boost_step")
+    bb_step = future.index(bb_in[0]) if bb_in else None
     status, plan = build_and_solve(
         pools,
         current_squad=state.elements,
@@ -538,6 +574,17 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
 
     wildcard_gws = _chip_weeks(wildcard_gws, "wildcards", second_half_start)
     free_hit_gws = _chip_weeks(free_hit_gws, "free hits", second_half_start)
+    # A Bench Boost may now be scheduled once per half (the 2024-25-style
+    # chip set the P4 study measures). Same normalisation and one-per-half
+    # rule as the other chips; an int keeps the old single-boost behaviour,
+    # so every existing caller is unchanged.
+    bench_boost_gws = _chip_weeks(bench_boost_gw, "bench boosts",
+                                  second_half_start)
+    bb_clash = bench_boost_gws & (wildcard_gws | free_hit_gws)
+    if bb_clash:
+        raise ValueError(
+            f"only one chip per gameweek: bench boost collides at "
+            f"GW{sorted(bb_clash)}")
 
     clash = wildcard_gws & free_hit_gws
     if clash:
@@ -552,6 +599,13 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
 
     log = []
     state = None
+    # Whether the opening squad was ACTUALLY built with a horizon / robustly --
+    # stamped on every log row. Distinct from the raw gates: policy="single"
+    # never plans, so the gates are scoped to the MIP policy and the stamps
+    # record what the run truly did, never what a constant merely said (the
+    # #13/#15 lesson).
+    opening_horizon_used = False
+    opening_robust_used = False
 
     for gw in gws:
         pool = gw_slice(season_df, gw,
@@ -567,10 +621,86 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
         # -- decide --
         if state is None:
             # Gameweek 1: no squad yet, so this is a free pick from scratch.
-            prob, sol = optimize_squad(pool, mode=mode)
-            if pulp.LpStatus[prob.status] != "Optimal":
-                raise RuntimeError(f"GW{gw}: initial squad is {pulp.LpStatus[prob.status]}")
-            team = solution_to_squad(pool, sol)
+            horizon_aware = "cutoff" in season_df.columns
+            if (OPENING_ROBUST_ACTIVE and policy == "mip"
+                    and not horizon_aware):
+                raise ValueError(
+                    "OPENING_ROBUST_ACTIVE requires a horizon-aware frame "
+                    "(cutoff column) under policy='mip'; load with "
+                    "horizon_aware=True")
+            if OPENING_HORIZON_ACTIVE and policy == "mip" and not horizon_aware:
+                # A non-horizon frame cannot give GW1 a view of GW2-6 without
+                # leaking (each later gameweek's row there was built at its OWN
+                # cutoff). Refuse loudly rather than silently seeding single-GW
+                # under an active gate -- the silent-fallback family lesson.
+                raise ValueError(
+                    "OPENING_HORIZON_ACTIVE requires a horizon-aware frame "
+                    "(cutoff column) under policy='mip'; load with "
+                    "horizon_aware=True")
+            opening_robust_used = (OPENING_ROBUST_ACTIVE and policy == "mip"
+                                   and horizon_aware)
+            opening_horizon_used = (not opening_robust_used
+                                    and OPENING_HORIZON_ACTIVE
+                                    and policy == "mip" and horizon_aware)
+            if opening_robust_used:
+                # P1 Step 2: scenario-robust opening fifteen. Pools are the
+                # SAME gw_slice(cutoff=gw) frames the deterministic paths use;
+                # the probability/component columns ride alongside from the
+                # same cutoff==gw rows, so no later-cutoff information exists
+                # in either input (verified row-for-row in the smoke test).
+                from opening_robust import robust_opening_squad, PROB_COLS
+                future = [g for g in gws if g >= gw][:horizon]
+                pools, probs = {gw: pool}, {}
+                for g in future[1:]:
+                    try:
+                        pools[g] = gw_slice(season_df, g, cutoff=gw)
+                    except ValueError:
+                        break
+                for g in pools:
+                    d = season_df[(season_df["gw"] == g)
+                                  & (season_df["cutoff"] == gw)]
+                    probs[g] = d[[c for c in PROB_COLS if c in d.columns]] \
+                        .copy().reset_index(drop=True)
+                squad15, diag = robust_opening_squad(
+                    pools, probs, decay=decay, mode=mode, verbose=verbose)
+                # XI / captain / vice / bench order by the production
+                # expectation rule, with the chosen fifteen locked.
+                prob, sol = optimize_squad(pool, mode=mode,
+                                           locked_elements=squad15)
+                if pulp.LpStatus[prob.status] != "Optimal":
+                    raise RuntimeError(
+                        f"GW{gw}: robust fifteen is "
+                        f"{pulp.LpStatus[prob.status]} under the XI solve")
+                team = solution_to_squad(pool, sol)
+                effective_horizon = len(pools)
+            elif opening_horizon_used:
+                # P1: build the opening 15 by maximising the decay-discounted
+                # sum over the horizon -- the same objective, same solver and
+                # same cutoff discipline as every later transfer decision.
+                # build_and_solve's free-pick path (empty current_squad) prices
+                # the opening 15 as a free pick against the full 100.0 budget.
+                future = [g for g in gws if g >= gw][:horizon]
+                pools = {gw: pool}
+                for g in future[1:]:
+                    try:
+                        pools[g] = gw_slice(season_df, g, cutoff=gw)
+                    except ValueError:
+                        break     # beyond the harness horizon -- plan with less
+                bb_in = [g for g in pools if g in bench_boost_gws]
+                bb_step = list(pools).index(bb_in[0]) if bb_in else None
+                status, plan = build_and_solve(
+                    pools, current_squad=[], purchase_prices={}, bank=0,
+                    free_transfers=1, mode=mode, decay=decay,
+                    hit_bar=hit_bar, bench_boost_step=bb_step)
+                if plan is None:
+                    raise RuntimeError(f"GW{gw}: opening-horizon solve is {status}")
+                team = assign_bench_order(plan_to_team(plan[0], pool))
+                effective_horizon = len(pools)
+            else:
+                prob, sol = optimize_squad(pool, mode=mode)
+                if pulp.LpStatus[prob.status] != "Optimal":
+                    raise RuntimeError(f"GW{gw}: initial squad is {pulp.LpStatus[prob.status]}")
+                team = solution_to_squad(pool, sol)
             transfer = None
             transfers = []
 
@@ -613,7 +743,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                 season_df, gw, state, pool, prices, gws,
                 mode=mode, horizon=eff_horizon, decay=decay,
                 wildcard=is_wildcard or is_free_hit, hit_bar=hit_bar,
-                bench_boost_gw=bench_boost_gw)
+                bench_boost_gw=bench_boost_gws)
             effective_horizon = eff_h
 
             # Applied as ONE atomic move: the MIP reasoned about the whole set,
@@ -677,7 +807,17 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             "horizon": int(horizon),
             "decay": float(decay),
             "bench_boost_aware": bool(__import__("transfer_mip").BENCH_BOOST_AWARE),
-            "bench_boost_gw": int(bench_boost_gw) if bench_boost_gw else -1,
+            # legacy stamp: the single scheduled boost, or -1 (also -1 when
+            # TWO boosts are scheduled -- read bench_boost_gws instead)
+            "bench_boost_gw": (int(next(iter(bench_boost_gws)))
+                               if len(bench_boost_gws) == 1 else -1),
+            "bench_boost_gws": ",".join(str(g) for g
+                                        in sorted(bench_boost_gws)),
+            # P1: whether the opening squad was built over the horizon /
+            # scenario-robustly. Records what the run DID (gate AND mip policy
+            # AND horizon-aware frame), not the raw constant.
+            "opening_horizon_active": bool(opening_horizon_used),
+            "opening_robust_active": bool(opening_robust_used),
             "points": result["points"],
             "raw_points": result["raw_points"],
             "hit": result["hit"],
