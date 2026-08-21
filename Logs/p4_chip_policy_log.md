@@ -288,7 +288,7 @@ in both. n=3 seasons; no intervals (≥8 rule).
 
 | Chip | Rule of record | Evidence |
 |---|---|---|
-| Wildcard 1 | Policy-fixed GW4–5 (exact week NOT identifiable from 3 seasons) | §6: GW4 wins one season, GW5 another, GW6 negative twice |
+| Wildcard 1 | **Policy-fixed GW2–3 (REVISED 2026-08-21, §12b).** ~~Policy-fixed GW4–5 (exact week NOT identifiable from 3 seasons)~~ — superseded 2026-08-21: set before GW2–3 were ever tested; GW4 measured weakest of GW2–5 | §12b revision record; §12a review; p1_opening_log.md §7–8 (both grids). Original evidence: §6 |
 | Wildcard 2 | The pre-DGW-cluster fixture-swing week | most consistent chip: positive 3/3 seasons at W≥2 (§6), swing ≈ staged−1 |
 | Bench Boost 2 | Second-half gw with most doubling teams, floor ≥4; **bench-aware solver ON** | §9/§11: bench-aware package +25/+31 (d85), bench 46 pts at d45; unaware BB was +2.3 |
 | Free Hit 2 | Largest blank, floor ≥4 teams blanking; **never below the floor** | +28.7 mean at W3; below-floor measured −20 mean (actively harmful) |
@@ -314,6 +314,64 @@ of 6 arms and GW6–8 are broadly negative. The rule of record in §12 STANDS
 until a deliberate revision; any revision should cite that grid and note
 its caveat: a GW2 wildcard partly substitutes for fixing the opening squad
 (P1), so the two levers must stay jointly measured.
+
+**Review completed 2026-08-21; the rule was revised to GW2–3 the same day —
+see §12b for the decision record. The assembled case:**
+The assembled case (all W ∈ {1,2,3,5}, both grids, both openings, three
+seasons): GW2 is the only week positive in 6/6 arms at W=1, 2 AND 3 (5/6 at
+W=5), at ~2.5× the magnitude of any alternative (W=3 mean +41 vs GW3 +17,
+GW5 +15); GW4 is 2/6 at W=3 — the weakest of GW2–5; GW6 is the worst week
+on the board (1/6). Anchors reproduce under the full-system grid (median
+|diff| 0, mean 2.9) — replication under perturbation, not an independent
+sample. The GW2 gain is a 10–13-transfer full rebuild whose window delta is
+spread across all three weeks, in all three seasons — not one fluke week,
+season, or player. Counter-case recorded: (a) the gain is proportional to
+the opening squad's coldness — it generalises for THIS system live (same
+cold GW1) but shrinks if the opening ever improves; (b) no lookahead — GW2
+decisions use only cutoff-2 data, which a live manager also has; (c) the
+UNMEASURED cost is option value: spending WC1 at GW2 forfeits cover for a
+later first-half crisis, and the anchor window cannot price that (the three
+measured first halves contain almost no chip-worthy structure, but n=3
+calendars is thin). Supported ranking: GW2 > {GW3, GW5} > GW4; GW3 is the
+defensible conservative middle (6/6 at W=2–3, half the magnitude, one more
+week of information, keeps more option value). Confidence: sign
+consistency is the strength; magnitudes are single draws; no intervals
+possible.
+
+## 12b. WC1 rule REVISED: GW4–5 → GW2–3 (2026-08-21, user decision)
+
+The rule of record for Wildcard 1 is now **policy-fixed GW2–3**. Reasoning
+of record:
+
+1. **The evidence.** GW2 is positive at the W=3 anchor in six of six
+   season×opening arms across BOTH grids (the 42-sim isolated grid and the
+   24-sim full-system grid), and positive at W=1, 2 and 3 — the only week
+   to manage that. Cross-season W=3 means: GW2 +41, GW3 +17, GW5 +15,
+   GW4 −2.
+2. **The old rule's basis is gone.** GW4–5 was set (§6) before GW2 and GW3
+   were ever tested. With the full grid on disk, GW4 is the weakest of
+   GW2–5 and is now contradicted (2/6 arms positive at W=3).
+3. **The mechanism generalises.** A GW2 wildcard uses only cutoff-2 data —
+   information a live manager genuinely has at that deadline. No hindsight
+   artefact; the walk-forward discipline holds.
+4. **The conditionality, recorded explicitly.** The GW2 edge exists because
+   this system's GW1 predictions are the coldest of its season —
+   prior-season rates, ~32% no-prior players — so one real week is the
+   largest information gain it ever receives. If D5 (player props) or
+   lineup data ever improve GW1, this edge SHRINKS BY CONSTRUCTION. The
+   substitution finding is direct evidence: +15 under the horizon opening
+   vs +35 under base at the same anchor. Revisit this rule whenever the
+   opening-squad inputs materially improve.
+5. **The unmeasured reservation.** Playing WC1 at GW2 forfeits chip cover
+   for a first-half crisis. The anchor window cannot price option value and
+   neither can season totals (M1). The mitigation — three measured
+   calendars showed almost no first-half chip structure (§2) — is thin
+   evidence, and this reservation is why the rule is a GW2–3 RANGE rather
+   than GW2 alone: GW3 is 6/6 at W=2–3 at half the magnitude, with one more
+   week of information and slightly more option value retained.
+6. **Confidence: moderate on sign, low on magnitude.** Three seasons,
+   single draws per cell, no intervals (≥8 rule). The strength is
+   consistency — 6/6 arms × three windows × two grids — not effect size.
 
 ## 13. STANDARD CONFIG ADOPTED: H=6, decay=0.45
 

@@ -87,9 +87,11 @@ written up in #14.
   §8). Standard framing: identifies configs, ranks nothing. BB1 on single
   fixtures measured free-to-slightly-positive (~+10 bench, no detectable
   build-toward cost).
-- **OPEN QUESTION carried forward:** the wildcard-week rule of record is
-  GW4–5 (p4_chip_policy_log.md §12), but the 42-sim isolated grid AND the
-  full-system grid both put the GW2 anchor positive in six of six
-  season×opening arms (~+41 mean at W=3), with GW4 negative in most arms.
-  Review queued (p4 log §12a); any revision must note that a GW2 wildcard
-  partly substitutes for opening-squad quality.
+- **WC1 review CLOSED — rule of record moved GW4–5 → GW2–3 (2026-08-21,
+  user decision; p4_chip_policy_log.md §12b).** Basis: GW2 positive in six
+  of six season×opening arms across both grids at W=1–3 (W=3 means: GW2
+  +41, GW3 +17, GW5 +15, GW4 −2); the old rule predated any test of GW2–3.
+  Conditionality on record: the edge rides on the system's cold GW1 inputs
+  and shrinks by construction if D5/lineup data improve the opening —
+  revisit then. Unmeasured reservation: option value of holding the chip
+  (why the rule is a GW2–3 range, not GW2 alone).
