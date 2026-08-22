@@ -179,6 +179,15 @@ def load_season(walkforward_path=None, history_path=HISTORY_PATH,
         print(f"[load_season] dropped {dropped} rows ({100*dropped/n_before:.1f}%) "
               "with no prediction -- players not yet visible at their cutoff")
 
+    # Team-news step 4 ONLY: the oracle-minutes measuring instrument
+    # (deliberate leakage; see squad/oracle_minutes.py's warning). Stamped
+    # per decision-log row as oracle_minutes_active. Never adopt.
+    import oracle_minutes as _om
+    if _om.ORACLE_MINUTES_ACTIVE:
+        print("[load_season] ORACLE MINUTES ACTIVE -- deliberate leakage, "
+              "measurement instrument only", flush=True)
+        df = _om.apply_oracle_minutes(df)
+
     return df
 
 
@@ -831,6 +840,14 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             # P5 gates, read live (drivers flip them in-process)
             "bench_order_by_play": bool(__import__("scoring").BENCH_ORDER_BY_PLAY),
             "xi_tiebreak_p60": bool(__import__("optimize").XI_TIEBREAK_P60),
+            # team-news step 4 instrument (deliberate leakage when True --
+            # any artefact carrying True is a measurement, never a baseline)
+            "oracle_minutes_active": bool(
+                __import__("oracle_minutes").ORACLE_MINUTES_ACTIVE),
+            "oracle_mode": (
+                str(__import__("oracle_minutes").ORACLE_MODE)
+                if __import__("oracle_minutes").ORACLE_MINUTES_ACTIVE
+                else "off"),
             # P3 gate + effective early bar (read live)
             "early_hit_discount_active": bool(
                 __import__("transfer_mip").EARLY_HIT_DISCOUNT_ACTIVE),
