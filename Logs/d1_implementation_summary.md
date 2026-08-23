@@ -1,6 +1,13 @@
 # D1 Implementation Summary — Missing Scoring Terms
 
-**Date:** 2026-08-14 · **Status:** Complete and verified · **Files modified:** `squad/assembly.py`
+> *2026-08-22 note: this describes the ORIGINAL 2026-08-14 implementation.
+> Superseded in two ways: the per-player rolling cards term was measured
+> harmful and replaced by position-prior rates (**Variant B**, adopted
+> 2026-08-17 — `Logs/d1_log.md`), and the #13 incident added the
+> `d1_terms_active` gate + stamp after this was written. The adopted
+> implementation of record is d1_log's, not this file's.*
+
+**Date:** 2026-08-14 · **Status:** Superseded by Variant B (see note) · **Files modified:** `squad/assembly.py`
 
 ---
 

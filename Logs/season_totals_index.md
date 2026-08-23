@@ -2,6 +2,17 @@
 
 Generated 2026-08-20 by eval/build_season_totals_index.py.
 
+> **Coverage note added 2026-08-22: this index covers totals produced
+> THROUGH 2026-08-20** (chips + sweep + references). Totals produced after
+> it are NOT indexed here (the generator globs data/chips and data/sweep
+> only); they live, with their own provenance and framing, in:
+> `Logs/p1_opening_log.md` (P1 arms §1–6, WC1×opening grid §7, full-system
+> grid §8 — the current REFERENCE cells), `Logs/p3_early_hits_log.md`,
+> `Logs/p5_optimizer_wins_log.md`, and `Logs/teamnews_step4_oracle.md` /
+> `teamnews_step5_knowable.md` (oracle runs — deliberate-leakage
+> instruments, stamped `oracle_minutes_active`, comparable to nothing).
+> Regenerating this index requires extending the generator first.
+
 **Framing (mandatory):** a season total is ONE draw from a
 distribution with path sd ~60 (M1 failed). This index exists so
 figures can be LOCATED and grouped by provenance -- comparisons

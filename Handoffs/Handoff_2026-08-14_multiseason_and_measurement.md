@@ -1,5 +1,14 @@
 # FPL Copilot — Handoff, 2026-08-14
 
+> **Point-in-time record — figure-status note added 2026-08-22.** Every
+> figure herein predates: D1 (adopted 2026-08-17), the #13 stamp discipline,
+> the #14 Sheffield fix (2023-24 rebuilt), the k=8 rate blend (2026-08-18),
+> the #15 DC-wiring fix (2026-08-19, 2025-26 rebuilt; current step-0
+> baseline agg ρ 0.7471 / MAE 1.0732), and the H=6/decay 0.45 standard
+> config (2026-08-20). All figures UNRECOMPUTED. Margin-calibration and
+> hit-threshold figures covered here were RETRACTED under #13 (see those
+> logs' headers). Season totals: `Logs/season_totals_index.md`.
+
 **Covers:** the EV-surface measurement attempt (failed), the double-gameweek fix, the
 baseline migration, the odds decision, the multi-season port (M2), the pairwise
 margin calibration finding, and the hit-threshold grid (negative).

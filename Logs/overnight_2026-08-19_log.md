@@ -5,10 +5,10 @@ so partial results survive an interrupted run.
 
 | Stage | Task | Status |
 |---|---|---|
-| 1 | Defensive-contribution wiring fix + canonical rebuild | IN PROGRESS |
-| 2 | D4 Phase 2 re-run on fixed files | pending |
-| 3 | Transfer sweep H×decay×synth, path-free endpoints | pending |
-| 4 | Season totals (sanity framing only) | pending |
+| 1 | Defensive-contribution wiring fix + canonical rebuild | ~~IN PROGRESS~~ COMPLETE (2026-08-20; see final line) |
+| 2 | D4 Phase 2 re-run on fixed files | ~~pending~~ COMPLETE |
+| 3 | Transfer sweep H×decay×synth, path-free endpoints | ~~pending~~ COMPLETE (54/54) |
+| 4 | Season totals (sanity framing only) | ~~pending~~ COMPLETE — indexed in Logs/season_totals_index.md |
 
 ## Stage 1 — the defect
 

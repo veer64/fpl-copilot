@@ -1,5 +1,14 @@
 # Handoff — 2026-08-18: D1 adopted, D2 adopted, GK investigation open
 
+> **Point-in-time record — figure-status note added 2026-08-22.** All
+> 2025-26 figures herein predate the #15 DC-wiring fix (2026-08-19; the
+> canonical priced defensive contribution at position base rates when they
+> were measured — current step-0 baseline agg ρ 0.7471 / MAE 1.0732,
+> starter-band ρ GK 0.190 / DEF 0.285 / MID 0.214 / FWD 0.157), and the
+> standard config has since moved to H=6/decay 0.45 (2026-08-20). Figures
+> UNRECOMPUTED unless a later log re-measured them. Season totals:
+> `Logs/season_totals_index.md`.
+
 **Covers:** the D1 scoring-terms work (adopted, closed), the D2 Understat
 per-match pull + cross-season rate blend (adopted), two new KNOWN_ISSUES
 incidents (#13, #14), and the goalkeeper investigation (still open).

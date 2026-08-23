@@ -28,8 +28,21 @@
 > relative to current builds — measured at roughly +39 points on one paired
 > comparison. That drop is the removal of a leak, not a regression.
 >
-> Current canonical: `data/walkforward_h6_2526.parquet`, stamped
-> `minutes_availability=True`, `odds_horizon_gws=0`, `dgw_handling='per_fixture'`.
+> ~~Current canonical: `data/walkforward_h6_2526.parquet`, stamped
+> `minutes_availability=True`, `odds_horizon_gws=0`, `dgw_handling='per_fixture'`.~~
+>
+> **Addendum 2026-08-22 — four further supersessions since this banner was
+> written:** D1 scoring terms adopted (2026-08-17, `d1_terms_active=True`);
+> the Sheffield United join fix (KNOWN_ISSUES #14, 2023-24 rebuilt); the k=8
+> cross-season rate blend adopted (2026-08-18, `rate_blend_active=True`); the
+> DC-wiring fix (KNOWN_ISSUES #15, 2026-08-19, 2025-26 rebuilt). The standard
+> config moved H=3/decay 0.3 → H=6/decay 0.45 (2026-08-20,
+> p4_chip_policy_log §13). Current canonicals:
+> `data/walkforward_h6_{2023_24,2024_25,2025_26}.parquet`; current 2025-26
+> step-0 baseline: agg ρ 0.7471 / MAE 1.0732. Figures in this file remain
+> UNRECOMPUTED on the current surface. For any season total quoted in this
+> file, provenance and valid comparisons live in `Logs/season_totals_index.md`
+> — totals from this file's era are comparable to NOTHING current.
 
 
 ## Two bugs found, both in transfer_mip.py

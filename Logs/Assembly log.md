@@ -1,5 +1,14 @@
 # E[points] Assembly — Build Log
 
+> *2026-08-22 note: this documents the ORIGINAL Phase-2 equation. The
+> production equation has since gained the D1 scoring terms (saves,
+> conceded, cards, penalty share — Variant B, `d1_terms_active`), the k=8
+> cross-season rate blend (`rate_blend_active`), the per-fixture DGW grain,
+> the 2025-26 defensive-contribution rule (`dc_rule_active`, post-#15
+> wiring), and the neutral-fill odds fallback (#14). Current equation state:
+> `squad/assembly.py` + the stamp columns; figures below are the Phase-2
+> record, UNRECOMPUTED.*
+
 **Phase 2, Week 6.** Status: complete and validated. The five component models
 (minutes, attacking rates, Dixon-Coles, defensive contribution, bonus) are joined
 into a single per-player-gameweek **E[points]** prediction for the live 2025-26

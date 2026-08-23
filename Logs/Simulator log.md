@@ -1,5 +1,14 @@
 # Simulator v1 — Results Log
 
+> ## ⚠ SUPERSEDED BASELINE — added 2026-08-22
+>
+> Every figure here (including the 1889 headline) predates the v1→MIP policy
+> change, the M3 baseline migration, D1, the #14 join fix, the rate blend,
+> the #15 DC-wiring fix, and the H=6/decay 0.45 standard config. All
+> UNRECOMPUTED; totals from this era are comparable to nothing current —
+> provenance families in `Logs/season_totals_index.md` (this 1889 is cited
+> there via wildcard_and_determinism.md).
+
 **Date:** 2026-08-08
 **Status:** v1 complete. Full 2025-26 season simulated end-to-end against four baselines.
 

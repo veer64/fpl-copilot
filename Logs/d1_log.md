@@ -138,11 +138,20 @@ Full test suite: 105 passed, 5 skipped (the canonical-2526 guards, file absent).
 Prior seasons carry the full D1 feature set for the first time — they were
 previously "conceded-only" via the early-return path (§7).
 
+> **Superseded 2026-08-22 (recorded; measured values below kept struck
+> through or annotated).** Two later rebuilds moved the canonical surface
+> these rows describe: the k=8 rate blend (2026-08-18) and the DC-wiring
+> fix (#15, 2026-08-19, 2025-26 only). Current canonical 2025-26 step-0:
+> **agg ρ 0.7471 / MAE 1.0732; starter-band ρ GK 0.190, DEF 0.285,
+> MID 0.214, FWD 0.157** (post-#15 rebuild, overnight_2026-08-19_log stage-1
+> addendum). Current 2023-24/2024-25 aggregates post-blend: UNRECOMPUTED —
+> no run has re-measured them; the rows below are the pre-blend record.
+
 | season | agg ρ | agg MAE | GK ρ / β | DEF ρ / β | MID ρ / β | FWD ρ / β |
 |---|---|---|---|---|---|---|
-| 2025-26 | 0.748 | 1.079 | 0.191 / 0.676 | 0.253 / 0.988 | 0.191 / 0.724 | 0.170 / 0.632 |
-| 2024-25 | 0.736 | 1.095 | 0.133 / 0.491 | 0.291 / 0.900 | 0.300 / 1.123 | 0.162 / 0.489 |
-| 2023-24 | 0.722 | 1.065 | 0.191 / 0.622 | 0.332 / 1.064 | 0.322 / 0.967 | 0.183 / 0.492 |
+| ~~2025-26~~ | ~~0.748~~ | ~~1.079~~ | ~~0.191 / 0.676~~ | ~~0.253 / 0.988~~ | ~~0.191 / 0.724~~ | ~~0.170 / 0.632~~ |
+| 2024-25 (pre-blend) | 0.736 | 1.095 | 0.133 / 0.491 | 0.291 / 0.900 | 0.300 / 1.123 | 0.162 / 0.489 |
+| 2023-24 (pre-blend) | 0.722 | 1.065 | 0.191 / 0.622 | 0.332 / 1.064 | 0.322 / 0.967 | 0.183 / 0.492 |
 | ~~2023-24~~ | ~~0.668~~ | ~~1.061~~ | ~~0.204 / 0.479~~ | ~~0.340 / 0.870~~ | ~~0.313 / 0.791~~ | ~~0.187 / 0.485~~ |
 
 (ρ = starter-band Spearman, e_minutes ≥ 60; β = pairwise margin slope,
@@ -171,7 +180,10 @@ direction. No DEF/MID/FWD cell resolves in any season or pool.
 ## 9. Season simulation — PROVENANCE REFERENCE ONLY
 
 **Season total: 2028** (2025-26, one run, 2026-08-17). 36 transfers, 84 hit
-points paid, 382 points left on bench.
+points paid, 382 points left on bench. *(2026-08-22: this total is a
+REFERENCE row in `Logs/season_totals_index.md` — pre-blend, pre-#15, decay
+0.85 — comparable to nothing; the standard config has since moved to
+H=6/decay 0.45.)*
 
 **This figure identifies what the Variant B config produced. It is not
 evidence about D1.**

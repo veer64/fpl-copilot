@@ -1,5 +1,18 @@
 # Cold start (GW1-7) — where the 11.3 pts/gw actually goes
 
+> ## ⚠ SUPERSEDED BASELINE — added 2026-08-22
+>
+> Every figure here was measured 2026-08-13 on the pre-M3 surface
+> (availability=False, H=3/decay 0.3, pre-D1, pre-blend, pre-#15). The
+> DIAGNOSIS (persistence, not components) has held up and motivated P1/P2;
+> the LEVELS have not: **capture of the best-available 15 in GW1–7 was
+> re-measured 2026-08-20 at the current standard config as 31.7% / 37.1% /
+> 27.5%** (2023-24 / 2024-25 / 2025-26, `eval/measure_p1_opening.py`;
+> Logs/p1_opening_log.md) against the 22.7% below — the cold-start gap has
+> substantially closed since this analysis. The persistence costs
+> (27.9 / 12.7 pts/gw) and every other level below are UNRECOMPUTED on the
+> current surface. Any season total: see `Logs/season_totals_index.md`.
+
 Model 43.0 pts/gw in GW1-7 against 54.3 from GW8. Investigated 2026-08-13 before
 attempting any fix. **The components are not failing. Squad persistence is.**
 

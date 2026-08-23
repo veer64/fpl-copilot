@@ -110,6 +110,8 @@ changes the equation's inputs, so stamp it (the #13 lesson).
 **Season total: 2060** (2025-26, one run, blend active). 37 transfers, 84 hit
 points paid, 278 points left on bench. Range check passed: every quantity is
 in the normal band for this config family -- nothing pathological.
+*(2026-08-22: a REFERENCE row in `Logs/season_totals_index.md` — pre-#15,
+decay 0.85 — comparable to nothing; standard config now H=6/decay 0.45.)*
 
 **This figure identifies what the blend config produced. It is not evidence
 about the blend.**
@@ -139,6 +141,11 @@ Config stamp for this run:
                           Sheffield fix #14, per-assembly #3 uniqueness guard)
 
 ## 8. Adoption rationale (2026-08-18)
+
+> *2026-08-22 note: items 3–5 below include 2025-26 starter-band and top-k
+> cells measured pre-#15 (DC flat-rated by position on that season). The
+> adoption's PRIMARY evidence (items 1–2, understat-space rate endpoints)
+> is DC-free and unaffected. The 2025-26 cells are UNRECOMPUTED post-#15.*
 
 1. **Component metrics on the sealed season, pre-registered:** npxG Spearman
    0.461 -> 0.559, xA 0.394 -> 0.438, MAE better on both. k was written into

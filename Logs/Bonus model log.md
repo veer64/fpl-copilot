@@ -1,5 +1,11 @@
 # Bonus (BPS) Model — Build Log
 
+> *2026-08-22 note: the model is unchanged, but its INPUTS moved with D1
+> (2026-08-17): predicted saves / conceded / cards are now fed where zeros
+> were (`Logs/d1_log.md`; measured e_points effect small, GK/DEF-specific,
+> never isolated in any β measurement — gk_investigation_log §2). Figures
+> below predate that and are UNRECOMPUTED.*
+
 **Phase 2, Week 6.** Status: complete. Two-piece model built on clean vaastav data;
 Core-Insights enrichment attempted and abandoned (data-quality issues).
 

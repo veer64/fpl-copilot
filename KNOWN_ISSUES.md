@@ -800,3 +800,18 @@ A legitimate per-row fallback (position base rate for a player with no model
 row) becomes a silent whole-population default when the input is empty at the
 FRAME grain. Fallbacks need a guard at the grain they can fail at -- here,
 "what fraction of rows fell back" per build, not per row.
+
+### Contamination surface DISCHARGED (2026-08-22 log sweep)
+
+Every log quoting pre-#15 2025-26 figures as current now carries a dated
+supersession marker (struck-through or banner, per the d1_log §8 / GK log §6
+convention), with the current post-#15 baseline (agg ρ 0.7471 / MAE 1.0732;
+starter-band ρ GK .190 DEF .285 MID .214 FWD .157) quoted where a direct
+replacement exists and UNRECOMPUTED stated where it does not:
+d1_log §8 (2025-26 row struck; 2023-24/2024-25 marked pre-blend),
+rate_blend_log §7/§8, gk_investigation_log (banner; comparisons internally
+valid, GK β path least affected), Handoff_2026-08-18 (banner),
+margin_calibration_log / hit_threshold_log (already retracted under #13 —
+retraction covers #15's surface too). The D4 Phase 2 verdict was re-measured
+on fixed files at the time (overnight_2026-08-19_log stage 2). Nothing on
+the #15 surface remains quoted-as-current anywhere in Logs/ or Handoffs/.

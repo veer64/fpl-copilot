@@ -5,6 +5,19 @@ weakened, H1 refined, unification tested and reverted). The D1 workstream is
 CLOSED (`Logs/d1_log.md`); this investigation stays open on its own. §9 states
 where it stands and the two live options.
 
+> **Figure-status note added 2026-08-22 (KNOWN_ISSUES #15 discharge).**
+> Every figure in this log was measured on the 2026-08-17 canonical era —
+> BEFORE the k=8 rate blend (2026-08-18) and the DC-wiring fix (#15,
+> 2026-08-19; 2025-26 rebuilt). All 2025-26 cells are therefore
+> UNRECOMPUTED on the current surface. The investigation's comparisons are
+> internally valid (both arms of every table share one era, and GK carries
+> a DC base rate of 0.0, so the β path is least #15-affected — per #15's
+> own assessment), and the numbers reproduce on the preserved
+> `*_baseline` / `*_dcbase` artefacts. New corroboration recorded since:
+> D4's margin-β structure independently shows the H1 signature
+> (d4_market_lambda_log §13). Any re-measurement should use the current
+> canonicals and note the blend/#15 boundary.
+
 ---
 
 ## 1. The question
@@ -317,3 +330,58 @@ of the rules, not a fixable input disagreement.
 Step 3 (§8) rules out the third path that looked available: unifying the two
 terms' inputs. It made every metric slightly worse and is recorded as a clean
 negative.
+
+## 10. Step 4 (2026-08-22) — λ-spread shrink on the CONCEDED term:
+## era gap re-measured; sweep on tuning seasons; PRE-REGISTRATION
+
+Script: `eval/gk_lambda_shrink.py`. β methodology validated first by
+reproducing 0.847 (no-D1 baseline) and 0.676 (pre-blend Variant B) on the
+preserved artefacts to 3 decimals. Shrink: per-gw cross-sectional team-mean
+recentre, `lam' = m_gw + s·(lam − m_gw)`, recomputed through assembly's own
+`_expected_floor_div`, conceded term ONLY (p_cs untouched, per the step-4
+instruction — note this is the conceded-only VARIANT of §9 option 1).
+
+**Era gap re-measured (current canonical, post-blend post-#15, s=1):**
+GK β 0.640 / 0.496 / 0.701; DEF β 1.012 / 0.862 / 0.975
+(2023-24 / 2024-25 / 2025-26). vs the pre-blend §6 record (GK 0.622 / 0.491
+/ 0.676): the blend+#15 rebuilds moved GK β slightly UP in all three
+seasons; DEF now sits ≈1.0 in two of three.
+
+**Sweep (2023-24 + 2024-25 only; 2025-26 untouched):** response is nearly
+linear and SMALL — s=0.2 (an 80% spread cut) lifts GK β only 0.640→0.703
+and 0.496→0.564. DEF overshoots exactly as residualisation did: 2023-24
+DEF 1.012→1.130 while 2024-25 rises 0.862→0.988. The pre-stated argmin
+rule (mean |β−1|) selects the GRID EDGE for both positions — the signature
+of a mechanism too weak to reach calibration, not of an optimum.
+
+**PRE-REGISTERED holdout factors (written before any 2025-26 application):**
+- **s_GK = 0.2** — per the stated rule (mean |β−1| 0.432 → 0.366).
+  Expected 2025-26 effect ≈ +0.06 on β 0.701; expectation stated so the
+  holdout can falsify it.
+- **s_DEF = 1.0 (NO shrink) — a stated DEVIATION from the raw argmin:**
+  the rule's preferred 0.2 improves mean |β−1| by 0.004 (0.075→0.071),
+  indistinguishable from noise, while pushing 2023-24 DEF to 1.130 —
+  the §7 overshoot repeated. GK and DEF need different treatment; DEF
+  needs none. Recorded before the holdout run.
+
+**Holdout result (2025-26, run once, 2026-08-22):** GK β 0.701 → **0.790**
+(+0.089), DEF 0.975 untouched. The effect EXCEEDS the pre-stated ≈+0.06
+expectation and both tuning-season responses (+0.063 / +0.068) — the
+recovery is season-dependent in the familiar direction (2024-25 weakest:
+0.496→0.564 even at s=0.2). 0.790 approaches the no-D1 baseline 0.847 on
+2025-26; the tuning seasons stay far from theirs (0.703 vs 0.833, 0.564 vs
+0.760).
+
+**Step-4 verdict — NOT adopted; recorded as a weak partial.** The
+conceded-only λ-spread shrink moves GK β the right way in all three seasons
+but cannot restore calibration: the selection sits at the grid edge, an 80%
+spread cut buys +0.06–0.09, and 2024-25 remains at 0.564. DEF confirms the
+§7 asymmetry and needs NO shrink (already ≈1.0 post-blend/post-#15 in two
+seasons; any shrink overshoots 2023-24). The margin spread across
+goalkeepers is dominated by the CS term (4 × p_cs), which this variant
+deliberately did not touch — the UNTESTED remainder of §9 option 1 is a
+shrink applied to the p_cs side, which would trade against CS Brier (the
+step-3 territory) and needs its own pre-registered protocol. Meanwhile
+option 2 (accept β < 1 as the price of rule-faithful terms) remains the
+standing default, now with a better-measured price: GK β 0.640 / 0.496 /
+0.701 on the current canonical.
