@@ -815,3 +815,84 @@ margin_calibration_log / hit_threshold_log (already retracted under #13 —
 retraction covers #15's surface too). The D4 Phase 2 verdict was re-measured
 on fixed files at the time (overnight_2026-08-19_log stage 2). Nothing on
 the #15 surface remains quoted-as-current anywhere in Logs/ or Handoffs/.
+
+
+## #16 -- the chip-inclusive read layer added a Triple Captain read on the
+Bench Boost week: every P4-era chip-inclusive total priced an ILLEGAL play
+
+**Status:** Fixed 2026-08-24 (TC2 read dropped and shown struck through;
+structural legality guard `squad/chip_legality.py` in the index generator,
+the five measure scripts and the test suite; TC2 rule of record revised, p4
+log §12c). **Sixth member of the silent-fallback family** (#10 availability
+default, #13 D1 stamp, #14 join-failure zeros, #15 empty DC frame, the D4
+wrong-writer near-miss).
+
+### What happened
+
+Bench Boost points and Triple Captain points are not scored by the
+simulator; they are exogenous reads the measure scripts add to the path
+total afterwards (`bench_points` at the BB week, `captain_bonus` at the TC
+week). P4's rules of record chose BB2 = "second-half week with most
+doubling teams" and TC2 = "largest double gameweek". In all three backtest
+seasons the largest double is in the second half (GW34 / GW33 / GW33), so
+both reads landed on the same gameweek -- and `measure_full_system.py`
+made that explicit: `tc2 = int(d.loc[bb2, "captain_bonus"])  # biggest
+DGW = bb2 wk`. FPL allows one chip per gameweek. Every chip-inclusive
+figure from 2026-08-20 to 2026-08-24 -- the p4 log §8-§12 package figures,
+the closing position's 2299 / 2301 / 2219, the 2026-08-23 handoff, the
+first regeneration of the season-totals index -- described a play the game
+does not permit. The convention was even annotated ("optimistic by
+min(TC2, BB2 bench)"), which framed an illegal configuration as an
+estimate.
+
+Nothing fired because there was nothing to fire. The simulator validates
+the chips IT schedules (`_chip_weeks` raises on WC∩FH and BB∩(WC∪FH)); the
+read layer, which is where Triple Captain lives, validated nothing. The
+only assert on the totals compared a recompute to a reference produced by
+the same convention -- consistency, not correctness. `transfer_mip.py` has
+no chip variables, so the MIP could never have caught it either.
+
+### How it was found
+
+The 2026-08-24 index rebuild put PATH and CHIP-INCLUSIVE totals in
+separate columns with every read decomposed per row. With both reads
+printed side by side at the same gameweek the collision was visible on
+every full-system row; the user raised it as a rules violation, and the
+diagnosis was confirmed rather than assumed: 202 logs, zero in-sim TC
+weeks, zero in-sim clashes (`eval/check_collision.py`) -- the paths were
+legal, only the accounting was not.
+
+### Scope
+
+Affected: every chip-inclusive figure that included both reads -- fslog
+(24 cells), p3log (18), p5log (9), oraclelog (12), chips-era pkg_d45 /
+combined_* / bbaware_* (12). NOT affected: every path total, every
+windowed / anchor delta (the evidence of record for every chip decision),
+every configuration without a Bench Boost. Cost at the reference cells:
+3 / 7 / 13 -> 2296 / 2294 / 2206.
+
+### The fix
+
+1. Numbers: on a gameweek carrying two reads, keep the Bench Boost read and
+   DROP the Triple Captain read -- struck through in the index, never
+   silently removed. Structural (BB2 has no legal alternative week in two
+   of three seasons; a Triple Captain can always move) and hindsight-free.
+   The relocated-TC2 alternative (reading what the captain scored on the
+   rule-revised week) is a single-draw hindsight read and was refused.
+2. Rule: TC2 = largest double gameweek EXCLUDING the BB2 week (p4 §12c).
+3. Guard: `squad/chip_legality.check_chip_schedule` on the EFFECTIVE
+   schedule (in-sim chips + every read week): pairwise-distinct weeks, one
+   of each chip per half, reads only on played weeks. Called in
+   `build_season_totals_index.row()`, `measure_full_system`, `measure_p5`,
+   `measure_teamnews_knowable`, `measure_chip_d45`, `measure_chip_phase2`;
+   `tests/test_chip_legality.py` (13 tests) proves it fails on the old
+   convention against the real logs and holds for every indexed row.
+
+### The family lesson, sixth confirmation
+
+Each read was legitimate on its own; nothing checked the COMBINATION, and
+the step that combined them manufactured a plausible number instead of
+refusing. A total-vs-total assert cannot catch a convention error, because
+both sides share the convention. Guards must be structural -- a property
+of the play, checked independently of the figure it produces -- and must
+be seen to FAIL once before they are trusted.

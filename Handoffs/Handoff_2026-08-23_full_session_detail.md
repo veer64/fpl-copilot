@@ -285,6 +285,8 @@ review closed, 2026-08-21 section.
   BOTH grids, mean +41/+42 at W3; GW4 contradicted (2/6). Conditionality:
   the edge rides on cold GW1 inputs — shrinks if D5/lineups improve the
   opening. Anchors reproduce under the full system (median |diff| 0).
+> **Correction 2026-08-24:** the chip-inclusive figures in the next bullet (2299 / 2301 / 2219, +99..+437) included an illegal Triple Captain 2 read on the Bench Boost 2 week; read them as 2296 / 2294 / 2206 (+92..+430). p4 log §12c, KNOWN_ISSUES #16.
+
 - **Full-system reference** (p1 log §8): all 24 cells clear the average
   manager (+99..+437 chip-incl). System-as-configured (wc2 cells):
   **2299 / 2301 / 2219** vs avg 2003/2008/1895. BB1 on singles ≈ free

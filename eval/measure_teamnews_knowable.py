@@ -5,12 +5,15 @@
 # Usage: uv run python eval/measure_teamnews_knowable.py
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "squad"))
+from chip_legality import check_chip_schedule  # noqa: E402
 TN = REPO / "data" / "teamnews"
 P1 = REPO / "data" / "p1"
 SEASONS = ["2023-24", "2024-25", "2025-26"]
@@ -31,7 +34,8 @@ def load(path):
 
 def chip_incl(d, bb1, bb2, wc1, cap_pred):
     """Chip-inclusive total, the standing read convention (BB1+BB2 bench,
-    TC2 at the BB2 week, TC1 at the predicted-captain peak). cap_pred is the
+    TC1 at the predicted-captain peak; the former TC2-at-BB2 read is DROPPED
+    since 2026-08-24 -- one chip per gameweek). cap_pred is the
     BASE model's own-cutoff predictions for every arm, so the convention is
     uniform across arms."""
     total = int(d["final_total"].iloc[0])
@@ -42,9 +46,14 @@ def chip_incl(d, bb1, bb2, wc1, cap_pred):
         p = cap_pred.get((gw, d.loc[gw, "captain"]), 0)
         if p > v:
             tc1_gw, v = gw, p
+    check_chip_schedule(
+        {"wildcard": [int(g) for g in d.index[d["wildcard"]]],
+         "free_hit": [int(g) for g in d.index[d["free_hit"]]],
+         "bench_boost": [bb1, bb2],
+         "triple_captain": [g for g in (tc1_gw,) if g]},
+        played_gws=set(int(g) for g in d.index))
     return (total + int(d.loc[bb1, "bench_points"])
             + int(d.loc[bb2, "bench_points"])
-            + int(d.loc[bb2, "captain_bonus"])
             + (int(d.loc[tc1_gw, "captain_bonus"]) if tc1_gw else 0))
 
 

@@ -3,7 +3,9 @@
 # baselines. Protocol in Logs/p4_chip_policy_log.md section 10.
 #
 # Two report rows per season from ONE sim each:
-#   pkg2h     : WC1 + WC2 + FH2 + bench-aware BB2 (sim) with TC2 read off
+#   pkg2h     : WC1 + WC2 + FH2 + bench-aware BB2 (sim). The TC2 read at
+#               the BB2 week is DROPPED (one chip per gameweek; corrected
+#               2026-08-24, p4 log section 12c) and reported as such.
 #   all-chips : pkg2h plus TC1 (peak-predicted-captain rule) and BB1@GW10
 #               (arbitrary, unoptimised) -- both exogenous reads, so the
 #               season path is IDENTICAL to pkg2h by construction.
@@ -13,11 +15,14 @@
 # Usage: uv run python eval/measure_chip_d45.py
 
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "squad"))
+from chip_legality import check_chip_schedule  # noqa: E402
 CHIPS, SWEEP = REPO / "data" / "chips", REPO / "data" / "sweep"
 SEASONS = ["2023-24", "2024-25", "2025-26"]
 ANCHORS = {  # season -> {chip: gw}
@@ -31,7 +36,7 @@ AVG_ONDISK = {"2023-24": 2003, "2024-25": 2008, "2025-26": 1895}
 WS = [1, 2, 3, 5]
 
 
-def tc1_rule(season, log):
+def tc1_rule(season, log, excl=()):
     """The GW1-19 week where the sim's own captain's PREDICTED points peak.
     Captain name -> element via vaastav; prediction = his step-0 e_points at
     that gameweek's own cutoff."""
@@ -46,6 +51,8 @@ def tc1_rule(season, log):
                .set_index("name")["element"])
     best = None
     for _, r in log[log["gw"] <= 19].iterrows():
+        if int(r["gw"]) in excl:          # never on another chip week
+            continue
         el = name2el.get(r["captain"])
         if el is None:
             continue
@@ -78,11 +85,16 @@ def main():
         tot_sim = int(log["final_total"].iloc[0])
         tot_base = int(base["final_total"].iloc[0])
         bb2 = float(lg["bench_points"].loc[a["BB2"]])
-        tc2 = float(lg["captain_bonus"].loc[a["BB2"]])
+        tc2_dropped = float(lg["captain_bonus"].loc[a["BB2"]])  # illegal read
         bb1 = float(lg["bench_points"].loc[BB1_GW])
-        tc1 = tc1_rule(season, log)
+        tc1 = tc1_rule(season, log, excl={a["WC1"], BB1_GW})
+        check_chip_schedule(
+            {"wildcard": [a["WC1"], a["WC2"]], "free_hit": [a["FH2"]],
+             "bench_boost": [BB1_GW, a["BB2"]],
+             "triple_captain": [tc1[0]] if tc1 else []},
+            played_gws=set(int(g) for g in lg.index), source=f"pkg_d45 {season}")
 
-        pkg_total = tot_sim + bb2 + tc2
+        pkg_total = tot_sim + bb2          # TC2@BB2 DROPPED (one chip per GW)
         all_total = pkg_total + bb1 + (tc1[3] if tc1 else 0)
 
         print(f"\n=== {season} (H=6, d=0.45; baseline = sweep base_H6_d45, "
@@ -90,7 +102,8 @@ def main():
         print(f"  sim total {tot_sim} vs baseline {tot_base} "
               f"(path delta {tot_sim - tot_base:+d})")
         print(f"  chip-inclusive totals: pkg2h {pkg_total:.0f} "
-              f"(+BB2 {bb2:.0f} +TC2 {tc2:.0f}) | all-chips {all_total:.0f} "
+              f"(+BB2 {bb2:.0f}; TC2@BB2 {tc2_dropped:.0f} DROPPED, one chip/GW) "
+              f"| all-chips {all_total:.0f} "
               f"(+TC1 {tc1[3] if tc1 else 0:.0f} +BB1@{BB1_GW} {bb1:.0f} "
               f"[unoptimised])")
         for label, t in [("pkg2h", pkg_total), ("all-chips", all_total)]:

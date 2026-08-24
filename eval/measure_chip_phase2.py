@@ -18,11 +18,14 @@
 # Usage: uv run python eval/measure_chip_phase2.py
 
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "squad"))
+from chip_legality import check_chip_schedule  # noqa: E402
 CHIPS = REPO / "data" / "chips"
 SWEEP = REPO / "data" / "sweep"
 SEASONS = ["2023-24", "2024-25", "2025-26"]
@@ -114,7 +117,14 @@ def main():
                     f"{season} {cfg}: pre-chip path differs from the d60 "
                     f"sweep baseline -- pairing invalid")
             g_bb = BB[season]
-            tc = float(log.set_index("gw")["captain_bonus"].loc[g_bb])
+            # TC read at the BB week is an illegal play (one chip per GW):
+            # reported as DROPPED since 2026-08-24, never added.
+            tc_dropped = float(log.set_index("gw")["captain_bonus"].loc[g_bb])
+            check_chip_schedule(
+                {"wildcard": [int(g) for g in log.loc[log["wildcard"], "gw"]],
+                 "free_hit": [int(g) for g in log.loc[log["free_hit"], "gw"]],
+                 "bench_boost": [g_bb], "triple_captain": []},
+                played_gws=set(int(g) for g in log["gw"]), source=f"{season} {cfg}")
             bbp = float(log.set_index("gw")["bench_points"].loc[g_bb])
             chip_gws = sorted(set(
                 x for x in [4, WC_STAGE[season], g_bb]
@@ -127,7 +137,8 @@ def main():
             tot_b = int(base["final_total"].iloc[0]) if "final_total" in base \
                 else int(base["total_points"].iloc[-1])
             print(f"{season} {cfg}: W=3 deltas at chip anchors [{'; '.join(parts)}] "
-                  f"+ BB bench {bbp:.0f} + TC capbonus {tc:.0f} | "
+                  f"+ BB bench {bbp:.0f} (TC capbonus {tc_dropped:.0f} at the same "
+                  f"week DROPPED -- one chip/GW) | "
                   f"totals {tot_b} -> {tot_c} (sanity framing only)")
 
 

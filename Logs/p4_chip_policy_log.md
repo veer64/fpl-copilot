@@ -292,9 +292,11 @@ in both. n=3 seasons; no intervals (≥8 rule).
 | Wildcard 2 | The pre-DGW-cluster fixture-swing week | most consistent chip: positive 3/3 seasons at W≥2 (§6), swing ≈ staged−1 |
 | Bench Boost 2 | Second-half gw with most doubling teams, floor ≥4; **bench-aware solver ON** | §9/§11: bench-aware package +25/+31 (d85), bench 46 pts at d45; unaware BB was +2.3 |
 | Free Hit 2 | Largest blank, floor ≥4 teams blanking; **never below the floor** | +28.7 mean at W3; below-floor measured −20 mean (actively harmful) |
-| Triple Captain 2 | Largest double gameweek | +7.7 mean |
+| Triple Captain 2 | **Largest double gameweek EXCLUDING the BB2 week (REVISED 2026-08-24, §12c).** ~~Largest double gameweek~~ — superseded 2026-08-24: collides with BB2 by construction whenever the season's largest double is in H2 (all three seasons); two reads on one gameweek priced an illegal play | +7.7 mean was measured WITH the collision (read at the BB2 week) and is not a figure of record for the revised rule; no legal TC2 value has been measured — §12c |
 | Triple Captain 1 | GW1–19 week where the intended captain's predicted points peak | +10.3 mean (§11) |
 | Bench Boost 1 | Only where a genuine first-half double exists — near-worthless on single fixtures | 37/8/4 unoptimised (the 37 a fluke); no H1 doubles in 2/3 seasons |
+
+> **2026-08-24 correction (§12c):** the chip-inclusive package figures in this section and in §8–§11 include the Triple Captain 2 read at the Bench Boost 2 week — an illegal play (one chip per gameweek). Subtract the TC2 read (3 / 7 / 13 for 2023-24 / 2024-25 / 2025-26): +78 → +75, +67 → +54; the 2024-25 loss is unchanged in sign. Path totals and every windowed delta in this log are unaffected.
 
 **Results, honestly:** at H=6 decay 0.45 the package gains +78 (2023-24) and
 +67 (2025-26) over its own baselines in chip-inclusive terms, and LOSES in
@@ -372,6 +374,89 @@ of record:
 6. **Confidence: moderate on sign, low on magnitude.** Three seasons,
    single draws per cell, no intervals (≥8 rule). The strength is
    consistency — 6/6 arms × three windows × two grids — not effect size.
+
+## 12c. TC2 rule REVISED: "largest double gameweek" → "largest double gameweek EXCLUDING the BB2 week" (2026-08-24, user decision) — and the read-layer correction of record
+
+**The finding.** The regenerated season-totals index (2026-08-24) put every
+chip read beside its total, and the decomposition showed Bench Boost 2 and
+Triple Captain 2 read on the SAME gameweek in all three seasons: GW34 /
+GW33 / GW33. FPL allows one chip per gameweek. Every chip-inclusive figure
+produced under the P4 convention (§8–§12, the closing position, the
+2026-08-23 handoff, the first index regeneration) therefore priced an
+illegal play. It had been described as "optimistic by min(TC2, BB2 bench)";
+that understated it — no legal play realises those totals.
+
+**Diagnosis (confirmed, not assumed).** The simulated paths were never
+affected: 202 decision logs checked, zero in-sim Triple Captain weeks, zero
+in-sim chip clashes (`eval/check_collision.py`). The simulator enforces
+clashes for the chips it schedules (`simulator._chip_weeks`: WC∩FH and
+BB∩(WC∪FH) raise). Triple Captain — and the Bench Boost POINTS — are
+exogenous reads applied afterwards by the measure scripts, and that layer
+had no legality check: `measure_full_system.py` read TC2 at `bb2` by
+construction ("biggest DGW = bb2 wk"), and `measure_p5`,
+`measure_teamnews_knowable`, `measure_chip_d45` (pkg2h) and
+`measure_chip_phase2` (combined) inherited it. The only guard on the totals
+was a drift assert comparing a recompute to a figure produced by the same
+convention — circular for a convention error; it would have passed forever.
+(`transfer_mip.py` has no chip variables at all; the MIP was never the
+place this could have been caught.)
+
+**Why the rules collide by construction.** BB2 = "second-half week with
+most doubling teams, floor ≥4"; TC2 = "largest double gameweek", no
+exclusion. They pick the same week whenever the season's largest double
+falls in the second half — the typical case, since big doubles are made by
+spring cup rescheduling. Doubles inventory (walkforward `n_fixtures` at own
+cutoff; teams doubling per gameweek; `eval/quantify_collision.py`):
+
+| season | doubles (gw: teams) | largest overall | largest in H2 |
+|---|---|---|---|
+| 2023-24 | GW7:2 GW25:4 GW28:2 **GW34:7** GW35:2 GW37:6 | GW34 | GW34 |
+| 2024-25 | GW24:2 GW25:2 GW32:2 **GW33:4** | GW33 | GW33 |
+| 2025-26 | GW26:2 **GW33:6** GW36:2 | GW33 | GW33 |
+
+Three for three. Not a coincidence that happened three times: a pair of
+rules that will collide in most seasons.
+
+**Correction of record for the NUMBERS (drop, hindsight-free).** On any
+gameweek carrying two reads the Bench Boost read is KEPT and the TC2 read
+is DROPPED. The rule is structural, not "keep the larger": BB2 has no legal
+alternative week in 2024-25 or 2025-26 (no other H2 double clears its own
+≥4 floor) while a Triple Captain can always move, and the choice must not
+depend on what either read happened to score. (In 2023-24 and 2024-25 the
+TC2 read is also the smaller on every affected row; on three 2025-26
+chips-era rows — bbaware, combined_d85, combined_d60 — the dropped TC2 read
+(13) exceeds the bench read (10–11) and the structural rule still drops
+TC2.) The dropped read stays visible, struck through, on every index row.
+Cost at the reference cells: 3 / 7 / 13 (the TC2 reads). Reference figures
+2299 / 2301 / 2219 → **2296 / 2294 / 2206**; margins vs the fplcache
+average +293 / +286 / +311; all 24 full-system cells still clear the
+average manager (+92 to +430). Applied to every affected family: fslog
+(24), p3log (18), p5log (9), oraclelog (12), and the BB-carrying chips-era
+rows (pkg_d45, combined_*, bbaware_*).
+
+**NOT adopted: the relocated-TC2 figures.** Under the revised rule TC2
+would land on the largest remaining double — GW37 (6 teams) / GW24 (2) /
+GW26 (2) — where the frozen reference paths' captains happened to score
++15 / +29 / +7, giving 2311 / 2323 / 2213. Those are single-draw hindsight
+reads of what one captain did on one path and are recorded here as
+ILLUSTRATION ONLY. The figures of record are the drop floor above.
+
+**The rule going forward.** TC2 = largest double gameweek EXCLUDING the
+BB2 week (and any other scheduled chip week). The +7.7 in §12 was measured
+with the collision and is not a figure of record for the revised rule; a
+legal TC2 value has not been measured and none is claimed.
+
+**The guard.** `squad/chip_legality.py` takes the EFFECTIVE schedule —
+in-sim WC/FH weeks plus every read week the accounting used — and refuses
+unless (i) all chip weeks are pairwise distinct, (ii) at most one of each
+chip per half, (iii) reads fall on weeks the squad played. It is
+independent of any total. It runs on every row the index emits and in
+every measure script that computes a chip-inclusive figure;
+`tests/test_chip_legality.py` proves it fires on the old convention against
+the real logs (GW34 / GW33 / GW33: bench_boost + triple_captain) and passes
+on the corrected one. The drift assert is kept for drift only.
+KNOWN_ISSUES #16 records the failure as the sixth member of the
+silent-fallback family.
 
 ## 13. STANDARD CONFIG ADOPTED: H=6, decay=0.45
 

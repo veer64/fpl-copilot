@@ -57,6 +57,13 @@ Measured-and-off gates (all False): `OPENING_HORIZON_ACTIVE`,
 
 All 24 full-system cells cleared the average manager (+99 to +437).
 
+> **Correction 2026-08-24:** the chip-inclusive column above carried a
+> Triple Captain 2 read on the Bench Boost 2 week — two chips in one
+> gameweek, which FPL does not allow. Corrected figures: **2296 / 2294 /
+> 2206**, margins +293 / +286 / +311; all 24 cells still clear the average
+> (+92 to +430). Path totals and every windowed delta are unaffected. See
+> p4 log §12c, KNOWN_ISSUES #16, and the season_totals_index header.
+
 ## 4. Open threads
 
 1. **Goalkeeper investigation** (gk_investigation_log §9; D4's β structure

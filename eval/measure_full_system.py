@@ -5,10 +5,13 @@
 # Per cell (season, opening, wc1):
 #   - PATH season total + delta vs the opening's own no-chip baseline
 #   - chip-inclusive total = path + bench@BB1 + bench@BB2 + captain_bonus@TC1
-#     + captain_bonus@TC2 (exogenous reads, the P4 convention). TC2 = the
-#     biggest-DGW week, which COINCIDES with BB2's week in all three seasons;
-#     P4 added both reads and so does this -- caveat stated, a real manager
-#     could play only one of the two that week.
+#     (exogenous reads). CORRECTED 2026-08-24: the P4 convention also added
+#     captain_bonus@TC2 at the BB2 week (the biggest DGW coincides with BB2's
+#     week in all three seasons). FPL allows ONE chip per gameweek, so that
+#     priced an illegal play; the TC2 read is now DROPPED and reported as
+#     such. Rule of record revised in p4 log section 12c (TC2 = largest
+#     double EXCLUDING the BB2 week). Every cell's effective chip schedule is
+#     checked by squad/chip_legality.py.
 #   - GW1-10 path points vs the FPL average manager (chip reads excluded)
 #   - full-season margin: chip-inclusive total - fplcache season average
 #   - W=3 path deltas at each chip anchor vs the no-chip baseline. After the
@@ -29,11 +32,14 @@
 
 import json
 import lzma
+import sys
 from pathlib import Path
 
 import pandas as pd
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "squad"))
+from chip_legality import check_chip_schedule  # noqa: E402
 P1 = REPO / "data" / "p1"
 CACHE = REPO / "fplcache" / "cache"
 
@@ -112,8 +118,13 @@ def main():
                     if v > tc1_pred:
                         tc1_gw, tc1_pred = gw, v
                 tc1 = int(d.loc[tc1_gw, "captain_bonus"]) if tc1_gw else 0
-                tc2 = int(d.loc[bb2, "captain_bonus"])   # biggest DGW = bb2 wk
-                chip_total = path_total + bench_bb1 + bench_bb2 + tc1 + tc2
+                tc2_dropped = int(d.loc[bb2, "captain_bonus"])  # illegal read
+                check_chip_schedule(
+                    {"wildcard": [wc1, wc2], "free_hit": [fh2],
+                     "bench_boost": [bb1, bb2],
+                     "triple_captain": [g for g in (tc1_gw,) if g]},
+                    played_gws=set(int(g) for g in d.index), source=p.name)
+                chip_total = path_total + bench_bb1 + bench_bb2 + tc1
                 p10 = int(d.loc[1:10, "points"].sum())
                 # anchor deltas vs no-chip baseline (post-WC1 not path-controlled)
                 aw = {lbl: window(d, baseline, a) for lbl, a in
@@ -136,11 +147,12 @@ def main():
                                 "PREFIX DIVERGED -- not a clean pair")
                 print(f"\n  opening={opening} wc1=GW{wc1}  "
                       f"[wc2={wc2} fh2={fh2} bb1={bb1} bb2={bb2} "
-                      f"tc1=GW{tc1_gw} tc2=GW{bb2}]")
+                      f"tc1=GW{tc1_gw} tc2=DROPPED@GW{bb2}]")
                 print(f"    path total {path_total} ({path_total - b_total:+d}"
                       f" vs own no-chip baseline {b_total})")
                 print(f"    chip reads: BB1 bench +{bench_bb1}  BB2 bench "
-                      f"+{bench_bb2}  TC1 +{tc1}  TC2 +{tc2}  -> "
+                      f"+{bench_bb2}  TC1 +{tc1}  TC2@BB2 +{tc2_dropped} "
+                      f"DROPPED (one chip per GW)  -> "
                       f"chip-inclusive {chip_total}  "
                       f"(margin vs fplcache avg {chip_total - AVG_SUM_EXPECT[season]:+d})")
                 print(f"    GW1-10 path vs avg manager: {p10 - a10:+d}  "
@@ -161,10 +173,9 @@ def main():
     print("\nFraming: path totals and chip-inclusive totals are single draws "
           "(sd ~60) -- they identify configs.\nDecisions ride on the paired "
           "windows; n <= 3 seasons per cell, no intervals (>=8 rule).\n"
-          "TC2 and BB2 share a week in all three seasons (biggest DGW): both "
-          "reads are added per the P4\nconvention, but a real manager plays "
-          "only one -- the chip-inclusive figure is optimistic by "
-          "min(TC2, BB2 bench).")
+          "TC2 and BB2 share a week in all three seasons (biggest DGW): the TC2 "
+          "read is DROPPED\n(one chip per gameweek; corrected 2026-08-24, p4 log "
+          "section 12c) -- chip-inclusive figures are legal plays.")
 
 
 if __name__ == "__main__":

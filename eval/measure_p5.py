@@ -31,6 +31,8 @@ import pandas as pd
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
+from chip_legality import check_chip_schedule  # noqa: E402
+sys.path.insert(0, str(REPO / "squad"))
 import optimize  # noqa: E402
 import scoring  # noqa: E402
 from scoring import assign_bench_order, score_gameweek  # noqa: E402
@@ -163,8 +165,8 @@ def main():
             total = int(d["final_total"].iloc[0])
             bench_left = int(d["bench_points"].sum())
             chip = total + int(d.loc[bb1, "bench_points"]) \
-                + int(d.loc[bb2, "bench_points"]) \
-                + int(d.loc[bb2, "captain_bonus"])
+                + int(d.loc[bb2, "bench_points"])
+            # TC2 read at the BB2 week DROPPED (one chip per GW; 2026-08-24)
             # TC1: argmax predicted captain pts GW1-19 excl chip weeks (2, bb1)
             cap_pred = {}
             for r in own.itertuples():
@@ -177,6 +179,12 @@ def main():
                 if v > tc1_v:
                     tc1_gw, tc1_v = gw, v
             chip += int(d.loc[tc1_gw, "captain_bonus"]) if tc1_gw else 0
+            check_chip_schedule(
+                {"wildcard": [int(g) for g in d.index[d["wildcard"]]],
+                 "free_hit": [int(g) for g in d.index[d["free_hit"]]],
+                 "bench_boost": [bb1, bb2],
+                 "triple_captain": [g for g in (tc1_gw,) if g]},
+                played_gws=set(int(g) for g in d.index), source=p.name)
             div_sq = int(d["first_squad_divergence"].iloc[0]) \
                 if "first_squad_divergence" in d.columns else 0
             div_pt = int(d["first_points_divergence"].iloc[0]) \

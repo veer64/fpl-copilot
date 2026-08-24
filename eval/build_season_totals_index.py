@@ -7,17 +7,33 @@
 # (p1log/wclog/fslog/p3log/p5log) and data/teamnews (oraclelog), and to show
 # PATH and CHIP-INCLUSIVE totals in separate columns everywhere.
 #
+# CORRECTED 2026-08-24 (same day, later): the chip-inclusive convention
+# inherited from P4 added BOTH bench@BB2 and captain_bonus@BB2 (TC2) on the
+# same gameweek. FPL allows ONE chip per gameweek, so every such figure
+# priced an illegal play (it was described as "optimistic by min(TC2, BB2
+# bench)"; that understated it -- no legal play realises those totals).
+# Correction of record: on any gameweek carrying two reads the Bench Boost
+# read is KEPT and the TC2 read is DROPPED -- shown struck through, never
+# silently removed. BB2 has no legal alternative week in two of the three
+# seasons (no other H2 double clears its >=4-team floor) while a Triple
+# Captain can always move, and dropping is hindsight-free; relocating TC2 to
+# its rule-revised week and reading what the captain scored there would be a
+# single-draw hindsight read, which is NOT adopted. Reference cells moved
+# 2299/2301/2219 -> 2296/2294/2206. Rule of record for TC2 revised in
+# Logs/p4_chip_policy_log.md section 12c; KNOWN_ISSUES #16.
+#
 # TOTALS -- stored vs recomputed (read this before trusting a number):
 #   * NO log family stores a chip-inclusive total. The stored per-file figure
 #     is `final_total` = the PATH total (the simulator scores no chip points;
 #     BB/TC are exogenous reads -- simulator docstring philosophy).
 #     Asserted here: final_total == points.sum() for every file.
 #   * Every chip-inclusive figure in the index is therefore RECOMPUTED, by the
-#     measure-script-of-record convention for its family:
+#     measure-script-of-record convention for its family, minus the illegal
+#     read:
 #       - fslog  (measure_full_system.py):  path + bench@BB1 + bench@BB2
-#         + capbonus@BB2 (TC2 = biggest DGW = BB2's week in all three seasons)
 #         + capbonus@TC1 (predicted-captain peak GW1-19 excl {WC1, BB1},
 #         predictions = own-cutoff e_points from the walkforward file).
+#         The former capbonus@BB2 (TC2) read is DROPPED (collision).
 #       - p5log  (measure_p5.py) and oraclelog (measure_teamnews_knowable.py):
 #         identical convention with WC1=2; oracle rows use the BASE model's
 #         cap predictions and the reference cell's BB weeks, so the read is
@@ -25,29 +41,39 @@
 #       - p3log: same standing convention (measure_p3.py quoted windows, not
 #         chip-inclusive totals; TC1 exclusion uses the row's own wc1_week).
 #       - chips era (measure_chip_d45.py pkg2h / measure_chip_phase2.py):
-#         path + bench@BB + capbonus@BB for configs that scheduled a BB week
-#         (pkg_d45, combined_*, bbaware_*). No TC1/BB1 read: the "all-chips"
-#         variant of measure_chip_d45 was a derived report row, not a run.
+#         path + bench@BB for configs that scheduled a BB week (pkg_d45,
+#         combined_*, bbaware_*); the former capbonus@BB (TC2) read is
+#         DROPPED. No TC1/BB1 read: the "all-chips" variant of
+#         measure_chip_d45 was a derived report row, not a run.
 #       - sweep, p1log, wclog, chip configs without a BB: no exogenous reads
 #         exist, chip-inclusive == path by identity (WC/FH change the path
 #         itself).
 #     Recomputed values are marked (r) and their reads decomposed in the
 #     `chip reads` column so an error cannot enter quietly.
-#   * TC2 and BB2 share a week: both reads are added per the P4 convention,
-#     so chip-inclusive figures are OPTIMISTIC by min(TC2, BB2 bench).
 #
-# Self-check: the recompute chain is validated against the closing position's
-# reference figures (fslog base_wc2 chip-inclusive == 2299/2301/2219) and the
-# p1 baselines' path totals (2204/2362/2032) before writing.
+# LEGALITY (structural, total-independent): every row's EFFECTIVE chip
+# schedule -- in-sim WC/FH weeks + BB read weeks + the TC read weeks the
+# recompute actually used -- is passed through squad/chip_legality.py before
+# the index is written. It fails on the old convention (tests/
+# test_chip_legality.py proves it) and would have caught this on day one.
+#
+# Self-check (drift only -- circular by construction, kept for that purpose):
+# the recompute chain is validated against the corrected reference figures
+# (fslog base_wc2 chip-inclusive == 2296/2294/2206) and the p1 baselines'
+# path totals (2204/2362/2032) before writing.
 
 import datetime as dt
 import re
+import sys
 from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "squad"))
+from chip_legality import check_chip_schedule  # noqa: E402
+
 CHIPS, SWEEP = REPO / "data" / "chips", REPO / "data" / "sweep"
 P1, TN = REPO / "data" / "p1", REPO / "data" / "teamnews"
 
@@ -68,10 +94,15 @@ STALE_SUFFIXES = ["prefix", "dcbase", "prerateblend", "preunify", "presynth",
                   "synth", "baseline", "d1cards", "av", "odds2", "dgwonly"]
 STALE_RE = re.compile(r"_(" + "|".join(STALE_SUFFIXES) + r")\.parquet")
 
-# Known-of-record figures the recompute chain must reproduce exactly
-# (Handoffs/Interim_project_closing_position_2026-08-21.md section 3).
-EXPECT_FS_WC2_CHIP = {"2023-24": 2299, "2024-25": 2301, "2025-26": 2219}
+# Known-of-record figures the recompute chain must reproduce exactly.
+# CORRECTED 2026-08-24 from 2299/2301/2219 (illegal TC2@BB2 read dropped).
+# This is a DRIFT check: it is circular for a convention error (it compares
+# a recompute to a figure produced by the same convention). Legality is
+# guarded separately and structurally by check_chip_schedule.
+EXPECT_FS_WC2_CHIP = {"2023-24": 2296, "2024-25": 2294, "2025-26": 2206}
 EXPECT_P1_BASE_PATH = {"2023-24": 2204, "2024-25": 2362, "2025-26": 2032}
+
+TC2_DROP_REASON = "collision with BB2 -- one chip per gameweek"
 
 _wf_cache, _cap_cache = {}, {}
 
@@ -140,6 +171,10 @@ def chip_weeks(d):
     return wc, fh, bb
 
 
+def played_weeks(d):
+    return {int(g) for g in d.index}
+
+
 def sched_str(wc, fh, bb):
     parts = []
     if wc:
@@ -166,24 +201,48 @@ def tc1_read(d, excl, cp):
 
 
 def standing_reads(d, wc1, bb, cp):
-    """The full-system convention: bench@BB1 + bench@BB2 + capbonus@BB2 (TC2)
-    + capbonus@TC1. Returns (reads list, total add)."""
+    """The full-system convention as P4 defined it: bench@BB1 + bench@BB2
+    + capbonus@BB2 (TC2) + capbonus@TC1. The TC2 read is still LISTED so the
+    correction is visible; row() drops it as a collision."""
     bb1, bb2 = bb
     reads = [("bench", bb1, int(d.loc[bb1, "bench_points"])),
              ("bench", bb2, int(d.loc[bb2, "bench_points"])),
              ("TC2 cap", bb2, int(d.loc[bb2, "captain_bonus"]))]
     tc1_gw, tc1 = tc1_read(d, {wc1, bb1}, cp)
-    reads.append((f"TC1 cap", tc1_gw, tc1))
+    reads.append(("TC1 cap", tc1_gw, tc1))
     return reads
 
 
+def drop_colliding_tc(reads, bb):
+    """Correction of record (2026-08-24): a Triple Captain read on a Bench
+    Boost week is an illegal play. Keep the BB read, DROP the TC read, and
+    keep it in the list with its reason so the artefact shows the change."""
+    out = []
+    for lbl, gw, v in reads:
+        dropped = TC2_DROP_REASON if (lbl.startswith("TC") and gw in bb) else ""
+        out.append((lbl, gw, v, dropped))
+    return out
+
+
 def row(section, season, config, H, decay, sched, wf, gates, path_total,
-        reads, source, flags="", run=None):
-    add = sum(v for _, _, v in reads)
+        reads, source, flags="", run=None, wc=(), fh=(), bb=(), played=None):
+    reads = drop_colliding_tc(reads, list(bb))
+    kept = [r for r in reads if not r[3]]
+    tc_weeks = [gw for lbl, gw, _, _ in kept if lbl.startswith("TC") and gw]
+    # STRUCTURAL legality check on the effective schedule -- independent of
+    # any total. This is what the old convention never had.
+    check_chip_schedule({"wildcard": list(wc), "free_hit": list(fh),
+                         "bench_boost": list(bb), "triple_captain": tc_weeks},
+                        played_gws=played, source=source)
+    if any(r[3] for r in reads):
+        flags = (flags + "; " if flags else "") + \
+            "TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24)"
+    add = sum(v for _, _, v, _ in kept)
     return dict(section=section, season=season, config=config, H=H,
                 decay=decay, sched=sched, wf=wf, gates=gates,
                 path=path_total, reads=reads, chip=path_total + add,
-                recomputed=bool(reads), source=source, flags=flags, run=run)
+                recomputed=bool(reads), source=source, flags=flags, run=run,
+                wc=list(wc), fh=list(fh), bb=list(bb), played=played)
 
 
 def gates_str(d, extra=""):
@@ -227,7 +286,7 @@ def rows_sweep():
         out.append(row("sweep", season, d["variant"].iloc[0],
                        int(d["horizon"].iloc[0]), float(d["decay"].iloc[0]),
                        "--", wf, "--", int(d["final_total"].iloc[0]), [],
-                       f"sweep/{p.name}", run=mtime(p)))
+                       f"sweep/{p.name}", run=mtime(p), played=played_weeks(d)))
     return out
 
 
@@ -241,14 +300,15 @@ def rows_chips():
             0.6 if config.endswith("_d60") else 0.85
         wc, fh, bb = chip_weeks(d)
         reads = []
-        if bb:               # pkg2h / phase-2 convention: bench + TC2 at BB
+        if bb:               # pkg2h / phase-2 convention: bench + TC2 at BB;
             assert len(bb) == 1, f"{p.name}: chips-era log with two BB weeks"
             reads = [("bench", bb[0], int(d.loc[bb[0], "bench_points"])),
                      ("TC2 cap", bb[0], int(d.loc[bb[0], "captain_bonus"]))]
         out.append(row("chips", season, config, 6, decay, sched_str(wc, fh, bb),
                        f"walkforward_h6_{tag}.parquet", gates_str(d),
                        int(d["final_total"].iloc[0]), reads,
-                       f"chips/{p.name}", run=mtime(p)))
+                       f"chips/{p.name}", run=mtime(p),
+                       wc=wc, fh=fh, bb=bb, played=played_weeks(d)))
     return out
 
 
@@ -264,7 +324,7 @@ def rows_p1():
         out.append(row("p1", season, f"arm={d['arm'].iloc[0]}", 6, 0.45, "--",
                        d["wf_file"].iloc[0], gates_str(d),
                        int(d["final_total"].iloc[0]), [],
-                       f"p1/{p.name}", run=mtime(p)))
+                       f"p1/{p.name}", run=mtime(p), played=played_weeks(d)))
     return out
 
 
@@ -280,7 +340,8 @@ def rows_wcgrid():
                        f"opening={d['opening'].iloc[0]} wc1={wc[0]}",
                        6, 0.45, sched_str(wc, fh, bb), d["wf_file"].iloc[0],
                        gates_str(d), int(d["final_total"].iloc[0]), [],
-                       f"p1/{p.name}", run=mtime(p)))
+                       f"p1/{p.name}", run=mtime(p),
+                       wc=wc, played=played_weeks(d)))
     return out
 
 
@@ -298,13 +359,14 @@ def rows_fullsystem():
                 f"opening={d['opening'].iloc[0]} wc1={wc1}", 6, 0.45,
                 sched_str(wc, fh, bb), d["wf_file"].iloc[0], gates_str(d),
                 int(d["final_total"].iloc[0]), reads,
-                f"p1/{p.name}", run=mtime(p))
+                f"p1/{p.name}", run=mtime(p),
+                wc=wc, fh=fh, bb=bb, played=played_weeks(d))
         if d["opening"].iloc[0] == "base" and wc1 == 2:
             fs_chip[season] = r["chip"]
         out.append(r)
     assert fs_chip == EXPECT_FS_WC2_CHIP, (
-        f"chip-inclusive recompute drifted from the closing-position "
-        f"reference figures: {fs_chip} != {EXPECT_FS_WC2_CHIP}")
+        f"chip-inclusive recompute drifted from the corrected reference "
+        f"figures: {fs_chip} != {EXPECT_FS_WC2_CHIP}")
     return out
 
 
@@ -320,7 +382,8 @@ def rows_p3():
         out.append(row("p3", season, f"wc1={wc1} bar={bar}", 6, 0.45,
                        sched_str(wc, fh, bb), d["wf_file"].iloc[0],
                        gates_str(d), int(d["final_total"].iloc[0]), reads,
-                       f"p1/{p.name}", run=mtime(p)))
+                       f"p1/{p.name}", run=mtime(p),
+                       wc=wc, fh=fh, bb=bb, played=played_weeks(d)))
     return out
 
 
@@ -335,7 +398,8 @@ def rows_p5():
         out.append(row("p5", season, f"arm={d['arm'].iloc[0]}", 6, 0.45,
                        sched_str(wc, fh, bb), d["wf_file"].iloc[0],
                        gates_str(d), int(d["final_total"].iloc[0]), reads,
-                       f"p1/{p.name}", run=mtime(p)))
+                       f"p1/{p.name}", run=mtime(p),
+                       wc=wc, fh=fh, bb=bb, played=played_weeks(d)))
     return out
 
 
@@ -366,7 +430,8 @@ def rows_oracle():
                        gates_str(d), int(d["final_total"].iloc[0]), reads,
                        f"teamnews/{p.name}",
                        flags="LEAKAGE INSTRUMENT -- never adopt, "
-                             "never a baseline", run=mtime(p)))
+                             "never a baseline", run=mtime(p),
+                       wc=wc, fh=fh, bb=bb, played=played_weeks(d)))
     return out
 
 
@@ -399,10 +464,12 @@ SECTIONS = [
      "are flagged superseded."),
     ("chips", "CHIPS ERA -- P4 structural chip study (data/chips)",
      "H=6; decay 0.85 unless the config name says _d60/_d45. Chip-inclusive "
-     "= path + bench@BB + capbonus@BB (TC2) where a BB was scheduled "
-     "(pkg2h / phase-2 convention); wc/fh-only configs have no exogenous "
-     "reads. The 3 pkg_d45 rows are newly indexed (they postdate the old "
-     "index)."),
+     "= path + bench@BB where a BB was scheduled. The pkg2h / phase-2 "
+     "convention ALSO read capbonus@BB (TC2) on the same week -- that read "
+     "is an illegal play (one chip per gameweek) and is DROPPED, shown "
+     "struck through (corrected 2026-08-24). wc/fh-only configs have no "
+     "exogenous reads. The 3 pkg_d45 rows are newly indexed (they postdate "
+     "the old index)."),
     ("p1", "P1 OPENING ARMS -- no chips (data/p1/p1log_*)",
      "arm=base is the no-chip baseline of record for the grids below; "
      "arm=p1 flips OPENING_HORIZON_ACTIVE, arm=p2 OPENING_ROBUST_ACTIVE "
@@ -411,20 +478,24 @@ SECTIONS = [
      "One WC at the named week, nothing else. Chip-inclusive == path "
      "(a wildcard changes the path itself; there is nothing to add)."),
     ("fullsystem", "FULL SYSTEM -- all chips (data/p1/fslog_*)",
-     "WC1 as named, WC2/FH2 in-sim, BB1+BB2 scheduled (bench-aware), TC1/TC2 "
-     "exogenous reads. The system-as-configured cells are opening=base "
-     "wc1=2 (WC1 rule of record GW2-3, p4 log section 12b)."),
+     "WC1 as named, WC2/FH2 in-sim, BB1+BB2 scheduled (bench-aware), TC1 "
+     "exogenous read. The P4 TC2 read (captain bonus at the BB2 week) is "
+     "DROPPED as an illegal play and shown struck through (corrected "
+     "2026-08-24; p4 log section 12c). The system-as-configured cells are "
+     "opening=base wc1=2 (WC1 rule of record GW2-3, p4 log section 12b)."),
     ("p3", "P3 EARLY-HIT GRID (data/p1/p3log_*)",
      "Full-system config + EARLY_HIT_DISCOUNT_ACTIVE at the named bar. "
-     "Measured and DECLINED; bar=4 references are the fslog rows above."),
+     "Measured and DECLINED; bar=4 references are the fslog rows above. "
+     "Same TC2@BB2 drop as the full system."),
     ("p5", "P5 OPTIMIZER-WINS ARMS (data/p1/p5log_*)",
      "Full-system wc2 config + bench-order / XI-tiebreak gates. Measured "
-     "and DECLINED (noise-free paired paths)."),
+     "and DECLINED (noise-free paired paths). Same TC2@BB2 drop as the full "
+     "system."),
     ("oracle", "TEAM-NEWS ORACLE -- DELIBERATE LEAKAGE (data/teamnews)",
      "oracle_minutes_active=True: realized minutes injected into "
      "predictions. These rows are MEASUREMENTS of an upper bound, never "
      "baselines, never adoptable, comparable only to their reference cell "
-     "(fslog base_wc2)."),
+     "(fslog base_wc2). Same TC2@BB2 drop as the full system."),
     ("references", "REFERENCES -- pre-canonical lineage figures",
      "Retained for lineage only."),
 ]
@@ -441,19 +512,49 @@ grouped by provenance -- comparisons are valid ONLY within a family AND only
 between rows differing by exactly the variable under test. Season totals
 never decide adoptions; component and windowed metrics do.
 
+**CORRECTION OF RECORD (2026-08-24) -- the TC2/BB2 same-week read.** From
+P4 (2026-08-20) through the first regeneration of this index earlier on
+2026-08-24, the chip-inclusive convention added BOTH the Bench Boost bench
+read and the Triple Captain 2 captain-bonus read on the SAME gameweek: TC2's
+rule ("largest double gameweek") and BB2's rule ("second-half week with most
+doubling teams") select the same week whenever the season's biggest double
+falls in the second half, which it did in all three seasons (GW34 / GW33 /
+GW33). FPL permits ONE chip per gameweek. Those figures therefore priced an
+ILLEGAL play -- previously described as "optimistic by min(TC2, BB2 bench)",
+which understated it: no legal play realises them. The simulated PATHS were
+never affected (202 logs checked: zero in-sim collisions, eval/
+check_collision.py); the violation lived entirely in the post-hoc read
+layer, and the only guard was a total-vs-total drift assert that is circular
+for a convention error. What changed: (1) on any gameweek carrying two reads
+the Bench Boost read is KEPT and the TC2 read is DROPPED -- shown struck
+through in `chip reads`, flagged per row, never silently removed. BB2 has no
+legal alternative week in two of the three seasons (no other H2 double
+clears its >=4-team floor) and a Triple Captain can always move; dropping is
+hindsight-free. Relocating TC2 and reading what the captain happened to score
+there (GW37/GW24/GW26 -> 2311/2323/2213) is a single-draw hindsight read and
+is NOT adopted. (2) Reference cells: 2299/2301/2219 -> **2296/2294/2206**
+(-3/-7/-13); every fslog, p3log, p5log, oraclelog and BB-carrying chips-era
+row moved by its own TC2 read. (3) Every row's effective chip schedule is
+now checked structurally by squad/chip_legality.py (one chip per gameweek,
+one of each chip per half, reads only on played weeks) -- independent of any
+total -- before this file is written; tests/test_chip_legality.py proves the
+check fails on the old convention. (4) TC2's rule of record is revised to
+"largest double gameweek EXCLUDING the BB2 week" (p4 log section 12c);
+KNOWN_ISSUES #16 records the failure.
+
 **PATH vs CHIP-INCLUSIVE (stored vs recomputed).** No log family stores a
 chip-inclusive total. The stored figure is `final_total` = the PATH total
 (the simulator scores no chip points; asserted == points.sum() for every
 file). Every chip-inclusive figure here is RECOMPUTED by the family's
-measure-script-of-record convention (see the generator's docstring for the
-exact per-family rules). Recomputed values are marked **(r)** and decomposed
-in the `chip reads` column; `= path` means no exogenous chips were scheduled,
-so the two totals are identical by construction. TC2 and BB2 share a week in
-all three seasons: both reads are added per the P4 convention, so
-chip-inclusive figures are OPTIMISTIC by min(TC2, BB2 bench). The recompute
-chain is validated at generation time against the closing position's
-reference figures (fslog base_wc2 -> 2299/2301/2219) and the p1 baselines
-(2204/2362/2032); generation FAILS on drift.
+measure-script-of-record convention minus the illegal read (see the
+generator's docstring for the exact per-family rules). Recomputed values are
+marked **(r)** and decomposed in the `chip reads` column; `= path` means no
+exogenous chips were scheduled, so the two totals are identical by
+construction. The recompute chain is drift-checked at generation time against
+the corrected reference figures (fslog base_wc2 -> 2296/2294/2206) and the
+p1 baselines (2204/2362/2032); generation FAILS on drift. That check is
+circular by construction (same convention both sides) and is kept ONLY for
+drift; legality is the structural check above.
 
 **Average-manager verification:** claimed averages 2038 / 2154 / 1895 vs
 fplcache sum of events[].average_entry_score 2003 / 2008 / 1895. 2025-26
@@ -518,6 +619,11 @@ FOOTER = """
 - Every chip-inclusive figure in this index is recomputed (marked (r)); no
   log family stores one. The reads are decomposed per row so a recompute
   error is visible, not quiet.
+- CORRECTED 2026-08-24: the TC2 read at the BB2 week was an illegal play and
+  is dropped on every affected row (struck through, flagged). Figures quoted
+  from this index before that date carry the illegal read; the p4 log,
+  the closing position and the 2026-08-23 handoff quote 2299/2301/2219 --
+  read those as 2296/2294/2206.
 - Oracle rows are deliberate-leakage instruments (oracle_minutes_active
   stamp). NEVER adopt, never baseline.
 - The four reference figures are retained for lineage only.
@@ -558,8 +664,12 @@ def render(rows):
             if r["wf"].startswith("("):        # reference pseudo-entries
                 fam, compact = r["config"], "?"
             if r["recomputed"]:
-                reads = " ".join(
-                    f"{lbl}@GW{gw}{v:+d}" for lbl, gw, v in r["reads"])
+                parts = []
+                for lbl, gw, v, dropped in r["reads"]:
+                    s = f"{lbl}@GW{gw}{v:+d}"
+                    parts.append(f"~~{s}~~ DROPPED ({dropped})" if dropped
+                                 else s)
+                reads = " ".join(parts)
                 chip = f"**{r['chip']}** (r)"
             else:
                 reads = "--"
@@ -601,7 +711,9 @@ def main():
     out = REPO / "Logs" / "season_totals_index.md"
     out.write_text(text, encoding="utf-8")
     total = sum(counts.values())
-    print(f"{total} rows -> {out}")
+    n_drop = sum(1 for r in rows if any(x[3] for x in r["reads"]))
+    print(f"{total} rows -> {out}   (TC2@BB2 read dropped on {n_drop} rows; "
+          f"every row passed check_chip_schedule)")
     for k, v in counts.items():
         print(f"  {k:12s} {v}")
 
