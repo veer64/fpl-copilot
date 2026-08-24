@@ -1,20 +1,59 @@
 # build_season_totals_index.py
-# Assemble every season total the project has produced into ONE table with
+# Assemble every season total the project has produced into ONE index with
 # provenance, so figures stop being scattered archaeology.
 # Writes Logs/season_totals_index.md. Reporting only -- no simulations.
+#
+# Extended 2026-08-24 to cover the post-2026-08-20 families: data/p1
+# (p1log/wclog/fslog/p3log/p5log) and data/teamnews (oraclelog), and to show
+# PATH and CHIP-INCLUSIVE totals in separate columns everywhere.
+#
+# TOTALS -- stored vs recomputed (read this before trusting a number):
+#   * NO log family stores a chip-inclusive total. The stored per-file figure
+#     is `final_total` = the PATH total (the simulator scores no chip points;
+#     BB/TC are exogenous reads -- simulator docstring philosophy).
+#     Asserted here: final_total == points.sum() for every file.
+#   * Every chip-inclusive figure in the index is therefore RECOMPUTED, by the
+#     measure-script-of-record convention for its family:
+#       - fslog  (measure_full_system.py):  path + bench@BB1 + bench@BB2
+#         + capbonus@BB2 (TC2 = biggest DGW = BB2's week in all three seasons)
+#         + capbonus@TC1 (predicted-captain peak GW1-19 excl {WC1, BB1},
+#         predictions = own-cutoff e_points from the walkforward file).
+#       - p5log  (measure_p5.py) and oraclelog (measure_teamnews_knowable.py):
+#         identical convention with WC1=2; oracle rows use the BASE model's
+#         cap predictions and the reference cell's BB weeks, so the read is
+#         uniform across arms (asserted equal to the log's own stamp).
+#       - p3log: same standing convention (measure_p3.py quoted windows, not
+#         chip-inclusive totals; TC1 exclusion uses the row's own wc1_week).
+#       - chips era (measure_chip_d45.py pkg2h / measure_chip_phase2.py):
+#         path + bench@BB + capbonus@BB for configs that scheduled a BB week
+#         (pkg_d45, combined_*, bbaware_*). No TC1/BB1 read: the "all-chips"
+#         variant of measure_chip_d45 was a derived report row, not a run.
+#       - sweep, p1log, wclog, chip configs without a BB: no exogenous reads
+#         exist, chip-inclusive == path by identity (WC/FH change the path
+#         itself).
+#     Recomputed values are marked (r) and their reads decomposed in the
+#     `chip reads` column so an error cannot enter quietly.
+#   * TC2 and BB2 share a week: both reads are added per the P4 convention,
+#     so chip-inclusive figures are OPTIMISTIC by min(TC2, BB2 bench).
+#
+# Self-check: the recompute chain is validated against the closing position's
+# reference figures (fslog base_wc2 chip-inclusive == 2299/2301/2219) and the
+# p1 baselines' path totals (2204/2362/2032) before writing.
 
 import datetime as dt
+import re
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 REPO = Path(__file__).resolve().parent.parent
 CHIPS, SWEEP = REPO / "data" / "chips", REPO / "data" / "sweep"
+P1, TN = REPO / "data" / "p1", REPO / "data" / "teamnews"
 
-# Average manager scores. CLAIMED = the figures supplied for this report;
-# ONDISK = fplcache post-season snapshot, sum of events[].average_entry_score.
-# 2025-26 matches exactly; 2023-24 and 2024-25 do NOT (the two statistics are
-# not the same definition -- see the doc header).
+# Average manager scores. CLAIMED = the figures supplied for the first report;
+# ONDISK = fplcache post-season snapshot, sum of events[].average_entry_score
+# (asserted == 2003/2008/1895 by the measure scripts of record).
 AVG_CLAIMED = {"2023-24": 2038, "2024-25": 2154, "2025-26": 1895}
 AVG_ONDISK = {"2023-24": 2003, "2024-25": 2008, "2025-26": 1895}
 
@@ -22,147 +61,549 @@ STAMPS = ["minutes_availability", "odds_horizon_gws", "dgw_handling",
           "d1_terms_active", "cs_unified", "rate_blend_active",
           "dc_rule_active", "synthetic_lambda_active"]
 
+# Walkforward files with these suffixes are non-canonical (preserved
+# artefacts of superseded configs). Rows sourced from them are FLAGGED
+# superseded, never deleted.
+STALE_SUFFIXES = ["prefix", "dcbase", "prerateblend", "preunify", "presynth",
+                  "synth", "baseline", "d1cards", "av", "odds2", "dgwonly"]
+STALE_RE = re.compile(r"_(" + "|".join(STALE_SUFFIXES) + r")\.parquet")
 
-def stamp_str(path):
-    cols = pd.read_parquet(path).columns
+# Known-of-record figures the recompute chain must reproduce exactly
+# (Handoffs/Interim_project_closing_position_2026-08-21.md section 3).
+EXPECT_FS_WC2_CHIP = {"2023-24": 2299, "2024-25": 2301, "2025-26": 2219}
+EXPECT_P1_BASE_PATH = {"2023-24": 2204, "2024-25": 2362, "2025-26": 2032}
+
+_wf_cache, _cap_cache = {}, {}
+
+
+def wf_stamps(wf_name):
+    """Family label + compact stamp string, read from the walkforward file."""
+    if wf_name in _wf_cache:
+        return _wf_cache[wf_name]
+    path = REPO / "data" / wf_name
+    cols = pq.read_schema(path).names
     have = [c for c in STAMPS if c in cols]
     row = pd.read_parquet(path, columns=have).iloc[0]
     synth = bool(row.get("synthetic_lambda_active", False))
-    return ("post-#15 canonical" + ("+synth" if synth else "")), \
-        dt.datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+    fam = "post-#15 canonical" + ("+synth" if synth else "")
+
+    def b(c):
+        return {True: "T", False: "F"}.get(row.get(c), "?") \
+            if c in row.index else "?"
+    compact = (f"av={b('minutes_availability')} d1={b('d1_terms_active')} "
+               f"blend={b('rate_blend_active')} "
+               f"dgw={row.get('dgw_handling', '?')} "
+               f"synth={b('synthetic_lambda_active')}")
+    full = {c: row.get(c) for c in have}
+    _wf_cache[wf_name] = (fam, compact, full)
+    return _wf_cache[wf_name]
 
 
-def rows_from_chips():
+def cap_pred(season):
+    """(gw, captain name) -> own-cutoff predicted points. Exactly the
+    measure_full_system / measure_p5 / measure_teamnews construction."""
+    if season in _cap_cache:
+        return _cap_cache[season]
+    tag = season.replace("-", "_")
+    wf = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}.parquet",
+                         columns=["cutoff", "gw", "name", "e_points"])
+    own = wf[wf["cutoff"] == wf["gw"]]
+    _cap_cache[season] = {(int(g), n): float(p or 0) for g, n, p in
+                          zip(own["gw"], own["name"], own["e_points"])}
+    return _cap_cache[season]
+
+
+def load_log(path):
+    d = pd.read_parquet(path)
+    assert int(d["final_total"].iloc[0]) == int(d["points"].sum()), \
+        f"{path.name}: final_total != points.sum() -- path-total invariant broken"
+    return d.set_index("gw")
+
+
+def chip_weeks(d):
+    """Scheduled chip weeks read off the log itself (the artefact of record):
+    per-gw wildcard/free_hit flags + the bench-boost stamps."""
+    wc = [int(g) for g in d.index[d["wildcard"]]] if "wildcard" in d else []
+    fh = [int(g) for g in d.index[d["free_hit"]]] if "free_hit" in d else []
+    bb = []
+    if "bench_boost_gws" in d.columns:
+        s = str(d["bench_boost_gws"].iloc[0])
+        if s and s not in ("-1", "None", "nan"):
+            bb = [int(x) for x in s.split(",")]
+    elif "bench_boost_gw" in d.columns:
+        v = int(d["bench_boost_gw"].iloc[0])
+        if v > 0:
+            bb = [v]
+    if "triple_captain" in d.columns:
+        assert not d["triple_captain"].any(), \
+            "in-sim TC week found -- TC is exogenous by convention"
+    return wc, fh, bb
+
+
+def sched_str(wc, fh, bb):
+    parts = []
+    if wc:
+        parts.append("WC@" + ",".join(map(str, wc)))
+    if fh:
+        parts.append("FH@" + ",".join(map(str, fh)))
+    if bb:
+        parts.append("BB@" + ",".join(map(str, bb)))
+    return " ".join(parts) if parts else "--"
+
+
+def tc1_read(d, excl, cp):
+    """TC1 = argmax over GW1-19 (minus chip weeks) of the played captain's
+    own-cutoff predicted points; the read is his realized captain_bonus.
+    Mirrors measure_full_system exactly (strict >, first max wins)."""
+    tc1_gw, best = None, -1
+    for gw in range(1, 20):
+        if gw in excl or gw not in d.index:
+            continue
+        v = cp.get((gw, d.loc[gw, "captain"]), 0)
+        if v > best:
+            tc1_gw, best = gw, v
+    return tc1_gw, (int(d.loc[tc1_gw, "captain_bonus"]) if tc1_gw else 0)
+
+
+def standing_reads(d, wc1, bb, cp):
+    """The full-system convention: bench@BB1 + bench@BB2 + capbonus@BB2 (TC2)
+    + capbonus@TC1. Returns (reads list, total add)."""
+    bb1, bb2 = bb
+    reads = [("bench", bb1, int(d.loc[bb1, "bench_points"])),
+             ("bench", bb2, int(d.loc[bb2, "bench_points"])),
+             ("TC2 cap", bb2, int(d.loc[bb2, "captain_bonus"]))]
+    tc1_gw, tc1 = tc1_read(d, {wc1, bb1}, cp)
+    reads.append((f"TC1 cap", tc1_gw, tc1))
+    return reads
+
+
+def row(section, season, config, H, decay, sched, wf, gates, path_total,
+        reads, source, flags="", run=None):
+    add = sum(v for _, _, v in reads)
+    return dict(section=section, season=season, config=config, H=H,
+                decay=decay, sched=sched, wf=wf, gates=gates,
+                path=path_total, reads=reads, chip=path_total + add,
+                recomputed=bool(reads), source=source, flags=flags, run=run)
+
+
+def gates_str(d, extra=""):
+    """Row-level sim gates that deviate from the live default config."""
     out = []
-    for p in sorted(CHIPS.glob("chiplog_*.parquet")):
-        d = pd.read_parquet(p)
-        season, config = d["season"].iloc[0], d["config"].iloc[0]
-        tag = season.replace("-", "_")
-        decay = 0.6 if config.endswith("_d60") else 0.85
-        aware = bool(d.get("bench_boost_aware", pd.Series([False])).iloc[0])
-        chips = "none" if config == "baseline" else config
-        wf = f"walkforward_h6_{tag}.parquet"
-        fam, built = stamp_str(REPO / "data" / wf)
-        out.append(dict(season=season, H=6, decay=decay, chips=chips,
-                        synth="off", wf=wf, family=fam, built=built,
-                        bb_aware=aware, total=int(d["final_total"].iloc[0]),
-                        source=f"chips/{p.name}"))
-    return out
+
+    def on(c):
+        return c in d.columns and bool(d[c].iloc[0])
+    if "bench_boost_aware" in d.columns and not bool(
+            d["bench_boost_aware"].iloc[0]):
+        out.append("bb_aware=off")
+    if on("opening_horizon_active"):
+        out.append("opening_horizon")
+    if on("opening_robust_active"):
+        out.append("opening_robust")
+    if on("bench_order_by_play"):
+        out.append("bench_order")
+    if on("xi_tiebreak_p60"):
+        out.append("xi_p60")
+    if on("early_hit_discount_active"):
+        out.append(f"early_hit_bar={int(d['early_hit_bar'].iloc[0])}")
+    if on("oracle_minutes_active"):
+        out.append("ORACLE")
+    if extra:
+        out.append(extra)
+    return " ".join(out) if out else "--"
 
 
-def rows_from_sweep():
+def mtime(p):
+    return dt.datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d")
+
+
+def rows_sweep():
     out = []
     for p in sorted(SWEEP.glob("simlog_*.parquet")):
-        d = pd.read_parquet(p, columns=["season", "variant", "horizon",
-                                        "decay", "final_total"])
+        d = load_log(p)
         season = d["season"].iloc[0]
         tag = season.replace("-", "_")
         synth = d["variant"].iloc[0] == "synth"
         wf = f"walkforward_h6_{tag}{'_synth' if synth else ''}.parquet"
-        fam, built = stamp_str(REPO / "data" / wf)
-        out.append(dict(season=season, H=int(d["horizon"].iloc[0]),
-                        decay=float(d["decay"].iloc[0]), chips="none",
-                        synth="on" if synth else "off", wf=wf, family=fam,
-                        built=built, bb_aware=False,
-                        total=int(d["final_total"].iloc[0]),
-                        source=f"sweep/{p.name}"))
+        out.append(row("sweep", season, d["variant"].iloc[0],
+                       int(d["horizon"].iloc[0]), float(d["decay"].iloc[0]),
+                       "--", wf, "--", int(d["final_total"].iloc[0]), [],
+                       f"sweep/{p.name}", run=mtime(p)))
     return out
 
 
-REFERENCES = [
-    dict(season="2025-26", H=3, decay=0.3, chips="none", synth="off",
-         wf="walkforward_h6_2526_prefix.parquet (preserved)",
-         family="PRE-M3, pre-D1, pre-blend, pre-#15", built="2026-08-11",
-         bb_aware=False, total=1984, source="wildcard_and_determinism.md"),
-    dict(season="2025-26", H=3, decay=0.3, chips="none", synth="off",
-         wf="(availability=True rebuild, same era)",
-         family="pre-D1, pre-blend, pre-#15", built="2026-08-13",
-         bb_aware=False, total=1938, source="eval/walkforward.py docstring"),
-    dict(season="2025-26", H=6, decay=0.85, chips="none", synth="off",
-         wf="(D1 Variant B, static rates)",
-         family="pre-blend, pre-#15", built="2026-08-17",
-         bb_aware=False, total=2028, source="d1_log.md section 9"),
-    dict(season="2025-26", H=6, decay=0.85, chips="none", synth="off",
-         wf="(rate blend k=8, pre-#15 DC base rates)",
-         family="pre-#15", built="2026-08-18",
-         bb_aware=False, total=2060, source="rate_blend_log.md section 7"),
+def rows_chips():
+    out = []
+    for p in sorted(CHIPS.glob("chiplog_*.parquet")):
+        d = load_log(p)
+        season, config = d["season"].iloc[0], d["config"].iloc[0]
+        tag = season.replace("-", "_")
+        decay = 0.45 if config.endswith("_d45") else \
+            0.6 if config.endswith("_d60") else 0.85
+        wc, fh, bb = chip_weeks(d)
+        reads = []
+        if bb:               # pkg2h / phase-2 convention: bench + TC2 at BB
+            assert len(bb) == 1, f"{p.name}: chips-era log with two BB weeks"
+            reads = [("bench", bb[0], int(d.loc[bb[0], "bench_points"])),
+                     ("TC2 cap", bb[0], int(d.loc[bb[0], "captain_bonus"]))]
+        out.append(row("chips", season, config, 6, decay, sched_str(wc, fh, bb),
+                       f"walkforward_h6_{tag}.parquet", gates_str(d),
+                       int(d["final_total"].iloc[0]), reads,
+                       f"chips/{p.name}", run=mtime(p)))
+    return out
+
+
+def rows_p1():
+    out = []
+    for p in sorted(P1.glob("p1log_*.parquet")):
+        d = load_log(p)
+        season = d["season"].iloc[0]
+        assert int(d["horizon"].iloc[0]) == 6 and \
+            float(d["decay"].iloc[0]) == 0.45
+        wc, fh, bb = chip_weeks(d)
+        assert not (wc or fh or bb), f"{p.name}: p1 arm scheduled chips"
+        out.append(row("p1", season, f"arm={d['arm'].iloc[0]}", 6, 0.45, "--",
+                       d["wf_file"].iloc[0], gates_str(d),
+                       int(d["final_total"].iloc[0]), [],
+                       f"p1/{p.name}", run=mtime(p)))
+    return out
+
+
+def rows_wcgrid():
+    out = []
+    for p in sorted(P1.glob("wclog_*.parquet")):
+        d = load_log(p)
+        season = d["season"].iloc[0]
+        wc, fh, bb = chip_weeks(d)
+        assert wc == [int(d["wc_gw"].iloc[0])] and not fh and not bb, \
+            f"{p.name}: unexpected chip schedule for a WC1-grid cell"
+        out.append(row("wcgrid", season,
+                       f"opening={d['opening'].iloc[0]} wc1={wc[0]}",
+                       6, 0.45, sched_str(wc, fh, bb), d["wf_file"].iloc[0],
+                       gates_str(d), int(d["final_total"].iloc[0]), [],
+                       f"p1/{p.name}", run=mtime(p)))
+    return out
+
+
+def rows_fullsystem():
+    out, fs_chip = [], {}
+    for p in sorted(P1.glob("fslog_*.parquet")):
+        d = load_log(p)
+        season = d["season"].iloc[0]
+        wc1, bb1, bb2 = (int(d[c].iloc[0]) for c in ("wc1", "bb1", "bb2"))
+        assert str(d["bench_boost_gws"].iloc[0]) == f"{bb1},{bb2}"
+        wc, fh, bb = chip_weeks(d)
+        assert set(bb) == {bb1, bb2} and wc1 in wc
+        reads = standing_reads(d, wc1, [bb1, bb2], cap_pred(season))
+        r = row("fullsystem", season,
+                f"opening={d['opening'].iloc[0]} wc1={wc1}", 6, 0.45,
+                sched_str(wc, fh, bb), d["wf_file"].iloc[0], gates_str(d),
+                int(d["final_total"].iloc[0]), reads,
+                f"p1/{p.name}", run=mtime(p))
+        if d["opening"].iloc[0] == "base" and wc1 == 2:
+            fs_chip[season] = r["chip"]
+        out.append(r)
+    assert fs_chip == EXPECT_FS_WC2_CHIP, (
+        f"chip-inclusive recompute drifted from the closing-position "
+        f"reference figures: {fs_chip} != {EXPECT_FS_WC2_CHIP}")
+    return out
+
+
+def rows_p3():
+    out = []
+    for p in sorted(P1.glob("p3log_*.parquet")):
+        d = load_log(p)
+        season = d["season"].iloc[0]
+        wc1, bar = int(d["wc1_week"].iloc[0]), int(d["bar"].iloc[0])
+        wc, fh, bb = chip_weeks(d)
+        assert len(bb) == 2 and wc1 in wc
+        reads = standing_reads(d, wc1, bb, cap_pred(season))
+        out.append(row("p3", season, f"wc1={wc1} bar={bar}", 6, 0.45,
+                       sched_str(wc, fh, bb), d["wf_file"].iloc[0],
+                       gates_str(d), int(d["final_total"].iloc[0]), reads,
+                       f"p1/{p.name}", run=mtime(p)))
+    return out
+
+
+def rows_p5():
+    out = []
+    for p in sorted(P1.glob("p5log_*.parquet")):
+        d = load_log(p)
+        season = d["season"].iloc[0]
+        wc, fh, bb = chip_weeks(d)
+        assert len(bb) == 2 and 2 in wc, f"{p.name}: not the full-system wc2 config"
+        reads = standing_reads(d, 2, bb, cap_pred(season))
+        out.append(row("p5", season, f"arm={d['arm'].iloc[0]}", 6, 0.45,
+                       sched_str(wc, fh, bb), d["wf_file"].iloc[0],
+                       gates_str(d), int(d["final_total"].iloc[0]), reads,
+                       f"p1/{p.name}", run=mtime(p)))
+    return out
+
+
+ORACLE_ARMS = {None: "full-horizon oracle", "A": "A step0-only oracle",
+               "B": "B calendar-knowable mask", "C": "C Guardian-reported mask"}
+
+
+def rows_oracle():
+    out = []
+    for p in sorted(TN.glob("oraclelog_*.parquet")):
+        d = load_log(p)
+        season = d["season"].iloc[0]
+        tag = season.replace("-", "_")
+        arm = d["arm"].iloc[0] if "arm" in d.columns else None
+        assert bool(d["oracle_minutes_active"].iloc[0]), \
+            f"{p.name}: oracle log without the oracle stamp"
+        # BB weeks must match the reference cell (the uniform read convention
+        # of measure_teamnews_knowable.py)
+        ref = pd.read_parquet(P1 / f"fslog_{tag}_base_wc2.parquet",
+                              columns=["bb1", "bb2"])
+        bb1, bb2 = int(ref["bb1"].iloc[0]), int(ref["bb2"].iloc[0])
+        wc, fh, bb = chip_weeks(d)
+        assert bb == [bb1, bb2] and 2 in wc, \
+            f"{p.name}: chip schedule differs from the reference cell"
+        reads = standing_reads(d, 2, bb, cap_pred(season))
+        out.append(row("oracle", season, ORACLE_ARMS[arm], 6, 0.45,
+                       sched_str(wc, fh, bb), d["wf_file"].iloc[0],
+                       gates_str(d), int(d["final_total"].iloc[0]), reads,
+                       f"teamnews/{p.name}",
+                       flags="LEAKAGE INSTRUMENT -- never adopt, "
+                             "never a baseline", run=mtime(p)))
+    return out
+
+
+def rows_references():
+    refs = [
+        ("2025-26", 3, 0.3, "walkforward_h6_2526_prefix.parquet (preserved)",
+         "PRE-M3, pre-D1, pre-blend, pre-#15", "2026-08-11", 1984,
+         "wildcard_and_determinism.md"),
+        ("2025-26", 3, 0.3, "(availability=True rebuild, same era)",
+         "pre-D1, pre-blend, pre-#15", "2026-08-13", 1938,
+         "eval/walkforward.py docstring"),
+        ("2025-26", 6, 0.85, "(D1 Variant B, static rates)",
+         "pre-blend, pre-#15", "2026-08-17", 2028, "d1_log.md section 9"),
+        ("2025-26", 6, 0.85, "(rate blend k=8, pre-#15 DC base rates)",
+         "pre-#15", "2026-08-18", 2060, "rate_blend_log.md section 7"),
+    ]
+    out = []
+    for season, H, decay, wf, fam, built, total, src in refs:
+        r = row("references", season, fam, H, decay, "--", wf, "--", total,
+                [], src, flags="lineage only -- comparable to NOTHING",
+                run=built)
+        out.append(r)
+    return out
+
+
+SECTIONS = [
+    ("sweep", "SWEEP -- H x decay grid, no chips (data/sweep)",
+     "54 cells: {base, synth} x 3 seasons x H {3,4,6} x decay {.3,.45,.6}. "
+     "synth rows ride the _synth walkforward (D4, closed NOT adopted) and "
+     "are flagged superseded."),
+    ("chips", "CHIPS ERA -- P4 structural chip study (data/chips)",
+     "H=6; decay 0.85 unless the config name says _d60/_d45. Chip-inclusive "
+     "= path + bench@BB + capbonus@BB (TC2) where a BB was scheduled "
+     "(pkg2h / phase-2 convention); wc/fh-only configs have no exogenous "
+     "reads. The 3 pkg_d45 rows are newly indexed (they postdate the old "
+     "index)."),
+    ("p1", "P1 OPENING ARMS -- no chips (data/p1/p1log_*)",
+     "arm=base is the no-chip baseline of record for the grids below; "
+     "arm=p1 flips OPENING_HORIZON_ACTIVE, arm=p2 OPENING_ROBUST_ACTIVE "
+     "(both CLOSED, not adopted)."),
+    ("wcgrid", "WC1 x OPENING GRID -- wildcard only (data/p1/wclog_*)",
+     "One WC at the named week, nothing else. Chip-inclusive == path "
+     "(a wildcard changes the path itself; there is nothing to add)."),
+    ("fullsystem", "FULL SYSTEM -- all chips (data/p1/fslog_*)",
+     "WC1 as named, WC2/FH2 in-sim, BB1+BB2 scheduled (bench-aware), TC1/TC2 "
+     "exogenous reads. The system-as-configured cells are opening=base "
+     "wc1=2 (WC1 rule of record GW2-3, p4 log section 12b)."),
+    ("p3", "P3 EARLY-HIT GRID (data/p1/p3log_*)",
+     "Full-system config + EARLY_HIT_DISCOUNT_ACTIVE at the named bar. "
+     "Measured and DECLINED; bar=4 references are the fslog rows above."),
+    ("p5", "P5 OPTIMIZER-WINS ARMS (data/p1/p5log_*)",
+     "Full-system wc2 config + bench-order / XI-tiebreak gates. Measured "
+     "and DECLINED (noise-free paired paths)."),
+    ("oracle", "TEAM-NEWS ORACLE -- DELIBERATE LEAKAGE (data/teamnews)",
+     "oracle_minutes_active=True: realized minutes injected into "
+     "predictions. These rows are MEASUREMENTS of an upper bound, never "
+     "baselines, never adoptable, comparable only to their reference cell "
+     "(fslog base_wc2)."),
+    ("references", "REFERENCES -- pre-canonical lineage figures",
+     "Retained for lineage only."),
 ]
+
+HEADER = """# Season totals index -- every simulated season total, one place
+
+Generated {today} by eval/build_season_totals_index.py. Covers ALL simlogs
+on disk: data/sweep, data/chips, data/p1 (p1log/wclog/fslog/p3log/p5log) and
+data/teamnews (oraclelog), plus the pre-canonical reference figures.
+
+**Framing (mandatory):** a season total is ONE draw from a distribution with
+path sd ~60 (M1 failed). This index exists so figures can be LOCATED and
+grouped by provenance -- comparisons are valid ONLY within a family AND only
+between rows differing by exactly the variable under test. Season totals
+never decide adoptions; component and windowed metrics do.
+
+**PATH vs CHIP-INCLUSIVE (stored vs recomputed).** No log family stores a
+chip-inclusive total. The stored figure is `final_total` = the PATH total
+(the simulator scores no chip points; asserted == points.sum() for every
+file). Every chip-inclusive figure here is RECOMPUTED by the family's
+measure-script-of-record convention (see the generator's docstring for the
+exact per-family rules). Recomputed values are marked **(r)** and decomposed
+in the `chip reads` column; `= path` means no exogenous chips were scheduled,
+so the two totals are identical by construction. TC2 and BB2 share a week in
+all three seasons: both reads are added per the P4 convention, so
+chip-inclusive figures are OPTIMISTIC by min(TC2, BB2 bench). The recompute
+chain is validated at generation time against the closing position's
+reference figures (fslog base_wc2 -> 2299/2301/2219) and the p1 baselines
+(2204/2362/2032); generation FAILS on drift.
+
+**Average-manager verification:** claimed averages 2038 / 2154 / 1895 vs
+fplcache sum of events[].average_entry_score 2003 / 2008 / 1895. 2025-26
+MATCHES; 2023-24 is 35 off; 2024-25 is 146 off. The statistics differ by
+definition (sum of per-GW averages != average of season totals; late entries
+and chips break the equivalence), so BOTH margins are shown, computed on the
+CHIP-INCLUSIVE total (= path where no reads exist).
+
+**Provenance notes:** (1) the 2023-24 sweep sims ran against the
+pre-#15-rebuild canonical, proven BIT-IDENTICAL to the rebuilt file
+(dc_enabled=False season), so they belong to the post-#15 family. (2) The
+2023-24/2024-25 _synth files predate the #15 rebuild but are DC-irrelevant
+seasons -- same family. (3) The REFERENCE rows predate the DC-wiring fix
+(#15); 1984/1938 also predate D1 and the rate blend; 2028 predates the
+blend. They are comparable to NOTHING in this index. (4) bb_aware=off rows
+flip transfer_mip.BENCH_BOOST_AWARE -- their baseline (gate off) differs by
+chips+gate JOINTLY: that package is the declared variable (p4 log section
+8). (5) `run` is the log file's mtime (the sim run date), not the
+walkforward build date. (6) 2024-25 rows: every deviation measured against
+the 2362 baseline carries the half-artefact correction
+(Logs/why_2024_25_log.md) -- the baseline is a 97th-percentile draw.
+
+**Superseded flags:** rows whose walkforward file carries a stale suffix
+({stale}) are marked SUPERSEDED -- retained, never deleted, comparable only
+within their own family.
+
+**Walkforward provenance key** (stamps read from the files themselves):
+
+{wfkey}
+"""
+
+FOOTER = """
+## Valid comparisons (exhaustive)
+
+1. **Chip effects**: any chips/bb-aware row vs the SAME season's `baseline`
+   chips row at H=6 decay=0.85 (family post-#15, synth off). Variable = the
+   chip package. combined_d60 pairs with the sweep `base H6 d60` row;
+   pkg_d45 pairs with the sweep `base H6 d45` row (prefix identity asserted
+   by its measure script).
+2. **D4 base-vs-synth**: sweep rows within the same (season, H, decay) --
+   the 27 matched pairs of the sign test.
+3. **P1 arms**: p1log rows within a season (base vs p1 vs p2) -- same
+   config, opening gate is the only variable.
+4. **WC1 grid**: wclog rows within (season, opening) vs the same opening's
+   p1log baseline -- the anchor-window deltas are the evidence of record
+   (p1_opening_log section 7), NOT the totals.
+5. **Full system**: fslog rows within (season, opening) across wc1; the BB1
+   question pairs fslog vs wclog at the same (season, opening, wc1)
+   (prefix-verified 24/24). Margins vs the average manager identify the
+   system; they rank nothing.
+6. **P3**: p3log rows vs the fslog cell at the same (season, wc1) -- bar is
+   the variable (bar=4 == the fslog reference itself).
+7. **P5**: p5log arms vs fslog base_wc2 -- noise-free paired paths.
+8. **Oracle rows**: comparable ONLY to fslog base_wc2 (their reference), as
+   an upper-bound measurement. Never to each other across seasons, never as
+   baselines.
+9. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
+   REFERENCE row: NOT comparable.
+
+## Explicit flags
+
+- Every chip-inclusive figure in this index is recomputed (marked (r)); no
+  log family stores one. The reads are decomposed per row so a recompute
+  error is visible, not quiet.
+- Oracle rows are deliberate-leakage instruments (oracle_minutes_active
+  stamp). NEVER adopt, never baseline.
+- The four reference figures are retained for lineage only.
+- One historical cross-provenance comparison was ATTEMPTED and caught before
+  measurement: D4 Phase 2's first 2025-26 synth build used the wrong writer
+  (stamps differed); rebuilt before any number was read (overnight log,
+  stage 2).
+- The 3 chips-era pkg_d45 rows are newly indexed here; the pre-2026-08-24
+  generator would have mislabelled their decay as 0.85.
+"""
+
+
+def render(rows):
+    lines = []
+    counts = {}
+    for sec_key, title, note in SECTIONS:
+        sec = [r for r in rows if r["section"] == sec_key]
+        counts[sec_key] = len(sec)
+        if not sec:
+            continue
+        sec.sort(key=lambda r: (r["season"], r["config"], r["H"], r["decay"]))
+        lines += [f"## {title}", "", note, "",
+                  "| season | config | H | decay | chips scheduled | "
+                  "path total | chip-incl total | chip reads | vs avg "
+                  "(claimed) | vs avg (fplcache) | wf file | wf stamps | "
+                  "sim gates | run | flags | source |",
+                  "|" + "---|" * 16]
+        for r in sec:
+            stale = STALE_RE.search(r["wf"])
+            flags = r["flags"]
+            if stale:
+                flags = (flags + "; " if flags else "") + \
+                    f"SUPERSEDED (stale wf suffix _{stale.group(1)})"
+            try:
+                fam, compact, _ = wf_stamps(r["wf"])
+            except FileNotFoundError:
+                fam, compact = "(file not on disk)", "?"
+            if r["wf"].startswith("("):        # reference pseudo-entries
+                fam, compact = r["config"], "?"
+            if r["recomputed"]:
+                reads = " ".join(
+                    f"{lbl}@GW{gw}{v:+d}" for lbl, gw, v in r["reads"])
+                chip = f"**{r['chip']}** (r)"
+            else:
+                reads = "--"
+                chip = f"= path {r['chip']}"
+            lines.append(
+                f"| {r['season']} | {r['config']} | {r['H']} | {r['decay']} "
+                f"| {r['sched']} | **{r['path']}** | {chip} | {reads} | "
+                f"{r['chip'] - AVG_CLAIMED[r['season']]:+d} | "
+                f"{r['chip'] - AVG_ONDISK[r['season']]:+d} | {r['wf']} | "
+                f"{compact} | {r['gates']} | {r['run']} | {flags or '--'} | "
+                f"{r['source']} |")
+        lines.append("")
+    return lines, counts
 
 
 def main():
-    rows = rows_from_chips() + rows_from_sweep() + REFERENCES
-    df = pd.DataFrame(rows)
-    df["margin_claimed"] = df.apply(
-        lambda r: r["total"] - AVG_CLAIMED[r["season"]], axis=1)
-    df["margin_ondisk"] = df.apply(
-        lambda r: r["total"] - AVG_ONDISK[r["season"]], axis=1)
-    df = df.sort_values(["family", "season", "H", "decay", "synth", "chips"])
+    rows = (rows_sweep() + rows_chips() + rows_p1() + rows_wcgrid()
+            + rows_fullsystem() + rows_p3() + rows_p5() + rows_oracle()
+            + rows_references())
 
-    lines = ["# Season totals index -- every simulated season total, one place",
-             "",
-             f"Generated {dt.date.today()} by eval/build_season_totals_index.py.",
-             "",
-             "**Framing (mandatory):** a season total is ONE draw from a",
-             "distribution with path sd ~60 (M1 failed). This index exists so",
-             "figures can be LOCATED and grouped by provenance -- comparisons",
-             "are valid ONLY within a family AND only between rows differing",
-             "by exactly the variable under test. Season totals never decide",
-             "adoptions; component and windowed metrics do.",
-             "",
-             "**Average-manager verification:** claimed averages 2038 / 2154 /",
-             "1895 vs fplcache sum of events[].average_entry_score 2003 / 2008",
-             "/ 1895. 2025-26 MATCHES; 2023-24 is 35 off; 2024-25 is 146 off.",
-             "The statistics differ by definition (sum of per-GW averages !=",
-             "average of season totals; late entries and chips break the",
-             "equivalence), so BOTH margins are shown.",
-             "",
-             "**Provenance notes:** (1) the 2023-24 sweep sims ran against the",
-             "pre-#15-rebuild canonical, proven BIT-IDENTICAL to the rebuilt",
-             "file (dc_enabled=False season), so they belong to the post-#15",
-             "family. (2) The 2023-24/2024-25 _synth files predate the #15",
-             "rebuild but are DC-irrelevant seasons -- same family. (3) All",
-             "four REFERENCE rows predate the DC-wiring fix (#15); 1984/1938",
-             "also predate D1 and the rate blend; 2028 predates the blend.",
-             "They are comparable to NOTHING in this index.",
-             "(4) bb_aware=True rows flip transfer_mip.BENCH_BOOST_AWARE --",
-             "their baseline (gate off) differs by chips+gate JOINTLY: that",
-             "package is the declared variable (p4 log section 8).",
-             "",
-             "| season | H | decay | chips | synth λ | bb-aware | walkforward file | family | built | total | vs avg (claimed) | vs avg (fplcache) | source |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    for _, r in df.iterrows():
-        lines.append(
-            f"| {r.season} | {r.H} | {r.decay} | {r.chips} | {r.synth} | "
-            f"{'Y' if r.bb_aware else '-'} | {r.wf} | {r.family} | {r.built} | "
-            f"**{r.total}** | {r.margin_claimed:+d} | {r.margin_ondisk:+d} | "
-            f"{r.source} |")
+    # validation: p1 baselines' PATH totals are the figures of record
+    p1_base = {r["season"]: r["path"] for r in rows
+               if r["section"] == "p1" and r["config"] == "arm=base"}
+    assert p1_base == EXPECT_P1_BASE_PATH, \
+        f"p1 baseline path totals drifted: {p1_base} != {EXPECT_P1_BASE_PATH}"
 
-    lines += ["",
-              "## Valid comparisons (exhaustive)",
-              "",
-              "1. **Chip effects**: any chips/bb-aware row vs the SAME season's",
-              "   `baseline` chips row at H=6 decay=0.85 (family post-#15,",
-              "   synth off). Variable = the chip package.",
-              "2. **combined_d60** vs the same season's sweep `base H6 d60` row.",
-              "3. **D4 base-vs-synth**: sweep rows within the same (season, H,",
-              "   decay) -- the 27 matched pairs of the sign test.",
-              "4. Nothing else. Cross-H, cross-decay, cross-season and every",
-              "   REFERENCE row: NOT comparable.",
-              "",
-              "## Explicit flags",
-              "",
-              "- No baseline is missing: every post-#15 config has a same-family",
-              "  baseline on disk.",
-              "- One historical cross-provenance comparison was ATTEMPTED and",
-              "  caught before measurement: D4 Phase 2's first 2025-26 synth",
-              "  build used the wrong writer (stamps differed); rebuilt before",
-              "  any number was read (overnight log, stage 2).",
-              "- The four reference figures are retained for lineage only."]
+    body, counts = render(rows)
 
+    wfkey = ["| wf file | " + " | ".join(STAMPS) + " |",
+             "|" + "---|" * (len(STAMPS) + 1)]
+    for name, (fam, _, full) in sorted(_wf_cache.items()):
+        wfkey.append(f"| {name} ({fam}) | " + " | ".join(
+            str(full.get(c, "?")) for c in STAMPS) + " |")
+
+    text = HEADER.format(today=dt.date.today(),
+                         stale=", ".join("_" + s for s in STALE_SUFFIXES),
+                         wfkey="\n".join(wfkey)) \
+        + "\n".join(body) + FOOTER
     out = REPO / "Logs" / "season_totals_index.md"
-    out.write_text("\n".join(lines), encoding="utf-8")
-    print(f"{len(df)} rows -> {out}")
-    print(df.groupby(["family", "season"]).size().to_string())
+    out.write_text(text, encoding="utf-8")
+    total = sum(counts.values())
+    print(f"{total} rows -> {out}")
+    for k, v in counts.items():
+        print(f"  {k:12s} {v}")
 
 
 if __name__ == "__main__":
