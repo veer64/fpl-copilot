@@ -42,7 +42,7 @@ Solver/policy: `DEFAULT_HORIZON=6`, `DEFAULT_DECAY=0.45`, hit bar 4, bench
 weight 0.2, `BENCH_BOOST_AWARE=True`, one Bench Boost per half supported.
 Chips of record: WC1 **GW2–3**; WC2 pre-DGW-cluster swing; FH2 largest
 blank, floor ≥4 (never below); BB2 biggest second-half double, bench-aware;
-TC2 biggest DGW; TC1 predicted-captain peak; BB1 only at a real H1 double.
+~~TC2 biggest DGW~~ TC2 earliest eligible second-half double (revised 2026-08-24, p4 §12c (ii) — the old rule collided with BB2 and its first revision selected nothing in two of three seasons); TC1 predicted-captain peak; BB1 only at a real H1 double.
 Measured-and-off gates (all False): `OPENING_HORIZON_ACTIVE`,
 `OPENING_ROBUST_ACTIVE`, `BENCH_ORDER_BY_PLAY`, `XI_TIEBREAK_P60`,
 `EARLY_HIT_DISCOUNT_ACTIVE`.

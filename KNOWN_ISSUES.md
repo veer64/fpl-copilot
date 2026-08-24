@@ -879,7 +879,11 @@ every configuration without a Bench Boost. Cost at the reference cells:
    of three seasons; a Triple Captain can always move) and hindsight-free.
    The relocated-TC2 alternative (reading what the captain scored on the
    rule-revised week) is a single-draw hindsight read and was refused.
-2. Rule: TC2 = largest double gameweek EXCLUDING the BB2 week (p4 §12c).
+2. Rule: TC2 = ~~largest double gameweek EXCLUDING the BB2 week~~ the
+   EARLIEST second-half double excluding weeks already holding a chip
+   (p4 §12c; tie-break (ii) adopted 2026-08-24 after the largest-double
+   form selected nothing in two of three seasons -- a rule with a gap is
+   how this family starts).
 3. Guard: `squad/chip_legality.check_chip_schedule` on the EFFECTIVE
    schedule (in-sim chips + every read week): pairwise-distinct weeks, one
    of each chip per half, reads only on played weeks. Called in

@@ -292,7 +292,7 @@ in both. n=3 seasons; no intervals (≥8 rule).
 | Wildcard 2 | The pre-DGW-cluster fixture-swing week | most consistent chip: positive 3/3 seasons at W≥2 (§6), swing ≈ staged−1 |
 | Bench Boost 2 | Second-half gw with most doubling teams, floor ≥4; **bench-aware solver ON** | §9/§11: bench-aware package +25/+31 (d85), bench 46 pts at d45; unaware BB was +2.3 |
 | Free Hit 2 | Largest blank, floor ≥4 teams blanking; **never below the floor** | +28.7 mean at W3; below-floor measured −20 mean (actively harmful) |
-| Triple Captain 2 | **Largest double gameweek EXCLUDING the BB2 week (REVISED 2026-08-24, §12c).** ~~Largest double gameweek~~ — superseded 2026-08-24: collides with BB2 by construction whenever the season's largest double is in H2 (all three seasons); two reads on one gameweek priced an illegal play | +7.7 mean was measured WITH the collision (read at the BB2 week) and is not a figure of record for the revised rule; no legal TC2 value has been measured — §12c |
+| Triple Captain 2 | **Earliest second-half double gameweek, excluding weeks already holding a chip (REVISED 2026-08-24 (ii), §12c).** ~~Largest double gameweek EXCLUDING the BB2 week (revision (i), 2026-08-24)~~ — superseded the same day: selected nothing in two of three seasons (ties among 2-team doubles). ~~Largest double gameweek~~ — superseded 2026-08-24: collides with BB2 by construction whenever the season's largest double is in H2 (all three seasons); two reads on one gameweek priced an illegal play | +7.7 mean was measured WITH the collision (read at the BB2 week) and is not a figure of record for the revised rule; no legal TC2 value has been measured — §12c |
 | Triple Captain 1 | GW1–19 week where the intended captain's predicted points peak | +10.3 mean (§11) |
 | Bench Boost 1 | Only where a genuine first-half double exists — near-worthless on single fixtures | 37/8/4 unoptimised (the 37 a fluke); no H1 doubles in 2/3 seasons |
 
@@ -441,10 +441,12 @@ GW26 (2) — where the frozen reference paths' captains happened to score
 reads of what one captain did on one path and are recorded here as
 ILLUSTRATION ONLY. The figures of record are the drop floor above.
 
-**The rule going forward.** TC2 = largest double gameweek EXCLUDING the
-BB2 week (and any other scheduled chip week). The +7.7 in §12 was measured
-with the collision and is not a figure of record for the revised rule; a
-legal TC2 value has not been measured and none is claimed.
+**The rule going forward.** ~~TC2 = largest double gameweek EXCLUDING the
+BB2 week (and any other scheduled chip week).~~ — superseded the same day
+by the tie-break adopted in §12c (ii) below: the (i) form selected nothing
+in two of three seasons. The +7.7 in §12 was measured with the collision
+and is not a figure of record for the revised rule; a legal TC2 value has
+not been measured and none is claimed.
 
 **The guard.** `squad/chip_legality.py` takes the EFFECTIVE schedule —
 in-sim WC/FH weeks plus every read week the accounting used — and refuses
@@ -457,6 +459,57 @@ the real logs (GW34 / GW33 / GW33: bench_boost + triple_captain) and passes
 on the corrected one. The drift assert is kept for drift only.
 KNOWN_ISSUES #16 records the failure as the sixth member of the
 silent-fallback family.
+
+### 12c (ii). Tie-break ADOPTED (2026-08-24, user decision): TC2 = the EARLIEST second-half double gameweek, excluding weeks already holding a chip
+
+**Supersedes** the (i) form above ("largest double excluding the BB2 week"),
+which selected nothing in two of three seasons — the largest remaining
+double was a tie among 2-team doubles (2024-25: GW24/25/32; 2025-26:
+GW26/36). That was the actual defect, and it is the same kind of
+underspecification that let the collision in: a rule with a gap gets filled
+in by whatever a measure script happens to do.
+
+**Why this tie-break and not another** (`Logs/tc2_valuation_log.md`):
+
+1. **Computable at decision time from the fixture calendar alone.** No
+   predictions, no horizon, no hindsight. The predicted-captain selector
+   proposed the same day ("among eligible doubles, the week where the
+   intended captain's own-cutoff predicted points are highest") was checked
+   for computability BEFORE adoption and refused: in all three seasons the
+   eligible doubles span 8–12 gameweeks, beyond the 5-step horizon, so it
+   can only be evaluated after the last candidate's deadline — hindsight
+   dressed as prediction. The sequential stopping variant is computable but
+   needs a simulation to value, and it lost GW36 in 2025-26 through
+   blindness alone (the candidate was outside the horizon).
+2. **It always selects.**
+3. **It matches what the evidence supports and no more.** "Play TC2 on a
+   double" is established — mean read on legal double weeks vs single weeks
+   +9.2 v 7.2 / +25.3 v 6.1 / +9.0 v 4.3 in the three seasons. "Largest
+   double" is not: on the correct null (largest double vs any double) it
+   fired in one season and tied in two.
+4. **Not-playing has an unpriced cost.** Holding out for a better double
+   risks the season ending with the chip unused; the sweep never valued
+   that. Earliest removes the hold-out.
+
+**Caveat, plainly.** This is a tie-break of ignorance, not skill. It exists
+so that the rule terminates. It is the first thing to revisit given more
+seasons or a stopping-rule simulation.
+
+**What it selects on the frozen base_wc2 paths, and what that costs**
+(hindsight reads from the sweep; illustration only — the chip-inclusive
+figures of record still score TC2 as zero):
+
+| season | eligible doubles | selected | captain on the path | read | rank / pctile (16 legal weeks) | vs random-week mean | vs the (i) rule's week |
+|---|---|---|---|---|---|---|---|
+| 2023-24 | GW25, 28, 35, 37 | **GW25** (×4) | Haaland | 10 | 5 / 75% | +2.3 (mean 7.75) | GW37 read 15 → −5 |
+| 2024-25 | GW24, 25, 32 | **GW24** (×2) | Salah | 29 | 1 / 100% | +19.3 (mean 9.69) — the 97th-percentile-baseline season, 13.8% Salah concentration; carries no weight | (i) tied GW24/25/32 → n/a |
+| 2025-26 | GW26, 36 | **GW26** (×2) | Gabriel | 7 | 4 / 81% | +2.1 (mean 4.88) | (i) tied; GW36 read 11 → −4 |
+
+**Legality:** the effective schedule with TC2 on these weeks (TC1 GW6 / 18 /
+17; WC1 2; WC2 32 / 31 / 32; FH2 29 / 29 / 34; BB1 7 / 7 / 10; BB2 34 / 33
+/ 33) passes `squad/chip_legality.check_chip_schedule` in all three seasons.
+The rule is a scheduling rule only: no simulation has been run with TC2
+scheduled on these weeks, and no chip-inclusive figure includes them.
 
 ## 13. STANDARD CONFIG ADOPTED: H=6, decay=0.45
 

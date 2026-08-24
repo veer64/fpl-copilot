@@ -39,7 +39,7 @@ NO new tests were added for the new gates (debt, §8).
 **Chip rules of record (p4_chip_policy_log §12, one REVISION this session):**
 WC1 **GW2–3** (revised 2026-08-21, §12b — was ~~GW4–5~~, struck through in
 the table); WC2 pre-DGW-cluster swing; FH2 largest blank floor ≥4; BB2
-biggest second-half double bench-aware; TC2 biggest DGW; TC1
+biggest second-half double bench-aware; ~~TC2 biggest DGW~~ TC2 earliest eligible second-half double (revised 2026-08-24, p4 §12c (ii) — the old rule collided with BB2 and its first revision selected nothing in two of three seasons); TC1
 predicted-captain peak; BB1 only at a real H1 double (measured
 free-to-slightly-positive on single fixtures, ~+10 bench).
 

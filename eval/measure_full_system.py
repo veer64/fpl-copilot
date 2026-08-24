@@ -9,8 +9,9 @@
 #     captain_bonus@TC2 at the BB2 week (the biggest DGW coincides with BB2's
 #     week in all three seasons). FPL allows ONE chip per gameweek, so that
 #     priced an illegal play; the TC2 read is now DROPPED and reported as
-#     such. Rule of record revised in p4 log section 12c (TC2 = largest
-#     double EXCLUDING the BB2 week). Every cell's effective chip schedule is
+#     such. Rule of record revised in p4 log section 12c (TC2 = the EARLIEST
+#     second-half double excluding chip weeks). Every cell's effective chip
+#     schedule is
 #     checked by squad/chip_legality.py.
 #   - GW1-10 path points vs the FPL average manager (chip reads excluded)
 #   - full-season margin: chip-inclusive total - fplcache season average

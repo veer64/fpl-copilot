@@ -15,9 +15,14 @@ Method (stated before the results, and written into the log):
     path (WC2, FH2, BB2; one chip per gameweek). TC1 sits in the first half.
   * Doubles inventory: walkforward n_fixtures >= 2 at own cutoff, teams
     doubling per gw (eval/quantify_collision.py convention).
-  * Rule of record: TC2 = largest double gameweek EXCLUDING the BB2 week
-    (p4 log section 12c). Where two doubles tie on team count the rule does
-    not pick; every tied week is reported.
+  * Rule (i), 2026-08-24 morning: TC2 = largest double gameweek EXCLUDING
+    the BB2 week. Where two doubles tie on team count it does not pick;
+    every tied week is reported (kept as the comparison).
+  * ADOPTED rule (ii), 2026-08-24 (p4 log section 12c ii): TC2 = the
+    EARLIEST second-half double gameweek excluding weeks already holding a
+    chip -- structural, computable from the fixture calendar alone. Reported
+    per season with its read and rank so the cost of the choice is on the
+    record, not hidden.
   * Old rule: largest double gameweek overall = the BB2 week. Its read is
     illegal (collision) and is shown only for comparison, ranked as if it
     had been counted among the legal weeks.
@@ -77,6 +82,7 @@ def sweep(season):
     cand = inv[(inv.index >= H2_START) & ~inv.index.isin(taken)]
     rule_weeks = sorted(int(g) for g in cand[cand == cand.max()].index) \
         if len(cand) else []
+    earliest = int(cand.index.min()) if len(cand) else None   # adopted (ii)
     old_week = int(inv.idxmax())            # largest double overall
     assert old_week == bb2, f"{season}: old-rule week {old_week} != BB2 {bb2}"
     old_read = int(d.loc[old_week, "captain_bonus"])
@@ -84,6 +90,7 @@ def sweep(season):
     sgl_weeks = [g for g in legal if g not in inv.index]
     return dict(season=season, d=d, wc2=wc2, fh2=fh2, bb1=bb1, bb2=bb2,
                 inv=inv, legal=legal, reads=reads, rule_weeks=rule_weeks,
+                earliest=earliest,
                 cand=cand, old_week=old_week, old_read=old_read,
                 dbl_weeks=dbl_weeks, sgl_weeks=sgl_weeks)
 
@@ -112,7 +119,7 @@ def main():
     out.append(__doc__.split("Method (stated before the results, and written into the log):", 1)[1].strip() + "\n")
 
     res = [sweep(s) for s in SEASONS]
-    pooled_rule_pct, pooled_rule_gap = [], []
+    pooled_rule_pct, pooled_rule_gap, pooled_adopt = [], [], []
 
     out.append("## Results\n")
     for r in res:
@@ -148,8 +155,9 @@ def main():
                        f"{r['d'].loc[g, 'captain']} | {r['d'].loc[g, 'doubled_role']} | "
                        f"{v} | {rank_of(reads, v)} | {100 * pct_le(reads, v):.0f}% |")
         out.append("")
-        # rule of record
-        out.append("**Rule of record -- largest double EXCLUDING the BB2 week:**\n")
+        # rule (i) -- kept as the comparison
+        out.append("**Rule (i) -- largest double EXCLUDING the BB2 week "
+                   "(superseded the same day by (ii); kept as the comparison):**\n")
         if not r["rule_weeks"]:
             out.append("- no other second-half double exists: the rule does not "
                        "select a week (falls to a discretionary pick).\n")
@@ -164,6 +172,28 @@ def main():
                            f"percentile {100 * pc:.0f}%, vs random-week mean "
                            f"{v - mean:+.2f} ({(v - mean) / sd:+.2f} sd)")
                 pooled_rule_pct.append(pc); pooled_rule_gap.append(v - mean)
+            out.append("")
+        # ADOPTED rule (ii): earliest eligible double
+        out.append("**ADOPTED rule (ii) -- EARLIEST eligible second-half double "
+                   "(p4 log section 12c ii, 2026-08-24):**\n")
+        if r["earliest"] is None:
+            out.append("- no eligible second-half double: the rule does not "
+                       "select a week.\n")
+        else:
+            g = r["earliest"]
+            v = int(reads.loc[g]); rk = rank_of(reads, v); pc = pct_le(reads, v)
+            cmp = []
+            for w in r["rule_weeks"]:
+                if w != g:
+                    cmp.append(f"rule (i) week GW{w} read {int(reads.loc[w])}: "
+                               f"{v - int(reads.loc[w]):+d}")
+            out.append(f"- {fmt_week(r, g)}: read **{v}**, rank {rk}/{len(legal)}, "
+                       f"percentile {100 * pc:.0f}%, vs random-week mean "
+                       f"{v - mean:+.2f} ({(v - mean) / sd:+.2f} sd)"
+                       + (f"; vs " + "; ".join(cmp) if cmp else
+                          "; rule (i) selected this week too" if r["rule_weeks"] == [g]
+                          else ""))
+            pooled_adopt.append((r["season"], g, v, rk, pc, v - mean))
             out.append("")
         # old rule
         v = r["old_read"]
@@ -192,6 +222,14 @@ def main():
                    + ", ".join(f"{100 * p:.0f}%" for p in pooled_rule_pct)
                    + f"; mean gap vs random-week baseline {np.mean(pooled_rule_gap):+.2f} "
                    f"points (gaps " + ", ".join(f"{g:+.1f}" for g in pooled_rule_gap) + ").")
+    if pooled_adopt:
+        out.append("- **ADOPTED rule (ii), earliest eligible double** -- "
+                   + "; ".join(f"{s} GW{g} read {v} rank {rk}/16 pctile {100 * pc:.0f}% "
+                               f"({gap:+.1f} vs mean)"
+                               for s, g, v, rk, pc, gap in pooled_adopt)
+                   + f". Mean percentile {100 * np.mean([p for *_, p, _ in pooled_adopt]):.0f}%; "
+                   "these are the costs of the choice, on the record, not "
+                   "figures of record.")
         out.append("- A rule indistinguishable from random sits at the 50th "
                    "percentile with a zero mean gap. Three seasons cannot "
                    f"separate anything but a large effect: 3 seasons "
@@ -265,14 +303,19 @@ def main():
                "that week) reshapes the squad for the bench and degrades the "
                "captain choice -- the biggest-DGW week is exactly where the "
                "two chips fight over the same squad.")
-    out.append("- **The rule of record needs a tie-break clause.** In two of "
-               "three seasons the largest remaining double is a tie among "
-               "2-team doubles, and the rule as written does not select. The "
-               "candidate proposed on 2026-08-24 -- among eligible doubles, the "
-               "week where the intended captain's own-cutoff predicted points "
-               "are highest -- was checked for computability BEFORE adoption "
-               "(next section) and is NOT computable at decision time; not "
-               "adopted.")
+    out.append("- **Tie-break ADOPTED (p4 log section 12c ii): the EARLIEST "
+               "eligible second-half double.** Rule (i) selected nothing in two "
+               "of three seasons (ties among 2-team doubles). The "
+               "predicted-captain selector proposed the same day was checked "
+               "for computability BEFORE adoption (next section) and refused "
+               "-- not computable at decision time. Earliest is structural: "
+               "computable from the calendar alone, always selects, matches "
+               "what is established (play a double) and no more, and removes "
+               "the unpriced cost of holding out for a better double that may "
+               "never come. It is a tie-break of ignorance, not skill; it "
+               "exists so the rule terminates. Its cost on these paths: "
+               + "; ".join(f"{s} GW{g} read {v} (rank {rk}/16)"
+                           for s, g, v, rk, pc, gap in pooled_adopt) + ".")
     out.append("- **What would change the reading:** a fourth and fifth "
                "season (2021-22/2022-23 are not portable, KNOWN_ISSUES #11), "
                "or a policy-level test where TC2 is scheduled in-sim on the "

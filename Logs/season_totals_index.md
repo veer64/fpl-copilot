@@ -36,8 +36,9 @@ row moved by its own TC2 read. (3) Every row's effective chip schedule is
 now checked structurally by squad/chip_legality.py (one chip per gameweek,
 one of each chip per half, reads only on played weeks) -- independent of any
 total -- before this file is written; tests/test_chip_legality.py proves the
-check fails on the old convention. (4) TC2's rule of record is revised to
-"largest double gameweek EXCLUDING the BB2 week" (p4 log section 12c);
+check fails on the old convention. (4) TC2's rule of record is revised (p4
+log section 12c; tie-break (ii) adopted 2026-08-24: the EARLIEST second-half
+double excluding weeks already holding a chip -- structural, calendar-only);
 KNOWN_ISSUES #16 records the failure.
 
 **PATH vs CHIP-INCLUSIVE (stored vs recomputed).** No log family stores a

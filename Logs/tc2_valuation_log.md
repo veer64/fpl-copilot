@@ -19,9 +19,14 @@ Generated 2026-08-24 by eval/tc2_valuation_sweep.py. Read-only; no simulations.
     path (WC2, FH2, BB2; one chip per gameweek). TC1 sits in the first half.
   * Doubles inventory: walkforward n_fixtures >= 2 at own cutoff, teams
     doubling per gw (eval/quantify_collision.py convention).
-  * Rule of record: TC2 = largest double gameweek EXCLUDING the BB2 week
-    (p4 log section 12c). Where two doubles tie on team count the rule does
-    not pick; every tied week is reported.
+  * Rule (i), 2026-08-24 morning: TC2 = largest double gameweek EXCLUDING
+    the BB2 week. Where two doubles tie on team count it does not pick;
+    every tied week is reported (kept as the comparison).
+  * ADOPTED rule (ii), 2026-08-24 (p4 log section 12c ii): TC2 = the
+    EARLIEST second-half double gameweek excluding weeks already holding a
+    chip -- structural, computable from the fixture calendar alone. Reported
+    per season with its read and rank so the cost of the choice is on the
+    record, not hidden.
   * Old rule: largest double gameweek overall = the BB2 week. Its read is
     illegal (collision) and is shown only for comparison, ranked as if it
     had been counted among the legal weeks.
@@ -65,9 +70,13 @@ Path chips: WC2 GW32, FH2 GW29, BB1 GW7, BB2 GW34. Legal TC2 weeks: 16 (GW20-38 
 | GW37* | 6 | Erling Haaland | captain | 15 | 3 | 88% |
 | GW38 | - | Erling Haaland | captain | 2 | 14 | 19% |
 
-**Rule of record -- largest double EXCLUDING the BB2 week:**
+**Rule (i) -- largest double EXCLUDING the BB2 week (superseded the same day by (ii); kept as the comparison):**
 
 - GW37 (DGW x6; captain Erling Haaland, doubled=captain): read **15**, rank 3/16, percentile 88%, vs random-week mean +7.25 (+1.44 sd)
+
+**ADOPTED rule (ii) -- EARLIEST eligible second-half double (p4 log section 12c ii, 2026-08-24):**
+
+- GW25 (DGW x4; captain Erling Haaland, doubled=captain): read **10**, rank 5/16, percentile 75%, vs random-week mean +2.25 (+0.45 sd); vs rule (i) week GW37 read 15: -5
 
 **Old rule -- largest double overall = the BB2 week (ILLEGAL read, comparison only):**
 
@@ -108,12 +117,16 @@ Path chips: WC2 GW31, FH2 GW29, BB1 GW7, BB2 GW33. Legal TC2 weeks: 16 (GW20-38 
 | GW37 | - | Mohamed Salah | captain | 2 | 13 | 25% |
 | GW38 | - | Mohamed Salah | captain | 10 | 6 | 69% |
 
-**Rule of record -- largest double EXCLUDING the BB2 week:**
+**Rule (i) -- largest double EXCLUDING the BB2 week (superseded the same day by (ii); kept as the comparison):**
 
 - TIE: 3 doubles share the largest team count (2); the rule does not pick between them. All tied weeks reported.
 - GW24 (DGW x2; captain Mohamed Salah, doubled=captain): read **29**, rank 1/16, percentile 100%, vs random-week mean +19.31 (+2.15 sd)
 - GW25 (DGW x2; captain Mohamed Salah, doubled=captain): read **20**, rank 3/16, percentile 88%, vs random-week mean +10.31 (+1.15 sd)
 - GW32 (DGW x2; captain Harvey Barnes, doubled=captain): read **27**, rank 2/16, percentile 94%, vs random-week mean +17.31 (+1.93 sd)
+
+**ADOPTED rule (ii) -- EARLIEST eligible second-half double (p4 log section 12c ii, 2026-08-24):**
+
+- GW24 (DGW x2; captain Mohamed Salah, doubled=captain): read **29**, rank 1/16, percentile 100%, vs random-week mean +19.31 (+2.15 sd); vs rule (i) week GW25 read 20: +9; rule (i) week GW32 read 27: +2
 
 **Old rule -- largest double overall = the BB2 week (ILLEGAL read, comparison only):**
 
@@ -154,11 +167,15 @@ Path chips: WC2 GW32, FH2 GW34, BB1 GW10, BB2 GW33. Legal TC2 weeks: 16 (GW20-38
 | GW37 | - | Gabriel dos Santos Magalhães | captain | 6 | 6 | 69% |
 | GW38 | - | Erling Haaland | none | 0 | 15 | 12% |
 
-**Rule of record -- largest double EXCLUDING the BB2 week:**
+**Rule (i) -- largest double EXCLUDING the BB2 week (superseded the same day by (ii); kept as the comparison):**
 
 - TIE: 2 doubles share the largest team count (2); the rule does not pick between them. All tied weeks reported.
 - GW26 (DGW x2; captain Gabriel dos Santos Magalhães, doubled=captain): read **7**, rank 4/16, percentile 81%, vs random-week mean +2.12 (+0.61 sd)
 - GW36 (DGW x2; captain Erling Haaland, doubled=captain): read **11**, rank 1/16, percentile 100%, vs random-week mean +6.12 (+1.77 sd)
+
+**ADOPTED rule (ii) -- EARLIEST eligible second-half double (p4 log section 12c ii, 2026-08-24):**
+
+- GW26 (DGW x2; captain Gabriel dos Santos Magalhães, doubled=captain): read **7**, rank 4/16, percentile 81%, vs random-week mean +2.12 (+0.61 sd); vs rule (i) week GW36 read 11: -4
 
 **Old rule -- largest double overall = the BB2 week (ILLEGAL read, comparison only):**
 
@@ -169,6 +186,7 @@ Path chips: WC2 GW32, FH2 GW34, BB1 GW10, BB2 GW33. Legal TC2 weeks: 16 (GW20-38
 ## Pooled view (three seasons, thin sample)
 
 - rule-of-record weeks evaluated: 6 (ties counted separately); mean percentile 92%, percentiles 88%, 100%, 88%, 94%, 81%, 100%; mean gap vs random-week baseline +10.41 points (gaps +7.2, +19.3, +10.3, +17.3, +2.1, +6.1).
+- **ADOPTED rule (ii), earliest eligible double** -- 2023-24 GW25 read 10 rank 5/16 pctile 75% (+2.2 vs mean); 2024-25 GW24 read 29 rank 1/16 pctile 100% (+19.3 vs mean); 2025-26 GW26 read 7 rank 4/16 pctile 81% (+2.1 vs mean). Mean percentile 85%; these are the costs of the choice, on the record, not figures of record.
 - A rule indistinguishable from random sits at the 50th percentile with a zero mean gap. Three seasons cannot separate anything but a large effect: 3 seasons (6 candidate weeks once ties are listed; tied weeks within a season are NOT independent draws) of ~16 legal weeks each.
 
 ## Reading (data-driven; the caveats above are binding)
@@ -179,7 +197,7 @@ Path chips: WC2 GW32, FH2 GW34, BB1 GW10, BB2 GW33. Legal TC2 weeks: 16 (GW20-38
 - **Weight caveat:** the largest single read in the sweep (GW24 2024-25, 29, Salah) comes from the season whose baseline is a 97th-percentile draw with a 13.8% Salah concentration (Logs/why_2024_25_log.md). It should not carry weight.
 - **The mechanism is the ordinary one, not a subtle edge:** a double gives the captain two matches. Mean read on legal double weeks vs single weeks: 2023-24 +9.2 vs +7.2; 2024-25 +25.3 vs +6.1; 2025-26 +9.0 vs +4.3. Three seasons of realised captain points on one path each.
 - **The old rule's week (BB2) is a poor TC week on these paths even ignoring legality:** its read ranks 2023-24 13/17 (captain Mohamed Salah, read 3); 2024-25 9/17 (captain David Raya Martin, read 7); 2025-26 1/17 (captain Erling Haaland, read 13). The bench-aware Bench Boost objective (bench weight 1.0 that week) reshapes the squad for the bench and degrades the captain choice -- the biggest-DGW week is exactly where the two chips fight over the same squad.
-- **The rule of record needs a tie-break clause.** In two of three seasons the largest remaining double is a tie among 2-team doubles, and the rule as written does not select. The candidate proposed on 2026-08-24 -- among eligible doubles, the week where the intended captain's own-cutoff predicted points are highest -- was checked for computability BEFORE adoption (next section) and is NOT computable at decision time; not adopted.
+- **Tie-break ADOPTED (p4 log section 12c ii): the EARLIEST eligible second-half double.** Rule (i) selected nothing in two of three seasons (ties among 2-team doubles). The predicted-captain selector proposed the same day was checked for computability BEFORE adoption (next section) and refused -- not computable at decision time. Earliest is structural: computable from the calendar alone, always selects, matches what is established (play a double) and no more, and removes the unpriced cost of holding out for a better double that may never come. It is a tie-break of ignorance, not skill; it exists so the rule terminates. Its cost on these paths: 2023-24 GW25 read 10 (rank 5/16); 2024-25 GW24 read 29 (rank 1/16); 2025-26 GW26 read 7 (rank 4/16).
 - **What would change the reading:** a fourth and fifth season (2021-22/2022-23 are not portable, KNOWN_ISSUES #11), or a policy-level test where TC2 is scheduled in-sim on the rule's week with the captain chosen at the deadline -- i.e. a simulation, deliberately not run here.
 
 ## Tie-break computability check (2026-08-24) -- the proposed rule is NOT computable as written
@@ -231,7 +249,7 @@ Proposed (user, 2026-08-24): *TC2 = a second-half double, excluding weeks alread
 - sweep's best-read week over ALL legal weeks (pure hindsight): GW36 (read 11)
 - step-k projected captain points vs the eventual own-cutoff value, all legal H2 weeks (corr / MAE / same-captain rate): k=1: 0.93 / 0.88 / 81%; k=2: 0.25 / 1.50 / 69%; k=3: 0.90 / 1.10 / 69%; k=4: 0.87 / 1.17 / 50%; k=5: 0.04 / 1.61 / 56%
 
-**Verdict.** The selector as written -- compare candidates by their own-cutoff predictions -- is **not computable at decision time**: in every season the eligible doubles span more than the horizon, so the comparison can only be made after the last candidate's cutoff has passed. It is a hindsight rule dressed as a prediction rule. The computable variant is a sequential stopping rule using horizon projections for the candidates it can see (invisible ones cannot enter the comparison); its picks differ from the literal selector where a later candidate is invisible (literal GW25, GW25, GW36; sequential GW25, GW25, GW26; sweep best-read GW20, GW24, GW36). Neither selector simply reproduces the hindsight winner, which is the right sign; but the projections degrade with step (same-captain rate falls to 12-62% by step 5 in two of three seasons) and, decisively, candidates beyond the horizon are not visible at all. **Not adopted.** The rule of record stays as in p4 log section 12c (largest double excluding the BB2 week, with its tie problem open); a decision-time TC2 rule needs a stopping formulation and a simulation to value it, which this study deliberately does not run.
+**Verdict.** The selector as written -- compare candidates by their own-cutoff predictions -- is **not computable at decision time**: in every season the eligible doubles span more than the horizon, so the comparison can only be made after the last candidate's cutoff has passed. It is a hindsight rule dressed as a prediction rule. The computable variant is a sequential stopping rule using horizon projections for the candidates it can see (invisible ones cannot enter the comparison); its picks differ from the literal selector where a later candidate is invisible (literal GW25, GW25, GW36; sequential GW25, GW25, GW26; sweep best-read GW20, GW24, GW36). Neither selector simply reproduces the hindsight winner, which is the right sign; but the projections degrade with step (same-captain rate falls to 12-62% by step 5 in two of three seasons) and, decisively, candidates beyond the horizon are not visible at all. **Not adopted.** The tie-break adopted instead (p4 log section 12c (ii), 2026-08-24) is structural: TC2 = the EARLIEST eligible second-half double, computable from the fixture calendar alone. A decision-time PREDICTIVE TC2 rule needs a stopping formulation and a simulation to value it, which this study deliberately does not run.
 
 ## What this is not
 

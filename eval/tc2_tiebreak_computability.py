@@ -161,9 +161,10 @@ def render(results):
                "hindsight winner, which is the right sign; but the projections "
                "degrade with step (same-captain rate falls to 12-62% by step 5 in "
                "two of three seasons) and, decisively, candidates beyond the horizon "
-               "are not visible at all. **Not adopted.** The rule of record stays as "
-               "in p4 log section 12c (largest double excluding the BB2 week, "
-               "with its tie problem open); a decision-time TC2 rule needs a "
+               "are not visible at all. **Not adopted.** The tie-break adopted "
+               "instead (p4 log section 12c (ii), 2026-08-24) is structural: TC2 = "
+               "the EARLIEST eligible second-half double, computable from the "
+               "fixture calendar alone. A decision-time PREDICTIVE TC2 rule needs a "
                "stopping formulation and a simulation to value it, which this study "
                "deliberately does not run.")
     out.append("")
