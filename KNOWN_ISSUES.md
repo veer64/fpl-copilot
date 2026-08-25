@@ -900,3 +900,36 @@ refusing. A total-vs-total assert cannot catch a convention error, because
 both sides share the convention. Guards must be structural -- a property
 of the play, checked independently of the figure it produces -- and must
 be seen to FAIL once before they are trusted.
+
+## #17 -- canonical 2025-26 walkforward: e_minutes doubled on 10 single-fixture
+rows (Junior Kroupi GW1-9, Ben Gannon-Doak GW1) -- OPEN
+
+**Status:** Found 2026-08-24 by the horizon-minutes step-0 reproduction check
+(eval/measure_horizon_minutes.py). Not fixed. Scope: 10 of 28,929 single-fixture
+step-0 rows in data/walkforward_h6_2025_26.parquet; other seasons clean.
+
+### What was found
+
+A fresh minutes.get_minutes() call reproduces every canonical step-0 row exactly
+(p_start, p60, e_minutes: max |diff| 0.00e+00) EXCEPT these ten, where the
+canonical e_minutes is exactly 2x the model output while p_start and p60 match
+and n_fixtures is 1. So two identical rows were summed somewhere between the
+minutes frame and collapse_to_gameweek. The crosswalk carries one row for each
+of the two elements (100, 391), so this is not #3 / #12. The cause is not yet
+located. Downstream, e_points for those rows scales with e_minutes, so Kroupi is
+over-predicted through GW9 of 2025-26 (e.g. 80.8 vs 40.4 expected minutes at GW9).
+
+### Why it is in this file
+
+A row-level duplication that survives a per-gameweek collapse is the same shape
+as the silent-fallback family: a legitimate step (sum fixtures per gameweek)
+manufactures a plausible number when its input is wrong at a grain nobody
+checks. The step-0 reproduction check is the guard that caught it; it now names
+the pattern rather than failing on it, so the count cannot grow unnoticed.
+
+### To close
+
+Locate the duplicate (minutes frame vs fixture join for elements 100 and 391 at
+cutoffs 1-9), fix at the grain it fails at, add a uniqueness assert on
+(cutoff, gw, element, fixture) before the collapse, rebuild the 2025-26
+canonical, and re-run the step-0 check to zero differing rows.
