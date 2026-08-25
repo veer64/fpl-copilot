@@ -150,3 +150,89 @@ Doubling rows with no consensus, by position: {'MID': 101, 'DEF': 52, 'GK': 44, 
 Nothing above has been applied. Tuning of (w, m) has not started; no endpoint has been computed; no 2025-26
 outcome has been read.
 
+---
+
+## Rebuild under ADDENDUM 1 — amendments 1 and 3 (2026-08-24; before any 2025-26 outcome was read)
+
+Method as amended: boards below 50% of the fixture's largest board are dropped; each retained book's scale factor is mean_total / book_total over the SHARED element set (elements priced by every retained book; fixtures with fewer than 5 shared elements fall back to whole-board totals and are counted); equal-weight consensus merged by element (asserted); λ = −ln(1 − p) per fixture, summed over the player's fixtures; rows priced in fewer fixtures than the walkforward's `n_fixtures` are flagged `partial_double` and excluded from every endpoint. v1 (whole-board) files kept as `*_v1_wholeboard.parquet`; deltas reported.
+
+### 2024-25
+
+- Fixtures 310; (fixture, element) rows 11,958; (gameweek, element) rows 11,794; clipped 0; merge-by-element assert passed; boards dropped under amendment 1(a): 1 ({'betrivers': 1}); whole-board fallbacks (shared set < 5): 0.
+- **What moved vs v1:** of 11,958 shared (fixture, element) rows, 374 (3.1%) shifted by more than 0.02 and 39 by more than 0.05 (max 0.099, mean signed +0.0013); 0 rows existed only in v1 (dropped boards' exclusive players), 0 only in v2.
+
+**Board totals per retained book** (pooled): whole-board raw | shared-set raw → scale factor → shared-set adjusted | mean board size / shared-set size
+
+| book | fixtures | whole-board raw | shared-set raw | scale mean [min, max] | shared-set adjusted | board / shared |
+|---|---|---|---|---|---|---|
+| draftkings | 252 | 5.23 | 3.98 | 1.010 [0.90, 1.15] | 4.01 | 34.1 / 24.7 |
+| fanduel | 304 | 5.35 | 3.98 | 1.030 [0.94, 1.13] | 4.09 | 34.6 / 24.8 |
+| betmgm | 160 | 5.26 | 3.98 | 0.993 [0.88, 1.06] | 3.96 | 33.9 / 24.4 |
+| betrivers | 308 | 4.21 | 4.01 | 1.021 [0.93, 1.16] | 4.10 | 26.2 / 24.9 |
+| bovada | 305 | 5.50 | 4.16 | 0.983 [0.91, 1.06] | 4.09 | 34.4 / 24.8 |
+| onexbet | 308 | 6.02 | 4.22 | 0.971 [0.84, 1.10] | 4.09 | 37.7 / 24.9 |
+
+- **Amendment 3:** 24 partial-double (gameweek, element) rows flagged and excluded from every endpoint.
+
+**Coverage gate on OUTFIELD players (amendment 2), partial doubles excluded:**
+
+| partition | covered / outfield rows | gate |
+|---|---|---|
+| likely starters (p_start >= .75) | 90.3% of 4,429 | clears 80% |
+| uncertain (.25-.75) | 83.0% of 3,625 | clears 80% |
+| written off (p_start < .25) | 39.8% of 11,978 | **BELOW 80%** |
+| squad-relevant (top 30 e_points in gw) | 97.0% of 742 | clears 80% |
+
+**Sanity — top 20 by consensus p_gw, 2024-25 GW20, outfield** (\* = < 90 season minutes, a placeholder price):
+
+| # | player | team | pos | p_gw | v1 p_gw | books | e_points (model) |
+|---|---|---|---|---|---|---|---|
+| 1 | Erling Haaland | Man City | FWD | 0.684 | 0.697 | 5 | 9.25 |
+| 2 | Alexander Isak | Newcastle | FWD | 0.586 | 0.601 | 5 | 5.09 |
+| 3 | Ollie Watkins | Aston Villa | FWD | 0.581 | 0.604 | 5 | 6.22 |
+| 4 | Mohamed Salah | Liverpool | MID | 0.562 | 0.579 | 4 | 11.12 |
+| 5 | Divin Mubama* | Man City | FWD | 0.490 | 0.461 | 4 | 0.36 |
+| 6 | Darwin Núñez Ribeiro | Liverpool | FWD | 0.468 | 0.475 | 4 | 3.59 |
+| 7 | Diogo Teixeira da Silva | Liverpool | MID | 0.437 | 0.444 | 4 | 4.43 |
+| 8 | Luis Díaz | Liverpool | MID | 0.436 | 0.445 | 4 | 5.87 |
+| 9 | William Osula | Newcastle | FWD | 0.429 | 0.407 | 4 | 0.48 |
+| 10 | Cole Palmer | Chelsea | MID | 0.418 | 0.431 | 5 | 5.75 |
+| 11 | Raúl Jiménez | Fulham | FWD | 0.412 | 0.427 | 4 | 3.31 |
+| 12 | Cody Gakpo | Liverpool | FWD | 0.411 | 0.419 | 4 | 5.21 |
+| 13 | Rodrigo Muniz Carvalho | Fulham | FWD | 0.393 | 0.412 | 4 | 1.84 |
+| 14 | Phil Foden | Man City | MID | 0.383 | 0.391 | 5 | 5.77 |
+| 15 | Nicolas Jackson | Chelsea | FWD | 0.381 | 0.395 | 5 | 4.02 |
+| 16 | Anthony Gordon | Newcastle | MID | 0.376 | 0.384 | 5 | 4.12 |
+| 17 | Federico Chiesa | Liverpool | MID | 0.375 | 0.348 | 3 | 0.60 |
+| 18 | Harvey Barnes | Newcastle | MID | 0.375 | 0.378 | 5 | 2.18 |
+| 19 | Carlos Vinícius Alves Morais* | Fulham | FWD | 0.371 | 0.339 | 3 | 0.53 |
+| 20 | Taiwo Awoniyi | Nott'm Forest | FWD | 0.369 | 0.340 | 4 | 0.78 |
+
+### 2025-26
+
+- Fixtures 380; (fixture, element) rows 15,592; (gameweek, element) rows 15,423; clipped 0; merge-by-element assert passed; boards dropped under amendment 1(a): 22 ({'pinnacle': 20, 'onexbet': 2}); whole-board fallbacks (shared set < 5): 0.
+- **What moved vs v1:** of 15,592 shared (fixture, element) rows, 731 (4.7%) shifted by more than 0.02 and 118 by more than 0.05 (max 0.224, mean signed +0.0016); 0 rows existed only in v1 (dropped boards' exclusive players), 0 only in v2.
+
+**Board totals per retained book** (pooled): whole-board raw | shared-set raw → scale factor → shared-set adjusted | mean board size / shared-set size
+
+| book | fixtures | whole-board raw | shared-set raw | scale mean [min, max] | shared-set adjusted | board / shared |
+|---|---|---|---|---|---|---|
+| draftkings | 374 | 5.15 | 4.05 | 1.146 [0.98, 1.78] | 4.62 | 38.1 / 29.0 |
+| betmgm | 202 | 5.75 | 4.47 | 1.018 [0.92, 1.14] | 4.55 | 37.9 / 28.6 |
+| mybookieag | 53 | 6.08 | 4.59 | 0.955 [0.91, 1.05] | 4.37 | 36.1 / 26.7 |
+| fanduel | 375 | 5.89 | 4.67 | 0.992 [0.90, 1.20] | 4.62 | 37.4 / 29.0 |
+| betrivers | 357 | 4.92 | 4.71 | 0.980 [0.61, 1.19] | 4.58 | 29.7 / 28.5 |
+| onexbet | 376 | 6.68 | 4.82 | 0.961 [0.86, 1.10] | 4.62 | 41.1 / 29.0 |
+| bovada | 279 | 6.63 | 4.94 | 0.942 [0.87, 1.10] | 4.65 | 40.2 / 29.3 |
+
+- **Amendment 3:** 22 partial-double (gameweek, element) rows flagged and excluded from every endpoint.
+
+**Coverage gate on OUTFIELD players (amendment 2), partial doubles excluded:**
+
+| partition | covered / outfield rows | gate |
+|---|---|---|
+| likely starters (p_start >= .75) | 97.3% of 5,371 | clears 80% |
+| uncertain (.25-.75) | 94.4% of 4,618 | clears 80% |
+| written off (p_start < .25) | 36.4% of 15,966 | **BELOW 80%** |
+| squad-relevant (top 30 e_points in gw) | 96.5% of 937 | clears 80% |
+
