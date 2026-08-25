@@ -240,3 +240,28 @@ props feature validated on 1xBet or a US consensus could claim about what the
 UK books would say live -- not a different signal. Single snapshot, early in
 the week; agreement typically tightens toward kickoff, so this is likely the
 loose end of the range. Nine credits used; no feature, no crosswalk.
+
+---
+
+## 7. Scale pull — every fixture, last snapshot before each FPL deadline, eu+us (2026-08-24)
+
+Governed by `Logs/props_prereg.md` (committed before the pull). `eval/pull_player_props_history.py`: deadline read from the FPL events[] array per gameweek, each fixture matched to exactly one event, kickoff asserted after the deadline, query at deadline − 60 s, raw JSON written atomically per event, manifest row per event, skip-if-exists. No prices parsed, no crosswalk, no feature.
+
+### 2024-25
+
+- Gameweeks 8–38; fixtures on file 310; matched to exactly one event and pulled 310; unmatched 0; call failures 0. Raw files re-verified: 310, snapshot strictly before the deadline in all but 0.
+- Snapshot gap to deadline: min 4.3 / median 4.4 / max 4.4 minutes.
+- Fixtures with any book 310/310 (100.0%); with 1xBet 308; with ≥1 US book 310 (median 4 US books).
+- Players priced: 1xBet median 38 (min 6, max 50); best US book median 36. Thin boards (<20 everywhere): 4.
+- Empty fixtures: 0.
+- Credits spent 6200; remaining after the last call 13675.
+
+### 2025-26
+
+- Gameweeks 1–38; fixtures on file 380; matched to exactly one event and pulled 380; unmatched 0; call failures 0. Raw files re-verified: 380, snapshot strictly before the deadline in all but 0.
+- Snapshot gap to deadline: min 4.3 / median 4.4 / max 4.4 minutes.
+- Fixtures with any book 380/380 (100.0%); with 1xBet 378; with ≥1 US book 380 (median 4 US books).
+- Players priced: 1xBet median 41 (min 5, max 58); best US book median 40. Thin boards (<20 everywhere): 0.
+- Empty fixtures: 0.
+- Credits spent 7600; remaining after the last call 6037.
+
