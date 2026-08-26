@@ -146,3 +146,78 @@ def test_canonical_bonus_mode_stamp_matches_code():
         checked += 1
     if checked == 0:
         pytest.skip("no canonical files present")
+
+
+# ---------------------------------------------------------------------------
+# Same-season leak fix (2026-08-27): the Understat penalty join must read a
+# season STRICTLY BEFORE the one being predicted, in BOTH gate states. Against
+# the pre-fix code this fails: _penalty_join_year / _attach_penalty_share did
+# not exist and the gate-off path joined season_year itself.
+# ---------------------------------------------------------------------------
+
+def _with_gate(gate, fn):
+    old = assembly.PENALTY_FIX_ACTIVE
+    assembly.PENALTY_FIX_ACTIVE = gate
+    try:
+        return fn()
+    finally:
+        assembly.PENALTY_FIX_ACTIVE = old
+
+
+@pytest.mark.parametrize("gate", [False, True])
+def test_penalty_join_year_is_strictly_prior_in_both_gate_states(gate):
+    years = pd.Series([2023, 2024, 2025])
+    joined = _with_gate(gate, lambda: assembly._penalty_join_year(years))
+    assert (joined < years).all(), f"gate={gate}: join year not strictly prior: {joined.tolist()}"
+    assert (joined == years - 1).all()
+    assert _with_gate(gate, lambda: assembly._penalty_join_year(2024)) == 2023
+
+
+@pytest.mark.parametrize("gate", [False, True])
+def test_penalty_share_never_reads_the_predicted_season(gate, monkeypatch, tmp_path):
+    """End-to-end through _attach_penalty_share on a synthetic Understat file:
+    a player whose ONLY record is in the season being predicted must NOT
+    receive it (leak); a player with a prior-season record must."""
+    us = pd.DataFrame({
+        "id": [1, 1, 2, 3], "player_name": ["a", "a", "b", "c"],
+        "games": [30, 30, 30, 30], "goals": [10, 20, 8, 5], "npg": [4, 20, 8, 5],
+        "position": ["F S", "F S", "M S", "GK"], "understat_season": [2023, 2024, 2024, 2023],
+    })
+    us_path = tmp_path / "understat_season_aggregates.parquet"
+    us_path.parent.mkdir(exist_ok=True)
+    us.to_parquet(us_path)
+    # _attach_penalty_share reads BASE + r"\data\history\understat_season_aggregates.parquet"
+    (tmp_path / "data" / "history").mkdir(parents=True)
+    us.to_parquet(tmp_path / "data" / "history" / "understat_season_aggregates.parquet")
+    monkeypatch.setattr(assembly, "BASE", str(tmp_path))
+
+    v_full = pd.DataFrame({"element": [11, 12, 13], "season": ["2024-25"] * 3,
+                           "position": ["FWD", "MID", "GK"]})
+    cw = pd.DataFrame({"element": [11, 12, 13], "understat_id": [1, 2, 3]})
+    out = _with_gate(gate, lambda: assembly._attach_penalty_share(v_full, cw, "2024-25"))
+    assert (out["_pen_join_year"] == 2023).all()
+    assert (out["understat_season"].dropna() == 2023).all(), "a 2024 (predicted-season) record was joined"
+    # player 1: prior-season (2023) record 10-4=6 pen goals / 31 games; NOT the 2024 record (0 pens)
+    assert abs(float(out.loc[out.element == 11, "penalty_share"].iloc[0]) - 6 / 31) < 1e-12
+    # player 2: only a 2024 record -> must fall to the fallback, never to its own-season value (0.0 here
+    # would be indistinguishable, so the 2024 record carries 0 pens and the fallback is checked directly)
+    fb = 0.05 if not gate else float(out.loc[out.element == 12, "penalty_share"].iloc[0])
+    assert pd.isna(out.loc[out.element == 12, "understat_season"].iloc[0])
+    assert float(out.loc[out.element == 12, "penalty_share"].iloc[0]) == pytest.approx(fb)
+
+
+def test_penalty_first_season_edge_case_warns_and_falls_back(monkeypatch, tmp_path):
+    """No prior-season rows at all: warn, match nothing, never use the same season."""
+    us = pd.DataFrame({"id": [1], "player_name": ["a"], "games": [30], "goals": [10], "npg": [4],
+                       "position": ["F S"], "understat_season": [2024]})
+    (tmp_path / "data" / "history").mkdir(parents=True)
+    us.to_parquet(tmp_path / "data" / "history" / "understat_season_aggregates.parquet")
+    monkeypatch.setattr(assembly, "BASE", str(tmp_path))
+    v_full = pd.DataFrame({"element": [11], "season": ["2024-25"], "position": ["FWD"]})
+    cw = pd.DataFrame({"element": [11], "understat_id": [1]})
+    with pytest.warns(RuntimeWarning, match="no Understat aggregate rows for the prior season"):
+        out = _with_gate(False, lambda: assembly._attach_penalty_share(v_full, cw, "2024-25"))
+    assert pd.isna(out["understat_season"].iloc[0]) and float(out["penalty_share"].iloc[0]) == 0.05
+    with pytest.warns(RuntimeWarning):
+        out_on = _with_gate(True, lambda: assembly._attach_penalty_share(v_full, cw, "2024-25"))
+    assert float(out_on["penalty_share"].iloc[0]) == 0.0

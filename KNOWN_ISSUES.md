@@ -1024,6 +1024,19 @@ depends on e_goals at the top of the distribution (captaincy, hits, the props co
 that would be features, not fixes, are excluded until pre-registered: blending current-season penalties taken
 to date, and team-penalties-AWARDED x taker share x conversion.
 
+**2026-08-27 -- same-season join CLOSED in production (leak only; magnitude and fallback unchanged).**
+`assembly._penalty_join_year` now returns `season_year - 1` in BOTH gate states and the join lives in
+`assembly._attach_penalty_share`; `PENALTY_FIX_ACTIVE` governs only the fallback and the formula.
+Regression tests: `Tests/test_penalty_fix.py` (join-year and end-to-end leak tests, both gate states;
+first-season edge case warns and falls back, never substitutes the same season). Walk-forward rows built
+after this date carry the stamp `penalty_join_prior_season = True`; earlier artefacts (all canonicals as of
+this note) lack it and still embed the leaked column. Measured on 2024-25 (`data/penfix_logs/
+leakfix_verify_2024_25.txt`, gate off): max |delta e_points| 0.031 per row, Spearman(old, new) 0.99999 on
+both decision partitions, top-1 per gameweek unchanged in 38/38; the pre-existing 0.05 hard fallback now
+covers 45% of rows (was 22%) because players without a PRIOR-season Understat record no longer receive
+their own-season record. The ~50x under-sizing, the missed-penalty "team rate" and the fallback remain
+OPEN under this issue; canonicals were NOT rebuilt and no adoption decision was touched.
+
 ## #20 -- the bonus term's per-gameweek renormalisation manufactured a plausible level on top of a calculation that carried no information about WHO earns bonus -- CLOSED by deleting the term (BONUS_MODE = "delete", adopted 2026-08-26)
 
 **Status:** Found 2026-08-26 (`Logs/headroom_diagnosis.md` §0 item 2), measured under

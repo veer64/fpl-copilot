@@ -11,6 +11,7 @@
 # leak in any walk-forward context. See LEAKAGE.md.
 
 import pandas as pd
+import warnings
 import numpy as np
 from scipy.stats import spearmanr, poisson
 
@@ -63,9 +64,13 @@ CS_UNIFIED = False
 # one being predicted (a leak the tiny factor hid), and the position fallback
 # grouped on Understat labels that never match FPL's, so 29% of rows carried a
 # hard-coded 0.05. League-wide the term predicted 1.3 / 0.9 / 1.4 penalty goals
-# per season against 96 / 69 / 77 realised. Gate ON: prior-season join,
-# first-letter position fallback, e_goals += pen_rate_prior * minutes_frac (no
-# team factor). Gate OFF reproduces the pre-fix equation bit-exactly. Stamped
+# per season against 96 / 69 / 77 realised. Gate ON: first-letter position
+# fallback, e_goals += pen_rate_prior * minutes_frac (no team factor). Gate OFF
+# keeps the pre-fix formula and fallback. THE JOIN YEAR IS NOT GATED: since
+# 2026-08-27 both states read the PRIOR season (_penalty_join_year), so the
+# gate-off path no longer reproduces pre-2026-08-27 artefacts bit-exactly on
+# penalty_share / e_pen_goals / e_goals / pts_goals / e_points_core / e_points /
+# pred_bps (the leak is gone; see Tests/test_penalty_fix.py). Stamped
 # per row as `penalty_fix_active` by every walk-forward writer (the #13 lesson).
 # Rests False until the pre-registered measurement passes and adoption is a
 # deliberate step; a build script flips it in-process for the _penfix files.
@@ -272,6 +277,92 @@ def build_fixture_predictions(log_mlflow=False, availability=None):
 
     return assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
                              bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean)
+
+
+def _penalty_join_year(season_year):
+    """Understat season label to join the penalty record FROM, given the season
+    being predicted (its start year, e.g. 2024 for 2024-25).
+
+    Always the PRIOR season (season_year - 1), in every gate state. Understat
+    labels a season by its start year ("2025" = 2025-26); until 2026-08-27 the
+    gate-off path joined `season_year` itself -- the season being predicted --
+    which leaked that season's realised penalty goals into `penalty_share`, and
+    from there into e_goals / e_points (via e_pen_goals) and pred_bps (via the
+    bps_input `penalties_missed` proxy). PENALTY_FIX_ACTIVE no longer touches
+    the join year; it governs only the fallback and the downstream formula.
+    """
+    return season_year - 1
+
+
+def _attach_penalty_share(v_full, cw, season):
+    """Attach `penalty_share` (prior-season penalty goals per game) to v_full.
+
+    Join: (understat_id, understat_season == _penalty_join_year(season_year)).
+    Fallback for rows with no prior-season record depends on the gate:
+      * PENALTY_FIX_ACTIVE: mean prior-season rate by FPL position (Understat
+        label mapped by its first letter; GK forced 0), then 0.0.
+      * gate off: the pre-fix position fallback (groups on raw Understat labels,
+        which never match FPL's except GK) then the hard-coded 0.05 -- kept as
+        it was so the ONLY change from the pre-2026-08-27 gate-off path is the
+        join year.
+
+    First-season edge case: if the Understat aggregates hold NO rows for the
+    prior season, the join matches nothing and every row takes the fallback
+    (gate off: 0.05 / gate-on: 0.0, since the prior-season position means are
+    empty). A warning is emitted so a build on a season without a prior cannot
+    pass silently as a modelled penalty term. The same-season record is NEVER
+    used as a substitute: that would re-introduce the leak.
+    """
+    us = pd.read_parquet(BASE + r"\data\history\understat_season_aggregates.parquet")
+    us["games_numeric"] = pd.to_numeric(us["games"], errors="coerce")
+    us["goals_numeric"] = pd.to_numeric(us["goals"], errors="coerce")
+    us["npg_numeric"] = pd.to_numeric(us["npg"], errors="coerce")
+    us["pen_goals"] = (us["goals_numeric"] - us["npg_numeric"]).clip(lower=0)
+    us["penalty_share"] = (us["pen_goals"] / (us["games_numeric"] + 1)).fillna(0)
+    us["understat_id_num"] = pd.to_numeric(us["id"], errors="coerce")
+    us["understat_season"] = pd.to_numeric(us["understat_season"], errors="coerce").astype(int)
+
+    us_map = us[["understat_id_num", "understat_season", "penalty_share"]].copy()
+
+    v_full = v_full.merge(cw[["element", "understat_id"]], on="element", how="left")
+    v_full["understat_id_num"] = pd.to_numeric(v_full["understat_id"], errors="coerce")
+    v_full["season_year"] = pd.to_numeric(v_full["season"].str[:4], errors="coerce").astype(int)
+    v_full["_pen_join_year"] = _penalty_join_year(v_full["season_year"])
+    assert (v_full["_pen_join_year"] < v_full["season_year"]).all(), \
+        "penalty join must read a season strictly before the one predicted"
+
+    prior_year = _penalty_join_year(int(season[:4]))
+    if not (us["understat_season"] == prior_year).any():
+        warnings.warn(
+            f"penalty term: no Understat aggregate rows for the prior season "
+            f"{prior_year} (predicting {season}); every row takes the fallback "
+            f"({'0.0' if PENALTY_FIX_ACTIVE else '0.05'}). The same-season record "
+            "is deliberately not used.", RuntimeWarning, stacklevel=2)
+
+    v_full = v_full.merge(us_map,
+                          left_on=["understat_id_num", "_pen_join_year"],
+                          right_on=["understat_id_num", "understat_season"],
+                          how="left", suffixes=("", "_us"))
+    if PENALTY_FIX_ACTIVE:
+        # Fallback for players with no prior-season Understat record: the mean
+        # prior-season pen-goal rate by FPL position, with the Understat label
+        # mapped by its FIRST letter (F/M/D/G). The pre-fix fallback grouped on
+        # raw Understat labels ("F M S") and was mapped from FPL labels, so it
+        # matched nothing but GK and 29% of rows fell to the hard-coded 0.05.
+        prior_us = us[us["understat_season"] == prior_year]
+        fpl_pos = (prior_us["position"].astype(str).str.strip().str[:1]
+                   .map({"F": "FWD", "M": "MID", "D": "DEF", "G": "GK"}))
+        pen_share_prior = prior_us.groupby(fpl_pos)["penalty_share"].mean()
+        pen_share_prior["GK"] = 0.0
+        v_full["penalty_share"] = v_full["penalty_share"].fillna(
+            v_full["position"].map(pen_share_prior)).fillna(0.0)
+    else:
+        # Pre-fix position fallback, unchanged (see docstring); only the join
+        # year above differs from the pre-2026-08-27 gate-off path.
+        pen_share_prior = us.groupby("position")["penalty_share"].mean()
+        v_full["penalty_share"] = v_full["penalty_share"].fillna(
+            v_full["position"].map(pen_share_prior).fillna(0.05))  # conservative default
+    return v_full
 
 
 def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
@@ -490,55 +581,11 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
     v_full["yellow_per_90"] = pos_norm.map(card_y90).fillna(0.0)
     v_full["red_per_90"] = pos_norm.map(card_r90).fillna(0.0)
 
-    # Penalty share: from Understat historical (goals - npg) / games
-    # Computed per player per season, with fallback to position/league average
-    us = pd.read_parquet(BASE + r"\data\history\understat_season_aggregates.parquet")
-    us["games_numeric"] = pd.to_numeric(us["games"], errors="coerce")
-    us["goals_numeric"] = pd.to_numeric(us["goals"], errors="coerce")
-    us["npg_numeric"] = pd.to_numeric(us["npg"], errors="coerce")
-    us["pen_goals"] = (us["goals_numeric"] - us["npg_numeric"]).clip(lower=0)
-    us["penalty_share"] = (us["pen_goals"] / (us["games_numeric"] + 1)).fillna(0)
-    us["understat_id_num"] = pd.to_numeric(us["id"], errors="coerce")
-
-    # Understat labels a season by its START year ("2025" = 2025-26). The
-    # pre-fix code joined season_year (2025 for 2025-26) to understat_season
-    # 2025 -- the season being PREDICTED, a leak -- while its comment claimed
-    # the prior season. Under PENALTY_FIX_ACTIVE the join year is season_year-1,
-    # which is what the comment always intended. See Logs/penalty_fix_prereg.md.
-    us_map = us[["understat_id_num", "understat_season", "penalty_share"]].copy()
-    us_map["understat_season"] = pd.to_numeric(us_map["understat_season"], errors="coerce").astype(int)
-
-    # Add understat_id from crosswalk to v_full
-    v_full = v_full.merge(cw[["element", "understat_id"]], on="element", how="left")
-    v_full["understat_id_num"] = pd.to_numeric(v_full["understat_id"], errors="coerce")
-    v_full["season_year"] = pd.to_numeric(v_full["season"].str[:4], errors="coerce").astype(int)
-    v_full["_pen_join_year"] = (v_full["season_year"] - 1 if PENALTY_FIX_ACTIVE
-                                else v_full["season_year"])
-
-    v_full = v_full.merge(us_map,
-                          left_on=["understat_id_num", "_pen_join_year"],
-                          right_on=["understat_id_num", "understat_season"],
-                          how="left", suffixes=("", "_us"))
-    if PENALTY_FIX_ACTIVE:
-        # Fallback for players with no prior-season Understat record: the mean
-        # prior-season pen-goal rate by FPL position, with the Understat label
-        # mapped by its FIRST letter (F/M/D/G). The pre-fix fallback grouped on
-        # raw Understat labels ("F M S") and was mapped from FPL labels, so it
-        # matched nothing but GK and 29% of rows fell to the hard-coded 0.05.
-        prior_year = int(season[:4]) - 1
-        prior_us = us[pd.to_numeric(us["understat_season"], errors="coerce") == prior_year]
-        fpl_pos = (prior_us["position"].astype(str).str.strip().str[:1]
-                   .map({"F": "FWD", "M": "MID", "D": "DEF", "G": "GK"}))
-        pen_share_prior = prior_us.groupby(fpl_pos)["penalty_share"].mean()
-        pen_share_prior["GK"] = 0.0
-        v_full["penalty_share"] = v_full["penalty_share"].fillna(
-            v_full["position"].map(pen_share_prior)).fillna(0.0)
-    else:
-        # For missing matches, use position-based fallback (pre-fix behaviour,
-        # kept bit-exact for reproducibility of existing artefacts)
-        pen_share_prior = us.groupby("position")["penalty_share"].mean()
-        v_full["penalty_share"] = v_full["penalty_share"].fillna(
-            v_full["position"].map(pen_share_prior).fillna(0.05))  # conservative default
+    # Penalty share: prior-season Understat (goals - npg) / (games + 1), joined
+    # by the helper below. The join year is season_year - 1 in BOTH gate states
+    # (leak fix, 2026-08-27); PENALTY_FIX_ACTIVE governs only the fallback here
+    # and the formula in _finish_equation.
+    v_full = _attach_penalty_share(v_full, cw, season)
 
     # Team penalty rate: expected pens per match for each team-season
     # Compute from the full season data: realized penalties / (38 matches or actual gameweek count)

@@ -172,6 +172,10 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
     # Penalty-term correctness fix (Logs/penalty_fix_prereg.md). Equation-
     # changing flag -> stamped from the gating constant (#13 lesson).
     result["penalty_fix_active"] = bool(assembly.PENALTY_FIX_ACTIVE)
+    # Same-season leak fix (2026-08-27): the Understat penalty join reads the
+    # PRIOR season in both gate states. Stamped so pre-fix artefacts (which
+    # lack this column) are distinguishable from post-fix ones (#13 lesson).
+    result["penalty_join_prior_season"] = True
     # Top-end calibration (Logs/topend_calibration_prereg.md) -- gate + gamma.
     result["topend_cal_active"] = bool(assembly.TOPEND_CAL_ACTIVE)
     result["fixture_scale_gamma"] = float(assembly.FIXTURE_SCALE_GAMMA)

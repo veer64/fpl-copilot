@@ -4,6 +4,13 @@
     uv run python eval/run_penalty_fix.py --season 2024-25          # _penfix build, gate flipped in-process
     uv run python eval/run_penalty_fix.py --season 2024-25 --check  # gate OFF, one cutoff, bit-exact vs canonical
 
+NOTE (2026-08-27, same-season leak fix): the Understat penalty join now reads the
+PRIOR season in both gate states (assembly._penalty_join_year). --check therefore
+FAILS against any canonical built before 2026-08-27 (max |diff| on penalty_share
+/ e_pen_goals / e_goals / pts_goals / e_points_core / e_points / pred_bps; ~0.03
+e_points, 2024-25 cutoff 20) and passes only against a post-fix rebuild. No
+reproduction mode for the leaked join remains -- by design.
+
 The canonical files are never written. The gate rests False on disk; this
 script flips assembly.PENALTY_FIX_ACTIVE in-process (the run_chip_study
 pattern) and restores it in `finally`. Output stamps `penalty_fix_active=True`.
@@ -57,7 +64,8 @@ def check(season, cutoff):
     assert (j["_merge"] == "both").all(), j["_merge"].value_counts()
     worst = {k: float(np.nanmax(np.abs(j[f"{k}_c"] - j[f"{k}_n"]))) for k in CMP}
     print(f"{season} cutoff {cutoff}: rows {len(j)}; max |diff| per column: {worst}")
-    assert max(worst.values()) == 0.0, "gate-off rebuild differs from canonical"
+    assert max(worst.values()) == 0.0, ("gate-off rebuild differs from canonical -- expected if the canonical "
+        "predates the 2026-08-27 penalty-join leak fix (see module docstring)")
     print("GATE-OFF REPRODUCTION: PASS (bit-exact)")
 
 
