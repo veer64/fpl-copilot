@@ -166,3 +166,11 @@ Reference cell `fslog_2025_26_base_wc2`: path **2156**, chip-inclusive **2206** 
 | ↳ W=3 paired deltas vs reference (Instrument A): WC1@GW2 +10; BB1@GW10 -15; WC2@GW32 -11; BB2@GW33 +19; FH2@GW34 +41 |  |  |  |  |  |  |  |  |  |  |
 
 *Caveat (attached without exception):* Path noise is sd ~60 for a single draw and ~85 paired; the same endpoint could not distinguish a model shrunk 75% toward the positional mean; 2024-25's baseline is a 97th-percentile draw carrying a ~+169 luck premium. These figures are the user-facing number -- they are NOT adoption evidence and no adoption decision may cite them.
+
+## Close-out (2026-08-26)
+
+Both workstreams are closed as NON-ADOPTIONS: props (all four specifications; `Logs/props_prereg.md` CLOSE-OUT) and
+horizon minutes lever 1 (`Logs/horizon_minutes_log.md` §5). Both failed their pre-registered component tests; the
+season figures in this log do not overturn that and were never permitted to. `PROPS_HOOK` rests None,
+`HORIZON_MINUTES_ACTIVE` rests False. The `armlog_*` family is now indexed in `Logs/season_totals_index.md` (section
+"ARMS") with the non-adoption flag on every row.

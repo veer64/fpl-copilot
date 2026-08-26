@@ -1,14 +1,19 @@
 # Season totals index -- every simulated season total, one place
 
-Generated 2026-08-24 by eval/build_season_totals_index.py. Covers ALL simlogs
-on disk: data/sweep, data/chips, data/p1 (p1log/wclog/fslog/p3log/p5log) and
-data/teamnews (oraclelog), plus the pre-canonical reference figures.
+Generated 2026-08-26 by eval/build_season_totals_index.py. Covers ALL simlogs
+on disk: data/sweep, data/chips, data/p1 (p1log/wclog/fslog/p3log/p5log),
+data/teamnews (oraclelog) and data/arms (armlog -- closed non-adoptions), plus
+the pre-canonical reference figures.
 
 **Framing (mandatory):** a season total is ONE draw from a distribution with
 path sd ~60 (M1 failed). This index exists so figures can be LOCATED and
 grouped by provenance -- comparisons are valid ONLY within a family AND only
 between rows differing by exactly the variable under test. Season totals
-never decide adoptions; component and windowed metrics do.
+never decide adoptions; component and windowed metrics do. Standing
+illustration (2026-08-26, Logs/instrument_b_log.md): horizon-minutes lever 1,
+measurably WORSE where decisions are made, scored +109 / +49 / -84 by season
+total; props, slightly better on the component read, scored -56 / -107. Run
+the totals first and both calls come out wrong.
 
 **CORRECTION OF RECORD (2026-08-24) -- the TC2/BB2 same-week read.** From
 P4 (2026-08-20) through the first regeneration of this index earlier on
@@ -84,6 +89,13 @@ within their own family.
 
 | wf file | minutes_availability | odds_horizon_gws | dgw_handling | d1_terms_active | cs_unified | rate_blend_active | dc_rule_active | synthetic_lambda_active |
 |---|---|---|---|---|---|---|---|---|
+| arms/walkforward_h6_2023_24_hmin.parquet (post-#15 canonical) | True | 0 | per_fixture | True | False | True | False | False |
+| arms/walkforward_h6_2024_25_both.parquet (post-#15 canonical) | True | 0 | per_fixture | True | False | True | False | False |
+| arms/walkforward_h6_2024_25_hmin.parquet (post-#15 canonical) | True | 0 | per_fixture | True | False | True | False | False |
+| arms/walkforward_h6_2024_25_props.parquet (post-#15 canonical) | True | 0 | per_fixture | True | False | True | False | False |
+| arms/walkforward_h6_2025_26_both.parquet (post-#15 canonical) | True | 0 | per_fixture | True | False | True | True | False |
+| arms/walkforward_h6_2025_26_hmin.parquet (post-#15 canonical) | True | 0 | per_fixture | True | False | True | True | False |
+| arms/walkforward_h6_2025_26_props.parquet (post-#15 canonical) | True | 0 | per_fixture | True | False | True | True | False |
 | walkforward_h6_2023_24.parquet (post-#15 canonical) | True | 0 | per_fixture | True | False | True | False | False |
 | walkforward_h6_2023_24_synth.parquet (post-#15 canonical+synth) | True | 0 | per_fixture | True | False | True | False | True |
 | walkforward_h6_2024_25.parquet (post-#15 canonical) | True | 0 | per_fixture | True | False | True | False | False |
@@ -348,6 +360,21 @@ oracle_minutes_active=True: realized minutes injected into predictions. These ro
 | 2025-26 | C Guardian-reported mask | 6 | 0.45 | WC@2,32 FH@34 BB@10,33 | **2154** | **2205** (r) | bench@GW10+11 bench@GW33+24 ~~TC2 cap@GW33+13~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW17+16 | +310 | +310 | walkforward_h6_2025_26.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | ORACLE | 2026-08-22 | LEAKAGE INSTRUMENT -- never adopt, never a baseline; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | teamnews/oraclelog_2025_26_C.parquet |
 | 2025-26 | full-horizon oracle | 6 | 0.45 | WC@2,32 FH@34 BB@10,33 | **2251** | **2300** (r) | bench@GW10+17 bench@GW33+16 ~~TC2 cap@GW33+13~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW17+16 | +405 | +405 | walkforward_h6_2025_26.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | ORACLE | 2026-08-22 | LEAKAGE INSTRUMENT -- never adopt, never a baseline; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | teamnews/oraclelog_2025_26.parquet |
 
+## ARMS -- props / horizon minutes, CLOSED NON-ADOPTIONS (data/arms/armlog_*)
+
+Full-system wc2 config with a feature applied in-process for the season figure only: props (conditional spec, w=0.75 m=1.396; PROPS_HOOK rests None) and/or horizon minutes lever 1 (HORIZON_MINUTES_ACTIVE rests False). BOTH FAILED their pre-registered component tests (Logs/props_prereg.md CLOSE-OUT; Logs/horizon_minutes_log.md section 5); these totals were never permitted to overturn that, and they disagree with the component read in sign (Logs/instrument_b_log.md, the standing illustration). 2024-25 rows start at GW8 from the reference cell's GW7 state (prefix stitched); their like-for-like number is the GW8-38 segment delta in Logs/props_season_log.md. Same TC2@BB2 drop as the full system.
+
+| season | config | H | decay | chips scheduled | path total | chip-incl total | chip reads | vs avg (claimed) | vs avg (fplcache) | wf file | wf stamps | sim gates | run | flags | source |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2023-24 | arm=horizon_minutes start=GW1 | 6 | 0.45 | WC@2,32 FH@29 BB@7,34 | **2376** | **2405** (r) | bench@GW7+6 bench@GW34+17 ~~TC2 cap@GW34+3~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW6+6 | +367 | +402 | arms/walkforward_h6_2023_24_hmin.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | HORIZON_MINUTES | 2026-08-26 | NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | arms/armlog_2023_24_hmin.parquet |
+| 2024-25 | arm=horizon_minutes start=GW8 | 6 | 0.45 | WC@2,31 FH@29 BB@7,33 | **2304** | **2339** (r) | bench@GW7+5 bench@GW33+21 ~~TC2 cap@GW33+7~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW18+9 | +185 | +331 | arms/walkforward_h6_2024_25_hmin.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | HORIZON_MINUTES | 2026-08-26 | NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence; starts GW8 from the reference cell's GW7 state (GW1-7 stitched = reference); like-for-like = GW8-38 segment vs reference; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | arms/armlog_2024_25_hmin.parquet |
+| 2024-25 | arm=props start=GW8 | 6 | 0.45 | WC@2,31 FH@29 BB@7,33 | **2199** | **2243** (r) | bench@GW7+5 bench@GW33+30 ~~TC2 cap@GW33+7~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW18+9 | +89 | +235 | arms/walkforward_h6_2024_25_props.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | PROPS | 2026-08-26 | NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence; starts GW8 from the reference cell's GW7 state (GW1-7 stitched = reference); like-for-like = GW8-38 segment vs reference; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | arms/armlog_2024_25_props.parquet |
+| 2024-25 | arm=props+horizon_minutes start=GW8 | 6 | 0.45 | WC@2,31 FH@29 BB@7,33 | **2213** | **2257** (r) | bench@GW7+5 bench@GW33+30 ~~TC2 cap@GW33+7~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW18+9 | +103 | +249 | arms/walkforward_h6_2024_25_both.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | PROPS HORIZON_MINUTES | 2026-08-26 | NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence; starts GW8 from the reference cell's GW7 state (GW1-7 stitched = reference); like-for-like = GW8-38 segment vs reference; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | arms/armlog_2024_25_both.parquet |
+| 2024-25 | baseline re-run start=GW8 | 6 | 0.45 | WC@2,31 FH@29 BB@7,33 | **2255** | **2294** (r) | bench@GW7+5 bench@GW33+25 ~~TC2 cap@GW33+7~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW18+9 | +140 | +286 | walkforward_h6_2024_25.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | -- | 2026-08-26 | like-for-like check of the resume mechanism -- reproduces the reference GW8-38 exactly; starts GW8 from the reference cell's GW7 state (GW1-7 stitched = reference); like-for-like = GW8-38 segment vs reference; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | arms/armlog_2024_25_baseline8.parquet |
+| 2025-26 | arm=horizon_minutes start=GW1 | 6 | 0.45 | WC@2,32 FH@34 BB@10,33 | **2070** | **2122** (r) | bench@GW10+12 bench@GW33+24 ~~TC2 cap@GW33+13~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW17+16 | +227 | +227 | arms/walkforward_h6_2025_26_hmin.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | HORIZON_MINUTES | 2026-08-26 | NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | arms/armlog_2025_26_hmin.parquet |
+| 2025-26 | arm=props start=GW1 | 6 | 0.45 | WC@2,32 FH@34 BB@10,33 | **2055** | **2099** (r) | bench@GW10+10 bench@GW33+26 ~~TC2 cap@GW33+5~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW1+8 | +204 | +204 | arms/walkforward_h6_2025_26_props.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | PROPS | 2026-08-26 | NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | arms/armlog_2025_26_props.parquet |
+| 2025-26 | arm=props+horizon_minutes start=GW1 | 6 | 0.45 | WC@2,32 FH@34 BB@10,33 | **2086** | **2134** (r) | bench@GW10+19 bench@GW33+21 ~~TC2 cap@GW33+8~~ DROPPED (collision with BB2 -- one chip per gameweek) TC1 cap@GW1+8 | +239 | +239 | arms/walkforward_h6_2025_26_both.parquet | av=T d1=T blend=T dgw=per_fixture synth=F | PROPS HORIZON_MINUTES | 2026-08-26 | NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence; TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24) | arms/armlog_2025_26_both.parquet |
+
 ## REFERENCES -- pre-canonical lineage figures
 
 Retained for lineage only.
@@ -383,7 +410,10 @@ Retained for lineage only.
 8. **Oracle rows**: comparable ONLY to fslog base_wc2 (their reference), as
    an upper-bound measurement. Never to each other across seasons, never as
    baselines.
-9. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
+9. **Arms rows**: comparable ONLY to fslog base_wc2 (their reference); the
+   2024-25 rows by their GW8-38 segment (props_season_log.md), never by the
+   stitched total's margin. Closed non-adoptions; never baselines.
+10. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
    REFERENCE row: NOT comparable.
 
 ## Explicit flags

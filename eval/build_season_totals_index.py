@@ -4,7 +4,8 @@
 # Writes Logs/season_totals_index.md. Reporting only -- no simulations.
 #
 # Extended 2026-08-24 to cover the post-2026-08-20 families: data/p1
-# (p1log/wclog/fslog/p3log/p5log) and data/teamnews (oraclelog), and to show
+# (p1log/wclog/fslog/p3log/p5log), data/teamnews (oraclelog) and data/arms
+# (armlog -- closed non-adoptions, 2026-08-26), and to show
 # PATH and CHIP-INCLUSIVE totals in separate columns everywhere.
 #
 # CORRECTED 2026-08-24 (same day, later): the chip-inclusive convention
@@ -76,6 +77,7 @@ from chip_legality import check_chip_schedule  # noqa: E402
 
 CHIPS, SWEEP = REPO / "data" / "chips", REPO / "data" / "sweep"
 P1, TN = REPO / "data" / "p1", REPO / "data" / "teamnews"
+ARMS = REPO / "data" / "arms"
 
 # Average manager scores. CLAIMED = the figures supplied for the first report;
 # ONDISK = fplcache post-season snapshot, sum of events[].average_entry_score
@@ -103,6 +105,16 @@ EXPECT_FS_WC2_CHIP = {"2023-24": 2296, "2024-25": 2294, "2025-26": 2206}
 EXPECT_P1_BASE_PATH = {"2023-24": 2204, "2024-25": 2362, "2025-26": 2032}
 
 TC2_DROP_REASON = "collision with BB2 -- one chip per gameweek"
+
+# ARMS family (data/arms/armlog_*): props / horizon-minutes / both, all CLOSED
+# non-adoptions (2026-08-26). Drift check against the measure script of record
+# (eval/measure_arms_full_system.py; Logs/props_season_log.md).
+EXPECT_ARMS_CHIP = {("2023-24", "hmin"): 2405, ("2024-25", "baseline8"): 2294,
+                    ("2024-25", "props"): 2243, ("2024-25", "hmin"): 2339,
+                    ("2024-25", "both"): 2257, ("2025-26", "props"): 2099,
+                    ("2025-26", "hmin"): 2122, ("2025-26", "both"): 2134}
+ARM_LABEL = {"baseline8": "baseline re-run", "props": "arm=props",
+             "hmin": "arm=horizon_minutes", "both": "arm=props+horizon_minutes"}
 
 _wf_cache, _cap_cache = {}, {}
 
@@ -435,6 +447,64 @@ def rows_oracle():
     return out
 
 
+def cap_pred_arm(season, arm):
+    """TC1 on the ARM's own step-0 predictions where the arm changes step 0
+    (props); the refit does not touch step 0. Mirrors measure_arms_full_system."""
+    tag = season.replace("-", "_")
+    p = ARMS / f"walkforward_h6_{tag}_{arm}.parquet"
+    if arm in ("props", "both") and p.exists():
+        wf = pd.read_parquet(p, columns=["cutoff", "gw", "name", "e_points"])
+        own = wf[wf["cutoff"] == wf["gw"]]
+        return {(int(g), n): float(v or 0) for g, n, v in
+                zip(own["gw"], own["name"], own["e_points"])}
+    return cap_pred(season)
+
+
+def rows_arms():
+    """Closed non-adoptions. 2024-25 arms start at GW8 from the reference
+    cell's GW7 state: the reference's GW1-7 rows are stitched in front so the
+    chip reads (BB1@7) and the legality check see the full played season; the
+    like-for-like number is the GW8-38 segment delta (props_season_log.md)."""
+    out, got = [], {}
+    for p in sorted(ARMS.glob("armlog_*.parquet")):
+        d = pd.read_parquet(p)
+        season, arm = d["season"].iloc[0], d["arm"].iloc[0]
+        tag = season.replace("-", "_")
+        start_gw = int(d["start_gw"].iloc[0])
+        ref = pd.read_parquet(P1 / f"fslog_{tag}_base_wc2.parquet")
+        full = (pd.concat([ref[ref["gw"] < start_gw], d], ignore_index=True)
+                if start_gw > 1 else d)
+        assert int(d["final_total"].iloc[0]) == int(full["points"].sum()), \
+            f"{p.name}: final_total != stitched points.sum()"
+        full = full.set_index("gw")
+        bb1, bb2 = int(d["bb1"].iloc[0]), int(d["bb2"].iloc[0])
+        wc, fh, bb = chip_weeks(full)
+        assert set(bb) == {bb1, bb2} and 2 in wc, f"{p.name}: not the reference chip schedule"
+        reads = standing_reads(full, 2, [bb1, bb2], cap_pred_arm(season, arm))
+        wf = d["wf_file"].iloc[0] if arm == "baseline8" else "arms/" + d["wf_file"].iloc[0]
+        extra = " ".join(x for x, c in (("PROPS", "props_active"),
+                                        ("HORIZON_MINUTES", "horizon_minutes_active"))
+                         if c in d.columns and bool(d[c].iloc[0]))
+        if arm == "baseline8":
+            flags = "like-for-like check of the resume mechanism -- reproduces the reference GW8-38 exactly"
+        else:
+            flags = "NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence"
+        if start_gw > 1:
+            flags += (f"; starts GW{start_gw} from the reference cell's GW{start_gw - 1} state "
+                      f"(GW1-{start_gw - 1} stitched = reference); like-for-like = GW{start_gw}-38 "
+                      f"segment vs reference")
+        r = row("arms", season, f"{ARM_LABEL[arm]} start=GW{start_gw}", 6, 0.45,
+                sched_str(wc, fh, bb), wf, gates_str(d, extra),
+                int(full["points"].sum()), reads, f"arms/{p.name}", flags=flags,
+                run=mtime(p), wc=wc, fh=fh, bb=bb, played=played_weeks(full))
+        got[(season, arm)] = r["chip"]
+        out.append(r)
+    for k, v in EXPECT_ARMS_CHIP.items():
+        if k in got:
+            assert got[k] == v, f"arms recompute drifted for {k}: {got[k]} != {v}"
+    return out
+
+
 def rows_references():
     refs = [
         ("2025-26", 3, 0.3, "walkforward_h6_2526_prefix.parquet (preserved)",
@@ -496,6 +566,18 @@ SECTIONS = [
      "predictions. These rows are MEASUREMENTS of an upper bound, never "
      "baselines, never adoptable, comparable only to their reference cell "
      "(fslog base_wc2). Same TC2@BB2 drop as the full system."),
+    ("arms", "ARMS -- props / horizon minutes, CLOSED NON-ADOPTIONS (data/arms/armlog_*)",
+     "Full-system wc2 config with a feature applied in-process for the season "
+     "figure only: props (conditional spec, w=0.75 m=1.396; PROPS_HOOK rests "
+     "None) and/or horizon minutes lever 1 (HORIZON_MINUTES_ACTIVE rests "
+     "False). BOTH FAILED their pre-registered component tests "
+     "(Logs/props_prereg.md CLOSE-OUT; Logs/horizon_minutes_log.md section 5); "
+     "these totals were never permitted to overturn that, and they disagree "
+     "with the component read in sign (Logs/instrument_b_log.md, the standing "
+     "illustration). 2024-25 rows start at GW8 from the reference cell's GW7 "
+     "state (prefix stitched); their like-for-like number is the GW8-38 "
+     "segment delta in Logs/props_season_log.md. Same TC2@BB2 drop as the "
+     "full system."),
     ("references", "REFERENCES -- pre-canonical lineage figures",
      "Retained for lineage only."),
 ]
@@ -503,14 +585,19 @@ SECTIONS = [
 HEADER = """# Season totals index -- every simulated season total, one place
 
 Generated {today} by eval/build_season_totals_index.py. Covers ALL simlogs
-on disk: data/sweep, data/chips, data/p1 (p1log/wclog/fslog/p3log/p5log) and
-data/teamnews (oraclelog), plus the pre-canonical reference figures.
+on disk: data/sweep, data/chips, data/p1 (p1log/wclog/fslog/p3log/p5log),
+data/teamnews (oraclelog) and data/arms (armlog -- closed non-adoptions), plus
+the pre-canonical reference figures.
 
 **Framing (mandatory):** a season total is ONE draw from a distribution with
 path sd ~60 (M1 failed). This index exists so figures can be LOCATED and
 grouped by provenance -- comparisons are valid ONLY within a family AND only
 between rows differing by exactly the variable under test. Season totals
-never decide adoptions; component and windowed metrics do.
+never decide adoptions; component and windowed metrics do. Standing
+illustration (2026-08-26, Logs/instrument_b_log.md): horizon-minutes lever 1,
+measurably WORSE where decisions are made, scored +109 / +49 / -84 by season
+total; props, slightly better on the component read, scored -56 / -107. Run
+the totals first and both calls come out wrong.
 
 **CORRECTION OF RECORD (2026-08-24) -- the TC2/BB2 same-week read.** From
 P4 (2026-08-20) through the first regeneration of this index earlier on
@@ -612,7 +699,10 @@ FOOTER = """
 8. **Oracle rows**: comparable ONLY to fslog base_wc2 (their reference), as
    an upper-bound measurement. Never to each other across seasons, never as
    baselines.
-9. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
+9. **Arms rows**: comparable ONLY to fslog base_wc2 (their reference); the
+   2024-25 rows by their GW8-38 segment (props_season_log.md), never by the
+   stitched total's margin. Closed non-adoptions; never baselines.
+10. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
    REFERENCE row: NOT comparable.
 
 ## Explicit flags
@@ -689,7 +779,7 @@ def render(rows):
 def main():
     rows = (rows_sweep() + rows_chips() + rows_p1() + rows_wcgrid()
             + rows_fullsystem() + rows_p3() + rows_p5() + rows_oracle()
-            + rows_references())
+            + rows_arms() + rows_references())
 
     # validation: p1 baselines' PATH totals are the figures of record
     p1_base = {r["season"]: r["path"] for r in rows

@@ -933,3 +933,37 @@ Locate the duplicate (minutes frame vs fixture join for elements 100 and 391 at
 cutoffs 1-9), fix at the grain it fails at, add a uniqueness assert on
 (cutoff, gw, element, fixture) before the collapse, rebuild the 2025-26
 canonical, and re-run the step-0 check to zero differing rows.
+
+## #18 -- p_play_any carries a flat 0.30 substitute floor and overstates appearances on the written-off band by ~40%
+
+**Status:** Found 2026-08-26 by the props premise test (P1, `Logs/props_conditional_prereg.md`;
+`eval/measure_props_premise.py`). NOT fixed. Scope: `squad/assembly.py::_finish_equation`
+(`p_play_any = p_start + (1 - p_start) * 0.30`) and every consumer of it -- `pts_appear`, the bench-order rule
+(`scoring.BENCH_ORDER_BY_PLAY` reads `p_play_any`), the `_pool_with_owned` blank fill, and the props conditioning.
+
+### What was found
+
+On 2024-25 written-off rows (own-cutoff p_start < 0.25; outfield singles the market prices; n = 4,716) the minutes
+model predicts a mean appearance probability of **0.340** (`p_play_any`) against a realised took-part rate of
+**0.244** (started 0.064, substitute 0.180). `p_start` on the same band is 0.057 against the realised start rate
+0.064 -- calibrated. The overstatement is entirely the constant: `(1 - p_start) * 0.30` puts a 30% substitute
+chance on every non-starter, including players ruled out. Refitting the floor so the band mean matches the realised
+rate gives 0.199; under that refit the props calibration ratio on the band moves from 2.59 to 1.89 (diagnosis only,
+not adopted -- the specification was closed).
+
+### Why it is in this file
+
+The constant was never a modelled quantity; it entered the equation as a placeholder and has been consumed as a
+probability by at least four downstream terms. It sits in the same class as #10/#13: a number that looks like a
+model output and is not. The written-off band is exactly where a 0.30-vs-0.20 error is largest in relative terms,
+and the bench-order rule reads this probability when choosing which bench player sits first.
+
+### To close
+
+A change to the minutes model, needing its OWN pre-registration before any code moves: (1) state the target
+(realised took-part rate, per band, per season); (2) state what the change does to `p60` (unchanged -- it is
+conditional on a start) and to the assembly composite that consumes `p_play_any` -- `pts_appear` (the 1-point
+appearance term for non-60 appearances), the bench-order rule, the blank fill -- with the expected direction of each;
+(3) fit the substitute probability (the horizon_minutes module already carries an isotonic `p_sub` model per step
+that the step-0 equation never reads -- the obvious candidate) on prior seasons only; (4) measure on the
+pre-registered decision partitions, not the aggregate; (5) rebuild the canonicals and stamp the change.

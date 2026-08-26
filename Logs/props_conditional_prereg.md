@@ -329,3 +329,13 @@ The sealed season is run ONCE, for ONE specification, and has not been run for e
 `uv run python eval/measure_props_endpoint.py --spec conditional --holdout 0.75 1.396` (requires
 `props_consensus_book_2025-26.parquet`, generated at that time by `eval/build_props_consensus.py --seasons 2025-26`).
 
+---
+
+## CLOSE-OUT (2026-08-26) — NOT ADOPTED
+
+The conditional specification is the correct form (premise verified from house rules and by P1; condition (2)
+repaired) and still misses condition (1) on likely starters at +0.0094 against +0.020 — the fourth miss at the same
+value. Not adopted; the value line above stands as the record of what would have been run. The holdout guard was
+never exercised; 2025-26 was spent on season figures (`Logs/props_season_log.md`). The one durable by-product is the
+minutes-model defect P1 surfaced — the flat 0.30 substitute floor in `p_play_any` — opened as KNOWN_ISSUES #18 and
+NOT fixed here. Full close-out: `Logs/props_prereg.md` CLOSE-OUT.

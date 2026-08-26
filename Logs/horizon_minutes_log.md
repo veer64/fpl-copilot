@@ -669,3 +669,32 @@ Horizon work is parked here with a clean negative: lever 1 worse where
 decisions are made on both MAE and rank; lever 3 unable to reach the
 decision-relevant population as the test defines it. The stale gap at
 k >= 3 (+5 to +7 minutes) remains measured and unclosed.
+
+---
+
+## 5. CLOSE-OUT (2026-08-26) — horizon minutes is NOT ADOPTED
+
+**Lever 1 (step-aware refit) failed the pre-registered acceptance test** where decisions are made: Spearman fell
+among likely starters by 7–9% and among squad-relevant rows by 7–21%, consistently in every season at every step
+(§3); the aggregate Spearman gain lived entirely in the written-off band. `horizon_minutes.HORIZON_MINUTES_ACTIVE`
+stays **False**; nothing in production consumes the module.
+
+**Levers 2–4 were not built, for stated structural reasons, not for lack of time:**
+- Lever 2 (suspensions derivable from cards) reaches ONE fixture ahead — the step where the stale gap is smallest
+  (+2.3 min at k = 1 against +7.0 at k = 5, scoping log §2) — so its ceiling is the least valuable slice of the
+  target.
+- Lever 3 (return dates from `asof_news`) was killed at the coverage stage (§4): a player carrying a return date is,
+  by construction, in the written-off band at the cutoff, so the lever never touches the incumbent's top 30 and
+  cannot move the decision partitions the acceptance test is scored on.
+- Lever 4 (congestion) was never reached.
+
+**Season figures, for the record and not as evidence** (`Logs/props_season_log.md`, 2026-08-26): with the lever
+applied in-process the full-system season moved +109 (2023-24), +49 (2024-25 GW8–38 like-for-like) and −84
+(2025-26) chip-inclusive against the reference cell. A component measurably worse where decisions are made produced
+the largest single gain in that table and the second-largest loss; that spread is the paired path noise (sd ~85),
+and it is now the standing illustration in `Logs/instrument_b_log.md` of why season totals cannot adjudicate.
+
+**What stands from this workstream:** the instrument (`eval/measure_horizon_minutes.py`, the pre-registered
+partitions and the per-slice Spearman read), the per-step refit build (`data/horizon/hmin_*_refit.parquet`, all
+three seasons) and the scoping result that the value of horizon minutes lives at steps 1–5. The target is real; this
+lever does not reach it.

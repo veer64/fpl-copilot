@@ -137,3 +137,30 @@ distinguish lam=0.75 from lam=0, so it will not distinguish a better opening squ
 either. **The cold-start experiment needs a different endpoint before it is worth
 running** -- the path-free capture measure already computed (22.7% of best-available-15
 in GW1-7 against 32.5% from GW8) is a candidate, as is Instrument A anchored near GW1.
+
+---
+
+## The standing illustration (added 2026-08-26): a real candidate, not a synthetic degradation
+
+The λ-shrink table above shows the season total cannot separate the full model from one shrunk 75% toward the
+positional mean. That was a manufactured degradation. On 2026-08-26 the same lesson arrived from a real candidate,
+and it is stronger for it:
+
+**Horizon minutes lever 1** (`Logs/horizon_minutes_log.md`) failed its pre-registered acceptance test on the
+partitions where decisions are made — Spearman down 7–9% among likely starters and 7–21% among squad-relevant rows,
+in every season at every step. Run through the full system anyway, for the season figures
+(`Logs/props_season_log.md`), it scored **+109, +49 and −84** chip-inclusive against the reference cell across the
+three seasons — the largest single gain in that table and the second-largest loss, from a component that is
+measurably worse.
+
+**Props, conditional specification** (`Logs/props_conditional_prereg.md`) improved rank on both decision partitions
+(+0.0094 likely starters, +0.0206 squad-relevant), improved Brier and log loss on both, and repaired the written-off
+band — a small positive component picture, under the +0.020 bar on likely starters. Its season figures were **−56**
+(2024-25, GW8–38 like-for-like) and **−107** (2025-26).
+
+**Had the season totals been run first, horizon minutes would have been adopted and props rejected — both wrong.**
+The component instrument got both right in advance: the horizon lever is worse where it matters and the props
+feature is slightly better but not by enough. The season totals disagree with the component metrics in sign in both
+cases, and both are inside the paired path noise (sd ~85). This is the standing illustration, in place of the
+synthetic λ = 0.75 example, of the convention that season totals identify a configuration and never adjudicate an
+adoption; the convention itself is unchanged.

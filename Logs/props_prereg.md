@@ -350,3 +350,34 @@ conditional-rate specification has its own pre-registration, `Logs/props_conditi
 line; the holdout is spent once, on whichever specification is believed at that point, and has not been run for
 either. `uv run python eval/measure_props_endpoint.py --holdout 0.75 1.517` is the command for this one.
 
+---
+
+## CLOSE-OUT (2026-08-26) — the props feature is NOT ADOPTED, all four specifications
+
+Condition (1) of §3 — likely-starter Spearman ≥ +0.020 — was missed by every specification on 2024-25, the tuning
+season chosen to flatter them: **+0.0087** (w = 0.75, m = 1.00), **+0.0078** (w = 1, m = 1.517), **+0.0085**
+(w = 0.75, m = 1.517), **+0.0094** (conditional, w = 0.75, m = 1.396). Four specifications, the same value.
+`assembly.PROPS_HOOK` stays **None** and `props_feature.PROPS_ACTIVE` stays **False**. The `--holdout` guards were
+built, verified both ways, and never run; 2025-26 was spent on season figures instead (`Logs/props_season_log.md`,
+trade recorded there), and those figures — −56 like-for-like and −107 chip-inclusive — neither confirm nor
+overturn the component result and were never permitted to.
+
+**What WAS established, and should not be lost:**
+1. **The market prices anytime-scorer CONDITIONAL on appearance.** Verified from the books' own house rules at 5
+   of the 7 consensus books (void on a non-runner at DraftKings, BetMGM, Bovada; void unless the player STARTS at
+   BetRivers, MyBookie; FanDuel and 1xBet unverified), and confirmed empirically (P1, `Logs/props_conditional_prereg.md`):
+   written-off players who actually started were priced at a calibration ratio of **1.08** against a likely-starter
+   control of **1.00**; the unconditional alternative predicted 0.13–0.20 and the observed ratio was 2.12.
+2. **The conditional specification is the correct one.** It repaired condition (2): the written-off band went from
+   −0.0283 to −0.0165 and the calibration ratio from 7.33 to 2.59 (1.89 with the minutes-model floor refit — see
+   KNOWN_ISSUES #18 — and 1.37 with the two unverified books assigned to the start rule).
+3. **Squad-relevant rank improved on all four specifications and cleared the bar** (+0.0243, +0.0234, +0.0220,
+   +0.0206), with Brier and log loss improving on both decision partitions once m was calibrated.
+4. **Likely-starter rank did not.** Among players who definitely start, `npxg90` — the rate blend the incumbent
+   already carries — is already close to what the market knows. That is the finding: the market's information
+   about goals lives in WHO plays, which the appearance model owns, and in the fringe, where decisions are not made.
+
+Also on record from the workstream: the whole-board de-vig defect and its shared-set correction (Addendum 1); that
+a rank criterion cannot set a level parameter and m must be calibrated (Addendum 2); that the tuning data could not
+separate w = 0.75 from w = 1.0 and w was set by prior (Addendum 3); the crosswalk at 98.7–98.8% precision with an
+evidenced manual pass; the raw pull, its backup and its manifests. Nothing in this file is amended by the close-out.
