@@ -71,6 +71,19 @@ CS_UNIFIED = False
 # deliberate step; a build script flips it in-process for the _penfix files.
 PENALTY_FIX_ACTIVE = False
 
+# Top-end level calibration (Logs/topend_calibration_prereg.md, 2026-08-26).
+# The equation scales a player's npxG/90 and xA/90 LINEARLY by
+# fixture_scale = team_lambda / 1.40. Diagnosed on all three seasons: among
+# likely starters' top quintile, low-fixture rows are calibrated-to-under
+# (pred/real 0.94 / 1.09 / 0.83) and high-fixture rows over by 39-67% --
+# chances are shared, so goals do not scale linearly with team lambda. Gate
+# ON applies fixture_scale ** FIXTURE_SCALE_GAMMA to both attacking terms
+# (gamma set by CALIBRATION on 2023-24 + 2024-25, pre-registered before
+# 2025-26 is opened). Gate OFF reproduces the current equation bit-exactly.
+# Stamped per row as `topend_cal_active` / `fixture_scale_gamma`. Rests False.
+TOPEND_CAL_ACTIVE = False
+FIXTURE_SCALE_GAMMA = 1.0
+
 # Player-prop feature hook: None in production. eval/walkforward_arms.py sets
 # it to a squad/props_feature.PropsHook for the season-figure arms only.
 PROPS_HOOK = None
@@ -112,7 +125,7 @@ SUM_COLS = ["minutes", "actual_points", "e_minutes", "minutes_frac",
 # summed past 1 would be meaningless. For the 97% of rows with one fixture the mean
 # is that single value, so single-gameweek output is unchanged by construction.
 MEAN_COLS = ["p_start", "p60", "p_60plus", "p_play_any", "npxg90", "xa90",
-             "team_lambda", "opp_lambda", "p_cs", "fixture_scale", "p_dc_hit",
+             "team_lambda", "opp_lambda", "p_cs", "fixture_scale", "fixture_scale_cal", "p_dc_hit",
              "pred_bps", "saves_per_90", "yellow_per_90", "red_per_90",
              "penalty_share", "team_pen_rate"]
 
@@ -546,8 +559,12 @@ def _finish_equation(asm, bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
     a = asm.copy()
     a["minutes_frac"] = (a["e_minutes"] / 90.0).clip(0, 1)
     a["fixture_scale"] = (a["team_lambda"] / LEAGUE_AVG_LAMBDA).fillna(1.0).clip(0.5, 2.0)
-    a["e_goals"]   = a["npxg90"] * a["minutes_frac"] * a["fixture_scale"]
-    a["e_assists"] = a["xa90"]   * a["minutes_frac"] * a["fixture_scale"]
+    # Top-end calibration: the attacking terms use fixture_scale ** gamma when
+    # the gate is on; the stored `fixture_scale` column stays on the base scale.
+    a["fixture_scale_cal"] = (a["fixture_scale"] ** float(FIXTURE_SCALE_GAMMA)
+                              if TOPEND_CAL_ACTIVE else a["fixture_scale"])
+    a["e_goals"]   = a["npxg90"] * a["minutes_frac"] * a["fixture_scale_cal"]
+    a["e_assists"] = a["xa90"]   * a["minutes_frac"] * a["fixture_scale_cal"]
     a["pts_goals"]   = a["e_goals"]   * a["position"].map(GOAL_PTS)
     a["pts_assists"] = a["e_assists"] * 3
     a["p_60plus"]   = a["p_start"] * a["p60"]
@@ -599,7 +616,7 @@ def _finish_equation(asm, bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
             # PRE-FIX form, reproduced bit-exactly: multiplied by a "team rate"
             # built from penalties MISSED (~0.02) -- ~50x too small.
             a["e_pen_goals"] = a["penalty_share"] * a["team_pen_rate"] * a["minutes_frac"]
-        a["e_goals"] = a["npxg90"] * a["minutes_frac"] * a["fixture_scale"] + a["e_pen_goals"]
+        a["e_goals"] = a["npxg90"] * a["minutes_frac"] * a["fixture_scale_cal"] + a["e_pen_goals"]
 
         # Recalculate pts_goals with updated e_goals
         a["pts_goals"] = a["e_goals"] * a["position"].map(GOAL_PTS)

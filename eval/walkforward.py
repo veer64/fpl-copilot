@@ -303,6 +303,8 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
     # Penalty-term correctness fix (Logs/penalty_fix_prereg.md) -- stamped from
     # the gating constant (the #13 lesson).
     result["penalty_fix_active"] = bool(assembly.PENALTY_FIX_ACTIVE)
+    result["topend_cal_active"] = bool(assembly.TOPEND_CAL_ACTIVE)
+    result["fixture_scale_gamma"] = float(assembly.FIXTURE_SCALE_GAMMA)
     # Attacking-rate source: k=8 cross-season blend (cutoff-dependent) vs the
     # legacy static pooled-3-season shrinkage. Equation-input change -> stamped.
     # See attacking_rates.RATE_BLEND_ACTIVE and Logs/rate_blend_log.md.

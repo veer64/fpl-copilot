@@ -133,6 +133,7 @@ def main():
         res["dgw_handling"] = "per_fixture"; res["dc_rule_active"] = bool(dc_enabled)
         res["d1_terms_active"] = bool(assembly.D1_TERMS_ACTIVE); res["cs_unified"] = bool(assembly.CS_UNIFIED)
         res["penalty_fix_active"] = bool(assembly.PENALTY_FIX_ACTIVE)
+        res["topend_cal_active"] = bool(assembly.TOPEND_CAL_ACTIVE); res["fixture_scale_gamma"] = float(assembly.FIXTURE_SCALE_GAMMA)
         res["rate_blend_active"] = bool(rates_mod.RATE_BLEND_ACTIVE); res["rate_blend_k"] = float(rates_mod.RATE_BLEND_K)
         import synthetic_lambda as synth_mod
         res["synthetic_lambda_active"] = bool(synth_mod.SYNTHETIC_LAMBDA_ACTIVE)

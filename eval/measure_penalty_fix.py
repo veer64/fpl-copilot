@@ -2,6 +2,7 @@
 """Penalty-fix measurement -- Logs/penalty_fix_prereg.md Parts 3-4, exactly as written.
 
     uv run python eval/measure_penalty_fix.py
+    uv run python eval/measure_penalty_fix.py --calibrated   # _cal vs _cal_penfix (Logs/topend_calibration_prereg.md section 4)
 
 Compares data/walkforward_h6_{season}.parquet (canonical, gate off) against
 data/walkforward_h6_{season}_penfix.parquet (gate on) on single-fixture step-0
@@ -51,6 +52,10 @@ def npxg_source_check():
 
 
 def main():
+    calibrated = "--calibrated" in sys.argv
+    inc_sfx, fix_sfx = ("_cal", "_cal_penfix") if calibrated else ("", "_penfix")
+    if calibrated:
+        print("CALIBRATED INCUMBENT: canonical -> _cal, penfix -> _cal_penfix; penalty_fix_prereg.md section 4 UNCHANGED")
     h = pd.read_parquet(REPO / "data" / "history" / "all_seasons_fixed.parquet")
     h = h[h["position"] != "AM"]
     us = pd.read_parquet(REPO / "data" / "history" / "understat_season_aggregates.parquet")
@@ -62,8 +67,11 @@ def main():
 
     verdict = {}
     for season, tag, yr in SEASONS:
-        canon = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}.parquet")
-        fix = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}_penfix.parquet")
+        canon = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}{inc_sfx}.parquet")
+        fix = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}{fix_sfx}.parquet")
+        if calibrated:
+            assert bool(canon["topend_cal_active"].iloc[0]) and bool(fix["topend_cal_active"].iloc[0])
+            assert float(canon["fixture_scale_gamma"].iloc[0]) == float(fix["fixture_scale_gamma"].iloc[0])
         for s in STAMPS:
             assert canon[s].iloc[0] == fix[s].iloc[0], f"stamp {s} differs -- not a paired comparison"
         assert bool(fix["penalty_fix_active"].iloc[0]) is True

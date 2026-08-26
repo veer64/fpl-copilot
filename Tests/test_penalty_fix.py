@@ -77,3 +77,24 @@ def test_gate_rests_false_on_disk():
     assert assembly.PENALTY_FIX_ACTIVE is False, (
         "PENALTY_FIX_ACTIVE was flipped on disk -- adoption is a deliberate step "
         "(Logs/penalty_fix_prereg.md section 4); update this test when adopting")
+
+
+def test_topend_gate_off_is_identity_and_on_applies_gamma():
+    """Logs/topend_calibration_prereg.md: gate off -> fixture_scale_cal == fixture_scale;
+    gate on -> fixture_scale ** gamma on both attacking terms, nothing else moves."""
+    old = (assembly.TOPEND_CAL_ACTIVE, assembly.FIXTURE_SCALE_GAMMA)
+    try:
+        assembly.TOPEND_CAL_ACTIVE, assembly.FIXTURE_SCALE_GAMMA = False, 1.0
+        off = assembly._finish_equation(_frame(), _ConstBPS(), lambda b: np.asarray(b) * 0.05, bonus.BPS_FEATURES, bonus_mean=0.2)
+        assert np.allclose(off["fixture_scale_cal"], off["fixture_scale"])
+        assembly.TOPEND_CAL_ACTIVE, assembly.FIXTURE_SCALE_GAMMA = True, 0.5
+        on = assembly._finish_equation(_frame(), _ConstBPS(), lambda b: np.asarray(b) * 0.05, bonus.BPS_FEATURES, bonus_mean=0.2)
+    finally:
+        assembly.TOPEND_CAL_ACTIVE, assembly.FIXTURE_SCALE_GAMMA = old
+    assert np.allclose(on["fixture_scale_cal"], off["fixture_scale"] ** 0.5)
+    mf = (on["e_minutes"] / 90).clip(0, 1)
+    assert np.allclose(on["e_assists"], on["xa90"] * mf * on["fixture_scale_cal"])
+    assert np.allclose(on["e_goals"] - on["e_pen_goals"], on["npxg90"] * mf * on["fixture_scale_cal"])
+    assert np.allclose(on["e_pen_goals"], off["e_pen_goals"])
+    assert np.allclose(on["pts_cs"], off["pts_cs"]) and np.allclose(on["pts_appear"], off["pts_appear"])
+    assert assembly.TOPEND_CAL_ACTIVE is False and assembly.FIXTURE_SCALE_GAMMA == 1.0

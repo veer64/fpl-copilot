@@ -61,7 +61,7 @@ def replay_state(log, df, through_gw):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", required=True)
-    ap.add_argument("--arm", required=True, choices=["baseline8", "props", "hmin", "both", "penfix"])
+    ap.add_argument("--arm", required=True, choices=["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix"])
     a = ap.parse_args()
     season, arm, tag = a.season, a.arm, a.season.replace("-", "_")
     ARMS_DIR.mkdir(parents=True, exist_ok=True)
@@ -72,6 +72,9 @@ def main():
     ref = pd.read_parquet(P1 / f"fslog_{tag}_{OPENING}_wc{WC1}.parquet")
     if arm == "baseline8":
         wf_path = REPO / "data" / f"walkforward_h6_{tag}.parquet"
+    elif arm in ("cal", "cal_penfix"):
+        # Top-end calibration arms (Logs/topend_calibration_prereg.md). Full season; figure only.
+        wf_path = REPO / "data" / f"walkforward_h6_{tag}_{arm}.parquet"
     elif arm == "penfix":
         # Penalty-term correctness fix (Logs/penalty_fix_prereg.md): the gated
         # _penfix walk-forward built by eval/run_penalty_fix.py. Full season,
@@ -80,11 +83,14 @@ def main():
     else:
         wf_path = ARMS_DIR / f"walkforward_h6_{tag}_{arm}.parquet"
     df = simulator.load_season(walkforward_path=str(wf_path), horizon_aware=True, season=season)
-    if arm == "penfix":
+    if arm in ("cal", "cal_penfix"):
+        assert bool(df["topend_cal_active"].iloc[0]) is True, "cal frame is not stamped topend_cal_active"
+        assert bool(df["penalty_fix_active"].iloc[0]) == (arm == "cal_penfix")
+    elif arm == "penfix":
         assert bool(df["penalty_fix_active"].iloc[0]) is True, "penfix frame is not stamped penalty_fix_active"
     elif arm != "baseline8":
         assert df["arm"].unique().tolist() == [arm], "arm frame is not stamped with this arm"
-    start_gw = START_GW.get(season, 1) if arm != "penfix" else 1
+    start_gw = START_GW.get(season, 1) if arm not in ("penfix", "cal", "cal_penfix") else 1
     if arm == "baseline8":
         assert start_gw > 1, "baseline8 is the GW8-start like-for-like check; this season runs in full"
     bb1, bb2 = rfs.BB1[(season, OPENING)], rfs.BB2[season]
@@ -115,7 +121,7 @@ def main():
     log["wf_file"] = wf_path.name; log["start_gw"] = start_gw
     log["resume_from"] = f"fslog_{tag}_{OPENING}_wc{WC1}.parquet@GW{start_gw - 1}" if start_gw > 1 else "none"
     log["props_active"] = arm in ("props", "both"); log["horizon_minutes_active"] = arm in ("hmin", "both")
-    log["penalty_fix_active"] = arm == "penfix"
+    log["penalty_fix_active"] = arm in ("penfix", "cal_penfix"); log["topend_cal_active"] = arm in ("cal", "cal_penfix")
     log["segment_total"] = int(log["points"].sum())
     log["final_total"] = int(state.total_points)
     tmp = out.with_suffix(".tmp.parquet"); log.to_parquet(tmp, index=False); tmp.replace(out)

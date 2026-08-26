@@ -18,8 +18,10 @@ import measure_full_system as mfs  # noqa: E402  (avg_manager, load, window, AVG
 ARMS = REPO / "data" / "arms"
 P1 = REPO / "data" / "p1"
 SEASONS = ["2023-24", "2024-25", "2025-26"]
-ARM_ORDER = ["baseline8", "props", "hmin", "both", "penfix"]
+ARM_ORDER = ["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix"]
 LABEL = {"baseline8": "baseline re-run from GW8 (like-for-like check)",
+         "cal": "E. top-end calibration alone (Logs/topend_calibration_prereg.md) -- season figure only",
+         "cal_penfix": "F. top-end calibration + penalty fix -- season figure only",
          "penfix": "D. penalty-term correctness fix (Logs/penalty_fix_prereg.md) -- season figure only, adjudicated on the component read",
          "props": "A. props on (candidate; conditional spec)",
          "hmin": "B. horizon minutes on -- FAILED component test, curiosity only",
@@ -39,8 +41,8 @@ def cap_pred_for(season):
 def cap_pred_arm(season, arm):
     """TC1 is picked on the ARM's own predictions where the arm changes step 0 (props); the refit does not touch step 0."""
     tag = season.replace("-", "_")
-    p = (REPO / "data" / f"walkforward_h6_{tag}_penfix.parquet") if arm == "penfix" else (ARMS / f"walkforward_h6_{tag}_{arm}.parquet")
-    if arm in ("props", "both", "penfix") and p.exists():
+    p = (REPO / "data" / f"walkforward_h6_{tag}_{arm}.parquet") if arm in ("penfix", "cal", "cal_penfix") else (ARMS / f"walkforward_h6_{tag}_{arm}.parquet")
+    if arm in ("props", "both", "penfix", "cal", "cal_penfix") and p.exists():
         wf = pd.read_parquet(p, columns=["cutoff", "gw", "element", "name", "e_points"])
         own = wf[wf["cutoff"] == wf["gw"]]
         return {(int(r.gw), r.name): float(r.e_points or 0) for r in own.itertuples()}
@@ -100,7 +102,7 @@ def main():
             seg_avg = sum(avg[g] for g in range(start_gw, 39))
             side_p = ARMS / f"walkforward_h6_{tag}_{arm}.json"
             side = json.loads(side_p.read_text(encoding="utf-8")) if side_p.exists() else None
-            n_partial = side["props"]["partial_doubles_excluded"] if side and side.get("props") else ("n/a" if arm in ("hmin", "baseline8", "penfix") else "?")
+            n_partial = side["props"]["partial_doubles_excluded"] if side and side.get("props") else ("n/a" if arm in ("hmin", "baseline8", "penfix", "cal", "cal_penfix") else "?")
             n_over = side["props"]["overridden_player_fixtures"] if side and side.get("props") else None
             anchors = [("WC2", wc2), ("FH2", fh2), ("BB2", bb2)] + ([("BB1", bb1)] if bb1 >= start_gw else []) + ([("entry", start_gw)] if start_gw > 1 else [("WC1", wc1)])
             aw = {lbl: mfs.window(d, ref, a_) for lbl, a_ in sorted(anchors, key=lambda t: t[1])}
