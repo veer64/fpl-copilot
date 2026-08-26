@@ -241,6 +241,8 @@ evidence, with the 2024-25 Salah-held count.
 
 ### Season figures (2026-08-26; `eval/run_arms_full_system.py --arm cal / cal_penfix`, reference config, TC2 scored ZERO, reference cells and the penfix arm NOT re-run; `eval/measure_arms_full_system.py`)
 
+> *Note added 2026-08-26 (later): the reference 2296 / 2294 / 2206 quoted in this table is the OLD convention (TC2 scored zero, incumbent bonus term). The figures of record are now 2251 / 2306 / 2268 (`bonus_mode=delete` + TC2 in-sim; p4 log §15). This table stands as the comparison that was made at the time.*
+
 | season | reference | penfix (earlier) | **cal** | **cal + penfix** | 2024-25 Salah held / captained (ref 34 / 26) |
 |---|---|---|---|---|---|
 | 2023-24 | 2296 | 2291 (−5) | **2265 (−31)** | **2286 (−10)** | — |

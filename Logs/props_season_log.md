@@ -21,7 +21,7 @@ at the rules-of-record weeks of `eval/run_full_system.py`). Chip accounting per 
 bench + BB2 bench + TC1 captain bonus; **TC2 is played but scored ZERO** (the deliberate understatement of the
 2026-08-24 collision fix; the read exists in every log and is shown struck, never added). The chip legality guard
 (`squad/chip_legality.py`) runs on every arm. Reference (baseline) cells: `fslog_{season}_base_wc2` —
-2296 / 2294 / 2206 chip-inclusive — not re-run except the 2024-25 GW8 like-for-like check.
+2296 / 2294 / 2206 chip-inclusive — not re-run except the 2024-25 GW8 like-for-like check. *(2026-08-26: these are the OLD convention — TC2 scored zero, incumbent bonus term; the reference cells of record are now 2251 / 2306 / 2268, `Logs/season_totals_index.md`.)*
 
 | arm | status | 2023-24 | 2024-25 | 2025-26 |
 |---|---|---|---|---|

@@ -146,6 +146,8 @@ position updated. Season figures are appended below from the `bonusdel` arm alre
 
 ### Season figures (2026-08-26; `eval/run_arms_full_system.py --arm bonusdel`, reference config, reference cells NOT re-run; reads via `eval/measure_arms_full_system.py`, each arm's OWN bench/captain reads; TC2 scored ZERO in both arms; `check_chip_schedule` PASS on every delete-arm schedule)
 
+> *Note added 2026-08-26 (later): the reference 2296 / 2294 / 2206 quoted in this table is the OLD convention (TC2 scored zero, incumbent bonus term). The figures of record are now 2251 / 2306 / 2268 (`bonus_mode=delete` + TC2 in-sim; p4 log §15). This table stands as the comparison that was made at the time.*
+
 | season | reference path | reference chip-incl | delete path | delete chip-incl | Δ |
 |---|---|---|---|---|---|
 | 2023-24 | 2278 | 2296 | 2216 | **2241** | **−55** |

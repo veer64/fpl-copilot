@@ -54,7 +54,24 @@ Measured-and-off gates (all False): `OPENING_HORIZON_ACTIVE`,
 
 ## 3. Reference figures (single draws, sd ≈ 60 — identify, never rank)
 
-| Season | No-chip baseline | Full system chip-incl (WC1@2) | Avg manager (fplcache) | Margin |
+> **FIGURES OF RECORD, 2026-08-26 (supersede the table below):** system as configured =
+> `bonus_mode=delete` + Triple Captain 2 scheduled IN-SIM on the 12c (ii) week (GW25 / GW24 / GW26; captain =
+> the MIP's cap variable at that deadline from cutoff predictions; path identical to the no-TC2 run in every
+> gameweek, so TC2 is exactly the extra captain multiple).
+>
+> | Season | Path | Chip-inclusive | Avg manager (fplcache) | Margin | Chip reads BB1 / BB2 / TC1 / TC2 |
+> |---|---|---|---|---|---|
+> | 2023-24 | **2226** | **2251** | 2003 | **+248** | +17 / +2 / +6 / +10 |
+> | 2024-25 | **2249** | **2306** | 2008 | **+298** | +17 / +31 / +9 / +29 |
+> | 2025-26 | **2220** | **2268** | 1895 | **+373** | +12 / +20 / +16 / +7 |
+>
+> Artefacts `data/arms/armlog_{season}_bonusdel_tc2.parquet`; `Logs/p4_chip_policy_log.md` §15;
+> `Logs/season_totals_index.md` (reference cells). The rows below (2204 / 2362 / 2032 no-chip; 2296 / 2294 / 2206
+> chip-inclusive) are the OLD convention — incumbent bonus term, TC2 scored zero — retained for lineage.
+> Standing framing: sd ~60 single draw; 2024-25's reference is a 97th-percentile draw losing on 78% of arms
+> (mean −70); seasons co-move (+0.26); user-facing figures, not adoption evidence.
+
+| Season | ~~No-chip baseline~~ | ~~Full system chip-incl (WC1@2)~~ (OLD CONVENTION, superseded 2026-08-26) | Avg manager (fplcache) | Margin |
 |---|---|---|---|---|
 | 2023-24 | 2204 | 2299 | 2003 | +296 |
 | 2024-25 | 2362 | 2301 | 2008 | +293 |

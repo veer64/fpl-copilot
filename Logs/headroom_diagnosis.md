@@ -110,7 +110,7 @@ inside noise and must not adjudicate.
 
 ## 1. Where the number actually is, and how the band should be read
 
-Reference: 2296 / 2294 / 2206 chip-inclusive (fslog base_wc2; TC2 scored zero by decision), average manager
+Reference *(as of writing; superseded 2026-08-26 by 2251 / 2306 / 2268 — bonus term deleted, TC2 priced in-sim, see `Logs/season_totals_index.md`)*: 2296 / 2294 / 2206 chip-inclusive (fslog base_wc2; TC2 scored zero by decision), average manager
 2003 / 2008 / 1895. Three draws from a distribution with single-path sd ≈ 60 (instrument_b_log): the system's
 **expected** season is ≈ 2265 ± 35 (SE of a three-season mean). The 2024-25 reference cell (2294) is NOT the
 97th-percentile no-chip path (2362); it sits mid-distribution, so the three-season mean is a fair EV read.

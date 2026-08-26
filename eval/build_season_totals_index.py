@@ -58,6 +58,14 @@
 # the index is written. It fails on the old convention (tests/
 # test_chip_legality.py proves it) and would have caught this on day one.
 #
+# REFERENCE CELLS OF RECORD MOVED 2026-08-26: the system as configured is
+# BONUS_MODE="delete" with Triple Captain 2 scheduled IN-SIM on the 12c(ii)
+# week (captain = the MIP's own cap variable at that deadline; path identical
+# to the no-TC2 run in every gameweek). Reference cells are the
+# data/arms/armlog_*_bonusdel_tc2 rows: 2251 / 2306 / 2268. The fslog
+# base_wc2 rows (2296 / 2294 / 2206, TC2 scored zero, incumbent bonus term)
+# stay indexed and drift-checked but are SUPERSEDED as reference cells.
+#
 # Self-check (drift only -- circular by construction, kept for that purpose):
 # the recompute chain is validated against the corrected reference figures
 # (fslog base_wc2 chip-inclusive == 2296/2294/2206) and the p1 baselines'
@@ -122,9 +130,26 @@ TC2_DROP_REASON = "collision with BB2 -- one chip per gameweek"
 EXPECT_ARMS_CHIP = {("2023-24", "hmin"): 2405, ("2024-25", "baseline8"): 2294,
                     ("2024-25", "props"): 2243, ("2024-25", "hmin"): 2339,
                     ("2024-25", "both"): 2257, ("2025-26", "props"): 2099,
-                    ("2025-26", "hmin"): 2122, ("2025-26", "both"): 2134}
+                    ("2025-26", "hmin"): 2122, ("2025-26", "both"): 2134,
+                    # 2026-08-26 arms (penalty_fix / topend_calibration / bonus_rebuild / bonus_delete preregs; p4 log s.15)
+                    ("2023-24", "penfix"): 2291, ("2024-25", "penfix"): 2408, ("2025-26", "penfix"): 2139,
+                    ("2023-24", "cal"): 2265, ("2024-25", "cal"): 2298, ("2025-26", "cal"): 2111,
+                    ("2023-24", "cal_penfix"): 2286, ("2024-25", "cal_penfix"): 2399, ("2025-26", "cal_penfix"): 2135,
+                    ("2023-24", "bonusow"): 2280, ("2024-25", "bonusow"): 2312, ("2025-26", "bonusow"): 2094,
+                    ("2023-24", "bonusdel"): 2241, ("2024-25", "bonusdel"): 2277, ("2025-26", "bonusdel"): 2261,
+                    ("2023-24", "bonusdel_tc2"): 2251, ("2024-25", "bonusdel_tc2"): 2306, ("2025-26", "bonusdel_tc2"): 2268}
+# THE REFERENCE CELLS OF RECORD (2026-08-26): bonus deleted, TC2 in-sim.
+EXPECT_REFERENCE_CHIP = {"2023-24": 2251, "2024-25": 2306, "2025-26": 2268}
 ARM_LABEL = {"baseline8": "baseline re-run", "props": "arm=props",
-             "hmin": "arm=horizon_minutes", "both": "arm=props+horizon_minutes"}
+             "hmin": "arm=horizon_minutes", "both": "arm=props+horizon_minutes",
+             "penfix": "arm=penalty_fix (NOT adopted)", "cal": "arm=topend_cal (NOT adopted)",
+             "cal_penfix": "arm=topend_cal+penalty_fix (NOT adopted)",
+             "bonusow": "arm=bonus_rebuild_outcome (NOT adopted)",
+             "bonusdel": "arm=bonus_delete (ADOPTED; TC2 scored zero)",
+             "bonusdel_tc2": "REFERENCE CELL OF RECORD: bonus_delete + TC2 in-sim"}
+# arms whose walk-forward frame lives in data/ (not data/arms/); bonusdel_tc2 shares bonusdel's frame
+ARM_WF_IN_DATA = {"penfix": "penfix", "cal": "cal", "cal_penfix": "cal_penfix", "bonusow": "bonusow",
+                  "bonusdel": "bonusdel", "bonusdel_tc2": "bonusdel"}
 
 _wf_cache, _cap_cache = {}, {}
 
@@ -187,10 +212,15 @@ def chip_weeks(d):
         v = int(d["bench_boost_gw"].iloc[0])
         if v > 0:
             bb = [v]
-    if "triple_captain" in d.columns:
-        assert not d["triple_captain"].any(), \
-            "in-sim TC week found -- TC is exogenous by convention"
     return wc, fh, bb
+
+
+def tc_weeks_insim(d):
+    """In-sim Triple Captain weeks: allowed since 2026-08-26 for the bonusdel_tc2
+    reference cells only; every other family asserts none."""
+    if "triple_captain" in d.columns:
+        return [int(g) for g in d.index[d["triple_captain"].astype(bool)]]
+    return []
 
 
 def played_weeks(d):
@@ -247,10 +277,13 @@ def drop_colliding_tc(reads, bb):
 
 
 def row(section, season, config, H, decay, sched, wf, gates, path_total,
-        reads, source, flags="", run=None, wc=(), fh=(), bb=(), played=None):
+        reads, source, flags="", run=None, wc=(), fh=(), bb=(), played=None,
+        tc_insim=()):
     reads = drop_colliding_tc(reads, list(bb))
     kept = [r for r in reads if not r[3]]
-    tc_weeks = [gw for lbl, gw, _, _ in kept if lbl.startswith("TC") and gw]
+    tc_weeks = [gw for lbl, gw, _, _ in kept
+                if lbl.startswith("TC") and gw and not lbl.startswith("TC2 in-sim")]
+    tc_weeks += list(tc_insim)
     # STRUCTURAL legality check on the effective schedule -- independent of
     # any total. This is what the old convention never had.
     check_chip_schedule({"wildcard": list(wc), "free_hit": list(fh),
@@ -259,7 +292,7 @@ def row(section, season, config, H, decay, sched, wf, gates, path_total,
     if any(r[3] for r in reads):
         flags = (flags + "; " if flags else "") + \
             "TC2@BB2 read DROPPED (illegal play; corrected 2026-08-24)"
-    add = sum(v for _, _, v, _ in kept)
+    add = sum(v for lbl, _, v, _ in kept if not lbl.startswith("TC2 in-sim"))
     return dict(section=section, season=season, config=config, H=H,
                 decay=decay, sched=sched, wf=wf, gates=gates,
                 path=path_total, reads=reads, chip=path_total + add,
@@ -376,6 +409,7 @@ def rows_fullsystem():
         assert str(d["bench_boost_gws"].iloc[0]) == f"{bb1},{bb2}"
         wc, fh, bb = chip_weeks(d)
         assert set(bb) == {bb1, bb2} and wc1 in wc
+        assert not tc_weeks_insim(d), f"{p.name}: in-sim TC in a fslog"
         reads = standing_reads(d, wc1, [bb1, bb2], cap_pred(season))
         r = row("fullsystem", season,
                 f"opening={d['opening'].iloc[0]} wc1={wc1}", 6, 0.45,
@@ -385,6 +419,10 @@ def rows_fullsystem():
                 wc=wc, fh=fh, bb=bb, played=played_weeks(d))
         if d["opening"].iloc[0] == "base" and wc1 == 2:
             fs_chip[season] = r["chip"]
+            r["flags"] = (r["flags"] + "; " if r["flags"] else "") + (
+                "SUPERSEDED AS REFERENCE CELL (2026-08-26): TC2 scored zero and incumbent bonus term; "
+                f"the reference of record is arms/armlog_{season.replace('-', '_')}_bonusdel_tc2 "
+                f"({EXPECT_REFERENCE_CHIP[season]})")
         out.append(r)
     assert fs_chip == EXPECT_FS_WC2_CHIP, (
         f"chip-inclusive recompute drifted from the corrected reference "
@@ -461,8 +499,11 @@ def cap_pred_arm(season, arm):
     """TC1 on the ARM's own step-0 predictions where the arm changes step 0
     (props); the refit does not touch step 0. Mirrors measure_arms_full_system."""
     tag = season.replace("-", "_")
-    p = ARMS / f"walkforward_h6_{tag}_{arm}.parquet"
-    if arm in ("props", "both") and p.exists():
+    if arm in ARM_WF_IN_DATA:
+        p = REPO / "data" / f"walkforward_h6_{tag}_{ARM_WF_IN_DATA[arm]}.parquet"
+    else:
+        p = ARMS / f"walkforward_h6_{tag}_{arm}.parquet"
+    if (arm in ("props", "both") or arm in ARM_WF_IN_DATA) and p.exists():
         wf = pd.read_parquet(p, columns=["cutoff", "gw", "name", "e_points"])
         own = wf[wf["cutoff"] == wf["gw"]]
         return {(int(g), n): float(v or 0) for g, n, v in
@@ -479,6 +520,8 @@ def rows_arms():
     for p in sorted(ARMS.glob("armlog_*.parquet")):
         d = pd.read_parquet(p)
         season, arm = d["season"].iloc[0], d["arm"].iloc[0]
+        if "tc2_gw" in d.columns and int(d["tc2_gw"].iloc[0]) > 0:
+            arm = f"{arm}_tc2"          # in-sim TC2 variant (armlog_*_tc2.parquet; the log's arm column is the base arm)
         tag = season.replace("-", "_")
         start_gw = int(d["start_gw"].iloc[0])
         ref = pd.read_parquet(P1 / f"fslog_{tag}_base_wc2.parquet")
@@ -490,28 +533,44 @@ def rows_arms():
         bb1, bb2 = int(d["bb1"].iloc[0]), int(d["bb2"].iloc[0])
         wc, fh, bb = chip_weeks(full)
         assert set(bb) == {bb1, bb2} and 2 in wc, f"{p.name}: not the reference chip schedule"
+        tc_in = tc_weeks_insim(full)
+        assert (tc_in == [] or arm == "bonusdel_tc2"), f"{p.name}: in-sim TC on a non-TC2 arm"
         reads = standing_reads(full, 2, [bb1, bb2], cap_pred_arm(season, arm))
-        wf = d["wf_file"].iloc[0] if arm == "baseline8" else "arms/" + d["wf_file"].iloc[0]
+        if tc_in:
+            # TC2 is IN the path (the simulator tripled the captain); listed for the record, never added.
+            g = tc_in[0]
+            reads.append(("TC2 in-sim", g, int(full.loc[g, "captain_bonus"]) // 2))
+        wf = (d["wf_file"].iloc[0] if (arm == "baseline8" or arm in ARM_WF_IN_DATA)
+              else "arms/" + d["wf_file"].iloc[0])
         extra = " ".join(x for x, c in (("PROPS", "props_active"),
                                         ("HORIZON_MINUTES", "horizon_minutes_active"))
                          if c in d.columns and bool(d[c].iloc[0]))
         if arm == "baseline8":
             flags = "like-for-like check of the resume mechanism -- reproduces the reference GW8-38 exactly"
+        elif arm == "bonusdel_tc2":
+            flags = ("REFERENCE CELL OF RECORD (2026-08-26): BONUS_MODE=delete (adopted on component metrics, "
+                     "Logs/bonus_delete_prereg.md) + Triple Captain 2 IN-SIM on the 12c(ii) week (p4 log section 15); "
+                     "captain = the MIP cap variable at that deadline; path identical to arm=bonus_delete in all 38 gws")
+        elif arm == "bonusdel":
+            flags = "ADOPTED on component metrics (Logs/bonus_delete_prereg.md); TC2 scored zero here -- see the bonusdel_tc2 row"
         else:
             flags = "NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence"
         if start_gw > 1:
             flags += (f"; starts GW{start_gw} from the reference cell's GW{start_gw - 1} state "
                       f"(GW1-{start_gw - 1} stitched = reference); like-for-like = GW{start_gw}-38 "
                       f"segment vs reference")
+        sched = sched_str(wc, fh, bb) + (f" TC@{tc_in[0]} (in-sim)" if tc_in else "")
         r = row("arms", season, f"{ARM_LABEL[arm]} start=GW{start_gw}", 6, 0.45,
-                sched_str(wc, fh, bb), wf, gates_str(d, extra),
+                sched, wf, gates_str(d, extra),
                 int(full["points"].sum()), reads, f"arms/{p.name}", flags=flags,
-                run=mtime(p), wc=wc, fh=fh, bb=bb, played=played_weeks(full))
+                run=mtime(p), wc=wc, fh=fh, bb=bb, played=played_weeks(full), tc_insim=tc_in)
         got[(season, arm)] = r["chip"]
         out.append(r)
     for k, v in EXPECT_ARMS_CHIP.items():
         if k in got:
             assert got[k] == v, f"arms recompute drifted for {k}: {got[k]} != {v}"
+    ref = {s_: got[(s_, "bonusdel_tc2")] for s_ in EXPECT_REFERENCE_CHIP if (s_, "bonusdel_tc2") in got}
+    assert ref == EXPECT_REFERENCE_CHIP, f"REFERENCE cells drifted: {ref} != {EXPECT_REFERENCE_CHIP}"
     return out
 
 
@@ -576,7 +635,7 @@ SECTIONS = [
      "predictions. These rows are MEASUREMENTS of an upper bound, never "
      "baselines, never adoptable, comparable only to their reference cell "
      "(fslog base_wc2). Same TC2@BB2 drop as the full system."),
-    ("arms", "ARMS -- props / horizon minutes, CLOSED NON-ADOPTIONS (data/arms/armlog_*)",
+    ("arms", "ARMS -- 2026-08-26 arms incl. THE REFERENCE CELLS OF RECORD (data/arms/armlog_*)",
      "Full-system wc2 config with a feature applied in-process for the season "
      "figure only: props (conditional spec, w=0.75 m=1.396; PROPS_HOOK rests "
      "None) and/or horizon minutes lever 1 (HORIZON_MINUTES_ACTIVE rests "
@@ -587,7 +646,14 @@ SECTIONS = [
      "illustration). 2024-25 rows start at GW8 from the reference cell's GW7 "
      "state (prefix stitched); their like-for-like number is the GW8-38 "
      "segment delta in Logs/props_season_log.md. Same TC2@BB2 drop as the "
-     "full system."),
+     "full system. ALSO HERE (2026-08-26): penfix / cal / cal_penfix / bonusow "
+     "(all NOT adopted), bonusdel (ADOPTED, TC2 scored zero) and "
+     "**bonusdel_tc2 -- THE REFERENCE CELLS OF RECORD** (bonus deleted, TC2 "
+     "scheduled in-sim on the 12c(ii) week: GW25 / GW24 / GW26; captain = the "
+     "MIP's cap at that deadline; path identical to bonusdel in every gameweek, "
+     "so the TC2 read is exactly the extra captain multiple, +10 / +29 / +7). "
+     "Their `TC2 in-sim` read is listed for the record and NOT added -- it is "
+     "already inside the path total."),
     ("references", "REFERENCES -- pre-canonical lineage figures",
      "Retained for lineage only."),
 ]
@@ -608,6 +674,26 @@ illustration (2026-08-26, Logs/instrument_b_log.md): horizon-minutes lever 1,
 measurably WORSE where decisions are made, scored +109 / +49 / -84 by season
 total; props, slightly better on the component read, scored -56 / -107. Run
 the totals first and both calls come out wrong.
+
+**REFERENCE CELLS OF RECORD (moved 2026-08-26).** The system as configured is
+`BONUS_MODE = "delete"` (adopted on component metrics, Logs/bonus_delete_prereg.md)
+with Triple Captain 2 scheduled IN-SIM on the rule-of-record week (p4 log
+section 12c (ii): the earliest second-half double holding no other chip -- GW25 /
+GW24 / GW26 -- chosen from the calendar alone; the captain is the MIP's own cap
+variable at that deadline, argmax step-0 e_points in the XI from cutoff
+predictions; no post-deadline information). Reference cells:
+**2023-24 path 2226 / chip-inclusive 2251 (margin +248); 2024-25 path 2249 /
+2306 (+298); 2025-26 path 2220 / 2268 (+373)**; chip reads BB1 +17/+17/+12,
+BB2 +2/+31/+20, TC1 +6/+9/+16, TC2 +10/+29/+7 (in the path). The path did not
+move when TC2 was scheduled (+0 in all three seasons: squads, transfers and
+captains identical to the no-TC2 run gameweek by gameweek), so TC2 is cleanly
+the extra captain multiple and nothing else. **Any figure quoting 2296 / 2294 /
+2206 is on the OLD convention (TC2 scored zero, incumbent bonus term) and is
+SUPERSEDED as a reference**; those rows remain indexed and flagged. Standing
+framing unchanged: sd ~60 single draw; 2024-25's reference is a
+97th-percentile draw that loses on 78% of arms with mean -70
+(Logs/season_anticorrelation_check.md); seasons co-move (+0.26). User-facing
+figures, not adoption evidence.
 
 **CORRECTION OF RECORD (2026-08-24) -- the TC2/BB2 same-week read.** From
 P4 (2026-08-20) through the first regeneration of this index earlier on
@@ -642,15 +728,17 @@ KNOWN_ISSUES #16 records the failure.
 
 **PATH vs CHIP-INCLUSIVE (stored vs recomputed).** No log family stores a
 chip-inclusive total. The stored figure is `final_total` = the PATH total
-(the simulator scores no chip points; asserted == points.sum() for every
-file). Every chip-inclusive figure here is RECOMPUTED by the family's
+(the simulator scores no chip points EXCEPT an in-sim Triple Captain, which
+triples the captain inside the path -- the bonusdel_tc2 reference cells;
+asserted == points.sum() for every file). Every chip-inclusive figure here is RECOMPUTED by the family's
 measure-script-of-record convention minus the illegal read (see the
 generator's docstring for the exact per-family rules). Recomputed values are
 marked **(r)** and decomposed in the `chip reads` column; `= path` means no
 exogenous chips were scheduled, so the two totals are identical by
 construction. The recompute chain is drift-checked at generation time against
-the corrected reference figures (fslog base_wc2 -> 2296/2294/2206) and the
-p1 baselines (2204/2362/2032); generation FAILS on drift. That check is
+the old-convention fslog base_wc2 figures (2296/2294/2206), the reference
+cells of record (arms bonusdel_tc2 -> 2251/2306/2268) and the p1 baselines
+(2204/2362/2032); generation FAILS on drift. That check is
 circular by construction (same convention both sides) and is kept ONLY for
 drift; legality is the structural check above.
 
@@ -709,10 +797,14 @@ FOOTER = """
 8. **Oracle rows**: comparable ONLY to fslog base_wc2 (their reference), as
    an upper-bound measurement. Never to each other across seasons, never as
    baselines.
-9. **Arms rows**: comparable ONLY to fslog base_wc2 (their reference); the
+9. **Arms rows** (props/hmin/both/penfix/cal/bonusow/bonusdel): comparable ONLY to fslog
+   base_wc2 (the reference they were measured against, old convention); the
    2024-25 rows by their GW8-38 segment (props_season_log.md), never by the
    stitched total's margin. Closed non-adoptions; never baselines.
-10. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
+10. **Reference cells of record** (arms bonusdel_tc2) vs arms bonusdel: differ by
+   the in-sim TC2 alone (path identical); future arms should be run with TC2
+   in-sim and compared to bonusdel_tc2 directly.
+11. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
    REFERENCE row: NOT comparable.
 
 ## Explicit flags
@@ -724,7 +816,11 @@ FOOTER = """
   is dropped on every affected row (struck through, flagged). Figures quoted
   from this index before that date carry the illegal read; the p4 log,
   the closing position and the 2026-08-23 handoff quote 2299/2301/2219 --
-  read those as 2296/2294/2206.
+  read those as 2296/2294/2206 (old convention).
+- MOVED 2026-08-26: the reference cells are the arms bonusdel_tc2 rows
+  (2251/2306/2268). 2296/2294/2206 (fslog base_wc2) are SUPERSEDED as
+  reference cells: TC2 scored zero and the incumbent bonus term; retained,
+  flagged, never deleted.
 - Oracle rows are deliberate-leakage instruments (oracle_minutes_active
   stamp). NEVER adopt, never baseline.
 - The four reference figures are retained for lineage only.

@@ -232,6 +232,8 @@ Season figures for `bonusow` and `bonusdel` are appended below when complete —
 
 ### Season figures (2026-08-26; `--arm bonusow` and `--arm bonusdel`, reference config, each arm's own chip reads, TC2 scored ZERO, legality PASS, reference cells not re-run; `eval/measure_arms_full_system.py`)
 
+> *Note added 2026-08-26 (later): the reference 2296 / 2294 / 2206 quoted in this table is the OLD convention (TC2 scored zero, incumbent bonus term). The figures of record are now 2251 / 2306 / 2268 (`bonus_mode=delete` + TC2 in-sim; p4 log §15). This table stands as the comparison that was made at the time.*
+
 | season | reference (path / chip-incl) | REBUILD bonusow (path / chip-incl, Δ) | DELETE bonusdel (path / chip-incl, Δ) |
 |---|---|---|---|
 | 2023-24 | 2278 / 2296 | 2243 / **2280** (−16) | 2216 / **2241** (−55) |

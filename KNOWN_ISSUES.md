@@ -1062,4 +1062,4 @@ canonicals' stamp equals the code constant. KNOWN COST, recorded in the adoption
 bonus (~0.26 per likely starter per week; forwards understated by ~0.3-0.6, keepers still over-stated) -- read a
 low e_points level as this decision, not as a model failure. Pre-adoption canonicals preserved as
 `walkforward_h6_{season}_prebonusdel.parquet`; measure scripts that read the reference cells' predictions (TC1
-selection) read that file so 2296 / 2294 / 2206 do not silently move.
+selection) read that file so 2296 / 2294 / 2206 do not silently move. *(2026-08-26, later: those are now the OLD-convention figures; the reference cells of record are the bonusdel_tc2 rows, 2251 / 2306 / 2268.)*

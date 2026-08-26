@@ -2,7 +2,7 @@
 
 Generated 2026-08-24 by eval/tc2_valuation_sweep.py. Read-only; no simulations.
 
-**Framing (binding):** every number below is a HINDSIGHT read of what one captain scored on one frozen path. Nothing here is adopted into any headline; the chip-inclusive figures of record remain 2296 / 2294 / 2206 with TC2 scored as zero (p4 log section 12c). This is a valuation study of the TC2 RULE, not a figure.
+**Framing (binding):** every number below is a HINDSIGHT read of what one captain scored on one frozen path. Nothing here is adopted into any headline; ~~the chip-inclusive figures of record remain 2296 / 2294 / 2206 with TC2 scored as zero (p4 log section 12c)~~ **superseded 2026-08-26: TC2 is now scheduled IN-SIM on the 12c (ii) week and the figures of record are 2251 / 2306 / 2268 (p4 log section 15)**. This is a valuation study of the TC2 RULE, not a figure.
 
 ## Method (stated before the results)
 

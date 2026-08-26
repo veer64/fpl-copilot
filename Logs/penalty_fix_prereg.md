@@ -195,6 +195,8 @@ not re-run) are appended below when complete — under the standing framing, nev
 
 ### Season figures (2026-08-26; `eval/run_arms_full_system.py --arm penfix`, three full-season sims on the `_penfix` frames under the reference config — base opening, WC1@2, WC2/FH2/BB1/BB2 rules of record, H=6 decay 0.45, TC2 scored ZERO; reference cells NOT re-run; `eval/measure_arms_full_system.py`)
 
+> *Note added 2026-08-26 (later): the reference 2296 / 2294 / 2206 quoted in this table is the OLD convention (TC2 scored zero, incumbent bonus term). The figures of record are now 2251 / 2306 / 2268 (`bonus_mode=delete` + TC2 in-sim; p4 log §15). This table stands as the comparison that was made at the time.*
+
 | season | reference chip-incl | penfix path (Δ) | chip reads BB1 / BB2 / TC1 | penfix chip-incl (Δ) | margin vs avg mgr | W=3 paired deltas at anchors (Instrument A; not path-controlled after the first; never add) |
 |---|---|---|---|---|---|---|
 | 2023-24 | 2296 | 2256 (−22) | +13 / +16 / +6 | **2291 (−5)** | +288 | WC1@2 +0, BB1@7 −27, FH2@29 −33, WC2@32 +15, BB2@34 −28 |

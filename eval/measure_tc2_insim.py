@@ -18,7 +18,7 @@ from chip_legality import check_chip_schedule  # noqa: E402
 import measure_arms_full_system as m  # noqa: E402
 
 SEASONS = [("2023-24", "2023_24"), ("2024-25", "2024_25"), ("2025-26", "2025_26")]
-REF_CHIP = {"2023-24": 2296, "2024-25": 2294, "2025-26": 2206}
+REF_CHIP = {"2023-24": 2296, "2024-25": 2294, "2025-26": 2206}   # OLD-convention reference (fslog base_wc2); the bonusdel_tc2 rows ARE the reference of record since 2026-08-26
 DEL_CHIP = {"2023-24": 2241, "2024-25": 2277, "2025-26": 2261}
 
 
