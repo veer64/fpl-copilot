@@ -56,6 +56,10 @@ D1_TERMS_ACTIVE = True
 # False unless the step-3 negative is re-litigated with new evidence.
 CS_UNIFIED = False
 
+# Player-prop feature hook: None in production. eval/walkforward_arms.py sets
+# it to a squad/props_feature.PropsHook for the season-figure arms only.
+PROPS_HOOK = None
+
 MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
 
@@ -556,7 +560,16 @@ def _finish_equation(asm, bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
 
         # Recalculate pts_goals with updated e_goals
         a["pts_goals"] = a["e_goals"] * a["position"].map(GOAL_PTS)
-    else:
+    # Player-prop feature hook (squad/props_feature.py; rests None). Installed
+    # in-process by eval/walkforward_arms.py only; blends the market's
+    # conditional goals rate into e_goals at step 0 BEFORE the bonus model, so
+    # the change reaches every downstream term. Stamped as `props_active` /
+    # `props_spec` on every emitted row (the #13 lesson). NOT ADOPTED: failed
+    # the pre-registered component test (Logs/props_conditional_prereg.md).
+    if PROPS_HOOK is not None:
+        a = PROPS_HOOK(a)
+        a["pts_goals"] = a["e_goals"] * a["position"].map(GOAL_PTS)
+    if not D1_TERMS_ACTIVE:
         a["pts_saves"] = 0.0
         a["pts_conceded"] = 0.0
         a["pts_cards"] = 0.0

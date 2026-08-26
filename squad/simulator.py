@@ -535,8 +535,17 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                     policy="single", horizon=DEFAULT_HORIZON, decay=DEFAULT_DECAY,
                     wildcard_gws=None, triple_captain_gw=None,
                     free_hit_gws=None, bench_boost_gw=None,
-                    second_half_start=DEFAULT_SECOND_HALF_START, hit_bar=None):
+                    second_half_start=DEFAULT_SECOND_HALF_START, hit_bar=None,
+                    initial_state=None):
     """Run the full season. Returns (final_state, decision_log DataFrame).
+
+    initial_state : a SquadState to RESUME from (with `gws` starting after the
+             gameweeks it already played), instead of picking an opening squad
+             at the first gameweek. A measurement instrument for like-for-like
+             arms that share a common squad state at a common gameweek
+             (eval/run_arms_full_system.py): the caller replays the reference
+             log up to the start gameweek and asserts the replay against it.
+             None (the default) is the unchanged season-from-scratch path.
 
     policy : "single" -- the v1 search: try keeping, try selling each of the 15,
              take the best. One transfer maximum, never takes a hit.
@@ -617,7 +626,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
         gws = sorted(season_df["gw"].unique())
 
     log = []
-    state = None
+    state = initial_state
     # Whether the opening squad was ACTUALLY built with a horizon / robustly --
     # stamped on every log row. Distinct from the raw gates: policy="single"
     # never plans, so the gates are scoped to the MIP policy and the stamps
