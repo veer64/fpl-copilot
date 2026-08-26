@@ -1,6 +1,6 @@
-"""De-vig and consensus for the player-prop pull under props_prereg.md sections 1, 4 and ADDENDUM 1 (amendments 1 and 3), no tuning, no endpoint: per book per fixture, decimal prices -> raw implied probabilities; thin boards (below 50% of the fixture's largest) DROPPED; each retained book scaled by mean_total / book_total computed on the SHARED element set (elements priced by every retained book) so board size cannot masquerade as margin; equal-weight consensus across the retained books pricing the player, MERGED BY ELEMENT never by name string (asserted: no element twice within a fixture); per-fixture rate lambda = -ln(1 - p); attached to (element, gameweek) by summing lambda over the player's fixtures, with rows priced in fewer fixtures than the walkforward's n_fixtures flagged `partial_double` (excluded from every endpoint). Keeps the v1 whole-board files as *_v1_wholeboard.parquet and reports what moved. Writes data/odds_props/props_consensus[_fixture]_{season}.parquet and appends the rebuild section to Logs/props_devig_log.md. No 2025-26 outcome is read.
+"""De-vig and consensus for the player-prop pull under props_prereg.md sections 1, 4 and ADDENDUM 1 (amendments 1 and 3), no tuning, no endpoint: per book per fixture, decimal prices -> raw implied probabilities; thin boards (below 50% of the fixture's largest) DROPPED; each retained book scaled by mean_total / book_total computed on the SHARED element set (elements priced by every retained book) so board size cannot masquerade as margin; equal-weight consensus across the retained books pricing the player, MERGED BY ELEMENT never by name string (asserted: no element twice within a fixture); per-fixture rate lambda = -ln(1 - p); attached to (element, gameweek) by summing lambda over the player's fixtures, with rows priced in fewer fixtures than the walkforward's n_fixtures flagged `partial_double` (excluded from every endpoint). Also emits the per-book scaled probabilities (props_consensus_book_{season}.parquet: gw, event_id, element, book, p_adj) required by Logs/props_conditional_prereg.md section 2. Keeps the v1 whole-board files as *_v1_wholeboard.parquet and reports what moved. Writes data/odds_props/props_consensus[_fixture]_{season}.parquet and appends the rebuild section to Logs/props_devig_log.md. No 2025-26 outcome is read.
 
-Usage: uv run python eval/build_props_consensus.py
+Usage: uv run python eval/build_props_consensus.py [--seasons 2024-25,2025-26]
 """
 import json
 import sys
@@ -26,6 +26,9 @@ METHOD = "addendum1_shared_set"
 
 
 def main():
+    seasons = SEASONS
+    if "--seasons" in sys.argv:
+        seasons = sys.argv[sys.argv.index("--seasons") + 1].split(",")
     md = ["\n---\n\n## Rebuild under ADDENDUM 1 — amendments 1 and 3 (2026-08-24; before any 2025-26 outcome was read)\n",
           f"Method as amended: boards below {MIN_BOARD_SHARE:.0%} of the fixture's largest board are dropped; each retained "
           f"book's scale factor is mean_total / book_total over the SHARED element set (elements priced by every retained "
@@ -33,13 +36,13 @@ def main():
           "equal-weight consensus merged by element (asserted); λ = −ln(1 − p) per fixture, summed over the player's "
           "fixtures; rows priced in fewer fixtures than the walkforward's `n_fixtures` are flagged `partial_double` and "
           "excluded from every endpoint. v1 (whole-board) files kept as `*_v1_wholeboard.parquet`; deltas reported.\n"]
-    for season in SEASONS:
+    for season in seasons:
         tag = season.replace("-", "_")
         cw = pd.read_csv(OUT / f"props_crosswalk_{season}.csv")
         cw_map = {(r.event_id, r.key): int(r.element) for r in cw[cw["element"].notna()].itertuples()}
         man = pd.read_csv(SCALE / season / "manifest.csv")
         man = man[man["event_id"].notna() & (man["books"].astype(str) != "CALL_FAILED")]
-        rows, totals, clips, dropped, fallback = [], [], 0, [], 0
+        rows, totals, clips, dropped, fallback, book_rows = [], [], 0, [], 0, []
         for r in man.itertuples():
             f = SCALE / season / f"gw{int(r.gw):02d}_{r.event_id}_euus.json"
             if not f.exists():
@@ -86,6 +89,7 @@ def main():
                 for el, p in per_book[b].items():
                     pa = min(p * scale[b], P_CLIP); clips += int(p * scale[b] > P_CLIP)
                     acc.setdefault(el, []).append((b, pa, p))
+                    book_rows.append(dict(season=season, gw=int(r.gw), event_id=r.event_id, element=el, book=b, p_adj=pa, p_raw=p))
             for el, lst in acc.items():
                 p_cons = float(np.mean([pa for _, pa, _ in lst]))
                 rows.append(dict(season=season, gw=int(r.gw), event_id=r.event_id, element=el, p_consensus=p_cons,
@@ -93,8 +97,9 @@ def main():
                                  lambda_fixture=float(-np.log(1.0 - p_cons)), n_books=len(lst),
                                  onexbet=int(any(b == "onexbet" for b, _, _ in lst)),
                                  books="|".join(sorted(b for b, _, _ in lst)), method=METHOD))
-        fx = pd.DataFrame(rows)
+        fx = pd.DataFrame(rows); bkf = pd.DataFrame(book_rows)
         dup = fx[fx.duplicated(["event_id", "element"], keep=False)]
+        assert not bkf.duplicated(["event_id", "element", "book"]).any()
         assert len(dup) == 0, f"{season}: element appears twice within a fixture after the merge:\n{dup.head(10)}"
         # ---- what moved vs v1 (whole-board)
         v1p = OUT / f"props_consensus_fixture_{season}.parquet"
@@ -123,6 +128,7 @@ def main():
         gwf["partial_double"] = (gwf["n_fixtures"].notna()) & (gwf["n_fixtures_priced"] < gwf["n_fixtures"])
         gwf["method"] = METHOD
         fx.to_parquet(OUT / f"props_consensus_fixture_{season}.parquet", index=False)
+        bkf.to_parquet(OUT / f"props_consensus_book_{season}.parquet", index=False)
         gwf.to_parquet(OUT / f"props_consensus_{season}.parquet", index=False)
         tot = pd.DataFrame(totals); drp = pd.DataFrame(dropped)
         # ---- coverage (outfield, amendment 2) and sanity

@@ -178,3 +178,154 @@ P1 -- premise test on 2024-25 GW8-38, m = 1.517 (pre-registered scalar). No 2025
     betmgm         n  1805  geometric mean ratio 0.985  (median 0.992; on sub rows n 418 0.990; on started rows n 136 0.983)   [participation (DK/BetMGM/Bovada)]
     bovada         n  3473  geometric mean ratio 1.022  (median 1.004; on sub rows n 812 1.015; on started rows n 291 1.026)   [participation (DK/BetMGM/Bovada)]
 ```
+
+---
+
+## RESULTS — build and tuning on 2024-25 (2026-08-26). Method as §2 and §5; no 2025-26 file read.
+
+Build: `eval/build_props_consensus.py` now emits `props_consensus_book_{season}.parquet` (per-book scaled
+probabilities; asserted: their mean reproduces the stored consensus). Built for 2024-25 only (`--seasons 2024-25`);
+the 2025-26 per-book file is generated at holdout time by the same code. Measurement:
+`eval/measure_props_endpoint.py --spec conditional --tune`, which substitutes the conditioned consensus
+probability for the unconditional one and reuses every amendment-4/5 step unchanged.
+
+### Headline
+
+- **m = 1.396** by calibration on the conditioned quantity (0.1501 / 0.1075, n = 3,924 likely starters) —
+  P3 predicted ≈ 1.41.
+- **w = 0.75 by prior; the departure rule did not trigger.** The rank argmax IS 0.75 (mean 0.2957 vs 0.2949 at
+  w = 1); Salah guard: m = 1.416, argmax 0.75, rule still not triggered; whole-procedure leave-one-out of the 18
+  top contributors: 17 leave the argmax at 0.75, dropping Wissa moves it to w = 1 by 0.0007. The prior stands.
+- **P2: written-off ratio 7.33 → 2.59.** The pre-registered line was ≤ ~2.5 with the 0.30 floor as-is: **missed
+  by 0.09** — nowhere near the ~5 that would falsify the premise. The residual is the minutes model's floor, as
+  predicted: with the floor refit on the band (0.30 → 0.199, DIAGNOSIS ONLY, not adopted) the ratio is 1.89;
+  with FanDuel and 1xBet assigned to start books, 1.37; all-`p_start` 0.48 (overshoots, as predicted).
+- **§3 on the tuning season (NOT evidence): (1) FAIL — likely starters +0.0094 (< +0.020), squad-relevant
+  +0.0206; (2) PASS — written-off −0.0165 (was −0.0283 unconditional); (3) PASS — Brier 0.0879 → 0.0861 and
+  0.1677 → 0.1585. Overall FAIL**, exactly the outcome §4 P3 said to expect: the specification repairs condition
+  (2) and does nothing for condition (1), which has now failed at +0.0087, +0.0078, +0.0085 and +0.0094 across
+  four specifications.
+
+### Influence of the two unverified books (FanDuel, 1xBet; 37% of 2024-25 book-fixtures)
+
+| variant | m | written-off ratio | Δ likely | Δ squad | Δ written-off | (1) | (2) | (3) |
+|---|---|---|---|---|---|---|---|---|
+| adopted: unverified → participation | 1.396 | 2.59 | +0.0094 | +0.0206 | −0.0165 | FAIL | PASS | PASS |
+| sensitivity: unverified → start | 1.378 | 1.37 | +0.0094 | +0.0205 | −0.0008 | FAIL | PASS | PASS |
+| diag: floor refit 0.199 (not adopted) | 1.383 | 1.89 | +0.0095 | +0.0203 | −0.0104 | FAIL | PASS | PASS |
+| diag: all-`p_play_any` (not selectable) | 1.405 | 2.70 | +0.0094 | +0.0207 | −0.0134 | FAIL | PASS | PASS |
+| diag: all-`p_start` (not selectable) | 1.357 | 0.48 | +0.0095 | +0.0200 | +0.0008 | FAIL | PASS | PASS |
+
+The assignment changes **no verdict** and leaves the decision partitions untouched (±0.0001), but it moves the
+written-off band by 0.016 — the size of the pass margin — and the P2 ratio from 2.59 to 1.37. **The written-off
+numbers of this specification therefore carry the unverified assignment as a limitation**; the decision-partition
+numbers do not. It cannot be resolved from behaviour (P1) and is resolved only by a primary rules source.
+
+### Output of record (verbatim)
+
+```
+CONDITIONAL SPECIFICATION -- tuning on 2024-25 GW8-38 only (no 2025-26 file read). Unverified books (FanDuel, 1xBet) assigned: participation. Outfield singles in window: 19,710; priced 11,606; partial doubles flagged and excluded: 24.
+coverage: likely starters 90.3% of 4347; squad-relevant 97.5% of 638; uncertain 88.3% of 409; full starter band 90.1% of 4756; written off (no e_minutes floor) 40.0% of 11788
+
+m by CALIBRATION on likely starters, market alone, on the CONDITIONED quantity: mean 0.1501 / realised 0.1075 -> m = 1.396 (n = 3924)
+  post-hoc calibration of the conditioned market alone at this m, by partition (mean p_cond/m vs realised):
+    likely starters                    n  3924  mean p/m 0.1076  realised 0.1075  ratio 1.000
+    squad-relevant                     n   622  mean p/m 0.2101  realised 0.2267  ratio 0.927
+    uncertain                          n   361  mean p/m 0.0968  realised 0.0997  ratio 0.970
+    full starter band                  n  4285  mean p/m 0.1066  realised 0.1069  ratio 0.998
+    written off (no e_minutes floor)   n  4716  mean p/m 0.0330  realised 0.0127  ratio 2.592
+
+w SURFACE at m = 1.396 (information; w is set by prior unless the departure rule triggers)
+      w     m |   likely    squad     MEAN | uncertain  starter writtenoff
+   0.00  1.40 |   0.2750   0.2866   0.2808 |    0.3172   0.2784     0.1401
+   0.25  1.40 |   0.2791   0.2936   0.2863 |    0.3257   0.2827     0.1369
+   0.50  1.40 |   0.2822   0.3018   0.2920 |    0.3312   0.2861     0.1301
+   0.75  1.40 |   0.2843   0.3071   0.2957 |    0.3371   0.2883     0.1236
+   1.00  1.40 |   0.2840   0.3057   0.2949 |    0.3370   0.2881     0.1169
+
+DEPARTURE RULE: rank argmax w = 0.75 (mean 0.2957) vs prior w = 0.75 (mean 0.2957); gap +0.0000; unique True; differs False; beats by >= 0.020 False
+  -> does NOT depart: w = 0.75 (by PRIOR), m = 1.396
+
+SALAH GUARD (whole procedure without him): m = 1.416; rank argmax w = 0.75 (mean 0.2739) vs 0.75 (mean 0.2739), gap +0.0000 -> departure rule still does not trigger
+  whole-procedure leave-one-out of the top-5 contributors at the chosen pair (m recalibrated; rank argmax reported):
+    likely starters: rho(candidate) 0.2843, delta +0.0094; top-5 by rho share: Mohamed Salah +0.0185, Alexander Isak +0.0143, Yoane Wissa +0.0122, Erling Haaland +0.0106, Chris Wood +0.0088
+      drop Mohamed Salah                    -> m 1.416, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Alexander Isak                   -> m 1.416, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Yoane Wissa                      -> m 1.418, rank argmax w = 1, gap to 0.75 +0.0007
+      drop Erling Haaland                   -> m 1.399, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Chris Wood                       -> m 1.410, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Bryan Mbeumo                     -> m 1.408, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Moisés Caicedo Corozo            -> m 1.392, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Sander Berge                     -> m 1.391, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Matheus Santos Carneiro Da Cunha -> m 1.412, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Max Kilman                       -> m 1.392, rank argmax w = 0.75, gap to 0.75 +0.0000
+    squad-relevant: rho(candidate) 0.3071, delta +0.0206; top-5 by rho share: Mohamed Salah +0.0562, Alexander Isak +0.0359, Erling Haaland +0.0253, William Saliba +0.0140, Joško Gvardiol +0.0124
+      drop Mohamed Salah                    -> m 1.416, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Alexander Isak                   -> m 1.416, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Erling Haaland                   -> m 1.399, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop William Saliba                   -> m 1.398, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Joško Gvardiol                   -> m 1.398, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Jarrod Bowen                     -> m 1.412, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Gabriel dos Santos Magalhães     -> m 1.393, rank argmax w = 0.75, gap to 0.75 +0.0000
+      drop Amad Diallo                      -> m 1.398, rank argmax w = 0.75, gap to 0.75 +0.0000
+
+P2 -- written-off band ratio after conditioning at m = 1.396: mean p/m 0.0330 vs realised 0.0127 -> 2.59 (n 4716; was 7.33 unconditional). Pre-registered: <= ~2.5 expected with the 0.30 floor; > ~5 under every variant falsifies the premise. -> NOT MET (> 2.5)
+
+PASS CONDITIONS (section 3, UNCHANGED) on 2024-25 at spec = conditional: w = 0.75, m = 1.396 -- tuning season, NOT evidence:
+  (1) +0.020 on BOTH decision partitions: likely +0.0094, squad +0.0206 -> FAIL; non-negative this season: yes
+  (2) written-off band not worse by > 0.020: -0.0165 -> PASS
+  (3) Brier not worse on either decision partition: likely starters 0.0879->0.0861; squad-relevant 0.1677->0.1585 -> PASS
+  overall on this season: FAIL
+
+--- 2024-25 tuning season (NOT evidence), conditional spec: w = 0.75, m = 1.396 vs incumbent (w = 0) on the common population; partial doubles excluded: 24 ---
+  partition                               n   Spearman inc  Spearman cand    delta
+  likely starters                      3924         0.2750         0.2843  +0.0094
+  squad-relevant                        622         0.2866         0.3071  +0.0206
+  uncertain                             361         0.3172         0.3371  +0.0199
+  full starter band                    4285         0.2784         0.2883  +0.0100
+  written off (no e_minutes floor)     4716         0.1401         0.1236  -0.0165
+  secondary (incumbent -> candidate):
+    likely starters                    Brier 0.0879->0.0861  logloss 0.3032->0.2974  mean pred/realised 0.122/0.108->0.112/0.108  MAE 0.1986->0.1923  RMSE 0.3430->0.3333  MAE by outcome 0/1/2+ 0.125/0.735/1.671 -> 0.112/0.781/1.774
+    squad-relevant                     Brier 0.1677->0.1585  logloss 0.5080->0.4859  mean pred/realised 0.306/0.227->0.237/0.227  MAE 0.4215->0.3743  RMSE 0.5324->0.4951  MAE by outcome 0/1/2+ 0.355/0.505/1.512 -> 0.255/0.633/1.675
+    uncertain                          Brier 0.0793->0.0790  logloss 0.2707->0.2704  mean pred/realised 0.113/0.100->0.101/0.100  MAE 0.1835->0.1776  RMSE 0.3178->0.3146  MAE by outcome 0/1/2+ 0.113/0.739/1.702 -> 0.100/0.801/1.749
+    full starter band                  Brier 0.0872->0.0855  logloss 0.3004->0.2951  mean pred/realised 0.121/0.107->0.111/0.107  MAE 0.1973->0.1910  RMSE 0.3410->0.3317  MAE by outcome 0/1/2+ 0.124/0.735/1.674 -> 0.111/0.782/1.772
+    written off (no e_minutes floor)   Brier 0.0121->0.0124  logloss 0.0561->0.0657  mean pred/realised 0.013/0.013->0.028/0.013  MAE 0.0254->0.0408  RMSE 0.1244->0.1258  MAE by outcome 0/1/2+ 0.013/0.945/2.104 -> 0.028/0.939/2.142
+  reliability deciles, full starter band (incumbent | candidate): n, mean predicted P(>=1), realised
+    d0: n  429  0.016/0.023 | 0.029/0.028
+    d1: n  428  0.026/0.030 | 0.039/0.026
+    d2: n  429  0.036/0.040 | 0.046/0.035
+    d3: n  428  0.050/0.028 | 0.056/0.033
+    d4: n  429  0.066/0.044 | 0.068/0.047
+    d5: n  428  0.088/0.084 | 0.087/0.070
+    d6: n  428  0.122/0.119 | 0.113/0.112
+    d7: n  429  0.167/0.170 | 0.153/0.161
+    d8: n  428  0.235/0.213 | 0.205/0.227
+    d9: n  429  0.406/0.317 | 0.312/0.331
+
+DIAGNOSIS (not adopted; a minutes-model change needing its own pre-registration): on the written-off band p_play_any 0.340 vs realised took-part 0.244 (p_start 0.057 vs realised started -- see P1). Refitting the flat substitute floor so the band mean matches: 0.30 -> 0.199.
+  variant                                            m | WO ratio | section-3 deltas at w = 0.75 | conditions
+  ADOPTED: per-book, floor 0.30, unverified=participation m 1.396 | WO ratio  2.59 | d likely +0.0094 squad +0.0206 uncertain +0.0199 WO -0.0165 | (1) FAIL (2) PASS (3) PASS
+  diag: per-book, floor refit 0.199            m 1.383 | WO ratio  1.89 | d likely +0.0095 squad +0.0203 uncertain +0.0199 WO -0.0104 | (1) FAIL (2) PASS (3) PASS
+  sensitivity: unverified books -> start       m 1.378 | WO ratio  1.37 | d likely +0.0094 squad +0.0205 uncertain +0.0199 WO -0.0008 | (1) FAIL (2) PASS (3) PASS
+  diag: all-p_play_any (not selectable)        m 1.405 | WO ratio  2.70 | d likely +0.0094 squad +0.0207 uncertain +0.0209 WO -0.0134 | (1) FAIL (2) PASS (3) PASS
+  diag: all-p_start (not selectable)           m 1.357 | WO ratio  0.48 | d likely +0.0095 squad +0.0200 uncertain +0.0199 WO +0.0008 | (1) FAIL (2) PASS (3) PASS
+
+Write 'spec = conditional: w = 0.75, m = 1.396' into a dated '## PRE-REGISTERED VALUE' section of Logs/props_conditional_prereg.md BEFORE any --spec conditional --holdout. 2025-26 has not been read; its per-book file is generated at holdout time by the same builder code.
+```
+
+---
+
+## PRE-REGISTERED VALUE (2026-08-26; written before any 2025-26 file was opened; the conditional guard reads the LAST such heading in THIS file)
+
+spec = conditional: w = 0.75, m = 1.396
+
+w = 0.75 BY PRIOR (amendment 5; the departure rule did not trigger). m = 1.396 by calibration on the conditioned
+quantity (amendment 4 form). Unverified books assigned "takes part" (the adopted variant above). On the tuning
+season this pair FAILS §3 overall — condition (1) at +0.0094 on likely starters — with (2) and (3) passing; recorded
+here so the miss is on file before the sealed season is spent. P2 landed at 2.59 against ≤ ~2.5 (miss of 0.09;
+residual = the minutes model's 0.30 substitute floor, not the premise).
+
+The sealed season is run ONCE, for ONE specification, and has not been run for either:
+`uv run python eval/measure_props_endpoint.py --spec conditional --holdout 0.75 1.396` (requires
+`props_consensus_book_2025-26.parquet`, generated at that time by `eval/build_props_consensus.py --seasons 2025-26`).
+

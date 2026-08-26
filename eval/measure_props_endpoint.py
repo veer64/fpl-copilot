@@ -7,6 +7,13 @@
                     evidence); a minutes floor is reported as information only. Reads no 2025-26 file.
   --holdout W M     sealed 2025-26, ONCE: refuses unless the exact line "w = W, m = M.MMM" is present in the LAST
                     PRE-REGISTERED VALUE section of Logs/props_prereg.md (mirrors eval/measure_rate_blend.py).
+  --spec conditional   the conditional-rate specification of Logs/props_conditional_prereg.md: P(scores) = P(appears) x
+                    P(scores | appears), P(appears) per book by its verified rule (p_play_any: DraftKings/BetMGM/Bovada
+                    and, assigned, FanDuel/1xBet; p_start: BetRivers/MyBookie), from props_consensus_book_{season}.parquet.
+                    --tune: m by calibration on the conditioned quantity, w = 0.75 by prior with the pre-stated departure
+                    rule, P2 ratio, section-3 conditions, the floor-refit diagnosis, the unverified-book sensitivity and the
+                    two uniform diagnostics. --holdout W M: refuses unless "spec = conditional: w = W, m = M.MMM" is in the
+                    LAST PRE-REGISTERED VALUE section of the conditional pre-registration (its own guard).
 
 Usage: uv run python eval/measure_props_endpoint.py --tune
        uv run python eval/measure_props_endpoint.py --holdout 0.75 1.417   # example form only
@@ -328,6 +335,171 @@ def tune_main(a):
         print("\nSALAH GUARD TRIPPED: w changes when Salah is dropped. Do NOT write a PRE-REGISTERED VALUE until discussed.")
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# CONDITIONAL-RATE SPECIFICATION (Logs/props_conditional_prereg.md). P(scores) = P(appears) x P(scores | appears):
+# the market supplies the conditional term per book, the minutes model supplies P(appears) per that book's rule,
+# the consensus is the equal-weight mean of the conditioned per-book probabilities, m then w exactly as before.
+# ---------------------------------------------------------------------------------------------------------------
+COND_PREREG = REPO / "Logs" / "props_conditional_prereg.md"
+PARTICIPATION_BOOKS = {"draftkings", "betmgm", "bovada"}          # verified: void unless the player takes part
+START_BOOKS = {"betrivers", "mybookieag"}                          # verified: void unless the player starts
+UNVERIFIED_BOOKS = {"fanduel", "onexbet"}                          # assigned "takes part" unless --assign-unverified start
+SUB_FLOOR = 0.30                                                   # squad/assembly.py: p_play_any = p_start + (1 - p_start) * 0.30
+
+
+def cond_pair_line(w, m):
+    return f"spec = conditional: w = {w:g}, m = {m:.3f}"
+
+
+def load_conditional(season, assign_unverified="participation", mode="per-book", sub_floor=None):
+    """Same frame as load(), with p_mkt_gw replaced by the CONDITIONED consensus probability (before m)."""
+    base = load(season)
+    pb = pd.read_parquet(REPO / "data" / "odds_props" / f"props_consensus_book_{season}.parquet")
+    x = pb.merge(base[["gw", "element", "p_start", "p_play_any"]], on=["gw", "element"], how="inner")
+    if sub_floor is not None:                                      # DIAGNOSTIC only: refit the flat substitute floor
+        x["p_play_any"] = x["p_start"] + (1.0 - x["p_start"]) * sub_floor
+    start_set = set(START_BOOKS) | (UNVERIFIED_BOOKS if assign_unverified == "start" else set())
+    if mode == "per-book":
+        P = np.where(x["book"].isin(start_set), x["p_start"], x["p_play_any"])
+    elif mode == "all-p_start":
+        P = x["p_start"].to_numpy()
+    elif mode == "all-p_play_any":
+        P = x["p_play_any"].to_numpy()
+    else:
+        raise ValueError(mode)
+    x["p_cond"] = x["p_adj"] * P
+    fixl = x.groupby(["gw", "event_id", "element"])["p_cond"].mean().reset_index()
+    gwl = fixl.groupby(["gw", "element"])["p_cond"].agg(lambda s: 1.0 - float(np.prod(1.0 - s.to_numpy()))).reset_index()
+    out = base.drop(columns=["p_mkt_gw"]).merge(gwl.rename(columns={"p_cond": "p_mkt_gw"}), on=["gw", "element"], how="left")
+    assert out["p_mkt_gw"].notna().sum() == base["p_mkt_gw"].notna().sum(), "conditioned rows != priced rows"
+    return out
+
+
+def written_off_ratio(f, m):
+    """P2: written-off band (no e_minutes floor), mean conditioned p / m against realised P(>= 1)."""
+    g = f[f["p_start"] < 0.25]
+    pred = (g["p_mkt_gw"] / m).mean(); real = (g["goals"] >= 1).mean()
+    return pred / real, pred, real, len(g)
+
+
+def cond_summary(label, f, w, parts):
+    """One-line procedure on a frame: m by calibration, ratio, section-3 deltas at (w, m)."""
+    m_cal, p_mean, y_mean, n = calibrate_m(f, parts)
+    base = score(f, 0.0, 1.0, parts); cand = score(f, w, m_cal, parts)
+    r, _, _, _ = written_off_ratio(f, m_cal)
+    lam0, lam1, g = blend(f, 0.0, 1.0), blend(f, w, m_cal), f["goals"].to_numpy()
+    br = {k: (secondary(lam0[parts[k].to_numpy()], g[parts[k].to_numpy()])["brier"], secondary(lam1[parts[k].to_numpy()], g[parts[k].to_numpy()])["brier"]) for k in ("likely starters", "squad-relevant")}
+    d = {k: cand[k][0] - base[k][0] for k in parts}
+    c1 = d["likely starters"] >= 0.02 and d["squad-relevant"] >= 0.02; c2 = d["written off (no e_minutes floor)"] >= -0.02
+    c3 = all(b1 <= b0 for b0, b1 in br.values())
+    print(f"  {label:44s} m {m_cal:.3f} | WO ratio {r:5.2f} | d likely {d['likely starters']:+.4f} squad {d['squad-relevant']:+.4f} "
+          f"uncertain {d['uncertain']:+.4f} WO {d['written off (no e_minutes floor)']:+.4f} | (1) {'PASS' if c1 else 'FAIL'} (2) {'PASS' if c2 else 'FAIL'} (3) {'PASS' if c3 else 'FAIL'}")
+    return dict(m=m_cal, ratio=r, d=d, c=(c1, c2, c3))
+
+
+def conditional_main(a):
+    season, (lo, hi) = TUNE_SEASON, TUNE_GW
+    W_PRIOR = 0.75
+    assign = a.assign_unverified
+    m_all = load_conditional(season, assign_unverified=assign)
+    n_partial = int(m_all["partial_double"].eq(True).sum())
+    f = population(m_all, lo, hi)
+    print(f"CONDITIONAL SPECIFICATION -- tuning on {season} GW{lo}-{hi} only (no 2025-26 file read). Unverified books (FanDuel, 1xBet) assigned: {assign}. "
+          f"Outfield singles in window: {len(f):,}; priced {int(f['priced'].sum()):,}; partial doubles flagged and excluded: {n_partial}.")
+    print("coverage: " + coverage_line(f))
+    f = f[f["priced"]].copy()
+    m_cal, p_mean, y_mean, n, G, best, parts = procedure(f)
+    print(f"\nm by CALIBRATION on likely starters, market alone, on the CONDITIONED quantity: mean {p_mean:.4f} / realised {y_mean:.4f} -> m = {m_cal:.3f} (n = {n})")
+    print("  post-hoc calibration of the conditioned market alone at this m, by partition (mean p_cond/m vs realised):")
+    for name, mask in parts.items():
+        mk = mask.to_numpy(); p = f.loc[mk, "p_mkt_gw"].to_numpy() / m_cal; y = (f.loc[mk, "goals"].to_numpy() >= 1).mean()
+        print(f"    {name:34s} n {int(mk.sum()):5d}  mean p/m {p.mean():.4f}  realised {y:.4f}  ratio {p.mean() / y:.3f}")
+    print_surface(G, f"w SURFACE at m = {m_cal:.3f} (information; w is set by prior unless the departure rule triggers)")
+    # ---- departure rule (pre-stated): unique argmax, != 0.75, beats 0.75 by >= 0.020 in MEAN, survives every top-5 LOO on both partitions
+    g75 = G[np.isclose(G["w"], W_PRIOR)].iloc[0]
+    ties = G[np.isclose(G["mean"], best["mean"], atol=1e-9)]
+    unique = len(ties) == 1; differs = not np.isclose(best["w"], W_PRIOR); beats = (best["mean"] - g75["mean"]) >= 0.020
+    print(f"\nDEPARTURE RULE: rank argmax w = {best['w']:g} (mean {best['mean']:.4f}) vs prior w = 0.75 (mean {g75['mean']:.4f}); gap {best['mean'] - g75['mean']:+.4f}; "
+          f"unique {unique}; differs {differs}; beats by >= 0.020 {beats}")
+    survives = None
+    if unique and differs and beats:
+        con = contributions(f, float(best["w"]), float(best["m"]), parts); survives = True
+        for name, c in con.items():
+            for r_ in pd.concat([c["top_rho"], c["top_delta"]]).drop_duplicates("element").itertuples():
+                fl = f[f["element"] != r_.element].copy(); _, _, _, _, _, bl, _ = procedure(fl)
+                ok = bool(np.isclose(bl["w"], best["w"])); survives = survives and ok
+                print(f"    LOO drop {r_.name:32s} ({name}) -> argmax w = {bl['w']:g} {'same' if ok else 'CHANGES'}")
+    depart = bool(unique and differs and beats and survives)
+    w_chosen = float(best["w"]) if depart else W_PRIOR
+    print(f"  -> {'DEPARTS from the prior' if depart else 'does NOT depart'}: w = {w_chosen:g} (by {'rank' if depart else 'PRIOR'}), m = {m_cal:.3f}")
+    # ---- Salah guard + whole-procedure LOO of the top contributors at the chosen pair
+    sal = f[f["name"].str.contains("Salah", case=False)]["element"].unique(); assert len(sal) == 1
+    fx_ = f[f["element"] != sal[0]].copy(); mx, _, _, _, Gx, bx, _ = procedure(fx_)
+    gx75 = Gx[np.isclose(Gx["w"], W_PRIOR)].iloc[0]
+    print(f"\nSALAH GUARD (whole procedure without him): m = {mx:.3f}; rank argmax w = {bx['w']:g} (mean {bx['mean']:.4f}) vs 0.75 (mean {gx75['mean']:.4f}), gap {bx['mean'] - gx75['mean']:+.4f} -> departure rule {'would trigger' if (bx['mean'] - gx75['mean'] >= 0.02 and not np.isclose(bx['w'], W_PRIOR)) else 'still does not trigger'}")
+    con = contributions(f, w_chosen, m_cal, parts)
+    print("  whole-procedure leave-one-out of the top-5 contributors at the chosen pair (m recalibrated; rank argmax reported):")
+    for name, c in con.items():
+        print(f"    {name}: rho(candidate) {c['rho']:.4f}, delta {c['delta']:+.4f}; top-5 by rho share: " + ", ".join(f"{r_.name} {r_.rho_share:+.4f}" for r_ in c["top_rho"].itertuples()))
+        for r_ in pd.concat([c["top_rho"], c["top_delta"]]).drop_duplicates("element").itertuples():
+            fl = f[f["element"] != r_.element].copy(); ml, _, _, _, Gl, bl, _ = procedure(fl)
+            gl75 = Gl[np.isclose(Gl["w"], W_PRIOR)].iloc[0]
+            print(f"      drop {r_.name:32s} -> m {ml:.3f}, rank argmax w = {bl['w']:g}, gap to 0.75 {bl['mean'] - gl75['mean']:+.4f}")
+    # ---- P2 and the four conditions at the chosen pair
+    r, pred, real, nwo = written_off_ratio(f, m_cal)
+    print(f"\nP2 -- written-off band ratio after conditioning at m = {m_cal:.3f}: mean p/m {pred:.4f} vs realised {real:.4f} -> {r:.2f} (n {nwo}; was 7.33 unconditional). "
+          f"Pre-registered: <= ~2.5 expected with the 0.30 floor; > ~5 under every variant falsifies the premise. -> {'MET (<= 2.5)' if r <= 2.5 else 'NOT MET (> 2.5)'}{'; ABOVE 5' if r > 5 else ''}")
+    print(f"\nPASS CONDITIONS (section 3, UNCHANGED) on {season} at {cond_pair_line(w_chosen, m_cal)} -- tuning season, NOT evidence:")
+    pass_conditions(f, w_chosen, m_cal, parts)
+    report_pair(f, w_chosen, m_cal, f"{season} tuning season (NOT evidence), conditional spec", n_partial)
+    # ---- the calibration defect P1 surfaced: p_play_any's flat 0.30 floor vs the realised appearance rate on the band (DIAGNOSIS ONLY)
+    hist = pd.read_parquet(REPO / "data/history/all_seasons_fixed.parquet", columns=["season", "element", "GW", "minutes"])
+    hist = hist[hist["season"] == season].groupby(["element", "GW"])["minutes"].sum().reset_index().rename(columns={"GW": "gw"})
+    wo = f[f["p_start"] < 0.25].merge(hist, on=["element", "gw"], how="left"); wo["minutes"] = wo["minutes"].fillna(0)
+    played = (wo["minutes"] > 0).mean(); ps = wo["p_start"].mean(); ppa = wo["p_play_any"].mean()
+    c_fit = (played - ps) / (1.0 - ps)
+    print(f"\nDIAGNOSIS (not adopted; a minutes-model change needing its own pre-registration): on the written-off band p_play_any {ppa:.3f} vs realised took-part {played:.3f} "
+          f"(p_start {ps:.3f} vs realised started -- see P1). Refitting the flat substitute floor so the band mean matches: 0.30 -> {c_fit:.3f}.")
+    print(f"  {'variant':44s} {'m':>7s} | {'WO ratio':>8s} | section-3 deltas at w = {w_chosen:g} | conditions")
+    cond_summary(f"ADOPTED: per-book, floor 0.30, unverified={assign}", f, w_chosen, parts)
+    fd = population(load_conditional(season, assign_unverified=assign, sub_floor=c_fit), lo, hi); fd = fd[fd["priced"]].copy()
+    cond_summary(f"diag: per-book, floor refit {c_fit:.3f}", fd, w_chosen, partitions(fd))
+    # ---- unverified-book sensitivity and the two uniform diagnostics
+    other = "start" if assign == "participation" else "participation"
+    fo = population(load_conditional(season, assign_unverified=other), lo, hi); fo = fo[fo["priced"]].copy()
+    so = cond_summary(f"sensitivity: unverified books -> {other}", fo, w_chosen, partitions(fo))
+    for mode in ("all-p_play_any", "all-p_start"):
+        fm = population(load_conditional(season, assign_unverified=assign, mode=mode), lo, hi); fm = fm[fm["priced"]].copy()
+        cond_summary(f"diag: {mode} (not selectable)", fm, w_chosen, partitions(fm))
+    print(f"\nWrite '{cond_pair_line(w_chosen, m_cal)}' into a dated '## PRE-REGISTERED VALUE' section of Logs/props_conditional_prereg.md BEFORE any "
+          f"--spec conditional --holdout. 2025-26 has not been read; its per-book file is generated at holdout time by the same builder code.")
+
+
+def conditional_holdout(a):
+    w, mm = a.holdout
+    text = COND_PREREG.read_text(encoding="utf-8") if COND_PREREG.exists() else ""
+    heads = list(re.finditer(r"^## PRE-REGISTERED VALUE", text, flags=re.M))
+    if not heads or cond_pair_line(w, mm) not in text[heads[-1].start():]:
+        print(f"REFUSED: the line '{cond_pair_line(w, mm)}' is not present in the LAST PRE-REGISTERED VALUE section of {COND_PREREG}. "
+              "Write it there first; the sealed season is run once with the pre-registered pair only.")
+        sys.exit(2)
+    season = HOLDOUT_SEASON
+    book_file = REPO / "data" / "odds_props" / f"props_consensus_book_{season}.parquet"
+    if not book_file.exists():
+        print(f"REFUSED: {book_file} does not exist -- build it with eval/build_props_consensus.py --seasons {season} first."); sys.exit(2)
+    m_all = load_conditional(season, assign_unverified=a.assign_unverified)
+    n_partial = int(m_all["partial_double"].eq(True).sum())
+    f = population(m_all, 1, 38)
+    print(f"SEALED {season}, {cond_pair_line(w, mm)} (pre-registered). Outfield singles: {len(f):,}; priced {int(f['priced'].sum()):,}; partial doubles excluded: {n_partial}.")
+    print("coverage: " + coverage_line(f))
+    f = f[f["priced"]].copy(); parts = partitions(f)
+    r, pred, real, nwo = written_off_ratio(f, mm)
+    print(f"P2 on the sealed season: written-off ratio {r:.2f} (n {nwo})")
+    print(f"\nPASS CONDITIONS (section 3) on {season} at {cond_pair_line(w, mm)}:")
+    pass_conditions(f, w, mm, parts)
+    report_pair(f, w, mm, f"SEALED {season}, conditional spec", n_partial)
+
+
 def coverage_line(f):
     parts = partitions(f)
     return "; ".join(f"{name} {f.loc[mask, 'priced'].mean():.1%} of {int(mask.sum())}" for name, mask in parts.items())
@@ -336,10 +508,14 @@ def coverage_line(f):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tune", action="store_true")
+    ap.add_argument("--spec", choices=["unconditional", "conditional"], default="unconditional", help="conditional = Logs/props_conditional_prereg.md")
+    ap.add_argument("--assign-unverified", choices=["participation", "start"], default="participation", help="conditional spec: rule assigned to FanDuel and 1xBet")
     ap.add_argument("--holdout", nargs=2, type=float, metavar=("W", "M"))
     ap.add_argument("--pair", nargs=2, type=float, metavar=("W", "M"), help="report the TUNING season at a given pair (no 2025-26 read)")
     a = ap.parse_args()
-    if a.tune:
+    if a.tune and a.spec == "conditional":
+        conditional_main(a)
+    elif a.tune:
         tune_main(a)
     elif a.pair is not None:
         w, mm = a.pair
@@ -354,6 +530,8 @@ def main():
         print(f"\nPASS CONDITIONS (section 3) on {season} at {pair_line(w, mm)} -- tuning season, NOT evidence:")
         pass_conditions(f, w, mm, parts)
         report_pair(f, w, mm, f"{season} tuning season (NOT evidence)", n_partial)
+    elif a.holdout is not None and a.spec == "conditional":
+        conditional_holdout(a)
     elif a.holdout is not None:
         w, mm = a.holdout
         text = PREREG.read_text(encoding="utf-8") if PREREG.exists() else ""
