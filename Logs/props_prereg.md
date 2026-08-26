@@ -308,3 +308,45 @@ Standing caveats: US-consensus numbers throughout (ADDENDUM 1); 2024-25 baseline
 season total enters this document. 2025-26 has not been read. The sealed season is run ONCE:
 `uv run python eval/measure_props_endpoint.py --holdout 1 1.517`.
 
+---
+
+## ADDENDUM 3 (2026-08-25) — amendment 5: w is set BY PRIOR, not by the data. Made BEFORE any 2025-26 file was opened.
+
+The tuning does not determine w. At the calibrated m the 0.75-vs-1.0 gap in MEAN Spearman is 0.0004 — roughly 50×
+under the 0.020 pass margin — and leave-one-out of any one of Isak, Haaland, Mbeumo, Bowen or Amad Diallo flips the
+argmax. A rule that five individual players can flip has not measured anything.
+
+**Amendment 5.** w = 0.75, by prior. Reason: shrinkage — when two options are indistinguishable, retaining a quarter
+of the incumbent limits exposure to a market failure (a mispriced board, a book pulling prices, a thin week). **The
+data did NOT choose this value.** That is recorded as the point of the amendment: a w presented as measured, when
+five players flip it, would not be honest. The §5 rank surface is still reported for information.
+
+**m stays as calibrated (1.517) and was NOT recomputed.** Amendment 4 defines m on the market alone —
+m = mean market P(≥1) / mean realised on likely starters, i.e. w = 1 by definition — so its value does not depend on
+w. What does depend on w is the calibration of the BLEND, reported here rather than folded into m: at
+(0.75, 1.517) the blend's mean P(≥1) on likely starters is 0.112 against a realised 0.108 (ratio 1.04; the 25% of
+the incumbent brings a quarter of its own 13% over-prediction), squad-relevant 0.235 vs 0.227 (1.035), full starter
+band 0.112 vs 0.107. Recomputing m to absorb the incumbent's miscalibration would be tuning the market's scalar to
+fix the model's level — a different defect, not this one.
+
+The §3 pass condition is unchanged.
+
+---
+
+## PRE-REGISTERED VALUE (2026-08-25, supersedes both earlier entries; written before any 2025-26 file was opened)
+
+w = 0.75, m = 1.517
+
+**w = 0.75 is set BY PRIOR (amendment 5). The data did not choose it.** m = 1.517 by calibration (amendment 4).
+
+§3 conditions on the tuning season at this pair (NOT evidence; on file before 2025-26 is spent):
+(1) likely starters +0.0085 < +0.020 → FAIL (squad-relevant +0.0220 passes; both non-negative);
+(2) written-off band −0.0283 → FAIL; (3) Brier likely starters 0.0879 → 0.0861, squad-relevant 0.1677 → 0.1584 →
+PASS. Overall FAIL on 2024-25. Rank deltas: likely +0.0085, squad +0.0220, uncertain +0.0221, full starter band
++0.0090, written-off −0.0283. Output of record: `Logs/props_tuning_log.md` (`--pair 0.75 1.517` section).
+
+This pair is the sealed-season candidate for the UNCONDITIONAL specification (λ = w·λ_mkt + (1 − w)·λ_model). The
+conditional-rate specification has its own pre-registration, `Logs/props_conditional_prereg.md`, and its own value
+line; the holdout is spent once, on whichever specification is believed at that point, and has not been run for
+either. `uv run python eval/measure_props_endpoint.py --holdout 0.75 1.517` is the command for this one.
+

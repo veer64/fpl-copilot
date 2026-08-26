@@ -37,7 +37,7 @@ def load(season):
     tag = season.replace("-", "_")
     wf = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}.parquet",
                          columns=["cutoff", "gw", "element", "name", "position", "team", "e_points", "p_start",
-                                  "e_minutes", "e_goals", "n_fixtures"])
+                                  "e_minutes", "e_goals", "n_fixtures", "p_play_any", "p_60plus"])
     own = wf[wf["cutoff"] == wf["gw"]].copy()
     own["rk"] = own.groupby("gw")["e_points"].rank(ascending=False, method="first")   # on the incumbent's full view
     cons = pd.read_parquet(REPO / "data" / "odds_props" / f"props_consensus_{season}.parquet")
@@ -337,9 +337,23 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tune", action="store_true")
     ap.add_argument("--holdout", nargs=2, type=float, metavar=("W", "M"))
+    ap.add_argument("--pair", nargs=2, type=float, metavar=("W", "M"), help="report the TUNING season at a given pair (no 2025-26 read)")
     a = ap.parse_args()
     if a.tune:
         tune_main(a)
+    elif a.pair is not None:
+        w, mm = a.pair
+        season, (lo, hi) = TUNE_SEASON, TUNE_GW
+        m_all = load(season); n_partial = int(m_all["partial_double"].eq(True).sum())
+        f = population(m_all, lo, hi); f = f[f["priced"]].copy(); parts = partitions(f)
+        print(f"TUNING SEASON {season} GW{lo}-{hi} at the given pair {pair_line(w, mm)} (no 2025-26 file read)")
+        print("  design-time appearance probabilities by partition (cutoff quantities, no outcomes): n, mean p_start, mean p_play_any, mean p_60plus, mean market p/m")
+        for name, mask in parts.items():
+            g = f[mask]
+            print(f"    {name:34s} n {len(g):5d}  p_start {g['p_start'].mean():.3f}  p_play_any {g['p_play_any'].mean():.3f}  p_60plus {g['p_60plus'].mean():.3f}  p/m {(g['p_mkt_gw'] / mm).mean():.4f}")
+        print(f"\nPASS CONDITIONS (section 3) on {season} at {pair_line(w, mm)} -- tuning season, NOT evidence:")
+        pass_conditions(f, w, mm, parts)
+        report_pair(f, w, mm, f"{season} tuning season (NOT evidence)", n_partial)
     elif a.holdout is not None:
         w, mm = a.holdout
         text = PREREG.read_text(encoding="utf-8") if PREREG.exists() else ""
@@ -358,7 +372,7 @@ def main():
         f = f[f["priced"]].copy()
         report_pair(f, w, mm, f"SEALED {season}", n_partial)
     else:
-        ap.error("--tune or --holdout W M")
+        ap.error("--tune, --pair W M or --holdout W M")
 
 
 if __name__ == "__main__":

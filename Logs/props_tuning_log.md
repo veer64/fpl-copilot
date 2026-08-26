@@ -303,3 +303,54 @@ PASS CONDITIONS (section 3, UNCHANGED) evaluated on 2024-25 -- the tuning season
 
 Salah guard passed. Write 'w = 1, m = 1.517' into a NEW dated '## PRE-REGISTERED VALUE' section of Logs/props_prereg.md (the guard reads the LAST such section) BEFORE running --holdout. 2025-26 has not been read.
 ```
+
+---
+
+## Tuning season at the prior pair (2026-08-25) — `--pair 0.75 1.517`, ADDENDUM 3 / amendment 5. No 2025-26 file opened.
+
+w = 0.75 by prior (the data did not choose it); m = 1.517 by calibration, not recomputed (market-alone definition).
+The design-time appearance probabilities printed first are cutoff quantities (no outcomes) and are the inputs to the
+predictions in `Logs/props_conditional_prereg.md`.
+
+### Output of record (verbatim)
+
+```
+TUNING SEASON 2024-25 GW8-38 at the given pair w = 0.75, m = 1.517 (no 2025-26 file read)
+  design-time appearance probabilities by partition (cutoff quantities, no outcomes): n, mean p_start, mean p_play_any, mean p_60plus, mean market p/m
+    likely starters                    n  3924  p_start 0.896  p_play_any 0.927  p_60plus 0.841  p/m 0.1076
+    squad-relevant                     n   622  p_start 0.912  p_play_any 0.938  p_60plus 0.862  p/m 0.2076
+    uncertain                          n   361  p_start 0.722  p_play_any 0.806  p_60plus 0.647  p/m 0.1125
+    full starter band                  n  4285  p_start 0.881  p_play_any 0.917  p_60plus 0.825  p/m 0.1080
+    written off (no e_minutes floor)   n  4716  p_start 0.057  p_play_any 0.340  p_60plus 0.046  p/m 0.0933
+
+PASS CONDITIONS (section 3) on 2024-25 at w = 0.75, m = 1.517 -- tuning season, NOT evidence:
+  (1) +0.020 on BOTH decision partitions: likely +0.0085, squad +0.0220 -> FAIL; non-negative this season: yes
+  (2) written-off band not worse by > 0.020: -0.0283 -> FAIL
+  (3) Brier not worse on either decision partition: likely starters 0.0879->0.0861; squad-relevant 0.1677->0.1584 -> PASS
+  overall on this season: FAIL
+
+--- 2024-25 tuning season (NOT evidence): w = 0.75, m = 1.517 vs incumbent (w = 0) on the common population; partial doubles excluded: 24 ---
+  partition                               n   Spearman inc  Spearman cand    delta
+  likely starters                      3924         0.2750         0.2835  +0.0085
+  squad-relevant                        622         0.2866         0.3086  +0.0220
+  uncertain                             361         0.3172         0.3392  +0.0221
+  full starter band                    4285         0.2784         0.2874  +0.0090
+  written off (no e_minutes floor)     4716         0.1401         0.1118  -0.0283
+  secondary (incumbent -> candidate):
+    likely starters                    Brier 0.0879->0.0861  logloss 0.3032->0.2976  mean pred/realised 0.122/0.108->0.112/0.108  MAE 0.1986->0.1925  RMSE 0.3430->0.3334  MAE by outcome 0/1/2+ 0.125/0.735/1.671 -> 0.112/0.782/1.781
+    squad-relevant                     Brier 0.1677->0.1584  logloss 0.5080->0.4853  mean pred/realised 0.306/0.227->0.235/0.227  MAE 0.4215->0.3737  RMSE 0.5324->0.4946  MAE by outcome 0/1/2+ 0.355/0.505/1.512 -> 0.253/0.638/1.682
+    uncertain                          Brier 0.0793->0.0786  logloss 0.2707->0.2710  mean pred/realised 0.113/0.100->0.113/0.100  MAE 0.1835->0.1865  RMSE 0.3178->0.3138  MAE by outcome 0/1/2+ 0.113/0.739/1.702 -> 0.113/0.776/1.720
+    full starter band                  Brier 0.0872->0.0855  logloss 0.3004->0.2954  mean pred/realised 0.121/0.107->0.112/0.107  MAE 0.1973->0.1920  RMSE 0.3410->0.3318  MAE by outcome 0/1/2+ 0.124/0.735/1.674 -> 0.112/0.782/1.776
+    written off (no e_minutes floor)   Brier 0.0121->0.0174  logloss 0.0561->0.1038  mean pred/realised 0.013/0.013->0.074/0.013  MAE 0.0254->0.0886  RMSE 0.1244->0.1469  MAE by outcome 0/1/2+ 0.013/0.945/2.104 -> 0.078/0.855/2.032
+  reliability deciles, full starter band (incumbent | candidate): n, mean predicted P(>=1), realised
+    d0: n  429  0.016/0.023 | 0.029/0.028
+    d1: n  428  0.026/0.030 | 0.039/0.026
+    d2: n  429  0.036/0.040 | 0.047/0.040
+    d3: n  428  0.050/0.028 | 0.056/0.035
+    d4: n  429  0.066/0.044 | 0.069/0.035
+    d5: n  428  0.088/0.084 | 0.088/0.070
+    d6: n  428  0.122/0.119 | 0.115/0.110
+    d7: n  429  0.167/0.170 | 0.156/0.168
+    d8: n  428  0.235/0.213 | 0.208/0.222
+    d9: n  429  0.406/0.317 | 0.311/0.336
+```
