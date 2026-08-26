@@ -61,11 +61,12 @@ def replay_state(log, df, through_gw):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", required=True)
+    ap.add_argument("--tc2", type=int, default=None, help="schedule Triple Captain 2 IN-SIM at this gameweek (rule of record: earliest H2 double not already holding a chip; p4 log 12c ii). Captain = the MIP's own cap variable at that deadline (argmax step-0 e_points in the XI); no post-deadline information.")
     ap.add_argument("--arm", required=True, choices=["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel"])
     a = ap.parse_args()
     season, arm, tag = a.season, a.arm, a.season.replace("-", "_")
     ARMS_DIR.mkdir(parents=True, exist_ok=True)
-    out = ARMS_DIR / f"armlog_{tag}_{arm}.parquet"
+    out = ARMS_DIR / (f"armlog_{tag}_{arm}_tc2.parquet" if a.tc2 else f"armlog_{tag}_{arm}.parquet")
     if out.exists():
         print(f"skip existing {out.name}"); return
     simulator.OPENING_HORIZON_ACTIVE = False
@@ -100,6 +101,9 @@ def main():
         assert start_gw > 1, "baseline8 is the GW8-start like-for-like check; this season runs in full"
     bb1, bb2 = rfs.BB1[(season, OPENING)], rfs.BB2[season]
     sched = dict(wildcard_gws=[WC1, rfs.WC2[season]], free_hit_gws=rfs.FH2[season], bench_boost_gw=[bb1, bb2])
+    if a.tc2:
+        assert a.tc2 >= 20 and a.tc2 not in {WC1, rfs.WC2[season], rfs.FH2[season], bb1, bb2}, "TC2 must be a second-half week holding no other chip"
+        sched["triple_captain_gw"] = int(a.tc2)
     initial = None; gws = None
     if start_gw > 1:
         canon = simulator.load_season(walkforward_path=str(REPO / "data" / f"walkforward_h6_{tag}.parquet"), horizon_aware=True, season=season)
@@ -112,7 +116,7 @@ def main():
     played = set(int(g) for g in log["gw"])
     if start_gw > 1:
         played |= set(int(g) for g in ref["gw"] if g < start_gw)
-    check_chip_schedule({"wildcard": [WC1, rfs.WC2[season]], "free_hit": [rfs.FH2[season]], "bench_boost": [bb1, bb2], "triple_captain": []},
+    check_chip_schedule({"wildcard": [WC1, rfs.WC2[season]], "free_hit": [rfs.FH2[season]], "bench_boost": [bb1, bb2], "triple_captain": [a.tc2] if a.tc2 else []},
                         played_gws=played, source=out.name)
     if arm == "baseline8":
         r = ref.set_index("gw").loc[start_gw:, "points"].to_numpy(); s = log.set_index("gw")["points"].to_numpy()
@@ -127,6 +131,7 @@ def main():
     log["resume_from"] = f"fslog_{tag}_{OPENING}_wc{WC1}.parquet@GW{start_gw - 1}" if start_gw > 1 else "none"
     log["props_active"] = arm in ("props", "both"); log["horizon_minutes_active"] = arm in ("hmin", "both")
     log["penalty_fix_active"] = arm in ("penfix", "cal_penfix"); log["topend_cal_active"] = arm in ("cal", "cal_penfix"); log["bonus_mode"] = {"bonusow": "outcome", "bonusdel": "delete"}.get(arm, "incumbent")
+    log["tc2_gw"] = int(a.tc2) if a.tc2 else -1
     log["segment_total"] = int(log["points"].sum())
     log["final_total"] = int(state.total_points)
     tmp = out.with_suffix(".tmp.parquet"); log.to_parquet(tmp, index=False); tmp.replace(out)

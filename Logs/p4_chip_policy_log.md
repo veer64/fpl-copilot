@@ -529,3 +529,35 @@ unchanged, but every chip-inclusive figure quoted in §8–§12c was produced on
 (preserved as `walkforward_h6_{season}_prebonusdel.parquet`). Reads that select a week from predictions (TC1)
 are taken from those files for the reference cells; new runs under the adopted canonical are labelled
 `bonus_mode=delete`. Figures across the boundary are not comparable without saying so.
+
+## 15. Triple Captain 2 scheduled IN-SIM on the rule of record (2026-08-26) — the first legal, non-hindsight TC2 valuation
+
+Arm: bonus-delete (`BONUS_MODE = "delete"`, adopted), reference config (WC1@2, WC2/FH2/BB1/BB2 rules of record,
+H = 6, decay 0.45), with TC2 scheduled at the §12c (ii) week — the EARLIEST second-half double holding no other chip:
+**GW25 / GW24 / GW26** (derived from the calendar on the delete frames; H2 doubles 2023-24 {25:4, 28:2, 34:7, 35:2,
+37:6}, 2024-25 {24:2, 25:2, 32:2, 33:4}, 2025-26 {26:2, 33:6, 36:2}). `eval/run_arms_full_system.py --arm bonusdel
+--tc2 <gw>`; report `eval/measure_tc2_insim.py`; artefacts `data/arms/armlog_{season}_bonusdel_tc2.parquet`.
+
+**How the captain is chosen — no post-deadline information.** The simulator's Triple Captain flag touches scoring
+only (`score_gameweek(triple_captain=True)`); `transfer_mip.py` has no chip variable, so at the TC2 deadline the
+captain is the solver's ordinary `cap` variable — the argmax of step-0 `e_points` within the chosen XI, computed
+from cutoff-`tc2` predictions alone. Verified: in every season the captain is the squad's top step-0 e_points
+player at that cutoff and doubles that week (Haaland 15.22 ×2; Salah 15.85 ×2; Gabriel 11.61 ×2).
+
+**The path does not move.** Squads, transfers and captains are identical to the delete arm in all 38 gameweeks of
+all three seasons; the only per-gameweek point difference is at the TC2 week, equal to the extra captain multiple.
+So the chip read is cleanly separable from the path (path movement +0 / +0 / +0). Chip weeks otherwise unchanged;
+`check_chip_schedule` PASS on the effective schedule incl. TC1 and TC2 in every season.
+
+| season | TC2 week | captain (e_points at deadline) | realised read | path delete → delete+TC2 | chip-inclusive delete → **delete+TC2** | vs reference |
+|---|---|---|---|---|---|---|
+| 2023-24 | GW25 | Haaland (15.22, ×2) | **+10** | 2216 → 2226 | 2241 → **2251** | −45 (ref 2296) |
+| 2024-25 | GW24 | Salah (15.85, ×2) | **+29** | 2220 → 2249 | 2277 → **2306** | +12 (ref 2294) |
+| 2025-26 | GW26 | Gabriel (11.61, ×2) | **+7** | 2213 → 2220 | 2261 → **2268** | +62 (ref 2206) |
+
+Mean TC2 read +15.3 (the legal-week averages in `Logs/tc2_valuation_log.md` were 7.8 / 9.7 / 4.9, doubles
+9.3 / 25.3 / 9.0 — the rule lands on a doubling captain every time, which is what it was built to guarantee).
+The reference cells still score TC2 as zero; the like-for-like comparison against them is delete-arm + this read.
+Standing framing: single draws, sd ~60; 2024-25's +29 is the Salah season (13.8% concentration; a 97th-percentile
+reference); seasons co-move. User-facing number, not adoption evidence; the bonus-delete adoption rests on its
+component metrics and is not revisited here.
