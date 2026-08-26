@@ -56,6 +56,21 @@ D1_TERMS_ACTIVE = True
 # False unless the step-3 negative is re-litigated with new evidence.
 CS_UNIFIED = False
 
+# Penalty-term CORRECTNESS FIX (Logs/penalty_fix_prereg.md, 2026-08-26). The D1
+# penalty term never acted: `penalty_share` is prior-season penalty GOALS PER
+# GAME (a rate, not a share), it was multiplied by a "team rate" built from
+# penalties MISSED (mean 0.02), the Understat join read the SAME season as the
+# one being predicted (a leak the tiny factor hid), and the position fallback
+# grouped on Understat labels that never match FPL's, so 29% of rows carried a
+# hard-coded 0.05. League-wide the term predicted 1.3 / 0.9 / 1.4 penalty goals
+# per season against 96 / 69 / 77 realised. Gate ON: prior-season join,
+# first-letter position fallback, e_goals += pen_rate_prior * minutes_frac (no
+# team factor). Gate OFF reproduces the pre-fix equation bit-exactly. Stamped
+# per row as `penalty_fix_active` by every walk-forward writer (the #13 lesson).
+# Rests False until the pre-registered measurement passes and adoption is a
+# deliberate step; a build script flips it in-process for the _penfix files.
+PENALTY_FIX_ACTIVE = False
+
 # Player-prop feature hook: None in production. eval/walkforward_arms.py sets
 # it to a squad/props_feature.PropsHook for the season-figure arms only.
 PROPS_HOOK = None
@@ -89,7 +104,7 @@ FIXTURE_KEY = ["element", "gw", "fixture"]
 
 # Additive quantities: summed across a player's fixtures.
 SUM_COLS = ["minutes", "actual_points", "e_minutes", "minutes_frac",
-            "e_goals", "e_assists", "pts_goals", "pts_assists", "pts_appear",
+            "e_goals", "e_pen_goals", "e_assists", "pts_goals", "pts_assists", "pts_appear",
             "pts_cs", "pts_dc", "pts_saves", "pts_conceded", "pts_cards",
             "e_points_core", "exp_bonus", "e_points"]
 
@@ -447,8 +462,11 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
     us["penalty_share"] = (us["pen_goals"] / (us["games_numeric"] + 1)).fillna(0)
     us["understat_id_num"] = pd.to_numeric(us["id"], errors="coerce")
 
-    # For each season in v_full, map to the prior-season Understat penalty share
-    # E.g., 2025-26 players look up their 2024-25 Understat record
+    # Understat labels a season by its START year ("2025" = 2025-26). The
+    # pre-fix code joined season_year (2025 for 2025-26) to understat_season
+    # 2025 -- the season being PREDICTED, a leak -- while its comment claimed
+    # the prior season. Under PENALTY_FIX_ACTIVE the join year is season_year-1,
+    # which is what the comment always intended. See Logs/penalty_fix_prereg.md.
     us_map = us[["understat_id_num", "understat_season", "penalty_share"]].copy()
     us_map["understat_season"] = pd.to_numeric(us_map["understat_season"], errors="coerce").astype(int)
 
@@ -456,16 +474,33 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
     v_full = v_full.merge(cw[["element", "understat_id"]], on="element", how="left")
     v_full["understat_id_num"] = pd.to_numeric(v_full["understat_id"], errors="coerce")
     v_full["season_year"] = pd.to_numeric(v_full["season"].str[:4], errors="coerce").astype(int)
+    v_full["_pen_join_year"] = (v_full["season_year"] - 1 if PENALTY_FIX_ACTIVE
+                                else v_full["season_year"])
 
-    # Join penalty share from prior season (e.g., 2024-25 data for 2025-26 prediction)
     v_full = v_full.merge(us_map,
-                          left_on=["understat_id_num", "season_year"],
+                          left_on=["understat_id_num", "_pen_join_year"],
                           right_on=["understat_id_num", "understat_season"],
                           how="left", suffixes=("", "_us"))
-    # For missing matches, use position-based fallback
-    pen_share_prior = us.groupby("position")["penalty_share"].mean()
-    v_full["penalty_share"] = v_full["penalty_share"].fillna(
-        v_full["position"].map(pen_share_prior).fillna(0.05))  # conservative default
+    if PENALTY_FIX_ACTIVE:
+        # Fallback for players with no prior-season Understat record: the mean
+        # prior-season pen-goal rate by FPL position, with the Understat label
+        # mapped by its FIRST letter (F/M/D/G). The pre-fix fallback grouped on
+        # raw Understat labels ("F M S") and was mapped from FPL labels, so it
+        # matched nothing but GK and 29% of rows fell to the hard-coded 0.05.
+        prior_year = int(season[:4]) - 1
+        prior_us = us[pd.to_numeric(us["understat_season"], errors="coerce") == prior_year]
+        fpl_pos = (prior_us["position"].astype(str).str.strip().str[:1]
+                   .map({"F": "FWD", "M": "MID", "D": "DEF", "G": "GK"}))
+        pen_share_prior = prior_us.groupby(fpl_pos)["penalty_share"].mean()
+        pen_share_prior["GK"] = 0.0
+        v_full["penalty_share"] = v_full["penalty_share"].fillna(
+            v_full["position"].map(pen_share_prior)).fillna(0.0)
+    else:
+        # For missing matches, use position-based fallback (pre-fix behaviour,
+        # kept bit-exact for reproducibility of existing artefacts)
+        pen_share_prior = us.groupby("position")["penalty_share"].mean()
+        v_full["penalty_share"] = v_full["penalty_share"].fillna(
+            v_full["position"].map(pen_share_prior).fillna(0.05))  # conservative default
 
     # Team penalty rate: expected pens per match for each team-season
     # Compute from the full season data: realized penalties / (38 matches or actual gameweek count)
@@ -491,7 +526,7 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
         asm["position"].map(card_y90)).fillna(0)
     asm["red_per_90"] = asm["red_per_90"].fillna(
         asm["position"].map(card_r90)).fillna(0)
-    asm["penalty_share"] = asm["penalty_share"].fillna(0.05)
+    asm["penalty_share"] = asm["penalty_share"].fillna(0.0 if PENALTY_FIX_ACTIVE else 0.05)
     asm["team_pen_rate"] = asm["team_pen_rate"].fillna(0.08)
 
     return _finish_equation(asm, bps_model, bps_to_bonus, BPS_FEATURES,
@@ -553,10 +588,18 @@ def _finish_equation(asm, bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
         # Cards: -1 yellow, -3 red (all positions)
         a["pts_cards"] = -(a["yellow_per_90"] * 1 + a["red_per_90"] * 3) * a["minutes_frac"]
 
-        # Penalty share: add to E[goals]
-        # E[goals] = npxg90 * minutes_frac * fixture_scale + pen_share * team_pen_rate * minutes_frac
-        a["e_goals"] = (a["npxg90"] * a["minutes_frac"] * a["fixture_scale"] +
-                        a["penalty_share"] * a["team_pen_rate"] * a["minutes_frac"])
+        # Penalty goals: add to E[goals]. `npxg90` excludes penalties at source
+        # (understat_matches.py derives npxG = xG - penalty-shot xG), so this is
+        # the only place penalties enter.
+        if PENALTY_FIX_ACTIVE:
+            # pen goals per game (prior season) x expected minutes fraction.
+            # The rate already embeds the team's penalty frequency; no team factor.
+            a["e_pen_goals"] = a["penalty_share"] * a["minutes_frac"]
+        else:
+            # PRE-FIX form, reproduced bit-exactly: multiplied by a "team rate"
+            # built from penalties MISSED (~0.02) -- ~50x too small.
+            a["e_pen_goals"] = a["penalty_share"] * a["team_pen_rate"] * a["minutes_frac"]
+        a["e_goals"] = a["npxg90"] * a["minutes_frac"] * a["fixture_scale"] + a["e_pen_goals"]
 
         # Recalculate pts_goals with updated e_goals
         a["pts_goals"] = a["e_goals"] * a["position"].map(GOAL_PTS)

@@ -169,6 +169,9 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
     # CS/conceded unified on opp_lambda or not. Equation-changing flag ->
     # stamped (the #13 lesson). See assembly.CS_UNIFIED.
     result["cs_unified"] = bool(assembly.CS_UNIFIED)
+    # Penalty-term correctness fix (Logs/penalty_fix_prereg.md). Equation-
+    # changing flag -> stamped from the gating constant (#13 lesson).
+    result["penalty_fix_active"] = bool(assembly.PENALTY_FIX_ACTIVE)
     # Attacking-rate source: k=8 blend vs legacy static. See
     # attacking_rates.RATE_BLEND_ACTIVE and Logs/rate_blend_log.md.
     result["rate_blend_active"] = bool(rates_mod.RATE_BLEND_ACTIVE)

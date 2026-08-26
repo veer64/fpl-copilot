@@ -62,6 +62,15 @@ rolling per-player rate is a spike detector: on GK starters its mean was −0.13
 points with SD 0.72, and it was anti-correlated with realised points
 (r ≈ −0.13). Saves (−0.101) and conceded (−0.126) interact sub-additively;
 penalty share moved nothing at any position (≤0.001).
+> **CORRECTION 2026-08-26 (Logs/penalty_fix_prereg.md, KNOWN_ISSUES #19):** the penalty
+> term did not move anything because it never functioned. `penalty_share` is prior-season
+> penalty GOALS PER GAME (a rate, not a share), it was multiplied by a "team rate" built
+> from penalties MISSED (mean 0.02), and the Understat join read the season being
+> predicted rather than the prior one. League-wide the term predicted 1.3 / 0.9 / 1.4
+> penalty goals per season against 96 / 69 / 77 realised. "Moved nothing" was the bug
+> swallowing the feature, not the feature being inert. The corrected form is gated
+> (`assembly.PENALTY_FIX_ACTIVE`, stamped `penalty_fix_active`) and measured under its
+> own pre-registration; D1's adoption is otherwise unaffected.
 
 **Variant B** replaces the per-player rolling card rate with a position-level
 base rate — realised cards per 90 by position, computed from PRIOR SEASONS

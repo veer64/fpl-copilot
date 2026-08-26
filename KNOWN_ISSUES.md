@@ -967,3 +967,59 @@ appearance term for non-60 appearances), the bench-order rule, the blank fill --
 (3) fit the substitute probability (the horizon_minutes module already carries an isotonic `p_sub` model per step
 that the step-0 equation never reads -- the obvious candidate) on prior seasons only; (4) measure on the
 pre-registered decision partitions, not the aggregate; (5) rebuild the canonicals and stamp the change.
+
+## #19 -- the D1 penalty term never acted: a rate multiplied by a "team rate" built from penalties MISSED, joined to the wrong season, with a fallback that matched nothing -- OPEN (fix gated, measured under Logs/penalty_fix_prereg.md)
+
+**Status:** Found 2026-08-26 (read-only diagnosis, `Logs/headroom_diagnosis.md`; verified at source while
+pre-registering the fix). Corrected form gated behind `assembly.PENALTY_FIX_ACTIVE` (rests False), stamped
+`penalty_fix_active` by all three walk-forward writers; `_penfix` artefacts built for measurement; canonicals
+untouched until adoption. **Seventh member of the silent-fallback family** (#10, #13, #14, #15, #16, the D4
+near-miss): a term that entered the equation, was reported as "moved nothing (<= 0.001)" and accepted as inert,
+when it was a product of three defects that multiplied to ~0.
+
+### What was wrong (`squad/assembly.py`, D1 feature build and `_finish_equation`)
+
+1. `penalty_share = (goals - npg) / (games + 1)` from the Understat season aggregate is the player's penalty
+   GOALS PER GAME -- a rate that already embeds how often his team wins penalties -- not a share of the team's
+   penalties. The equation then multiplied it by a team rate, applying the frequency twice.
+2. `team_pen_rate = sum(penalties_missed) / n_gameweeks` per (season, team): penalties MISSED (11 / 14 / 15
+   league-wide per season, series mean 0.020, max 0.054), not penalties awarded. Net effect: the term predicted
+   **1.3 / 0.9 / 1.4 penalty goals per season league-wide** vs 96 / 69 / 77 realised (Understat).
+3. The Understat join used `season_year = int(season[:4])` against `understat_season`, and Understat labels a
+   season by its START year ("2025" = 2025-26), so 2025-26 rows read their OWN season's penalty goals -- a leak
+   of the outcome, numerically invisible only because of (2). The code comment says "prior season".
+4. The position fallback grouped on raw Understat labels ("F M S", "D M") and was mapped from FPL labels
+   (DEF/MID/FWD): nothing matched but GK, and **28.9% of canonical 2025-26 step-0 rows carry the hard-coded
+   0.05/game default** -- higher than every real taker's rate but the top four. Also hidden by (2).
+
+`npxg90` excludes penalties at source (`eval/understat_matches.py`: npxG = xG - penalty-shot xG), so the
+model has believed since D1 that nobody takes penalties. The error lands entirely on penalty takers -- the
+premium captain candidates -- at ~0.4-0.6 points per game for a MID taker.
+
+### Why it is in this file
+
+Three defects that individually would have been loud (a term predicting 55-70 league-wide penalty goals with a
+same-season leak would have shown up as an implausible rank gain; a 0.05 default on 29% of rows would have
+inflated fringe players) cancelled into a term small enough to be reported as inert and adopted as such. The
+d1_log measurement was correct; its interpretation ("penalty share is negligible") was the failure. The
+family lesson, seventh confirmation: **a term measured at ~0 needs a level sanity check against a known
+total** (here: predicted vs realised penalty goals per season) before "inert" is accepted -- a rank endpoint
+cannot distinguish a small effect from a broken one.
+
+### The fix and its guard
+
+Gate ON: prior-season join (`season_year - 1`), first-letter position fallback (F/M/D/G -> FWD/MID/DEF/GK, GK 0),
+`e_goals += penalty_share * minutes_frac` (no team factor). Gate OFF reproduces the pre-fix equation bit-exactly
+(`eval/run_penalty_fix.py --check`: max |diff| 0.0 over 4,401 rows at 2024-25 cutoff 20).
+`Tests/test_penalty_fix.py` pins both forms and that the gate rests False. Pass conditions, revert triggers and
+the league-wide penalty-goal sanity target are pre-registered in `Logs/penalty_fix_prereg.md` section 4; the
+`e_pen_goals` column (in SUM_COLS) makes the term's level auditable on every artefact from now on.
+
+### To close
+
+Run the pre-registered measurement; on PASS flip the gate, promote the `_penfix` files (preserving the current
+canonicals as `*_prepenfix.parquet`), update the provenance fingerprint deliberately, add `penalty_fix_active`
+to the required-stamp list in `Tests/test_walkforward_provenance.py`, and re-read every downstream figure that
+depends on e_goals at the top of the distribution (captaincy, hits, the props comparison). Two constructions
+that would be features, not fixes, are excluded until pre-registered: blending current-season penalties taken
+to date, and team-penalties-AWARDED x taker share x conversion.
