@@ -84,6 +84,31 @@ PENALTY_FIX_ACTIVE = False
 TOPEND_CAL_ACTIVE = False
 FIXTURE_SCALE_GAMMA = 1.0
 
+# Bonus term mode (Logs/bonus_rebuild_prereg.md, 2026-08-26). The incumbent
+# feeds a tree trained on REALISED integer goals / assists / clean sheets with
+# EXPECTATIONS (~0.1 goals), lands in the "no goal" leaf for everyone, and
+# renormalises the level per gameweek: rho(exp_bonus, realised bonus) among
+# starters is ~0 (-0.02; top 30 -0.09..-0.18) and top-30 forwards are
+# under-credited 3-4x while keepers/defenders are over-credited.
+#   "incumbent" -- the current term, bit-exact.
+#   "delete"    -- exp_bonus = 0 (e_points = e_points_core).
+#   "outcome"   -- the SAME tree and curve evaluated at INTEGER outcomes and
+#                  weighted by the equation's own Poisson probabilities
+#                  (goals 0-3, assists 0-2, conceded 0-4 with CS = 1{c=0},
+#                  GK saves 0-8); no per-gameweek renormalisation.
+# Stamped per row as `bonus_mode` by every walk-forward writer.
+# ADOPTED "delete" 2026-08-26 (Logs/bonus_delete_prereg.md): DELETE beat the
+# incumbent on both decision partitions (three-season mean +0.005 / +0.006),
+# lowered e_points MAE on starters in every season and narrowed the
+# cross-position error spread; the outcome rebuild carried signal at a
+# quarter of the true level and stays gated as "outcome". KNOWN COST:
+# e_points now omits realised bonus (~0.26 per likely starter per week, more
+# for forwards) -- a low e_points level is this decision, not a defect.
+# KNOWN_ISSUES #20 records the incumbent's renormalisation as a
+# silent-fallback-family member.
+BONUS_MODE = "delete"
+_BONUS_CAPS = {"goals": 3, "assists": 2, "conceded": 4, "saves": 8}
+
 # Player-prop feature hook: None in production. eval/walkforward_arms.py sets
 # it to a squad/props_feature.PropsHook for the season-figure arms only.
 PROPS_HOOK = None
@@ -652,8 +677,24 @@ def _finish_equation(asm, bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
         "goals_conceded": a["opp_lambda"] * a["minutes_frac"],
         "penalties_missed": a["penalty_share"] * 0.1 * a["minutes_frac"],
         "own_goals": 0})
+    if BONUS_MODE == "outcome":
+        # Outcome-weighted evaluation of the same tree and curve; every
+        # goals / assists / clean-sheet / conceded / saves input the tree sees
+        # is an integer from its training support. No renormalisation: the
+        # level is a reported check, not a dial (Logs/bonus_rebuild_prereg.md).
+        e_bps, e_bonus = _bonus_outcome_weighted(a, bps_input, bps_model, bps_to_bonus, BPS_FEATURES)
+        a["pred_bps"] = e_bps
+        a["exp_bonus"] = e_bonus * a["minutes_frac"]
+        a["e_points"] = a["e_points_core"] + a["exp_bonus"]
+        a.attrs["n_exact_duplicate_rows_dropped"] = n_exact_dupes
+        return a
     a["pred_bps"] = bps_model.predict(bps_input[BPS_FEATURES])
     a["exp_bonus"] = bps_to_bonus(a["pred_bps"].values) * a["minutes_frac"]
+    if BONUS_MODE == "delete":
+        a["exp_bonus"] = 0.0
+        a["e_points"] = a["e_points_core"]
+        a.attrs["n_exact_duplicate_rows_dropped"] = n_exact_dupes
+        return a
 
     # Recalibration constant comes from bonus.py (cutoff-respecting, no leak).
     #
@@ -685,6 +726,56 @@ def _finish_equation(asm, bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
     a["e_points"] = a["e_points_core"] + a["exp_bonus"]
     a.attrs["n_exact_duplicate_rows_dropped"] = n_exact_dupes
     return a
+
+
+def _trunc_poisson(mu, cap):
+    """P(k) for k = 0..cap under Poisson(mu), with the tail P(K > cap) folded
+    into k = cap (conservative: under-credits the very best outcomes)."""
+    from scipy.stats import poisson
+    mu = np.clip(np.asarray(mu, dtype=float), 1e-9, None)
+    ks = np.arange(cap + 1)
+    P = poisson.pmf(ks[None, :], mu[:, None])
+    P[:, -1] += np.clip(1.0 - P.sum(axis=1), 0.0, None)
+    return P
+
+
+def _bonus_outcome_weighted(a, bps_input, bps_model, bps_to_bonus, BPS_FEATURES):
+    """E[BPS] and E[bonus] by enumerating integer outcomes of goals, assists,
+    goals conceded (clean sheet = 1{conceded == 0}) and, for goalkeepers,
+    saves, each Poisson on the equation's own rate, independent, tails folded
+    into the caps (Logs/bonus_rebuild_prereg.md section 3). Returns two arrays
+    aligned with `a`."""
+    X = bps_input[BPS_FEATURES].copy().reset_index(drop=True)
+    n = len(X)
+    pg = _trunc_poisson(a["e_goals"].values, _BONUS_CAPS["goals"])
+    pa = _trunc_poisson(a["e_assists"].values, _BONUS_CAPS["assists"])
+    pc = _trunc_poisson((a["opp_lambda"] * a["minutes_frac"]).values, _BONUS_CAPS["conceded"])
+    is_gk = (a["position"].values == "GK")
+    ps = _trunc_poisson((a["saves_per_90"] * a["minutes_frac"]).values, _BONUS_CAPS["saves"])
+    e_bps = np.zeros(n); e_bonus = np.zeros(n)
+
+    def accumulate(rows, weights, g, s_, c, s=None):
+        Xi = X.loc[rows].copy()
+        Xi["goals_scored"] = g; Xi["assists"] = s_; Xi["goals_conceded"] = c
+        Xi["clean_sheets"] = 1 if c == 0 else 0
+        if s is not None:
+            Xi["saves"] = s
+        pred = bps_model.predict(Xi[BPS_FEATURES])
+        e_bps[rows] += weights * pred
+        e_bonus[rows] += weights * bps_to_bonus(pred)
+
+    out_rows = np.where(~is_gk)[0]; gk_rows = np.where(is_gk)[0]
+    for g in range(_BONUS_CAPS["goals"] + 1):
+        for s_ in range(_BONUS_CAPS["assists"] + 1):
+            for c in range(_BONUS_CAPS["conceded"] + 1):
+                if len(out_rows):
+                    w = pg[out_rows, g] * pa[out_rows, s_] * pc[out_rows, c]
+                    accumulate(out_rows, w, g, s_, c)
+                if len(gk_rows):
+                    for s in range(_BONUS_CAPS["saves"] + 1):
+                        w = pg[gk_rows, g] * pa[gk_rows, s_] * pc[gk_rows, c] * ps[gk_rows, s]
+                        accumulate(gk_rows, w, g, s_, c, s)
+    return e_bps, e_bonus
 
 
 def collapse_to_gameweek(af):

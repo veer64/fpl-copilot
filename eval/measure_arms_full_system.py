@@ -11,6 +11,16 @@ from pathlib import Path
 import pandas as pd
 
 REPO = Path(__file__).resolve().parent.parent
+
+def _ref_wf_path(tag):
+    """Predictions the REFERENCE cells were built on. After the 2026-08-26 bonus-term
+    adoption the canonical file changed; the pre-adoption canonical is preserved as
+    _prebonusdel and is the file the reference logs' TC1 selection must be read from,
+    so 2296 / 2294 / 2206 cannot move silently (KNOWN_ISSUES #20)."""
+    from pathlib import Path as _P
+    p = REPO / "data" / f"walkforward_h6_{tag}_prebonusdel.parquet"
+    return p if p.exists() else REPO / "data" / f"walkforward_h6_{tag}.parquet"
+
 sys.path.insert(0, str(REPO / "squad")); sys.path.insert(0, str(REPO / "eval"))
 from chip_legality import check_chip_schedule  # noqa: E402
 import measure_full_system as mfs  # noqa: E402  (avg_manager, load, window, AVG_SUM_EXPECT)
@@ -18,8 +28,10 @@ import measure_full_system as mfs  # noqa: E402  (avg_manager, load, window, AVG
 ARMS = REPO / "data" / "arms"
 P1 = REPO / "data" / "p1"
 SEASONS = ["2023-24", "2024-25", "2025-26"]
-ARM_ORDER = ["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix"]
+ARM_ORDER = ["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel"]
 LABEL = {"baseline8": "baseline re-run from GW8 (like-for-like check)",
+         "bonusow": "G. bonus term REBUILT, outcome-weighted (Logs/bonus_rebuild_prereg.md) -- season figure only",
+         "bonusdel": "H. bonus term DELETED -- season figure only",
          "cal": "E. top-end calibration alone (Logs/topend_calibration_prereg.md) -- season figure only",
          "cal_penfix": "F. top-end calibration + penalty fix -- season figure only",
          "penfix": "D. penalty-term correctness fix (Logs/penalty_fix_prereg.md) -- season figure only, adjudicated on the component read",
@@ -33,7 +45,7 @@ CAVEAT = ("Path noise is sd ~60 for a single draw and ~85 paired; the same endpo
 
 def cap_pred_for(season):
     tag = season.replace("-", "_")
-    wf = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}.parquet", columns=["cutoff", "gw", "element", "name", "e_points"])
+    wf = pd.read_parquet(_ref_wf_path(tag), columns=["cutoff", "gw", "element", "name", "e_points"])
     own = wf[wf["cutoff"] == wf["gw"]]
     return {(int(r.gw), r.name): float(r.e_points or 0) for r in own.itertuples()}
 
@@ -41,8 +53,8 @@ def cap_pred_for(season):
 def cap_pred_arm(season, arm):
     """TC1 is picked on the ARM's own predictions where the arm changes step 0 (props); the refit does not touch step 0."""
     tag = season.replace("-", "_")
-    p = (REPO / "data" / f"walkforward_h6_{tag}_{arm}.parquet") if arm in ("penfix", "cal", "cal_penfix") else (ARMS / f"walkforward_h6_{tag}_{arm}.parquet")
-    if arm in ("props", "both", "penfix", "cal", "cal_penfix") and p.exists():
+    p = (REPO / "data" / f"walkforward_h6_{tag}_{arm}.parquet") if arm in ("penfix", "cal", "cal_penfix", "bonusow", "bonusdel") else (ARMS / f"walkforward_h6_{tag}_{arm}.parquet")
+    if arm in ("props", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel") and p.exists():
         wf = pd.read_parquet(p, columns=["cutoff", "gw", "element", "name", "e_points"])
         own = wf[wf["cutoff"] == wf["gw"]]
         return {(int(r.gw), r.name): float(r.e_points or 0) for r in own.itertuples()}
@@ -102,7 +114,7 @@ def main():
             seg_avg = sum(avg[g] for g in range(start_gw, 39))
             side_p = ARMS / f"walkforward_h6_{tag}_{arm}.json"
             side = json.loads(side_p.read_text(encoding="utf-8")) if side_p.exists() else None
-            n_partial = side["props"]["partial_doubles_excluded"] if side and side.get("props") else ("n/a" if arm in ("hmin", "baseline8", "penfix", "cal", "cal_penfix") else "?")
+            n_partial = side["props"]["partial_doubles_excluded"] if side and side.get("props") else ("n/a" if arm in ("hmin", "baseline8", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel") else "?")
             n_over = side["props"]["overridden_player_fixtures"] if side and side.get("props") else None
             anchors = [("WC2", wc2), ("FH2", fh2), ("BB2", bb2)] + ([("BB1", bb1)] if bb1 >= start_gw else []) + ([("entry", start_gw)] if start_gw > 1 else [("WC1", wc1)])
             aw = {lbl: mfs.window(d, ref, a_) for lbl, a_ in sorted(anchors, key=lambda t: t[1])}

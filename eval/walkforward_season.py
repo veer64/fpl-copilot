@@ -175,6 +175,8 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
     # Top-end calibration (Logs/topend_calibration_prereg.md) -- gate + gamma.
     result["topend_cal_active"] = bool(assembly.TOPEND_CAL_ACTIVE)
     result["fixture_scale_gamma"] = float(assembly.FIXTURE_SCALE_GAMMA)
+    # Bonus term mode (Logs/bonus_rebuild_prereg.md): incumbent / delete / outcome.
+    result["bonus_mode"] = str(assembly.BONUS_MODE)
     # Attacking-rate source: k=8 blend vs legacy static. See
     # attacking_rates.RATE_BLEND_ACTIVE and Logs/rate_blend_log.md.
     result["rate_blend_active"] = bool(rates_mod.RATE_BLEND_ACTIVE)

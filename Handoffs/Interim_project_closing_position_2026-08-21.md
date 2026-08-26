@@ -37,7 +37,12 @@ framing.
 Equation/stamps: `minutes_availability=True`, `odds_horizon_gws=0`,
 `dgw_handling=per_fixture`, `d1_terms_active=True`, `cs_unified=False`,
 `rate_blend_active=True (k=8)`, `synthetic_lambda_active=False`,
-`dc_rule_active` per season (per-player DC post-#15).
+`dc_rule_active` per season (per-player DC post-#15),
+**`bonus_mode=delete` (ADOPTED 2026-08-26, `Logs/bonus_delete_prereg.md`; the expected-bonus term is
+removed from the equation — e_points omits realised bonus, ~0.26 per likely starter per week; the
+pre-adoption canonicals are preserved as `*_prebonusdel.parquet` and reference-cell chip reads are
+taken from them)**, `penalty_fix_active=False`, `topend_cal_active=False` (both measured and NOT
+adopted: `Logs/penalty_fix_prereg.md`, `Logs/topend_calibration_prereg.md`).
 Solver/policy: `DEFAULT_HORIZON=6`, `DEFAULT_DECAY=0.45`, hit bar 4, bench
 weight 0.2, `BENCH_BOOST_AWARE=True`, one Bench Boost per half supported.
 Chips of record: WC1 **GW2–3**; WC2 pre-DGW-cluster swing; FH2 largest
@@ -54,6 +59,11 @@ Measured-and-off gates (all False): `OPENING_HORIZON_ACTIVE`,
 | 2023-24 | 2204 | 2299 | 2003 | +296 |
 | 2024-25 | 2362 | 2301 | 2008 | +293 |
 | 2025-26 | 2032 | 2219 | 1895 | +324 |
+
+> **2026-08-26 — canonical moved (bonus term deleted).** The rows above and the corrected 2296 / 2294 / 2206
+> were produced on the `bonus_mode=incumbent` canonicals (now `*_prebonusdel.parquet`). The system as
+> configured is `bonus_mode=delete`; its full-system figures are in `Logs/bonus_delete_prereg.md` (season
+> figures section). Comparisons across that boundary must state it.
 
 All 24 full-system cells cleared the average manager (+99 to +437).
 

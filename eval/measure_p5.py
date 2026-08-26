@@ -30,6 +30,16 @@ from pathlib import Path
 import pandas as pd
 
 REPO = Path(__file__).resolve().parent.parent
+
+def _ref_wf_path(tag):
+    """Predictions the REFERENCE cells were built on. After the 2026-08-26 bonus-term
+    adoption the canonical file changed; the pre-adoption canonical is preserved as
+    _prebonusdel and is the file the reference logs' TC1 selection must be read from,
+    so 2296 / 2294 / 2206 cannot move silently (KNOWN_ISSUES #20)."""
+    from pathlib import Path as _P
+    p = REPO / "data" / f"walkforward_h6_{tag}_prebonusdel.parquet"
+    return p if p.exists() else REPO / "data" / f"walkforward_h6_{tag}.parquet"
+
 sys.path.insert(0, str(REPO / "squad"))
 from chip_legality import check_chip_schedule  # noqa: E402
 sys.path.insert(0, str(REPO / "squad"))
@@ -101,7 +111,7 @@ def main():
         tag = season.replace("-", "_")
         avg = avg_total(season)
         wf = pd.read_parquet(
-            REPO / "data" / f"walkforward_h6_{tag}.parquet",
+            _ref_wf_path(tag),
             columns=["cutoff", "gw", "element", "name", "position",
                      "e_points", "p_60plus", "p_play_any",
                      "actual_points", "minutes"])

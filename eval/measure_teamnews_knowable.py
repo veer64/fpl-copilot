@@ -12,6 +12,16 @@ import numpy as np
 import pandas as pd
 
 REPO = Path(__file__).resolve().parent.parent
+
+def _ref_wf_path(tag):
+    """Predictions the REFERENCE cells were built on. After the 2026-08-26 bonus-term
+    adoption the canonical file changed; the pre-adoption canonical is preserved as
+    _prebonusdel and is the file the reference logs' TC1 selection must be read from,
+    so 2296 / 2294 / 2206 cannot move silently (KNOWN_ISSUES #20)."""
+    from pathlib import Path as _P
+    p = REPO / "data" / f"walkforward_h6_{tag}_prebonusdel.parquet"
+    return p if p.exists() else REPO / "data" / f"walkforward_h6_{tag}.parquet"
+
 sys.path.insert(0, str(REPO / "squad"))
 from chip_legality import check_chip_schedule  # noqa: E402
 TN = REPO / "data" / "teamnews"
@@ -70,7 +80,7 @@ def main():
         r = load(P1 / f"fslog_{tag}_base_wc2.parquet")
         rt = int(r["final_total"].iloc[0])
         bb1, bb2 = int(r["bb1"].iloc[0]), int(r["bb2"].iloc[0])
-        wf = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}.parquet",
+        wf = pd.read_parquet(_ref_wf_path(tag),
                              columns=["cutoff", "gw", "element", "name",
                                       "e_points", "actual_points"])
         cap_pred = {(int(x.gw), x.name): float(x.e_points or 0)

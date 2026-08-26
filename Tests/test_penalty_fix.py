@@ -98,3 +98,51 @@ def test_topend_gate_off_is_identity_and_on_applies_gamma():
     assert np.allclose(on["e_pen_goals"], off["e_pen_goals"])
     assert np.allclose(on["pts_cs"], off["pts_cs"]) and np.allclose(on["pts_appear"], off["pts_appear"])
     assert assembly.TOPEND_CAL_ACTIVE is False and assembly.FIXTURE_SCALE_GAMMA == 1.0
+
+
+def test_bonus_modes():
+    """Logs/bonus_rebuild_prereg.md: 'incumbent' unchanged; 'delete' -> e_points == core;
+    'outcome' -> weights sum to one (constant tree => constant bonus) and sits on the gate."""
+    old = assembly.BONUS_MODE
+    try:
+        assembly.BONUS_MODE = "incumbent"
+        inc = assembly._finish_equation(_frame(), _ConstBPS(), lambda b: np.asarray(b) * 0.05, bonus.BPS_FEATURES, bonus_mean=0.2)
+        assembly.BONUS_MODE = "delete"
+        dele = assembly._finish_equation(_frame(), _ConstBPS(), lambda b: np.asarray(b) * 0.05, bonus.BPS_FEATURES, bonus_mean=0.2)
+        assembly.BONUS_MODE = "outcome"
+        ow = assembly._finish_equation(_frame(), _ConstBPS(), lambda b: np.asarray(b) * 0.05, bonus.BPS_FEATURES, bonus_mean=0.2)
+    finally:
+        assembly.BONUS_MODE = old
+    assert np.allclose(dele["e_points"], dele["e_points_core"]) and (dele["exp_bonus"] == 0).all()
+    assert np.allclose(ow["e_points_core"], inc["e_points_core"])
+    mf = (ow["e_minutes"] / 90).clip(0, 1)
+    # constant tree: E[curve(20)] = 1.0 per outcome, weights sum to 1 -> exp_bonus == 1.0 * minutes_frac exactly
+    assert np.allclose(ow["exp_bonus"], 1.0 * mf, atol=1e-9)
+    assert np.allclose(ow["pred_bps"], 20.0, atol=1e-9)
+    assert assembly.BONUS_MODE == "delete", "BONUS_MODE resting value moved -- adoption is deliberate (Logs/bonus_delete_prereg.md)"
+
+
+def test_trunc_poisson_folds_tail():
+    P = assembly._trunc_poisson(np.array([0.3, 1.0, 5.0]), 3)
+    assert np.allclose(P.sum(axis=1), 1.0) and P.shape == (3, 4) and P[2, 3] > 0.7
+
+
+def test_canonical_bonus_mode_stamp_matches_code():
+    """The d1_terms_active pattern: source and artefact must agree on the bonus term.
+    Files predating the stamp are skipped (establish their status from the data)."""
+    import pyarrow.parquet as pq
+    root = Path(__file__).resolve().parents[1] / "data"
+    checked = 0
+    for tag in ("2023_24", "2024_25", "2025_26"):
+        p = root / f"walkforward_h6_{tag}.parquet"
+        if not p.exists():
+            continue
+        if "bonus_mode" not in pq.read_schema(p).names:
+            pytest.skip(f"{p.name} predates the bonus_mode stamp")
+        col = pd.read_parquet(p, columns=["bonus_mode"])["bonus_mode"]
+        assert (col == assembly.BONUS_MODE).all(), (
+            f"{p.name} stamped bonus_mode={col.iloc[0]} but assembly.BONUS_MODE={assembly.BONUS_MODE} "
+            "-- source and artefact disagree; rebuild the canonical or flip the constant back, deliberately")
+        checked += 1
+    if checked == 0:
+        pytest.skip("no canonical files present")

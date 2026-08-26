@@ -521,3 +521,11 @@ season totals cannot rank decays (M1). The simulator now stamps `horizon`
 and `decay` into every decision-log row, and `BENCH_BOOST_AWARE = True` is
 the resting state (inert unless a Bench Boost is scheduled;
 property-tested).
+
+## 14. Equation change under the rules of record (2026-08-26)
+
+`assembly.BONUS_MODE = "delete"` adopted (`Logs/bonus_delete_prereg.md`): the chip rules of record are
+unchanged, but every chip-inclusive figure quoted in §8–§12c was produced on the pre-adoption canonicals
+(preserved as `walkforward_h6_{season}_prebonusdel.parquet`). Reads that select a week from predictions (TC1)
+are taken from those files for the reference cells; new runs under the adopted canonical are labelled
+`bonus_mode=delete`. Figures across the boundary are not comparable without saying so.

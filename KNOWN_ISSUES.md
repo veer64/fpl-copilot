@@ -1023,3 +1023,43 @@ to the required-stamp list in `Tests/test_walkforward_provenance.py`, and re-rea
 depends on e_goals at the top of the distribution (captaincy, hits, the props comparison). Two constructions
 that would be features, not fixes, are excluded until pre-registered: blending current-season penalties taken
 to date, and team-penalties-AWARDED x taker share x conversion.
+
+## #20 -- the bonus term's per-gameweek renormalisation manufactured a plausible level on top of a calculation that carried no information about WHO earns bonus -- CLOSED by deleting the term (BONUS_MODE = "delete", adopted 2026-08-26)
+
+**Status:** Found 2026-08-26 (`Logs/headroom_diagnosis.md` §0 item 2), measured under
+`Logs/bonus_rebuild_prereg.md` (three arms) and `Logs/bonus_delete_prereg.md` (adoption). Silent-fallback
+family (#10, #13, #14, #15, #16, #19): a step that produced a reasonable-looking number instead of refusing.
+
+### What was wrong
+
+`squad/bonus.py` trains a LightGBM BPS regressor on REALISED per-match components (integer goals, assists,
+clean sheets, saves, conceded ...) and maps BPS to expected bonus through an empirical curve.
+`squad/assembly.py::_finish_equation` fed that tree EXPECTATIONS -- e_goals ~0.1 among starters, p_cs x p_60plus
+for clean sheets -- so every player landed in the tree's "no goal, no clean sheet" region and pred_bps came out
+33-39 against realised 13-19 with no within-starter ordering: rho(exp_bonus, realised bonus) -0.02 among starters,
+-0.09 to -0.19 on the top 30, top-30 forwards credited at 0.30-0.48 of their realised bonus and keepers at
+1.2-2.1x. The line `exp_bonus *= bonus_mean / gw_mean` then rescaled every gameweek's mean to the historical
+mean bonus. Totals looked right (starter mean 0.24-0.27 vs realised 0.29); the allocation was wrong and
+wrong-signed by position. Deleting the term raised e_points rank on both decision partitions (three-season means
++0.005 / +0.006) and lowered starter MAE in every season.
+
+### Why it is in this file
+
+The renormalisation is the fallback: it existed to fix the LEVEL of a term whose level was wrong, and in doing so
+it hid that the term's INFORMATION was absent. A level check (mean predicted vs realised) passed for a year while
+a rank check against realised bonus -- never run -- would have failed on day one. Family lesson, restated: a
+rescaling step that makes an output "look right" must be paired with a check on the quantity the consumer
+actually uses (here, ordering), or it is a mechanism for hiding defects.
+
+### The fix and its guard
+
+`assembly.BONUS_MODE = "delete"` (adopted; stamped `bonus_mode` per row by all three writers). The outcome-
+weighted rebuild (`"outcome"`: same tree and curve evaluated at integer outcomes, Poisson-weighted, no
+renormalisation) carried real signal (rho +0.13-0.17 on starters) at a quarter of the true level and did not beat
+deletion; it is retained behind the gate as the starting point for any future term with a fitted level (a new
+pre-registration). `Tests/test_penalty_fix.py::test_canonical_bonus_mode_stamp_matches_code` asserts the
+canonicals' stamp equals the code constant. KNOWN COST, recorded in the adoption log: e_points now omits realised
+bonus (~0.26 per likely starter per week; forwards understated by ~0.3-0.6, keepers still over-stated) -- read a
+low e_points level as this decision, not as a model failure. Pre-adoption canonicals preserved as
+`walkforward_h6_{season}_prebonusdel.parquet`; measure scripts that read the reference cells' predictions (TC1
+selection) read that file so 2296 / 2294 / 2206 do not silently move.
