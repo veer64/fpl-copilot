@@ -1,12 +1,15 @@
 """Pre-registered measurement of the player-prop feature (Logs/props_prereg.md sections 1-5 + ADDENDUM 1). Candidate: lambda = w * lambda_mkt(m) + (1 - w) * lambda_model at step 0, with lambda_mkt(m) = -ln(1 - p_consensus / m) from data/odds_props/props_consensus_{season}.parquet and lambda_model = the incumbent's own-cutoff e_goals from the walkforward. Population: single-fixture OUTFIELD player-gameweeks in the starter band (own-cutoff e_minutes >= 60) that the market prices, partial doubles excluded (amendments 2 and 3); the incumbent is scored on the same rows. Primary endpoint: Spearman(lambda, realised goals) pooled over the season on the two decision partitions (likely starters p_start >= .75; squad-relevant top 30 by own-cutoff e_points within the gameweek). Secondary: Brier / log loss on P(>= 1 goal), calibration, MAE / RMSE, outcome-band decomposition, the full starter band and the written-off band (p_start < .25, covered singles, no e_minutes floor -- otherwise empty).
 
-  --tune            2024-25 GW8-38 ONLY: the full w x m grid, selection = max MEAN primary Spearman over the two
-                    decision partitions, ties -> lower w then lower m. Reads no 2025-26 file.
-  --holdout W M     sealed 2025-26, ONCE: refuses unless the exact line "w = W, m = M" is already present in the
+  --tune            2024-25 GW8-38 ONLY. ADDENDUM 2 / amendment 4: m by CALIBRATION on the likely-starter partition
+                    (m = mean market P(>=1) / mean realised, market alone, 3 dp), then w by RANK at that m (max MEAN
+                    primary Spearman over the two decision partitions, ties -> lower w). Salah guard and leave-one-out
+                    re-run the whole procedure; the four section-3 conditions are printed for the tuning season (not
+                    evidence); a minutes floor is reported as information only. Reads no 2025-26 file.
+  --holdout W M     sealed 2025-26, ONCE: refuses unless the exact line "w = W, m = M.MMM" is present in the LAST
                     PRE-REGISTERED VALUE section of Logs/props_prereg.md (mirrors eval/measure_rate_blend.py).
 
 Usage: uv run python eval/measure_props_endpoint.py --tune
-       uv run python eval/measure_props_endpoint.py --holdout 0.5 1.10
+       uv run python eval/measure_props_endpoint.py --holdout 0.75 1.417   # example form only
 """
 import argparse
 import re
@@ -27,7 +30,7 @@ EPS = 1e-6
 
 
 def pair_line(w, m):
-    return f"w = {w:g}, m = {m:.2f}"
+    return f"w = {w:g}, m = {m:.3f}"
 
 
 def load(season):
@@ -173,6 +176,158 @@ def contributions(f, w, m, parts, k=5):
     return out
 
 
+def calibrate_m(f, parts):
+    """AMENDMENT 4: m = mean market P(>=1) / mean realised P(>=1) on the LIKELY-STARTER partition, market alone (w = 1,
+    p_adj = p / m so the identity mean(p / m) = realised holds exactly on that partition). Rounded to 3 dp so the
+    pre-registered line is reproducible from the command line."""
+    mk = parts["likely starters"].to_numpy()
+    p = f.loc[mk, "p_mkt_gw"].to_numpy(); y = (f.loc[mk, "goals"].to_numpy() >= 1).astype(float)
+    return round(float(p.mean() / y.mean()), 3), float(p.mean()), float(y.mean()), int(mk.sum())
+
+
+def w_surface(f, parts, m):
+    rows = []
+    for w in W_GRID:
+        s = score(f, w, m, parts)
+        rows.append(dict(w=w, m=m, likely=s["likely starters"][0], squad=s["squad-relevant"][0],
+                         mean=(s["likely starters"][0] + s["squad-relevant"][0]) / 2, uncertain=s["uncertain"][0],
+                         starter=s["full starter band"][0], written=s["written off (no e_minutes floor)"][0]))
+    return pd.DataFrame(rows)
+
+
+def procedure(f):
+    """The whole amended tuning procedure on one frame: m by calibration, then w by rank at that m."""
+    parts = partitions(f)
+    m_cal, p_mean, y_mean, n = calibrate_m(f, parts)
+    G = w_surface(f, parts, m_cal)
+    return m_cal, p_mean, y_mean, n, G, select(G), parts
+
+
+def pass_conditions(f, w, m, parts):
+    """The four section-3 conditions evaluated on ONE season (here the tuning season -- not evidence)."""
+    base = score(f, 0.0, 1.0, parts); cand = score(f, w, m, parts)
+    lam0, lam1, g = blend(f, 0.0, 1.0), blend(f, w, m), f["goals"].to_numpy()
+    d_like = cand["likely starters"][0] - base["likely starters"][0]; d_sq = cand["squad-relevant"][0] - base["squad-relevant"][0]
+    d_wo = cand["written off (no e_minutes floor)"][0] - base["written off (no e_minutes floor)"][0]
+    br = {}
+    for name in ("likely starters", "squad-relevant"):
+        mk = parts[name].to_numpy()
+        br[name] = (secondary(lam0[mk], g[mk])["brier"], secondary(lam1[mk], g[mk])["brier"])
+    c1 = d_like >= 0.020 and d_sq >= 0.020
+    c1b = d_like >= 0 and d_sq >= 0
+    c2 = d_wo >= -0.020
+    c3 = all(b1 <= b0 for b0, b1 in br.values())
+    print(f"  (1) +0.020 on BOTH decision partitions: likely {d_like:+.4f}, squad {d_sq:+.4f} -> {'PASS' if c1 else 'FAIL'}; "
+          f"non-negative this season: {'yes' if c1b else 'NO'}")
+    print(f"  (2) written-off band not worse by > 0.020: {d_wo:+.4f} -> {'PASS' if c2 else 'FAIL'}")
+    print("  (3) Brier not worse on either decision partition: " + "; ".join(f"{k} {b0:.4f}->{b1:.4f}" for k, (b0, b1) in br.items())
+          + f" -> {'PASS' if c3 else 'FAIL'}")
+    print(f"  overall on this season: {'PASS' if (c1 and c1b and c2 and c3) else 'FAIL'}")
+    return dict(d_like=d_like, d_sq=d_sq, d_wo=d_wo, brier=br, c1=c1, c1b=c1b, c2=c2, c3=c3)
+
+
+def minutes_to_date(season):
+    """Minutes played in this season BEFORE the gameweek (known at the cutoff). Whole-season minutes would be a leak."""
+    h = pd.read_parquet(REPO / "data/history/all_seasons_fixed.parquet", columns=["season", "element", "GW", "minutes"])
+    h = h[h["season"] == season].groupby(["element", "GW"])["minutes"].sum().reset_index().sort_values(["element", "GW"])
+    h["to_date"] = h.groupby("element")["minutes"].cumsum() - h["minutes"]
+    return h.rename(columns={"GW": "gw"})[["element", "gw", "to_date"]]
+
+
+def floor_information(f, w, m, parts, season):
+    """INFORMATION ONLY (not adopted, not pre-registered): rows whose minutes-to-date are under the floor fall back to
+    lambda_model; the endpoint is recomputed at the pre-registered pair."""
+    td = minutes_to_date(season)
+    ff = f.merge(td, on=["element", "gw"], how="left"); ff["to_date"] = ff["to_date"].fillna(0)
+    g = ff["goals"].to_numpy(); lam0 = blend(ff, 0.0, 1.0); lam1 = blend(ff, w, m)
+    print(f"\n  MINUTES FLOOR -- information only. Floor on minutes played THIS season before the gameweek (cutoff-known); "
+          f"rows under the floor use lambda_model. Whole-season minutes (the sanity marker) would be a leak and are not used.")
+    print(f"  {'floor':>6s} {'rows->model':>12s} | " + " ".join(f"{k[:14]:>14s}" for k in parts) + "   (delta Spearman vs incumbent)")
+    for floor in (0, 90, 180):
+        under = (ff["to_date"] < floor).to_numpy()
+        lam = np.where(under, lam0, lam1)
+        cells = []
+        for name, mask in parts.items():
+            mk = mask.to_numpy()
+            cells.append(spearman(lam[mk], g[mk]) - spearman(lam0[mk], g[mk]))
+        print(f"  {floor:6d} {int(under.sum()):12d} | " + " ".join(f"{c:+14.4f}" for c in cells))
+    print("  note: at 2025-26 GW1 every player has 0 minutes to date, so any floor > 0 silences the feature for that gameweek "
+          "(and 90 for most of GW2); prior-season minutes would be the fix and are a further design choice.")
+
+
+def tune_main(a):
+    season, (lo, hi) = TUNE_SEASON, TUNE_GW
+    m_all = load(season)
+    n_partial = int(m_all["partial_double"].eq(True).sum())
+    f = population(m_all, lo, hi)
+    print(f"TUNING on {season} GW{lo}-{hi} only (no 2025-26 file read). Outfield singles in window: {len(f):,}; "
+          f"priced {int(f['priced'].sum()):,}. Partial doubles flagged in the season and excluded: {n_partial} (all doubles; the population is singles).")
+    print("coverage of each partition by the market (share of partition rows the market prices): " + coverage_line(f))
+    f = f[f["priced"]].copy()
+    m_cal, p_mean, y_mean, n, G, best, parts = procedure(f)
+    print(f"\nAMENDMENT 4 -- m by CALIBRATION on likely starters (market alone): mean market P(>=1) {p_mean:.4f} / mean realised "
+          f"{y_mean:.4f} = {p_mean / y_mean:.4f} -> m = {m_cal:.3f} (n = {n}). "
+          f"Not on all rows: the written-off band's placeholder prices would drag it up.")
+    # post-hoc calibration of the market alone at m_cal, per partition, and reliability deciles on likely starters
+    print("  post-hoc calibration of the MARKET ALONE at this m (mean p/m vs realised) by partition:")
+    for name, mask in parts.items():
+        mk = mask.to_numpy(); p = f.loc[mk, "p_mkt_gw"].to_numpy() / m_cal; y = (f.loc[mk, "goals"].to_numpy() >= 1).mean()
+        print(f"    {name:34s} n {int(mk.sum()):5d}  mean p/m {p.mean():.4f}  realised {y:.4f}  ratio {p.mean() / y:.3f}")
+    mk = parts["likely starters"].to_numpy()
+    r = reliability(-np.log(1 - np.clip(f.loc[mk, 'p_mkt_gw'].to_numpy() / m_cal, 0, 1 - EPS)), f.loc[mk, "goals"].to_numpy())
+    print("  reliability deciles, likely starters, market alone at m (is one multiplicative scalar adequate?): n, mean p/m, realised, ratio")
+    for d in r.index:
+        print(f"    d{d}: n {int(r.loc[d, 'n']):4d}  {r.loc[d, 'pred']:.3f} / {r.loc[d, 'real']:.3f}  ratio {r.loc[d, 'pred'] / max(r.loc[d, 'real'], 1e-9):.2f}")
+    print_surface(G, f"FULL w SURFACE at m = {m_cal:.3f} -- pooled Spearman(lambda, goals), {season} GW{lo}-{hi}; "
+                     f"n likely starters {int(parts['likely starters'].sum())}, n squad-relevant {int(parts['squad-relevant'].sum())}")
+    ties = G[np.isclose(G["mean"], best["mean"], atol=1e-9)]
+    print(f"\nSELECTED (max MEAN over the two decision partitions; ties -> lower w): {pair_line(best['w'], best['m'])}  mean {best['mean']:.4f}"
+          + (f"  [{len(ties)} exact ties]" if len(ties) > 1 else ""))
+    inc = G[G["w"] == 0].iloc[0]
+    g75 = G[np.isclose(G["w"], 0.75)].iloc[0]; g100 = G[np.isclose(G["w"], 1.0)].iloc[0]
+    print(f"incumbent: likely {inc['likely']:.4f}, squad {inc['squad']:.4f}, mean {inc['mean']:.4f}; selected pair delta: "
+          f"likely {best['likely'] - inc['likely']:+.4f}, squad {best['squad'] - inc['squad']:+.4f}")
+    print(f"w = 0.75 vs w = 1.0 gap in MEAN at this m: {g75['mean'] - g100['mean']:+.4f} (was +0.0009 at m = 1.00)")
+    # ---- Salah guard: the WHOLE procedure (m and w) without him
+    sal = f[f["name"].str.contains("Salah", case=False)]["element"].unique(); assert len(sal) == 1
+    fx = f[f["element"] != sal[0]].copy()
+    mx, _, _, _, Gx, bx, _ = procedure(fx)
+    print_surface(Gx, f"ROBUSTNESS -- whole procedure without Salah (element {sal[0]}, {int((f['element'] == sal[0]).sum())} rows): m = {mx:.3f}")
+    same = bool(np.isclose(bx["w"], best["w"]))
+    print(f"  argmax without Salah: {pair_line(bx['w'], bx['m'])} -> " + ("SAME w as the full surface" if same else f"DIFFERENT w from the full-surface {pair_line(best['w'], best['m'])}"))
+    # ---- concentration + leave-one-out of the whole procedure
+    con = contributions(f, float(best["w"]), float(best["m"]), parts)
+    loo = []
+    for name, c in con.items():
+        print(f"\n  {name}: rho(candidate) {c['rho']:.4f}, delta vs incumbent {c['delta']:+.4f} -- per-player shares (sum to the statistic)")
+        print("    top 5 by contribution to rho(candidate):")
+        for r_ in c["top_rho"].itertuples():
+            print(f"      {r_.name:32s} rows {r_.rows:3d} goals {int(r_.goals):2d}  rho share {r_.rho_share:+.4f} ({r_.rho_share / c['rho']:+.1%})  delta share {r_.delta_share:+.4f}")
+        print("    top 5 by |contribution to delta rho|:")
+        for r_ in c["top_delta"].itertuples():
+            print(f"      {r_.name:32s} rows {r_.rows:3d} goals {int(r_.goals):2d}  delta share {r_.delta_share:+.4f}  rho share {r_.rho_share:+.4f}")
+        for r_ in pd.concat([c["top_rho"], c["top_delta"]]).drop_duplicates("element").itertuples():
+            fl = f[f["element"] != r_.element].copy(); ml, _, _, _, _, bl, _ = procedure(fl)
+            loo.append((name, r_.name, ml, pair_line(bl["w"], bl["m"]), bool(np.isclose(bl["w"], best["w"]))))
+    wissa = f[f["name"].str.contains("Wissa", case=False)]["element"].unique()
+    if len(wissa) == 1 and not any(who.lower().find("wissa") >= 0 for _, who, _, _, _ in loo):
+        fl = f[f["element"] != wissa[0]].copy(); ml, _, _, _, _, bl, _ = procedure(fl)
+        loo.append(("(named last time)", "Yoane Wissa", ml, pair_line(bl["w"], bl["m"]), bool(np.isclose(bl["w"], best["w"]))))
+    print("\n  leave-one-out of the WHOLE procedure (m recalibrated, w re-selected) for every player listed above:")
+    for name, who, ml, pr, ok in loo:
+        print(f"    drop {who:32s} ({name:17s}) -> m {ml:.3f}, {pr}  {'same w' if ok else 'CHANGES w'}")
+    # ---- the four pass conditions on the tuning season (not evidence)
+    print(f"\nPASS CONDITIONS (section 3, UNCHANGED) evaluated on {season} -- the tuning season, NOT evidence:")
+    pc = pass_conditions(f, float(best["w"]), float(best["m"]), parts)
+    report_pair(f, float(best["w"]), float(best["m"]), f"{season} tuning season (NOT evidence)", n_partial)
+    floor_information(f, float(best["w"]), float(best["m"]), parts, season)
+    if same:
+        print(f"\nSalah guard passed. Write '{pair_line(best['w'], best['m'])}' into a NEW dated '## PRE-REGISTERED VALUE' section of "
+              "Logs/props_prereg.md (the guard reads the LAST such section) BEFORE running --holdout. 2025-26 has not been read.")
+    else:
+        print("\nSALAH GUARD TRIPPED: w changes when Salah is dropped. Do NOT write a PRE-REGISTERED VALUE until discussed.")
+
+
 def coverage_line(f):
     parts = partitions(f)
     return "; ".join(f"{name} {f.loc[mask, 'priced'].mean():.1%} of {int(mask.sum())}" for name, mask in parts.items())
@@ -184,64 +339,12 @@ def main():
     ap.add_argument("--holdout", nargs=2, type=float, metavar=("W", "M"))
     a = ap.parse_args()
     if a.tune:
-        season, (lo, hi) = TUNE_SEASON, TUNE_GW
-        m = load(season)
-        n_partial = int(m["partial_double"].eq(True).sum())
-        f = population(m, lo, hi)
-        print(f"TUNING on {season} GW{lo}-{hi} only (no 2025-26 file read). Outfield singles in window: {len(f):,}; "
-              f"priced {int(f['priced'].sum()):,}. Partial doubles flagged in the season and excluded: {n_partial} (all doubles; the population is singles).")
-        print("coverage of each partition by the market (share of partition rows the market prices): " + coverage_line(f))
-        f = f[f["priced"]].copy()
-        parts = partitions(f)
-        G = surface(f, parts)
-        print_surface(G, f"FULL GRID -- pooled Spearman(lambda, goals) on the common population, {season} GW{lo}-{hi}; "
-                         f"n likely starters {int(parts['likely starters'].sum())}, n squad-relevant {int(parts['squad-relevant'].sum())}")
-        best = select(G)
-        ties = G[np.isclose(G["mean"], best["mean"], atol=1e-9)]
-        print(f"\nSELECTED by the pre-registered rule (max MEAN over the two decision partitions; ties -> lower w, lower m): "
-              f"{pair_line(best['w'], best['m'])}  mean {best['mean']:.4f}" + (f"  [{len(ties)} exact ties at this mean]" if len(ties) > 1 else ""))
-        inc = G[(G["w"] == 0)].iloc[0]
-        print(f"incumbent (w = 0): likely {inc['likely']:.4f}, squad {inc['squad']:.4f}, mean {inc['mean']:.4f}; "
-              f"delta of the selected pair: likely {best['likely'] - inc['likely']:+.4f}, squad {best['squad'] - inc['squad']:+.4f}")
-        # ---- robustness guard (not a change to the selection rule): the surface without Salah
-        sal = f[f["name"].str.contains("Salah", case=False)]["element"].unique()
-        assert len(sal) == 1, f"Salah element not unique: {sal}"
-        fx = f[f["element"] != sal[0]].copy(); px = partitions(fx)
-        Gx = surface(fx, px); bx = select(Gx)
-        print_surface(Gx, f"ROBUSTNESS -- the same grid with Salah (element {sal[0]}) EXCLUDED; his rows: "
-                          f"{int((f['element'] == sal[0]).sum())} (likely {int((parts['likely starters'] & (f['element'] == sal[0])).sum())}, "
-                          f"squad {int((parts['squad-relevant'] & (f['element'] == sal[0])).sum())})")
-        same = bool(np.isclose(bx["w"], best["w"]) and np.isclose(bx["m"], best["m"]))
-        print(f"  argmax without Salah: {pair_line(bx['w'], bx['m'])} mean {bx['mean']:.4f} -> "
-              + ("SAME pair as the full surface" if same else f"DIFFERENT from the full-surface pair {pair_line(best['w'], best['m'])}"))
-        # ---- concentration: top-5 contributors to rho and to delta rho on each decision partition, plus leave-one-out argmax
-        con = contributions(f, float(best["w"]), float(best["m"]), parts)
-        loo_flags = []
-        for name, c in con.items():
-            print(f"\n  {name}: rho(candidate) {c['rho']:.4f}, delta vs incumbent {c['delta']:+.4f} -- per-player shares (sum to the statistic)")
-            print("    top 5 by contribution to rho(candidate):")
-            for r in c["top_rho"].itertuples():
-                print(f"      {r.name:32s} rows {r.rows:3d} goals {int(r.goals):2d}  rho share {r.rho_share:+.4f} ({r.rho_share / c['rho']:+.1%} of rho)  delta share {r.delta_share:+.4f}")
-            print("    top 5 by |contribution to delta rho| (candidate - incumbent):")
-            for r in c["top_delta"].itertuples():
-                print(f"      {r.name:32s} rows {r.rows:3d} goals {int(r.goals):2d}  delta share {r.delta_share:+.4f}  rho share {r.rho_share:+.4f}")
-            for r in pd.concat([c["top_rho"], c["top_delta"]]).drop_duplicates("element").itertuples():
-                fl = f[f["element"] != r.element].copy(); bl = select(surface(fl, partitions(fl)))
-                loo_flags.append((name, r.name, pair_line(bl["w"], bl["m"]), bool(np.isclose(bl["w"], best["w"]) and np.isclose(bl["m"], best["m"]))))
-        print("\n  leave-one-out argmax for every player listed above:")
-        for name, who, pr, ok in loo_flags:
-            print(f"    drop {who:32s} ({name:15s}) -> {pr}  {'same' if ok else 'CHANGES the argmax'}")
-        report_pair(f, float(best["w"]), float(best["m"]), f"{season} tuning season (NOT evidence)", n_partial)
-        if same:
-            print("\nSalah guard passed (argmax unchanged without him). Write the selected pair into a dated '## PRE-REGISTERED VALUE' "
-                  f"section of Logs/props_prereg.md as the exact line '{pair_line(best['w'], best['m'])}' BEFORE running --holdout. 2025-26 has not been read.")
-        else:
-            print("\nSALAH GUARD TRIPPED: the argmax changes when Salah is dropped. Do NOT write a PRE-REGISTERED VALUE until this has been discussed.")
+        tune_main(a)
     elif a.holdout is not None:
         w, mm = a.holdout
         text = PREREG.read_text(encoding="utf-8") if PREREG.exists() else ""
-        hit = re.search(r"^## PRE-REGISTERED VALUE", text, flags=re.M)     # a real heading, not the section-5 mention in backticks
-        if hit is None or pair_line(w, mm) not in text[hit.start():]:
+        heads = list(re.finditer(r"^## PRE-REGISTERED VALUE", text, flags=re.M))   # real headings only; the LAST one governs
+        if not heads or pair_line(w, mm) not in text[heads[-1].start():]:
             print(f"REFUSED: the line '{pair_line(w, mm)}' is not present in the PRE-REGISTERED VALUE section of {PREREG}. "
                   "Write it there first (props_prereg.md section 5); the sealed season is run once with the pre-registered pair only.")
             sys.exit(2)

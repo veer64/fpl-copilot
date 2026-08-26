@@ -229,3 +229,82 @@ Recorded alongside the value, so that the sealed run is read with them in view:
 The sealed season is run ONCE: `uv run python eval/measure_props_endpoint.py --holdout 0.75 1.00`. It has not
 been run as of this entry.
 
+---
+
+## ADDENDUM 2 (2026-08-25) — amendment 4: m is set by calibration, w by rank. Made BEFORE any 2025-26 file was opened.
+
+The defect, stated structurally: the §5 rule sets both dials by rank, but Spearman is invariant to p → p/m, so m is
+UNIDENTIFIABLE under that rule. The first tuning (PRE-REGISTERED VALUE of 2026-08-24) could not choose m and fell
+to the tie-break, m = 1.00 — no de-vig at all. Measured consequence on likely starters: the w = 0.75 candidate
+predicted a mean P(≥1) of 0.153 against a realised 0.108 (incumbent 0.122); Brier and log loss worsened. The ranking
+was fine; the levels carried the bookmakers' overround, and the points equation consumes levels linearly. Two things
+follow, both true before any result: (a) a rank criterion cannot set a level parameter; (b) the grid
+{1.00, 1.10, 1.20, 1.30} does not contain the required value — the market alone runs at 0.1632 / 0.1075 = 1.52 on
+likely starters (the 0.153 / 0.108 ≈ 1.42 quoted in the first entry was the blend, which already carried 25% of the
+model) — so the search could not have found it even had the criterion worked.
+
+**Amendment 4.** Each dial is set by the criterion it controls, on 2024-25 GW8–38 only:
+- **m by CALIBRATION:** m = mean market P(≥1) / mean realised P(≥1), market alone (w = 1, p_adj = p / m), computed on
+  the **likely-starter partition only** of the common population — not on all rows, because the written-off band is
+  distorted by placeholder prices (market mean 0.112 vs realised 0.013) and would drag m up. Computed directly, not
+  by grid: one number from one season, applied once, rounded to 3 dp so the pre-registered line is reproducible.
+- **w by RANK at that m,** exactly as §5: max MEAN primary Spearman over the two decision partitions; ties → lower w.
+
+**The §3 PASS CONDITION IS UNCHANGED:** +0.020 on BOTH decision partitions pooled and non-negative in each season;
+written-off band not worse by more than 0.020; Brier not worse on either decision partition.
+
+Not adopted, recorded for a later decision: a minutes floor on the market feature would be a third tunable needing
+its own pre-registration. Its effect is reported as information in the PRE-REGISTERED VALUE entry below.
+
+---
+
+## PRE-REGISTERED VALUE (2026-08-25, supersedes the 2026-08-24 entry; written before any 2025-26 file was opened)
+
+w = 1, m = 1.517
+
+The `--holdout` guard reads the LAST `## PRE-REGISTERED VALUE` heading in this file, so the superseded pair
+(w = 0.75, m = 1.00) no longer satisfies it. Output of record: `Logs/props_tuning_log.md` (re-tune section).
+
+**m = 1.517**, from 0.1632 / 0.1075 on n = 3,924 likely-starter rows (2024-25 GW8–38, outfield singles the market
+prices). Post-hoc calibration of the market alone at this m: likely starters 1.000 (by construction), full starter
+band 1.010, uncertain 1.128, squad-relevant **0.916**, written-off 7.33. **One multiplicative scalar is not
+adequate across the range:** in deciles of the likely-starter partition the ratio predicted / realised runs
+1.05–2.01 in the bottom six deciles (longshots still over-priced after de-vig) and 0.85–0.91 in the top three
+(favourites now under-priced). The overround is not proportional to price — it is a favourite–longshot shape — so
+the scalar over-corrects favourites and under-corrects longshots, and the squad-relevant partition, which is
+favourite-heavy, sits 8% under realised after de-vig. Recorded, not corrected. (For contrast, the incumbent's own
+mean on squad-relevant is 0.306 against the same 0.227 realised.)
+
+**w surface at m = 1.517** (likely / squad / MEAN): w = 0: .2750 / .2866 / .2808; 0.25: .2789 / .2942 / .2866;
+0.5: .2818 / .3024 / .2921; 0.75: .2835 / .3086 / .2961; **1.0: .2828 / .3100 / .2964**. The 0.75-vs-1.0 gap is now
+−0.0004 (was +0.0009 at m = 1.00): the new m flips its sign and it remains a factor of ~50 under the 0.020 floor.
+The rule picks w = 1 — the market replaces the model's goals rate outright on priced outfield singles.
+
+**Robustness.** Salah guard (whole procedure re-run without him: m = 1.541) → same w. Leave-one-out of the whole
+procedure for the 18 listed contributors: dropping Isak, Haaland, Mbeumo, Bowen or Amad Diallo flips w to 0.75;
+dropping Wissa (last time's flip) no longer does; the other twelve leave it unchanged. **The tuning data do not
+determine w between 0.75 and 1.0** — the pair is the rule's output, not a finding, and the sealed season is to be
+read with that in view.
+
+**§3 conditions on the tuning season at this pair (NOT evidence, recorded so the miss is on file before 2025-26 is
+spent):** (1) likely starters +0.0078 < +0.020 → FAIL (squad-relevant +0.0234 passes; both non-negative);
+(2) written-off band −0.0324 → FAIL; (3) Brier likely starters 0.0879 → 0.0864, squad-relevant 0.1677 → 0.1594 →
+PASS (the first entry's Brier breach was the missing de-vig). Overall: FAIL on 2024-25. Log loss, MAE and RMSE also
+improve on both decision partitions at this pair.
+
+**Minutes floor (information only, not adopted):** with rows under a floor on minutes-to-date THIS season (the
+cutoff-known quantity; whole-season minutes would leak) falling back to the model at this pair, the written-off
+delta moves from −0.0324 to −0.0311 (floor 90, 2,165 rows to the model) and −0.0320 (floor 180, 2,787 rows); the
+decision partitions are unchanged at 90 and squad-relevant drops 0.0013 at 180. **A minutes floor does not repair
+the written-off breach.** The rows driving it are not the low-minute placeholders but players with minutes whom the
+model has written off for that gameweek (injury, suspension, rotation) and whom the board still prices near their
+usual level: market mean 0.093 against realised 0.013 on that band. The pattern — starters calibrate at 1.00, the
+written-off band at 7.3 — is what a price that is conditional on appearing would produce (anytime-scorer bets are
+commonly void for a non-runner, so the quoted price need not carry the appearance risk the model carries in
+p_start). If that is the mechanism, the structurally right combination is the market's conditional rate scaled by
+the model's own appearance probability, not a floor. Untested here; a design change needing its own pre-registration.
+
+Standing caveats: US-consensus numbers throughout (ADDENDUM 1); 2024-25 baseline is a 97th-percentile draw and no
+season total enters this document. 2025-26 has not been read. The sealed season is run ONCE:
+`uv run python eval/measure_props_endpoint.py --holdout 1 1.517`.
+
