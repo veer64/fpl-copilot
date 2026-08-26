@@ -134,3 +134,47 @@ a pass on (2) cannot later be read as a pass overall.
 3. Everything in props_prereg.md §7 (1.7 seasons; US books not the live books; 2024-25 a 97th-percentile draw;
    crosswalk risk; one snapshot) applies unchanged.
 4. Goalkeepers remain outside the feature (amendment 2).
+
+---
+
+## RESULTS — P1, the premise test (2026-08-26). Method as §4 P1; thresholds as fixed there. No 2025-26 file read.
+
+Script: `eval/measure_props_premise.py`. Per-book probabilities recomputed from the raw boards with the builder's exact scaling and asserted to reproduce the stored consensus. Output of record (verbatim):
+
+```
+P1 -- premise test on 2024-25 GW8-38, m = 1.517 (pre-registered scalar). No 2025-26 file read. Per-book recomputation reproduces the stored consensus: ASSERTED.
+  written-off band (p_start < .25), outfield singles the market prices, partial doubles excluded: n 4,716
+  realised appearance rate on the band: took part 0.244 (n 1153); started 0.064 (n 304); substitute 0.180 (n 849).  Minutes-model means on the band: p_start 0.057, p_play_any 0.340  [for P2]
+  as-quoted calibration on ALL band rows (the 7.33 signature): mean p/m 0.0933 vs realised 0.0127 -> ratio 7.33
+
+  HEADLINE (consensus price):
+    written-off, TOOK PART (minutes > 0)                 n  1153  mean p/m 0.1102  realised P(>=1) 0.0520  ratio 2.12
+      of which STARTED                                   n   304  mean p/m 0.0928  realised P(>=1) 0.0855  ratio 1.08
+      of which SUBSTITUTE appearance                     n   849  mean p/m 0.1164  realised P(>=1) 0.0400  ratio 2.91
+    control: likely starters, all rows (~1.00 by construction) n  3930  mean p/m 0.1076  realised P(>=1) 0.1076  ratio 1.00
+
+  P1 RATIO = 2.12 (n = 1153)  ->  PREMISE SUPPORTED (>= 0.7)
+
+  BY BOOK (each book's own scaled price on the rows IT priced; same m). Written-off took-part ratio, then started / substitute, then the likely-starter control:
+    book           n played  ratio | n start  ratio | n sub  ratio |  LS n LS ratio | mean p (band, played) 
+    draftkings          925   1.86 |     245   0.99 |   680   2.51 |  3168     1.00 | 0.1650   [participation (DK/BetMGM/Bovada)]
+    betmgm              554   2.12 |     136   1.28 |   418   2.51 |  2022     1.04 | 0.1623   [participation (DK/BetMGM/Bovada)]
+    bovada             1103   2.12 |     291   1.09 |   812   2.92 |  3915     1.00 | 0.1659   [participation (DK/BetMGM/Bovada)]
+    betrivers           604   1.89 |     205   0.98 |   399   3.18 |  3886     1.01 | 0.1712   [start (BetRivers)]
+    fanduel            1112   2.16 |     295   1.09 |   817   2.98 |  3873     0.98 | 0.1765   [unverified (FanDuel)]
+    onexbet            1103   2.29 |     297   1.08 |   806   3.45 |  3889     0.99 | 0.1667   [unverified (1xBet)]
+
+  BY GROUP (rows pooled across the group's books):
+    participation (DK/BetMGM/Bovada)   played n  2582 ratio  2.02 | started n  672 ratio  1.08 | sub n 1910 ratio  2.67
+    start (BetRivers)                  played n   604 ratio  1.89 | started n  205 ratio  0.98 | sub n  399 ratio  3.18
+    unverified (FanDuel)               played n  1112 ratio  2.16 | started n  295 ratio  1.09 | sub n  817 ratio  2.98
+    unverified (1xBet)                 played n  1103 ratio  2.29 | started n  297 ratio  1.08 | sub n  806 ratio  3.45
+
+  PRICE LEVEL on the same written-off rows (book / participation-group mean, same (gw, element)); a start-conditioned price should sit ABOVE a participation-conditioned one on fringe players:
+    betrivers      n  1187  geometric mean ratio 1.037  (median 1.028; on sub rows n 399 1.007; on started rows n 205 1.017)   [start (BetRivers)]
+    fanduel        n  3481  geometric mean ratio 1.029  (median 1.018; on sub rows n 815 1.056; on started rows n 294 0.996)   [unverified (FanDuel)]
+    onexbet        n  3565  geometric mean ratio 1.067  (median 1.046; on sub rows n 792 1.045; on started rows n 292 1.034)   [unverified (1xBet)]
+    draftkings     n  2873  geometric mean ratio 0.979  (median 0.993; on sub rows n 680 0.986; on started rows n 245 0.974)   [participation (DK/BetMGM/Bovada)]
+    betmgm         n  1805  geometric mean ratio 0.985  (median 0.992; on sub rows n 418 0.990; on started rows n 136 0.983)   [participation (DK/BetMGM/Bovada)]
+    bovada         n  3473  geometric mean ratio 1.022  (median 1.004; on sub rows n 812 1.015; on started rows n 291 1.026)   [participation (DK/BetMGM/Bovada)]
+```
