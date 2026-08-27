@@ -1,0 +1,42 @@
+
+==============================================================================================================
+2023-24
+==============================================================================================================
+
+[penalties (trailing designated taker)] team-weeks with key player EXPECTED absent (own-cutoff p_start<.25): 166 (realised absent too: 130); decision-partition teammate rows in those weeks: 1411 (likely 1404, squad-relevant 177); realised-absent rows: 1110
+
+[top attacker (prior-season npxG/90 leader)] team-weeks with key player EXPECTED absent (own-cutoff p_start<.25): 273 (realised absent too: 205); decision-partition teammate rows in those weeks: 2312 (likely 2298, squad-relevant 332); realised-absent rows: 1701
+
+[creator / set-piece proxy (prior-season xA/90 leader)] team-weeks with key player EXPECTED absent (own-cutoff p_start<.25): 226 (realised absent too: 190); decision-partition teammate rows in those weeks: 1886 (likely 1871, squad-relevant 338); realised-absent rows: 1576
+
+[Q2 penalties] absence weeks with a successor ON the decision partitions: 166 (realised absent 130); successor has ANY prior/trailing pen record: 110; likely 166, squad 27
+[Q3 penalties] successor rows with realised absence: n=130; successor played in 97%
+   pen goals/90 in absence weeks 0.0603 (7 pens in 116.0 90s) vs own non-absence weeks 0.0306 (83 pens in 2713.2 90s); per-row pen_abs sd 0.259; npxG/90 abs 0.178 vs base 0.203
+[Q3 top attacker (prior-season npxG/90 leader)] players 213, absence rows 1578: paired within-player (absence - baseline), weighted by absence weeks:
+   npxG/90 +0.011 (baseline mean 0.134; sd of diffs 0.131, SE 0.009); xA/90 +0.011 (SE 0.008); shots/90 +0.02 (SE 0.05); minutes +8.2 (SE 1.0); share npxG diff >= +0.05: 23%, <= -0.05: 25%
+[Q3 creator / set-piece proxy (prior-season xA/90 leader)] players 211, absence rows 1512: paired within-player (absence - baseline), weighted by absence weeks:
+   npxG/90 -0.022 (baseline mean 0.162; sd of diffs 0.154, SE 0.011); xA/90 +0.002 (SE 0.008); shots/90 -0.11 (SE 0.06); minutes +6.2 (SE 1.0); share npxG diff >= +0.05: 16%, <= -0.05: 35%
+
+[Q2 minutes/position] decision-partition rows in realised key-absence weeks: 2978; of which the player was NOT a likely starter in any of the previous 3 gws (plausible promoted replacement): 384
+[Q2 total] distinct decision-partition player-gameweeks with an EXPECTED key absence (any role): 3615; realised: 2978
+
+==============================================================================================================
+2024-25
+==============================================================================================================
+
+[penalties (trailing designated taker)] team-weeks with key player EXPECTED absent (own-cutoff p_start<.25): 77 (realised absent too: 64); decision-partition teammate rows in those weeks: 615 (likely 612, squad-relevant 107); realised-absent rows: 510
+
+[top attacker (prior-season npxG/90 leader)] team-weeks with key player EXPECTED absent (own-cutoff p_start<.25): 237 (realised absent too: 183); decision-partition teammate rows in those weeks: 1868 (likely 1847, squad-relevant 251); realised-absent rows: 1415
+
+[creator / set-piece proxy (prior-season xA/90 leader)] team-weeks with key player EXPECTED absent (own-cutoff p_start<.25): 154 (realised absent too: 119); decision-partition teammate rows in those weeks: 1206 (likely 1201, squad-relevant 168); realised-absent rows: 917
+
+[Q2 penalties] absence weeks with a successor ON the decision partitions: 77 (realised absent 64); successor has ANY prior/trailing pen record: 45; likely 77, squad 16
+[Q3 penalties] successor rows with realised absence: n=64; successor played in 94%
+   pen goals/90 in absence weeks 0.0000 (0 pens in 55.3 90s) vs own non-absence weeks 0.0182 (24 pens in 1318.5 90s); per-row pen_abs sd 0.000; npxG/90 abs 0.248 vs base 0.213
+[Q3 top attacker (prior-season npxG/90 leader)] players 196, absence rows 1361: paired within-player (absence - baseline), weighted by absence weeks:
+   npxG/90 +0.007 (baseline mean 0.125; sd of diffs 0.146, SE 0.010); xA/90 -0.001 (SE 0.007); shots/90 -0.01 (SE 0.05); minutes +6.8 (SE 1.0); share npxG diff >= +0.05: 20%, <= -0.05: 29%
+[Q3 creator / set-piece proxy (prior-season xA/90 leader)] players 168, absence rows 861: paired within-player (absence - baseline), weighted by absence weeks:
+   npxG/90 -0.009 (baseline mean 0.134; sd of diffs 0.153, SE 0.012); xA/90 -0.004 (SE 0.009); shots/90 -0.04 (SE 0.07); minutes +6.4 (SE 1.0); share npxG diff >= +0.05: 20%, <= -0.05: 27%
+
+[Q2 minutes/position] decision-partition rows in realised key-absence weeks: 1981; of which the player was NOT a likely starter in any of the previous 3 gws (plausible promoted replacement): 230
+[Q2 total] distinct decision-partition player-gameweeks with an EXPECTED key absence (any role): 2567; realised: 1981

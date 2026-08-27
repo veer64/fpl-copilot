@@ -1,0 +1,120 @@
+
+====================================================================================================
+2023-24  (prior season 2022-23, Understat join year 2022)
+====================================================================================================
+
+[Q1] step-0 single-fixture rows n=27759; on the join-miss fallback: 15312 (55.2%); of which penalty_share==0.05: 84.4% (GK misses take the GK-label mean = [0.0])
+     (pre-fix same-season-join fallback share on the same rows: 24.4%; crosswalk covers 569 elements of 865 in the season)
+                                                        rows  players  row_share_of_fallback
+cls                                                                                         
+element not in crosswalk (no understat_id)              8553      296                  0.559
+mapped, earlier record(s) but absent from prior season  1915       55                  0.125
+mapped, no Understat record before predicted season     4844      165                  0.316
+  sub-flags on fallback rows: has a PREDICTED-season Understat record (the old leak had a value): 44.1% | at a promoted club: 26.6% | name new to FPL vs prior season: 62.4%
+  fallback share by position x p_start band (% of rows in cell):
+band      <.25  .25-.75  >=.75
+position                      
+DEF       64.7     32.2   25.9
+FWD       76.5     40.8   27.3
+GK        86.7     34.0   41.3
+MID       66.0     34.7   17.4
+  fallback rows by position x band:
+band      <.25  .25-.75  >=.75
+position                      
+DEF       3475      432    589
+FWD       1923      220    149
+GK        2084       51    260
+MID       5038      667    424
+
+[Q2] likely starters n=5889: on fallback 1422 (24.1%); squad-relevant n=1140: on fallback 128 (11.2%)
+     squad-relevant fallback rows by class: {'mapped, no Understat record before predicted season': 125, 'mapped, earlier record(s) but absent from prior season': 3}
+     squad-relevant fallback players (rows): {'Andr� Onana': 21, 'Guglielmo Vicario': 17, 'Nicolas Jackson': 17, 'Mark Flekken': 11, 'Djordje Petrovic': 8, 'Thomas Kaminski': 5, 'James Trafford': 5, 'Destiny Udogie': 4, 'Matz Sels': 4, 'Wes Foderingham': 4, 'Rasmus H�jlund': 4, 'Moussa Diaby': 4}
+     likely-starter fallback rows by class: {'mapped, no Understat record before predicted season': 1052, 'mapped, earlier record(s) but absent from prior season': 366, 'element not in crosswalk (no understat_id)': 4}
+
+[Q3] realised predicted-season pen-goal rate (pen goals/(games+1), Understat 2023-24) on fallback rows: Understat record exists for 6759 of 15312 rows (44%); rows without one are counted as rate 0
+     overall: row-weighted mean realised rate 0.0012 vs fallback 0.05 (0.05 is x40); share of fallback rows whose player scored >=1 pen in 2023-24: 2.0%; player-weighted mean 0.0011
+     by position:
+          rows  mean_real_rate  share_rows_any_pen
+position                                          
+DEF       4496          0.0000              0.0000
+FWD       2292          0.0063              0.0768
+GK        2395          0.0000              0.0000
+MID       6129          0.0007              0.0202
+     by p_start band:
+          rows  mean_real_rate  share_rows_any_pen
+band                                              
+<.25     12520          0.0004              0.0078
+.25-.75   1370          0.0055              0.0912
+>=.75     1422          0.0042              0.0541
+     likely starters on fallback: mean realised 0.0042; squad-relevant on fallback: 0.0010
+     for comparison: MATCHED rows' prior-season penalty_share mean 0.0054, their realised 2023-24 rate 0.0070; league-wide realised 2023-24 pen goals (Understat) 96
+
+[Q4] all step-0 rows: fallback rows 15312: e_points contribution of the fallback term mean 0.00032, max 0.02095 | whole partition: mean pen term 0.00033, max 0.06600 | p_play_any constant on the same partition: mean 0.2150
+
+[Q4] likely starters: fallback rows 1422: e_points contribution of the fallback term mean 0.00151, max 0.02095 | whole partition: mean pen term 0.00097, max 0.06600 | p_play_any constant on the same partition: mean 0.0277
+
+[Q4] squad-relevant: fallback rows 128: e_points contribution of the fallback term mean 0.00181, max 0.01992 | whole partition: mean pen term 0.00163, max 0.06565 | p_play_any constant on the same partition: mean 0.0265
+
+====================================================================================================
+2024-25  (prior season 2023-24, Understat join year 2023)
+====================================================================================================
+
+[Q1] step-0 single-fixture rows n=26555; on the join-miss fallback: 13690 (51.6%); of which penalty_share==0.05: 87.2% (GK misses take the GK-label mean = [0.0])
+     (pre-fix same-season-join fallback share on the same rows: 21.4%; crosswalk covers 561 elements of 784 in the season)
+                                                        rows  players  row_share_of_fallback
+cls                                                                                         
+element not in crosswalk (no understat_id)              6890      223                  0.503
+mapped, earlier record(s) but absent from prior season  2234       60                  0.163
+mapped, no Understat record before predicted season     4566      149                  0.334
+  sub-flags on fallback rows: has a PREDICTED-season Understat record (the old leak had a value): 49.7% | at a promoted club: 24.7% | name new to FPL vs prior season: 60.8%
+  fallback share by position x p_start band (% of rows in cell):
+band      <.25  .25-.75  >=.75
+position                      
+DEF       65.1     32.7   23.9
+FWD       64.8     31.2   27.6
+GK        81.5     33.3   14.0
+MID       69.0     32.0   18.0
+  fallback rows by position x band:
+band      <.25  .25-.75  >=.75
+position                      
+DEF       3366      465    552
+FWD       1251      154    145
+GK        1614       49     92
+MID       4727      829    446
+
+[Q2] likely starters n=5969: on fallback 1235 (20.7%); squad-relevant n=1140: on fallback 59 (5.2%)
+     squad-relevant fallback rows by class: {'mapped, no Understat record before predicted season': 32, 'mapped, earlier record(s) but absent from prior season': 27}
+     squad-relevant fallback players (rows): Traceback (most recent call last):
+  File "<stdin>", line 54, in <module>
+  File "C:\Users\veers\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u0107' in position 125: character maps to <undefined>
+
+[2024-25 continued]
+     squad-relevant fallback players (rows): {'Kepa Arrizabalaga': 11, 'Ismaïla Sarr': 9, 'Francisco Evanilson de Lima Barbosa': 4, 'Mads Hermansen': 4, 'Nikola Milenković': 4, "Sávio 'Savinho' Moreira de Oliveira": 4, 'Mikel Merino': 3, 'Dean Huijsen': 2, 'Yankuba Minteh': 2, 'Filip Jørgensen': 2, 'Georginio Rutter': 1, 'Christian Walton': 1}
+     likely-starter fallback rows by class: {'no prior record': 673, 'absent prior season': 559, 'no crosswalk': 3}
+
+[Q3] realised 2024-25 pen-goal rate on fallback rows: Understat record exists for 6800 of 13690 rows (50%); rows without one counted as 0
+     overall: row-weighted mean realised rate 0.0006 vs 0.05 (x88); share of fallback rows whose player scored >=1 pen: 1.2%; player-weighted 0.0006
+     by position:
+          rows  mean_real_rate  share_rows_any_pen
+position                                          
+DEF       4383          0.0000              0.0000
+FWD       1550          0.0033              0.0723
+GK        1755          0.0000              0.0000
+MID       6002          0.0004              0.0083
+     by p_start band:
+          rows  mean_real_rate  share_rows_any_pen
+band                                              
+<.25     10958          0.0001              0.0026
+.25-.75   1497          0.0019              0.0361
+>=.75     1235          0.0030              0.0648
+     likely starters on fallback: mean realised 0.0030; squad-relevant on fallback: 0.0012
+     MATCHED rows' prior-season penalty_share mean 0.0066, their realised 2024-25 rate 0.0051; league-wide realised 2024-25 pen goals (Understat) 69
+
+[Q4] all step-0 rows: fallback rows 13690: contribution mean 0.00072, max 0.01908 | whole partition: mean pen term 0.00053, max 0.03283 | p_play_any constant mean 0.2074
+
+[Q4] likely starters: fallback rows 1235: contribution mean 0.00431, max 0.01908 | whole partition: mean pen term 0.00147, max 0.03283 | p_play_any constant mean 0.0302
+
+[Q4] squad-relevant: fallback rows 59: contribution mean 0.00256, max 0.01385 | whole partition: mean pen term 0.00238, max 0.03283 | p_play_any constant mean 0.0278

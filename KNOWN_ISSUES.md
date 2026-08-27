@@ -1037,6 +1037,18 @@ covers 45% of rows (was 22%) because players without a PRIOR-season Understat re
 their own-season record. The ~50x under-sizing, the missed-penalty "team rate" and the fallback remain
 OPEN under this issue; canonicals were NOT rebuilt and no adoption decision was touched.
 
+**2026-08-27 — the 0.05 fallback, characterised (`Logs/outputs/fallback_characterisation.txt`; 2023-24 / 2024-25).**
+After the join fix the gate-off hard-coded `penalty_share = 0.05` covers 55% / 52% of step-0 single-fixture rows
+(~50% of them elements the crosswalk does not map at all; a third mapped players with no Understat record before
+the predicted season; the rest returners absent from the prior season). It reaches 24% / 21% of likely-starter
+rows and 11% / 5% of squad-relevant rows. The realised pen-goal rate of the rows it covers is 0.0012 / 0.0006
+per game — **0.05 is 40–90× too high** (FWD 0.006 / 0.003; MID 0.0007 / 0.0004; DEF and GK 0). It is currently
+harmless (≈ 0.002–0.004 e_points per affected decision-partition row, max 0.02) ONLY because the ~50× undersizing
+of the term (the missed-penalty "team rate") cancels it. **If the undersizing is ever fixed without the fallback,
+those rows jump to ≈ 0.1–0.2 points and the overstatement becomes live. The two must be fixed together or not at
+all.** (The gate-on branch already replaces the constant with prior-season position means: FWD ≈ 0.02–0.03,
+MID ≈ 0.005, DEF/GK 0 — closer, still unvalidated.)
+
 ## #20 -- the bonus term's per-gameweek renormalisation manufactured a plausible level on top of a calculation that carried no information about WHO earns bonus -- CLOSED by deleting the term (BONUS_MODE = "delete", adopted 2026-08-26)
 
 **Status:** Found 2026-08-26 (`Logs/headroom_diagnosis.md` §0 item 2), measured under

@@ -382,3 +382,35 @@ and that is genuinely uncertain.
   third tuning season or re-seal it explicitly for the new question.
 - The three seasons disagree on ceilings (2025-26 reliability 0.30 vs 0.52–0.60); any three-season claim is a
   three-season claim.
+
+---
+
+## 7. OUTCOMES OF THE RANKED IDEAS (2026-08-27) — the record, with failures as failures
+
+All on the tuning seasons 2023-24 + 2024-25 only; 2025-26 not opened for any of them.
+
+| idea | status | where |
+|---|---|---|
+| 1. Penalty term rebuild | measured 2026-08-26, **NOT adopted** (rank up, Brier/movers failed); the same-season JOIN LEAK closed in production 2026-08-27 (magnitude unchanged) | `Logs/penalty_fix_prereg.md`; KNOWN_ISSUES #19 |
+| 2. Bonus term rebuild | outcome-weighted rebuild **FAILED**; DELETE **ADOPTED** 2026-08-26 | `Logs/bonus_rebuild_prereg.md`, `Logs/bonus_delete_prereg.md` |
+| 3. TC2 rule refinement (captain's club must double) | **FAIL** — pre-registered falsifier not cleared: selects the same week as the rule of record in both tuning seasons; cannot bind because the argmax captain on a double gameweek is a doubling player by construction | `Logs/p4_chip_policy_log.md` §16 |
+| 4. Cross-league priors | not started | — |
+| 5. Teammate-absence conditional rates | **FAIL** — exposure large (~10% of decision-partition rows behind a key absence) but no role transfer separable from zero; penalties flip sign across seasons; shot/creation shifts ±0.01 (SE 0.01); only minutes (+6–8 per appearance) is above noise, a minutes-model quantity | `Logs/teammate_absence_log.md` |
+| 6. Props re-test on the corrected equation | not run (the corrected equation is not adopted) | — |
+| 7. Price-change anticipation → bank-value term | **DECLINED ON EXPECTED VALUE, NOT TESTED** (no measurement made; not a fail): a price change is 0.1m against a 100m squad, and the daily transfer-flow history a backtest needs may not exist on disk. The price-momentum sub-check falls with it | this entry |
+| 8. Rotation from the full calendar | not started | — |
+| 9. Top-end level calibration (fixture_scale^γ) | **FAIL** 2026-08-26 | `Logs/topend_calibration_prereg.md` |
+| 9b. Selection-based calibration (rank-within-gameweek shrink of e_goals toward the position prior; the successor to 9) | **FAIL** 2026-08-27 — rank fell on both partitions in both seasons (max −0.018), squad-relevant spread collapsed to 0.57–0.58 of baseline vs the 0.85 floor; compresses ranks 1–10 into 11–30 (rank-1 mean −3 points) — the idea-9 trade reached via rank | `Logs/selection_calibration_prereg.md` |
+
+**Structural finding (constrains every future calibration):** goals-only calibration is coupled to the bonus
+deletion. Bringing the top-10 goals ratio to 1.0 pushed the points ratio to 0.93, because the deleted bonus term
+already offsets the top-30 level by ≈ −0.48. Any level calibration must target realised points INCLUDING bonus,
+or address bonus first (`Logs/selection_calibration_prereg.md` §5).
+
+**Fallback finding:** the 0.05 penalty fallback (gate off) covers ~52–55% of step-0 rows after the join fix and is
+40–90× the realised pen rate of those rows; currently worth ≈ 0.002–0.004 e_points per affected decision-partition
+row only because the ~50× team_pen_rate undersizing cancels it (KNOWN_ISSUES #19, 2026-08-27 addition;
+`Logs/outputs/fallback_characterisation.txt`).
+
+The §5 sequence is therefore closed at items 1–4 as written; what remains open is unchanged from the 2026-08-26
+handoff §7 (penalty magnitude + fallback together, top-end over-prediction with §5's constraint, bonus level).

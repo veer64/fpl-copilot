@@ -561,3 +561,22 @@ The reference cells still score TC2 as zero; the like-for-like comparison agains
 Standing framing: single draws, sd ~60; 2024-25's +29 is the Salah season (13.8% concentration; a 97th-percentile
 reference); seasons co-move. User-facing number, not adoption evidence; the bonus-delete adoption rests on its
 component metrics and is not revisited here.
+
+## 16. TC2 rule refinement CHECKED and REJECTED (2026-08-27) — "captain's club must double" never binds
+
+Read-only reconnaissance on 2023-24 / 2024-25 (`bonusdel_tc2` paths); 2025-26 not opened. Proposed refinement:
+TC2 = the earliest second-half double in which the CURRENT intended captain's club (the MIP `cap` at that
+deadline, `armlog.captain`) doubles. **Pre-registered falsifier:** if the refinement does not change the
+selected week in at least one tuning season there is nothing to test and it is recorded as a fail.
+
+| season | eligible H2 doubles (BB2 week excluded) | rule of record | captain at each candidate deadline → club doubles? | refined rule |
+|---|---|---|---|---|
+| 2023-24 | 25, 28, 35, 37 (34 = BB2) | GW25 | GW25 Haaland (Man City) ✓; GW28 Solanke (Bournemouth) ✓; GW35 Jackson (Chelsea) ✓; GW37 Haaland ✓ | GW25 — same |
+| 2024-25 | 24, 25, 32 (33 = BB2) | GW24 | GW24 Salah (Liverpool) ✓; GW25 Salah ✓; GW32 Barnes (Newcastle) ✓ | GW24 — same |
+
+**FAIL — falsifier not cleared.** The captain's club doubles at EVERY eligible candidate in both seasons: on a
+double gameweek the argmax-e_points captain is a doubling player by construction (a doubled row carries two
+fixtures' expected points), so the refinement can never bind on the model's own path. The 2025-26 pick that
+motivated it (Gabriel, GW26) also doubled (§15). Collision logic is unaffected: TC2 is chosen only among doubles
+not already holding a chip, so it yields to BB2 and `check_chip_schedule` guards the read layer. The rule of
+record (12c (ii)) stands unchanged. No variant explored; no simulation run.

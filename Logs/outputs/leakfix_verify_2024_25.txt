@@ -1,0 +1,39 @@
+== cutoff-20 rebuild (fixed code, gate OFF) vs canonical: columns with any change ==
+  pred_bps               max|d| 4.79679
+  penalty_share          max|d| 0.171429
+  e_points_core          max|d| 0.0283075
+  e_points               max|d| 0.0283075
+  pts_goals              max|d| 0.0283075
+  e_pen_goals            max|d| 0.00707689
+  e_goals                max|d| 0.00707689
+  unchanged numeric columns: 36 | rows: 4401
+
+offline recompute vs rebuild @cutoff20: max|ps_new - penalty_share_rb| = 0
+offline e_points_new vs rebuild e_points @cutoff20: max|d| = 0.0283 (raw canon vs rebuild); 8.88e-16 (offline-after vs rebuild)
+
+== 2024-25, ALL walk-forward rows (n=152003): before -> after ==
+  penalty_share  mean 0.01358 -> 0.02579   sd 0.02554 -> 0.02932
+  e_pen_goals    mean 0.00003 -> 0.00010   sd 0.00027 -> 0.00046
+  e_points       mean 1.23519 -> 1.23556   sd 1.31604 -> 1.31633
+  max |delta e_points| per row: 0.03115; rows with any change: 15.0%
+  league-wide sum e_pen_goals, step-0 single-fixture: 0.86 -> 2.74
+  penalty_share: rows at the 0.05 hard fallback 21.6% -> 45.2%; rows == 0: 74.5% -> 50.8%
+
+== likely starters (p_start>=.75): n 5969 (membership unchanged by construction) ==
+  rows whose within-gw rank changes: 451 (7.6%); Spearman(old,new) = 0.999993; max|d| 0.0195
+== squad-relevant (top 30 by e_points within gw): n 1140 ==
+  membership: 4 rows leave, 4 enter; rows (old set) whose within-partition rank changes: 43 (3.8%)
+  Spearman(old,new) on the old set = 0.999976; max|d| 0.0195
+  top-1 per gw changed in 0 of 38 gws
+
+largest mean per-row delta e_points by element (old ps, new ps, d):
+           d_pts   ps_old   ps_new
+element                           
+58      -0.01425  0.05128  0.00000
+71      -0.01374  0.17143  0.00000
+252     -0.00511  0.07692  0.00000
+192     -0.00207  0.03125  0.00000
+351      0.01093  0.09375  0.21875
+476      0.01227  0.00000  0.05000
+762      0.01410  0.00000  0.05000
+182      0.01802  0.10526  0.25714
