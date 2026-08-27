@@ -28,6 +28,17 @@ the migration stays reproducible.
 The fingerprint is STILL meant to be updated by hand when the baseline is moved
 again. A failure here is a question ("did you mean to?"), not a bug. What it must
 never do is pass silently through an unintended rebuild.
+
+**2026-08-27 — repointed.** The M2 port (commit 6d395a8) renamed the canonical to
+`walkforward_h6_2025_26.parquet` and these tests skipped for two weeks (handoff
+2026-08-18 item E). They now guard the 2025-26 canonical as rebuilt on 2026-08-27
+after the penalty-join leak fix (commit e04fb72): `bonus_mode = "delete"`
+(adopted 2026-08-26), prior-season Understat penalty join in both gate states
+(stamp `penalty_join_prior_season`). Fingerprint set deliberately from that file.
+The intermediate canonicals (post-migration 2026-08-14 -> bonus delete 2026-08-26
+-> leak fix 2026-08-27) are preserved as `_prefix` (pre-migration),
+`_prebonusdel` and `_preleakfix`; the numbers 1940 / 0.745 / 1.109 below are
+the 2026-08-14 fingerprint kept for the record only.
 """
 
 import sys
@@ -40,14 +51,16 @@ from scipy.stats import spearmanr
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "squad"))
 
-CANONICAL = REPO / "data" / "walkforward_h6_2526.parquet"
+CANONICAL = REPO / "data" / "walkforward_h6_2025_26.parquet"      # was walkforward_h6_2526.parquet (M2 rename)
 PREMIGRATION = REPO / "data" / "walkforward_h6_2526_prefix.parquet"
 
-# Post-migration fingerprint (2026-08-14). Season total on these predictions is
-# 1940, which is a NEW BASELINE and is not comparable with the pre-migration 1984.
+# Fingerprint of the 2026-08-27 leak-fixed canonical (bonus_mode=delete, prior-season
+# penalty join). Set by hand from the rebuilt file; move it deliberately or not at all.
+# (2026-08-14 post-migration fingerprint, for the record: rows 165_401, Spearman 0.745,
+# MAE 1.109; that file is preserved as _prebonusdel / _preleakfix lineage.)
 EXPECTED_ROWS = 165_401
-EXPECTED_SPEARMAN = 0.745
-EXPECTED_MAE = 1.109
+EXPECTED_SPEARMAN = 0.7466
+EXPECTED_MAE = 1.0457
 TOL_RHO, TOL_MAE = 0.005, 0.02
 
 # Pre-migration fingerprint, for the preserved file. Season total 1984.
@@ -55,7 +68,7 @@ PRE_SPEARMAN = 0.715
 PRE_MAE = 1.146
 
 WHY = (
-    "\n\n*** data/walkforward_h6_2526.parquet no longer matches its post-migration "
+    "\n\n*** data/walkforward_h6_2025_26.parquet no longer matches its 2026-08-27 "
     "fingerprint. ***\n"
     "If you just rebuilt it, check eval/walkforward.py's AVAILABILITY and\n"
     "ODDS_HORIZON_GWS constants and squad/assembly.py's grain before assuming a\n"
@@ -80,7 +93,8 @@ def test_canonical_provenance_stamps(canonical):
     """The file must declare how it was made, on every row."""
     for col in ("minutes_availability", "odds_horizon_gws", "dgw_handling",
                 "d1_terms_active", "cs_unified", "rate_blend_active",
-                "rate_blend_k"):
+                "rate_blend_k", "penalty_fix_active", "bonus_mode",
+                "penalty_join_prior_season"):
         assert col in canonical.columns, (
             f"canonical file is missing the `{col}` provenance stamp -- it predates "
             "the stamp and its provenance cannot be established." + WHY)
@@ -94,6 +108,17 @@ def test_canonical_provenance_stamps(canonical):
     assert canonical["dgw_handling"].iloc[0] == "per_fixture", (
         "canonical file prices double gameweeks as a single fixture. Every "
         "chip-timing conclusion drawn from it would be invalid." + WHY)
+    assert bool(canonical["penalty_join_prior_season"].iloc[0]) is True and \
+        bool(canonical["penalty_join_prior_season"].all()), (
+        "canonical file was built with the SAME-SEASON Understat penalty join (the leak "
+        "closed 2026-08-27, KNOWN_ISSUES #19) or is missing the stamp on some rows. "
+        "Rebuild it on the fixed code." + WHY)
+    import assembly
+    assert canonical["bonus_mode"].iloc[0] == assembly.BONUS_MODE, (
+        f"canonical stamped bonus_mode={canonical['bonus_mode'].iloc[0]} but "
+        f"assembly.BONUS_MODE={assembly.BONUS_MODE}." + WHY)
+    assert bool(canonical["penalty_fix_active"].iloc[0]) == bool(assembly.PENALTY_FIX_ACTIVE), (
+        "canonical penalty_fix_active stamp disagrees with assembly.PENALTY_FIX_ACTIVE." + WHY)
 
 
 def test_d1_stamp_matches_code(canonical):
