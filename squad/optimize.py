@@ -133,13 +133,25 @@ def _default_solver():
     # drivers set this to 2; unset keeps the old single-process behaviour.
     import os
     threads = os.environ.get("FPL_SOLVER_THREADS")
+    # MIP GAP = 0, EXPLICITLY (2026-08-27; a correctness fix, not a model change).
+    # Left unset, HiGHS stops at mip_rel_gap 1e-4 / mip_abs_gap 1e-6 and CBC at its
+    # own defaults, i.e. it may return any plan within ~0.01-0.017 of the true
+    # optimum on this ~100-170 objective. Measured (2024-25 GW3): the production
+    # solve returned 132.4125 (one transfer) while the exact optimum is 132.4190
+    # (a different transfer) -- reproducibly. ~20% of deadlines are decided by
+    # margins under 0.02 and ~11% by margins inside that tolerance, so the
+    # returned action was the solver's stopping rule, not the objective's argmax.
+    # Both the relative and the absolute gap are set to 0 so the solver returns
+    # the argmax of the stated objective; exact ties remain (see the sorted()
+    # note in transfer_mip) and are still resolved by emission order.
+    GAP = dict(gapRel=0.0, gapAbs=0.0)
     try:
         if "HiGHS" in pulp.listSolvers(onlyAvailable=True):
-            return (pulp.HiGHS(msg=False, threads=int(threads)) if threads
-                    else pulp.HiGHS(msg=False))
+            return (pulp.HiGHS(msg=False, threads=int(threads), **GAP) if threads
+                    else pulp.HiGHS(msg=False, **GAP))
     except Exception:
         pass
-    return pulp.PULP_CBC_CMD(msg=False)
+    return pulp.PULP_CBC_CMD(msg=False, **GAP)
 
 # named bench-weight presets (raw bench_weight always overrides these)
 MODES = {
