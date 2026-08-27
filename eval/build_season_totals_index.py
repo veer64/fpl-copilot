@@ -146,10 +146,14 @@ ARM_LABEL = {"baseline8": "baseline re-run", "props": "arm=props",
              "cal_penfix": "arm=topend_cal+penalty_fix (NOT adopted)",
              "bonusow": "arm=bonus_rebuild_outcome (NOT adopted)",
              "bonusdel": "arm=bonus_delete (ADOPTED; TC2 scored zero)",
-             "bonusdel_tc2": "REFERENCE CELL OF RECORD: bonus_delete + TC2 in-sim"}
+             "bonusdel_tc2": "bonus_delete + TC2 in-sim (SUPERSEDED reference cell, pre-leak-fix canonical)",
+             "leakfix": "arm=leak-fixed canonical (bonus_delete; TC2 scored zero)",
+             "leakfix_tc2": "REFERENCE CELL OF RECORD: leak-fixed canonical + bonus_delete + TC2 in-sim"}
 # arms whose walk-forward frame lives in data/ (not data/arms/); bonusdel_tc2 shares bonusdel's frame
 ARM_WF_IN_DATA = {"penfix": "penfix", "cal": "cal", "cal_penfix": "cal_penfix", "bonusow": "bonusow",
-                  "bonusdel": "bonusdel", "bonusdel_tc2": "bonusdel"}
+                  "bonusdel": "bonusdel", "bonusdel_tc2": "bonusdel",
+                  # leak-fixed arms read the CANONICAL itself (no suffix): walkforward_h6_{tag}.parquet
+                  "leakfix": "", "leakfix_tc2": ""}
 
 _wf_cache, _cap_cache = {}, {}
 
@@ -421,8 +425,8 @@ def rows_fullsystem():
             fs_chip[season] = r["chip"]
             r["flags"] = (r["flags"] + "; " if r["flags"] else "") + (
                 "SUPERSEDED AS REFERENCE CELL (2026-08-26): TC2 scored zero and incumbent bonus term; "
-                f"the reference of record is arms/armlog_{season.replace('-', '_')}_bonusdel_tc2 "
-                f"({EXPECT_REFERENCE_CHIP[season]})")
+                f"the reference of record is arms/armlog_{season.replace('-', '_')}_leakfix_tc2 "
+                f"({EXPECT_REFERENCE_CHIP[season]}, leak-fixed convention 2026-08-27)")
         out.append(r)
     assert fs_chip == EXPECT_FS_WC2_CHIP, (
         f"chip-inclusive recompute drifted from the corrected reference "
@@ -500,7 +504,8 @@ def cap_pred_arm(season, arm):
     (props); the refit does not touch step 0. Mirrors measure_arms_full_system."""
     tag = season.replace("-", "_")
     if arm in ARM_WF_IN_DATA:
-        p = REPO / "data" / f"walkforward_h6_{tag}_{ARM_WF_IN_DATA[arm]}.parquet"
+        suffix = ARM_WF_IN_DATA[arm]
+        p = REPO / "data" / (f"walkforward_h6_{tag}_{suffix}.parquet" if suffix else f"walkforward_h6_{tag}.parquet")
     else:
         p = ARMS / f"walkforward_h6_{tag}_{arm}.parquet"
     if (arm in ("props", "both") or arm in ARM_WF_IN_DATA) and p.exists():
@@ -534,7 +539,7 @@ def rows_arms():
         wc, fh, bb = chip_weeks(full)
         assert set(bb) == {bb1, bb2} and 2 in wc, f"{p.name}: not the reference chip schedule"
         tc_in = tc_weeks_insim(full)
-        assert (tc_in == [] or arm == "bonusdel_tc2"), f"{p.name}: in-sim TC on a non-TC2 arm"
+        assert (tc_in == [] or arm in ("bonusdel_tc2", "leakfix_tc2")), f"{p.name}: in-sim TC on a non-TC2 arm"
         reads = standing_reads(full, 2, [bb1, bb2], cap_pred_arm(season, arm))
         if tc_in:
             # TC2 is IN the path (the simulator tripled the captain); listed for the record, never added.
@@ -547,10 +552,18 @@ def rows_arms():
                          if c in d.columns and bool(d[c].iloc[0]))
         if arm == "baseline8":
             flags = "like-for-like check of the resume mechanism -- reproduces the reference GW8-38 exactly"
+        elif arm == "leakfix_tc2":
+            flags = ("REFERENCE CELL OF RECORD (2026-08-27, leak-fixed convention): canonical rebuilt after the "
+                     "penalty-join leak fix (commit e04fb72; stamp penalty_join_prior_season), BONUS_MODE=delete, "
+                     "Triple Captain 2 IN-SIM on the 12c(ii) week; captain = the MIP cap variable at that deadline. "
+                     "Re-measurement of a committed fix, not a selection event (Logs/seal_register.md)")
+        elif arm == "leakfix":
+            flags = "leak-fixed canonical, TC2 scored zero -- see the leakfix_tc2 row"
         elif arm == "bonusdel_tc2":
-            flags = ("REFERENCE CELL OF RECORD (2026-08-26): BONUS_MODE=delete (adopted on component metrics, "
-                     "Logs/bonus_delete_prereg.md) + Triple Captain 2 IN-SIM on the 12c(ii) week (p4 log section 15); "
-                     "captain = the MIP cap variable at that deadline; path identical to arm=bonus_delete in all 38 gws")
+            flags = ("SUPERSEDED AS REFERENCE CELL (2026-08-27): built on the pre-leak-fix canonical (same-season "
+                     f"Understat penalty join, KNOWN_ISSUES #19); the reference of record is arms/armlog_{tag}_leakfix_tc2 "
+                     f"({EXPECT_REFERENCE_CHIP[season]}). Was: REFERENCE CELL OF RECORD 2026-08-26 (2251/2306/2268): "
+                     "BONUS_MODE=delete + TC2 in-sim (p4 log section 15); path identical to arm=bonus_delete in all 38 gws")
         elif arm == "bonusdel":
             flags = "ADOPTED on component metrics (Logs/bonus_delete_prereg.md); TC2 scored zero here -- see the bonusdel_tc2 row"
         else:
@@ -569,7 +582,7 @@ def rows_arms():
     for k, v in EXPECT_ARMS_CHIP.items():
         if k in got:
             assert got[k] == v, f"arms recompute drifted for {k}: {got[k]} != {v}"
-    ref = {s_: got[(s_, "bonusdel_tc2")] for s_ in EXPECT_REFERENCE_CHIP if (s_, "bonusdel_tc2") in got}
+    ref = {s_: got[(s_, "leakfix_tc2")] for s_ in EXPECT_REFERENCE_CHIP if (s_, "leakfix_tc2") in got}
     assert ref == EXPECT_REFERENCE_CHIP, f"REFERENCE cells drifted: {ref} != {EXPECT_REFERENCE_CHIP}"
     return out
 

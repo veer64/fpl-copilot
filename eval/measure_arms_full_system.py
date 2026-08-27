@@ -28,10 +28,11 @@ import measure_full_system as mfs  # noqa: E402  (avg_manager, load, window, AVG
 ARMS = REPO / "data" / "arms"
 P1 = REPO / "data" / "p1"
 SEASONS = ["2023-24", "2024-25", "2025-26"]
-ARM_ORDER = ["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel"]
+ARM_ORDER = ["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel", "leakfix"]
 LABEL = {"baseline8": "baseline re-run from GW8 (like-for-like check)",
          "bonusow": "G. bonus term REBUILT, outcome-weighted (Logs/bonus_rebuild_prereg.md) -- season figure only",
          "bonusdel": "H. bonus term DELETED -- season figure only",
+         "leakfix": "I. leak-fixed canonical (penalty join prior-season, commit e04fb72; bonus delete) -- reference of record with --tc2 (2026-08-27)",
          "cal": "E. top-end calibration alone (Logs/topend_calibration_prereg.md) -- season figure only",
          "cal_penfix": "F. top-end calibration + penalty fix -- season figure only",
          "penfix": "D. penalty-term correctness fix (Logs/penalty_fix_prereg.md) -- season figure only, adjudicated on the component read",
@@ -53,8 +54,11 @@ def cap_pred_for(season):
 def cap_pred_arm(season, arm):
     """TC1 is picked on the ARM's own predictions where the arm changes step 0 (props); the refit does not touch step 0."""
     tag = season.replace("-", "_")
-    p = (REPO / "data" / f"walkforward_h6_{tag}_{arm}.parquet") if arm in ("penfix", "cal", "cal_penfix", "bonusow", "bonusdel") else (ARMS / f"walkforward_h6_{tag}_{arm}.parquet")
-    if arm in ("props", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel") and p.exists():
+    if arm == "leakfix":
+        p = REPO / "data" / f"walkforward_h6_{tag}.parquet"        # the leak-fixed CANONICAL is this arm's own frame
+    else:
+        p = (REPO / "data" / f"walkforward_h6_{tag}_{arm}.parquet") if arm in ("penfix", "cal", "cal_penfix", "bonusow", "bonusdel") else (ARMS / f"walkforward_h6_{tag}_{arm}.parquet")
+    if arm in ("props", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel", "leakfix") and p.exists():
         wf = pd.read_parquet(p, columns=["cutoff", "gw", "element", "name", "e_points"])
         own = wf[wf["cutoff"] == wf["gw"]]
         return {(int(r.gw), r.name): float(r.e_points or 0) for r in own.itertuples()}

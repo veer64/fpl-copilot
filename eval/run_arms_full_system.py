@@ -62,7 +62,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", required=True)
     ap.add_argument("--tc2", type=int, default=None, help="schedule Triple Captain 2 IN-SIM at this gameweek (rule of record: earliest H2 double not already holding a chip; p4 log 12c ii). Captain = the MIP's own cap variable at that deadline (argmax step-0 e_points in the XI); no post-deadline information.")
-    ap.add_argument("--arm", required=True, choices=["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel"])
+    ap.add_argument("--arm", required=True, choices=["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel", "leakfix"])
     a = ap.parse_args()
     season, arm, tag = a.season, a.arm, a.season.replace("-", "_")
     ARMS_DIR.mkdir(parents=True, exist_ok=True)
@@ -72,6 +72,12 @@ def main():
     simulator.OPENING_HORIZON_ACTIVE = False
     ref = pd.read_parquet(P1 / f"fslog_{tag}_{OPENING}_wc{WC1}.parquet")
     if arm == "baseline8":
+        wf_path = REPO / "data" / f"walkforward_h6_{tag}.parquet"
+    elif arm == "leakfix":
+        # Season figures on the CANONICAL rebuilt after the penalty-join leak fix
+        # (commit e04fb72, 2026-08-27): bonus_mode=delete, prior-season join in both
+        # gate states, stamped penalty_join_prior_season. Full season; run with
+        # --tc2 on the 12c(ii) week for the reference cells (leak-fixed convention).
         wf_path = REPO / "data" / f"walkforward_h6_{tag}.parquet"
     elif arm in ("bonusow", "bonusdel"):
         # Bonus rebuild / delete arms (Logs/bonus_rebuild_prereg.md). Full season; figure only.
@@ -87,7 +93,12 @@ def main():
     else:
         wf_path = ARMS_DIR / f"walkforward_h6_{tag}_{arm}.parquet"
     df = simulator.load_season(walkforward_path=str(wf_path), horizon_aware=True, season=season)
-    if arm in ("bonusow", "bonusdel"):
+    if arm == "leakfix":
+        assert "penalty_join_prior_season" in df.columns and bool(df["penalty_join_prior_season"].iloc[0]) is True, \
+            "leakfix arm requires a canonical rebuilt on the leak fix (stamp penalty_join_prior_season)"
+        assert df["bonus_mode"].iloc[0] == "delete" and bool(df["penalty_fix_active"].iloc[0]) is False \
+            and bool(df["topend_cal_active"].iloc[0]) is False, "leakfix canonical stamps are not the config of record"
+    elif arm in ("bonusow", "bonusdel"):
         assert df["bonus_mode"].iloc[0] == {"bonusow": "outcome", "bonusdel": "delete"}[arm], "bonus arm frame is not stamped"
     elif arm in ("cal", "cal_penfix"):
         assert bool(df["topend_cal_active"].iloc[0]) is True, "cal frame is not stamped topend_cal_active"
@@ -96,7 +107,7 @@ def main():
         assert bool(df["penalty_fix_active"].iloc[0]) is True, "penfix frame is not stamped penalty_fix_active"
     elif arm != "baseline8":
         assert df["arm"].unique().tolist() == [arm], "arm frame is not stamped with this arm"
-    start_gw = START_GW.get(season, 1) if arm not in ("penfix", "cal", "cal_penfix", "bonusow", "bonusdel") else 1
+    start_gw = START_GW.get(season, 1) if arm not in ("penfix", "cal", "cal_penfix", "bonusow", "bonusdel", "leakfix") else 1
     if arm == "baseline8":
         assert start_gw > 1, "baseline8 is the GW8-start like-for-like check; this season runs in full"
     bb1, bb2 = rfs.BB1[(season, OPENING)], rfs.BB2[season]
@@ -130,7 +141,8 @@ def main():
     log["wf_file"] = wf_path.name; log["start_gw"] = start_gw
     log["resume_from"] = f"fslog_{tag}_{OPENING}_wc{WC1}.parquet@GW{start_gw - 1}" if start_gw > 1 else "none"
     log["props_active"] = arm in ("props", "both"); log["horizon_minutes_active"] = arm in ("hmin", "both")
-    log["penalty_fix_active"] = arm in ("penfix", "cal_penfix"); log["topend_cal_active"] = arm in ("cal", "cal_penfix"); log["bonus_mode"] = {"bonusow": "outcome", "bonusdel": "delete"}.get(arm, "incumbent")
+    log["penalty_fix_active"] = arm in ("penfix", "cal_penfix"); log["topend_cal_active"] = arm in ("cal", "cal_penfix"); log["bonus_mode"] = {"bonusow": "outcome", "bonusdel": "delete", "leakfix": "delete"}.get(arm, "incumbent")
+    log["penalty_join_prior_season"] = bool(df["penalty_join_prior_season"].iloc[0]) if "penalty_join_prior_season" in df.columns else False
     log["tc2_gw"] = int(a.tc2) if a.tc2 else -1
     log["segment_total"] = int(log["points"].sum())
     log["final_total"] = int(state.total_points)
