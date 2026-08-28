@@ -39,6 +39,19 @@ The intermediate canonicals (post-migration 2026-08-14 -> bonus delete 2026-08-2
 -> leak fix 2026-08-27) are preserved as `_prefix` (pre-migration),
 `_prebonusdel` and `_preleakfix`; the numbers 1940 / 0.745 / 1.109 below are
 the 2026-08-14 fingerprint kept for the record only.
+
+**2026-08-28 — rebuilt on the fixed crosswalk (commit a758541).** 2025-26 had been
+hard-routed to the frozen legacy crosswalk; the rebuild on `crosswalk_2025_26.csv`
+gained Understat ids for 11 elements (Rayan Cherki 417 -> 8094 and Alex Jimenez
+Sanchez 713 -> 12168 with real minutes; nine sub-90-minute fillers) and changed
+NO other element's values (verified row-by-row against the preserved
+`_precrosswalk` file: `data/leakfix_logs/crosswalk_rebuild_verify.txt`). The
+aggregate fingerprint is INSENSITIVE to this change -- Spearman 0.7466024 ->
+0.7466103, MAE 1.0456898 -> 1.0457421, rows 165,401 both -- so the constants below
+did not move at their 4-dp precision and `test_canonical_fingerprint_unchanged`
+passes on both files. That is a known blind spot of an aggregate fingerprint:
+an 11-element change hides inside it. `test_canonical_built_on_fixed_crosswalk`
+below is the guard that actually distinguishes the two builds.
 """
 
 import sys
@@ -54,13 +67,18 @@ sys.path.insert(0, str(REPO / "squad"))
 CANONICAL = REPO / "data" / "walkforward_h6_2025_26.parquet"      # was walkforward_h6_2526.parquet (M2 rename)
 PREMIGRATION = REPO / "data" / "walkforward_h6_2526_prefix.parquet"
 
-# Fingerprint of the 2026-08-27 leak-fixed canonical (bonus_mode=delete, prior-season
-# penalty join). Set by hand from the rebuilt file; move it deliberately or not at all.
-# (2026-08-14 post-migration fingerprint, for the record: rows 165_401, Spearman 0.745,
-# MAE 1.109; that file is preserved as _prebonusdel / _preleakfix lineage.)
+# Fingerprint of the 2026-08-28 crosswalk-fixed canonical (bonus_mode=delete, prior-season
+# penalty join, crosswalk_2025_26.csv). Set by hand from the rebuilt file; move it
+# deliberately or not at all. At 4 dp it is IDENTICAL to the 2026-08-27 leak-fixed
+# file (Spearman 0.7466024 -> 0.7466103, MAE 1.0456898 -> 1.0457421), preserved as
+# `_precrosswalk`. (2026-08-14 post-migration fingerprint, for the record: rows
+# 165_401, Spearman 0.745, MAE 1.109; _prebonusdel / _preleakfix lineage.)
 EXPECTED_ROWS = 165_401
 EXPECTED_SPEARMAN = 0.7466
 EXPECTED_MAE = 1.0457
+# Element -> Understat id pairs that only the crosswalk-fixed build carries.
+CROSSWALK_FIX_IDS = {417: 8094.0, 713: 12168.0}      # Rayan Cherki, Alex Jimenez Sanchez
+PRECROSSWALK = REPO / "data" / "walkforward_h6_2025_26_precrosswalk.parquet"
 TOL_RHO, TOL_MAE = 0.005, 0.02
 
 # Pre-migration fingerprint, for the preserved file. Season total 1984.
@@ -159,6 +177,23 @@ def test_canonical_fingerprint_unchanged(canonical):
         f"horizon-0 Spearman {rho:.4f} != {EXPECTED_SPEARMAN}." + WHY)
     assert abs(mae - EXPECTED_MAE) < TOL_MAE, (
         f"horizon-0 MAE {mae:.4f} != {EXPECTED_MAE}." + WHY)
+
+
+def test_canonical_built_on_fixed_crosswalk(canonical):
+    """The aggregate fingerprint cannot see an 11-element crosswalk change; this can.
+    Cherki carried the flat MID prior all of 2025-26 in every build before
+    2026-08-28 (no id -> no current-season blend). A canonical without his id is
+    the pre-fix artefact under the canonical's name."""
+    ids = canonical.drop_duplicates("element").set_index("element")["understat_id"]
+    for el, uid in CROSSWALK_FIX_IDS.items():
+        got = pd.to_numeric(ids.get(el), errors="coerce")
+        assert got == uid, (
+            f"element {el} carries understat_id {got!r}, expected {uid}: the canonical was "
+            "built on the legacy crosswalk (pre-a758541), not on crosswalk_2025_26.csv." + WHY)
+    if PRECROSSWALK.exists():
+        pre = pd.read_parquet(PRECROSSWALK, columns=["element", "understat_id"])
+        assert pd.to_numeric(pre[pre.element == 417].understat_id, errors="coerce").isna().all(), (
+            "the preserved _precrosswalk file carries Cherki's id -- it is not the pre-fix build")
 
 
 def test_doubles_are_counted(canonical):
