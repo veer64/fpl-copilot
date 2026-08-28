@@ -59,6 +59,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import json
 import pandas as pd
 import pulp
 
@@ -382,6 +383,15 @@ def decide_gameweek(pool, state, prices, mode="balanced", allow_transfer=True):
 # ---------------------------------------------------------------------------
 # The season loop
 # ---------------------------------------------------------------------------
+# Hold preference at near-ties (Logs/hold_preference_prereg.md, 2026-08-27). When set to a
+# float epsilon: at a non-chip deadline whose best plan makes >= 1 step-0 transfer, the best
+# HOLD plan (used[0] == 0) is also solved; if obj_best - obj_hold < epsilon the hold plan is
+# executed and the free transfer banks. Whole plan vs whole plan -- combination moves are
+# never split into legs. Rests None (off); stamped per decision-log row as hold_pref_eps.
+# PRE-REGISTERED TEST ONLY -- not adopted.
+HOLD_PREFERENCE_EPS = None
+
+
 def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
                         mode="balanced", horizon=DEFAULT_HORIZON,
                         decay=DEFAULT_DECAY, wildcard=False, hit_bar=None,
@@ -455,6 +465,21 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
         raise RuntimeError(f"GW{gw}: transfer MIP returned {status}")
 
     step = plan[0]
+    step["hold_applied"] = False; step["hold_margin"] = None; step["declined_transfers"] = []
+    if (HOLD_PREFERENCE_EPS is not None and not wildcard and len(state.elements) == 15
+            and step["transfers_made"] > 0):
+        status_h, plan_h = build_and_solve(
+            pools, current_squad=state.elements, purchase_prices=purchase_prices,
+            bank=state.bank, free_transfers=state.free_transfers, mode=mode, decay=decay,
+            wildcard_step=None, hit_bar=hit_bar, bench_boost_step=bb_step, force_hold=True)
+        if plan_h is not None:
+            margin = float(step["objective"]) - float(plan_h[0]["objective"])
+            if margin < HOLD_PREFERENCE_EPS:
+                declined = {"buys": list(step["buys"]), "sells": list(step["sells"]), "hits": int(step["hits"])}
+                step = plan_h[0]
+                step["hold_applied"] = True; step["hold_margin"] = margin; step["declined_transfers"] = [declined]
+            else:
+                step["hold_margin"] = margin
     team = assign_bench_order(plan_to_team(step, pools[gw]))
 
     # Pair each sale with a purchase. Positions must match, because the 15 is
@@ -643,6 +668,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
         effective_horizon = 1
         is_wildcard = False
         is_free_hit = False
+        hold_info = {"hold_applied": False, "hold_margin": None, "declined_transfers": []}
         is_triple_captain = (triple_captain_gw is not None
                              and gw == triple_captain_gw)
 
@@ -772,6 +798,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                 mode=mode, horizon=eff_horizon, decay=decay,
                 wildcard=is_wildcard or is_free_hit, hit_bar=hit_bar,
                 bench_boost_gw=bench_boost_gws)
+            hold_info = {"hold_applied": bool(step.get("hold_applied", False)), "hold_margin": step.get("hold_margin"), "declined_transfers": step.get("declined_transfers", [])}
             effective_horizon = eff_h
 
             # Applied as ONE atomic move: the MIP reasoned about the whole set,
@@ -877,6 +904,10 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             "transfer_out": transfers[0][0] if transfers else None,
             "transfer_in": transfers[0][1] if transfers else None,
             "all_transfers": list(transfers),
+            "hold_pref_eps": (float(HOLD_PREFERENCE_EPS) if HOLD_PREFERENCE_EPS is not None else -1.0),
+            "hold_applied": bool(hold_info["hold_applied"]),
+            "hold_margin": (float(hold_info["hold_margin"]) if hold_info["hold_margin"] is not None else float("nan")),
+            "declined_transfers": json.dumps(hold_info["declined_transfers"]),
             "effective_horizon": effective_horizon,
             "wildcard": is_wildcard,
             "triple_captain": is_triple_captain,

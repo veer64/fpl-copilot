@@ -191,6 +191,7 @@ def build_and_solve(
     solver=None,
     hit_bar=None,
     bench_boost_step=None,
+    force_hold=False,
 ):
     """Solve the multi-gameweek transfer plan.
 
@@ -211,7 +212,13 @@ def build_and_solve(
                        the boost as it enters the horizon. Ignored when the gate
                        is off.
 
-    Returns (status, plan) where plan is a list of per-gameweek dicts.
+    force_hold        : if True, add the single constraint used[0] == 0 (no step-0
+                       transfer; steps 1+ plan freely). Used ONLY by the gated hold
+                       preference (simulator.HOLD_PREFERENCE_EPS; Logs/hold_preference_prereg.md)
+                       to price the best HOLD plan against the best plan. Off by default.
+
+    Returns (status, plan) where plan is a list of per-gameweek dicts; plan[0] also
+    carries `objective` (the solved objective value) so callers can compare plans.
     """
     hit_bar = HIT_COST if hit_bar is None else hit_bar
 
@@ -427,6 +434,8 @@ def build_and_solve(
         spend[wildcard_step] = 0
 
     prob += ft[0] == free_transfers
+    if force_hold:
+        prob += used[0] == 0, "force_hold_step0"
     for t in range(1, T):
         # ft[t] <= max(0, ft[t-1] - used[t-1]) + 1, with the max handled by the
         # hits term: when h hits are taken, used = ft + h at the optimum, so
@@ -470,6 +479,7 @@ def build_and_solve(
             "decay_weight": decay ** t,
         })
 
+    plan[0]["objective"] = float(pulp.value(prob.objective))
     return status, plan
 
 
