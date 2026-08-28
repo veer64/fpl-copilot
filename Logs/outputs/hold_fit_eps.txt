@@ -1,0 +1,9 @@
+deadlines with a hold solve: 68 ({'2023-24': 34, '2024-25': 34}); transferred at all: 68
+hold margin: min 0.0198 q10 0.8360 q25 1.5541 median 2.4543 q75 3.6785 q90 7.0311 max 13.5552
+  margin < 0.05: 1 deadlines; mean realised net of transferring +9.00
+  margin < 0.1: 1 deadlines; mean realised net of transferring +9.00
+  margin < 0.25: 1 deadlines; mean realised net of transferring +9.00
+  margin < 0.5: 2 deadlines; mean realised net of transferring +10.00
+  margin < 1.0: 10 deadlines; mean realised net of transferring +4.50
+OLS realised_net = +9.050 + -0.482 * margin   (SE a 3.939, SE b 0.931; corr -0.064; n 68)
+PRE-REGISTERED RULE -> epsilon = 0.0000  (rule never fires: test dead on the tuning seasons)

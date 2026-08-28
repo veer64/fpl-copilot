@@ -1,0 +1,717 @@
+﻿# Idea 4 cross-league priors -- feasibility outputs of record (2026-08-28, read-only)
+# Part A: population + partitions + labelling table (scratch script idea4_pop.py)
+
+
+===== 2023-24 (prior 2022-23) pos_prior npxG/xA per 90: D: 0.048/0.056, F: 0.374/0.147, M: 0.130/0.139
+step-0 rows 28742, outfield rows 25444, players 865
+                   rows  players  row_share
+status                                     
+has_prior         10025      272   0.394003
+new_to_epl         4493      148   0.176584
+no_understat_id    7012      236   0.275586
+returning_epl      1937       54   0.076128
+thin_prior(<450)   1977       55   0.077700
+  LS: rows 6074 (outfield 5422), no-prior outfield rows 1465 = 24.12% of partition rows, players 142
+    {'new_to_epl': {'rows': 829, 'players': 77}, 'no_understat_id': {'rows': 2, 'players': 2}, 'returning_epl': {'rows': 375, 'players': 34}, 'thin_prior(<450)': {'rows': 259, 'players': 29}}
+  T30: rows 1140 (outfield 916), no-prior outfield rows 86 = 7.54% of partition rows, players 39
+    {'new_to_epl': {'rows': 57, 'players': 24}, 'returning_epl': {'rows': 7, 'players': 5}, 'thin_prior(<450)': {'rows': 22, 'players': 10}}
+  new_to_epl: players 148, at promoted club 53, other club 96
+
+===== 2024-25 (prior 2023-24) pos_prior npxG/xA per 90: D: 0.062/0.066, F: 0.438/0.171, M: 0.153/0.159
+step-0 rows 26919, outfield rows 24092, players 784
+                   rows  players  row_share
+status                                     
+has_prior         10496      282   0.435663
+new_to_epl         4203      137   0.174456
+no_understat_id    5775      185   0.239706
+returning_epl      2091       56   0.086792
+thin_prior(<450)   1527       42   0.063382
+  LS: rows 6051 (outfield 5384), no-prior outfield rows 1343 = 22.19% of partition rows, players 126
+    {'new_to_epl': {'rows': 623, 'players': 61}, 'no_understat_id': {'rows': 2, 'players': 2}, 'returning_epl': {'rows': 528, 'players': 38}, 'thin_prior(<450)': {'rows': 190, 'players': 25}}
+  T30: rows 1140 (outfield 925), no-prior outfield rows 58 = 5.09% of partition rows, players 24
+    {'new_to_epl': {'rows': 23, 'players': 12}, 'returning_epl': {'rows': 18, 'players': 6}, 'thin_prior(<450)': {'rows': 17, 'players': 6}}
+  new_to_epl: players 137, at promoted club 37, other club 100
+
+===== 2025-26 (prior 2024-25) pos_prior npxG/xA per 90: D: 0.054/0.062, F: 0.423/0.156, M: 0.163/0.157
+step-0 rows 29338, outfield rows 25955, players 841
+                  rows  players  row_share
+status                                    
+has_prior         9879      265   0.380620
+new_to_epl        4250      126   0.163745
+no_understat_id   8466      259   0.326180
+returning_epl     1506       43   0.058024
+thin_prior(<450)  1854       51   0.071431
+  LS: rows 6042 (outfield 5371), no-prior outfield rows 1433 = 23.72% of partition rows, players 124
+    {'new_to_epl': {'rows': 821, 'players': 74}, 'no_understat_id': {'rows': 27, 'players': 2}, 'returning_epl': {'rows': 353, 'players': 26}, 'thin_prior(<450)': {'rows': 232, 'players': 22}}
+  T30: rows 1140 (outfield 941), no-prior outfield rows 92 = 8.07% of partition rows, players 30
+    {'new_to_epl': {'rows': 58, 'players': 15}, 'no_understat_id': {'rows': 2, 'players': 1}, 'returning_epl': {'rows': 10, 'players': 7}, 'thin_prior(<450)': {'rows': 22, 'players': 7}}
+  new_to_epl: players 126, at promoted club 39, other club 87
+
+
+===== PLAYERS TO LABEL (no EPL prior, reach LS or T30 at least once) =====
+ season  element                                                    name           team pos           status  promoted  LS_rows  T30_rows  real_min  real_np90  real_xa90
+2023-24      211                                         Nicolas Jackson        Chelsea FWD       new_to_epl     False       25        17    2818.0   0.634299   0.168748
+2023-24      362                                             Cole Palmer        Chelsea MID thin_prior(<450)     False       23        13    2640.0   0.374377   0.404635
+2023-24      616                                          JoÅ¡ko Gvardiol       Man City DEF       new_to_epl     False       16         5    2335.0   0.118784   0.081543
+2023-24      519                                          Destiny Udogie          Spurs DEF       new_to_epl     False       24         4    2437.0   0.103919   0.094190
+2023-24      599                                            Moussa Diaby    Aston Villa MID       new_to_epl     False       14         4    2233.0   0.260280   0.347470
+2023-24      321                                           Alfie Doughty          Luton DEF       new_to_epl      True       27         3    2980.0   0.055322   0.199699
+2023-24      611                                             Axel Disasi        Chelsea DEF       new_to_epl     False       30         3    2586.0   0.093233   0.006788
+2023-24      630                                            Ross Barkley          Luton MID    returning_epl      True       24         3    2627.0   0.153593   0.165253
+2023-24      203                                              Malo Gusto        Chelsea DEF       new_to_epl     False       13         2    1754.0   0.087253   0.282587
+2023-24      326                                          Carlton Morris          Luton FWD       new_to_epl      True       26         2    2879.0   0.265745   0.115414
+2023-24      757                                           Conor Bradley      Liverpool DEF       new_to_epl     False        4         2     776.0   0.104714   0.226342
+2023-24       10                                            Jakub Kiwior        Arsenal DEF thin_prior(<450)     False        5         1     953.0   0.112965   0.085753
+2023-24       41                               Diego Carlos Santos Silva    Aston Villa DEF thin_prior(<450)     False       13         1    1784.0   0.091318   0.005550
+2023-24       52                                       Marvelous Nakamba          Luton MID    returning_epl      True       11         1    1140.0   0.010770   0.025722
+2023-24       72                                         Justin Kluivert    Bournemouth MID       new_to_epl     False        3         1    2029.0   0.323668   0.074044
+2023-24       82                                         Antoine Semenyo    Bournemouth FWD thin_prior(<450)     False        9         1    2141.0   0.270035   0.159726
+2023-24       89                                          Illia Zabarnyi    Bournemouth DEF thin_prior(<450)     False       34         1    3330.0   0.046944   0.010345
+2023-24      107                                      Keane Lewis-Potter      Brentford MID thin_prior(<450)     False        4         1    1432.0   0.539356   0.101480
+2023-24      157                                         Ameen Al-Dakhil        Burnley DEF       new_to_epl      True        8         1    1055.0   0.104239   0.008390
+2023-24      165                                             Josh Cullen        Burnley MID    returning_epl      True       18         1    2072.0   0.023135   0.083674
+2023-24      176                                          Connor Roberts        Burnley DEF    returning_epl      True        7         1     804.0   0.000000   0.035053
+2023-24      200                                      David Datro Fofana        Burnley FWD thin_prior(<450)      True        6         1     876.0   0.413971   0.153534
+2023-24      238                                          Chris Richards Crystal Palace DEF thin_prior(<450)     False       20         1    2085.0   0.027609   0.029248
+2023-24      309                                      Dominik Szoboszlai      Liverpool MID       new_to_epl     False       22         1    2135.0   0.148344   0.238496
+2023-24      314                                          Elijah Adebayo          Luton FWD       new_to_epl      True        6         1    1422.0   0.419670   0.051498
+2023-24      316                                            Amari'i Bell          Luton DEF       new_to_epl      True       13         1    1724.0   0.026070   0.018003
+2023-24      318                                             Reece Burke          Luton DEF       new_to_epl      True        9         1    1691.0   0.115201   0.123554
+2023-24      328                                        Chiedozie Ogbene          Luton FWD       new_to_epl      True       12         1    1984.0   0.218037   0.157369
+2023-24      378                                          Anthony Elanga  Nott'm Forest MID thin_prior(<450)     False       20         1    2430.0   0.250856   0.262629
+2023-24      513                                         Pape Matar Sarr          Spurs MID thin_prior(<450)     False       12         1    2141.0   0.161522   0.085428
+2023-24      585                                          JurriÃ«n Timber        Arsenal DEF       new_to_epl     False        0         1      70.0   0.000000   0.000000
+2023-24      595                                            Milos Kerkez    Bournemouth DEF       new_to_epl     False       12         1    1982.0   0.077064   0.063194
+2023-24      617                                          Rasmus HÃ¸jlund        Man Utd FWD       new_to_epl     False       18         1    2210.0   0.380317   0.072467
+2023-24      639                                        Micky van de Ven          Spurs DEF       new_to_epl     False       20         1    2345.0   0.037263   0.001359
+2023-24      678                                             JÃ©rÃ©my Doku       Man City MID       new_to_epl     False        4         1    1616.0   0.209955   0.304978
+2023-24      689                                          Mohammed Kudus       West Ham MID       new_to_epl     False       24         1    2490.0   0.187130   0.126830
+2023-24      775                                            Ben Brereton  Sheffield Utd MID       new_to_epl      True        8         1    1134.0   0.420585   0.130369
+2023-24      776                                             Timo Werner          Spurs FWD    returning_epl     False        5         1     827.0   0.458483   0.378386
+2023-24      792                                            Daniel MuÃ±oz Crystal Palace DEF       new_to_epl     False       12         1    1440.0   0.109692   0.192834
+2023-24       23                                     Nuno Varela Tavares  Nott'm Forest DEF    returning_epl     False        3         0     447.0   0.034866   0.050203
+2023-24       27                                           Auston Trusty  Sheffield Utd DEF       new_to_epl      True       21         0    2576.0   0.023185   0.038511
+2023-24       33                                          Cameron Archer  Sheffield Utd FWD thin_prior(<450)      True       12         0    1870.0   0.278427   0.143608
+2023-24       44                                              Jhon DurÃ¡n    Aston Villa FWD thin_prior(<450)     False        1         0     394.0   0.445143   0.049104
+2023-24       64                                            David Brooks    Bournemouth MID thin_prior(<450)     False        1         0     241.0   0.822959   0.338878
+2023-24      122                                           Simon Adingra       Brighton MID       new_to_epl     False       22         0    2256.0   0.203326   0.131731
+2023-24      128                                          Mahmoud Dahoud       Brighton MID       new_to_epl     False        1         0     462.0   0.032082   0.214421
+2023-24      135                           JoÃ£o Pedro Junqueira de Jesus       Brighton FWD    returning_epl     False       10         0    2026.0   0.360406   0.240876
+2023-24      139                                           Tariq Lamptey       Brighton DEF thin_prior(<450)     False        2         0     923.0   0.055646   0.118076
+2023-24      150                                      Jan Paul van Hecke       Brighton DEF thin_prior(<450)     False       22         0    2365.0   0.060275   0.018579
+2023-24      160                                            Jordan Beyer        Burnley DEF       new_to_epl      True        8         0    1252.0   0.030688   0.029552
+2023-24      161                                          Josh Brownhill        Burnley MID    returning_epl      True       19         0    2229.0   0.073915   0.073772
+2023-24      167                                           Hjalmar Ekdal        Burnley DEF       new_to_epl      True        1         0     440.0   0.015703   0.006088
+2023-24      168                                             Lyle Foster        Burnley FWD       new_to_epl      True       16         0    1938.0   0.260440   0.069614
+2023-24      170                                 JÃ³hann Berg Gudmundsson        Burnley MID    returning_epl      True        5         0    1175.0   0.156886   0.240774
+2023-24      173                                             Dara O'Shea        Burnley DEF    returning_epl      True       28         0    2899.0   0.028169   0.051051
+2023-24      177                                           Jay Rodriguez        Burnley FWD    returning_epl      True        4         0     781.0   0.444886   0.019718
+2023-24      178                                          Charlie Taylor        Burnley DEF    returning_epl      True       15         0    2336.0   0.009260   0.072561
+2023-24      182                                         Victor da Silva        Burnley DEF       new_to_epl      True       21         0    2324.0   0.068294   0.040081
+2023-24      196                                      Carney Chukwuemeka        Chelsea MID thin_prior(<450)     False        1         0     219.0   0.048334   0.102078
+2023-24      205                                      Callum Hudson-Odoi  Nott'm Forest MID    returning_epl     False       13         0    1844.0   0.147377   0.150683
+2023-24      212                                      Christopher Nkunku        Chelsea FWD       new_to_epl     False        1         0     416.0   0.521864   0.049236
+2023-24      239                                         Jairo Riedewald Crystal Palace MID thin_prior(<450)     False        1         0     219.0   0.024396   0.000000
+2023-24      244                                     AndrÃ© Tavares Gomes        Everton MID    returning_epl     False        1         0     476.0   0.059625   0.049197
+2023-24      245                                      Jarrad Branthwaite        Everton DEF    returning_epl     False       28         0    3122.0   0.055087   0.026867
+2023-24      276                                              SaÅ¡a LukiÄ‡         Fulham MID thin_prior(<450)     False        3         0    1107.0   0.104202   0.049662
+2023-24      279                                  Rodrigo Muniz Carvalho         Fulham FWD       new_to_epl     False       13         0    1602.0   0.476512   0.077999
+2023-24      320                                            Jordan Clark          Luton MID       new_to_epl      True       10         0    1326.0   0.062871   0.125466
+2023-24      329                                          Fred Onyedinma          Luton MID       new_to_epl      True        2         0     419.0   0.039546   0.028083
+2023-24      330                                            Gabriel Osho          Luton DEF       new_to_epl      True       13         0    1853.0   0.060499   0.004632
+2023-24      346                                            JoÃ£o Cancelo       Man City DEF  no_understat_id     False        1         0       NaN        NaN        NaN
+2023-24      351                                             Tommy Doyle         Wolves MID    returning_epl     False        3         0    1175.0   0.031683   0.051755
+2023-24      360                                            James McAtee  Sheffield Utd MID    returning_epl      True       10         0    1848.0   0.118889   0.149278
+2023-24      388                                           Kobbie Mainoo        Man Utd MID thin_prior(<450)     False       18         0    1980.0   0.035171   0.038409
+2023-24      393                                             Teden Mengi          Luton DEF       new_to_epl      True       20         0    2465.0   0.024805   0.012709
+2023-24      403                                         Elliot Anderson      Newcastle MID thin_prior(<450)     False        5         0     997.0   0.121139   0.137447
+2023-24      417                                             Emil Krafth      Newcastle DEF thin_prior(<450)     False        5         0     912.0   0.022240   0.095768
+2023-24      419                                        Jamaal Lascelles      Newcastle DEF thin_prior(<450)     False        9         0    1072.0   0.090330   0.003057
+2023-24      429                                           Sandro Tonali      Newcastle MID       new_to_epl     False        3         0     436.0   0.177137   0.113980
+2023-24      471                                        Anel AhmedhodÅ¾iÄ‡  Sheffield Utd DEF       new_to_epl      True       23         0    2646.0   0.117833   0.032335
+2023-24      473                                          George Baldock  Sheffield Utd DEF    returning_epl      True        5         0     965.0   0.002303   0.079838
+2023-24      475                                            Sander Berge        Burnley MID    returning_epl      True       24         0    3020.0   0.063242   0.094916
+2023-24      476                                            Jayden Bogle  Sheffield Utd DEF    returning_epl      True       26         0    2817.0   0.083144   0.023407
+2023-24      477                                          Rhian Brewster  Sheffield Utd FWD    returning_epl      True        1         0     302.0   0.102797   0.030205
+2023-24      480                                               John Egan  Sheffield Utd DEF    returning_epl      True        4         0     491.0   0.043691   0.000000
+2023-24      484                                                Max Lowe  Sheffield Utd DEF    returning_epl      True        1         0     499.0   0.169496   0.002344
+2023-24      485                                         Oliver McBurnie  Sheffield Utd FWD    returning_epl      True        3         0    1290.0   0.412143   0.152902
+2023-24      488                                          Oliver Norwood  Sheffield Utd MID    returning_epl      True       12         0    1413.0   0.014350   0.044165
+2023-24      489                                              Ben Osborn  Sheffield Utd MID    returning_epl      True        7         0    1343.0   0.012001   0.072099
+2023-24      490                                           William Osula  Sheffield Utd FWD       new_to_epl      True        3         0     769.0   0.242530   0.011561
+2023-24      494                                   Bryan Gil Salvatierra          Spurs MID thin_prior(<450)     False        1         0     182.0   0.390876   0.095165
+2023-24      500                                              Harry Kane          Spurs FWD  no_understat_id     False        1         0       NaN        NaN        NaN
+2023-24      503                                        Giovani Lo Celso          Spurs MID    returning_epl     False        2         0     466.0   0.096176   0.309597
+2023-24      508                                         Sergio ReguilÃ³n      Brentford DEF    returning_epl     False        9         0    1539.0   0.068856   0.212777
+2023-24      553                                              Ryan Giles          Luton DEF       new_to_epl      True        4         0     492.0   0.026917   0.041355
+2023-24      574                                         Boubacar TraorÃ©         Wolves MID thin_prior(<450)     False        2         0     760.0   0.031627   0.033316
+2023-24      575                                             Tom Lockyer          Luton DEF       new_to_epl      True       10         0    1185.0   0.122994   0.028542
+2023-24      576                                           Jack Robinson  Sheffield Utd DEF    returning_epl      True       28         0    2885.0   0.047158   0.033924
+2023-24      582                                    Pelly Ruddock Mpanzu          Luton MID       new_to_epl      True        2         0    1068.0   0.106235   0.044785
+2023-24      584                                              Pau Torres    Aston Villa DEF       new_to_epl     False       23         0    2467.0   0.055848   0.022716
+2023-24      586                                            Tahith Chong          Luton MID    returning_epl      True       14         0    1978.0   0.160125   0.019909
+2023-24      592                                          Yasser Larouci  Sheffield Utd DEF       new_to_epl      True        1         0     531.0   0.043863   0.052592
+2023-24      593                                            BÃ©nie TraorÃ©  Sheffield Utd FWD       new_to_epl      True        3         0     360.0   0.080306   0.098832
+2023-24      594                                            Zeki Amdouni        Burnley FWD       new_to_epl      True        8         0    2025.0   0.237303   0.066434
+2023-24      601                               Arnaut Danjuma Groeneveld        Everton MID thin_prior(<450)     False        2         0     572.0   0.538590   0.134347
+2023-24      602                                             Issa KaborÃ©          Luton DEF       new_to_epl      True        7         0    1748.0   0.015644   0.162099
+2023-24      604                                                Olu Aina  Nott'm Forest DEF    returning_epl     False       14         0    1730.0   0.015425   0.038018
+2023-24      605                                           Luca Koleosho        Burnley MID       new_to_epl      True        1         0    1015.0   0.206102   0.129161
+2023-24      606                          Igor Julio dos Santos de Paulo       Brighton DEF       new_to_epl     False        5         0    1640.0   0.011949   0.034232
+2023-24      608                                      Jacob Bruun Larsen        Burnley MID       new_to_epl      True        1         0    1272.0   0.320749   0.102921
+2023-24      610                                           Calvin Bassey         Fulham DEF       new_to_epl     False       19         0    2278.0   0.014558   0.004187
+2023-24      621                                        Jack Hinshelwood       Brighton MID thin_prior(<450)     False        4         0     890.0   0.218793   0.084767
+2023-24      626                                          Jarell Quansah      Liverpool DEF       new_to_epl     False        2         0    1182.0   0.108631   0.005750
+2023-24      631                                             Jacob Brown          Luton FWD       new_to_epl      True        1         0    1031.0   0.268759   0.073540
+2023-24      633                                         Tino Livramento      Newcastle DEF thin_prior(<450)     False        6         0    1275.0   0.067839   0.076297
+2023-24      635                                             Lewis Miley      Newcastle MID thin_prior(<450)     False       12         0    1223.0   0.082192   0.113778
+2023-24      638                                     Vini de Souza Costa  Sheffield Utd MID       new_to_epl      True       23         0    2676.0   0.016825   0.026290
+2023-24      642                                 Edson Ãlvarez VelÃ¡zquez       West Ham MID       new_to_epl     False       24         0    2405.0   0.045348   0.022190
+2023-24      643                                              Max Aarons    Bournemouth DEF    returning_epl     False       10         0    1219.0   0.003515   0.064709
+2023-24      660                                          Wilson Odobert        Burnley MID       new_to_epl      True       19         0    2150.0   0.106487   0.185350
+2023-24      663                                           Gustavo Hamer  Sheffield Utd MID       new_to_epl      True       28         0    2986.0   0.072763   0.210563
+2023-24      668                                             Wataru Endo      Liverpool MID       new_to_epl     False        5         0    1718.0   0.022933   0.078233
+2023-24      672                                          NicolÃ² Zaniolo    Aston Villa MID       new_to_epl     False        1         0     820.0   0.406610   0.070192
+2023-24      674                                         Hannes Delcroix        Burnley DEF       new_to_epl      True        1         0     575.0   0.036437   0.031855
+2023-24      675                                            Aaron Ramsey        Burnley MID       new_to_epl      True        1         0     516.0   0.070118   0.068289
+2023-24      676                                 Konstantinos Mavropanos       West Ham DEF    returning_epl     False        8         0    1490.0   0.052692   0.006268
+2023-24      679                                         Gonzalo Montiel  Nott'm Forest DEF       new_to_epl     False        3         0     809.0   0.013296   0.192500
+2023-24      690                                           Carlos Baleba       Brighton MID       new_to_epl     False        5         0    1303.0   0.053372   0.030853
+2023-24      691                        Norberto Bercique Gomes Betuncal        Everton FWD       new_to_epl     False        3         0     898.0   0.642005   0.119690
+2023-24      696                       Murillo Santiago Costa dos Santos  Nott'm Forest DEF       new_to_epl     False       26         0    2813.0   0.053281   0.038939
+2023-24      697                                          Santiago Bueno         Wolves DEF       new_to_epl     False        1         0     817.0   0.000000   0.021030
+2023-24      701                                           Saman Ghoddos      Brentford MID thin_prior(<450)     False        6         0     701.0   0.038784   0.132205
+2023-24      708                                        Ryan Gravenberch      Liverpool MID       new_to_epl     False        1         0    1116.0   0.138165   0.088068
+2023-24      709                                          Sofyan Amrabat        Man Utd MID       new_to_epl     False        4         0     922.0   0.007197   0.026113
+2023-24      711                                      Andrew Omobamidele  Nott'm Forest DEF    returning_epl     False        3         0     771.0   0.009488   0.009023
+2023-24      712                                       NicolÃ¡s DomÃ­nguez  Nott'm Forest MID       new_to_epl     False       11         0    1543.0   0.099283   0.053018
+2023-24      713                                         Ibrahim SangarÃ©  Nott'm Forest MID       new_to_epl     False       10         0    1053.0   0.071286   0.029983
+2023-24      715                                  Jean-Ricner Bellegarde         Wolves MID       new_to_epl     False        3         0     938.0   0.130621   0.091647
+2023-24      777                                           Radu Dragusin          Spurs DEF       new_to_epl     False        1         0     417.0   0.015837   0.000000
+2023-24      803                                           Morgan Rogers    Aston Villa MID       new_to_epl     False        3         0     652.0   0.149987   0.124889
+2023-24      805                                         Lorenz Assignon        Burnley DEF       new_to_epl      True       12         0    1249.0   0.029442   0.149533
+2023-24      806                                           Maxime Esteve        Burnley DEF       new_to_epl      True       10         0    1314.0   0.016478   0.000861
+2023-24      807                                            Adam Wharton Crystal Palace MID       new_to_epl     False       12         0    1333.0   0.024003   0.172592
+2023-24      823                                        Oliver Arblaster  Sheffield Utd MID       new_to_epl      True        7         0     954.0   0.002049   0.097146
+2024-25      585                                            IsmaÃ¯la Sarr Crystal Palace MID    returning_epl     False       24        10    2738.0   0.404591   0.330566
+2024-25        6                                          JurriÃ«n Timber        Arsenal DEF thin_prior(<450)     False       24         6    2443.0   0.048380   0.041728
+2024-25      571                     SÃ¡vio 'Savinho' Moreira de Oliveira       Man City MID       new_to_epl     False       12         5    1801.0   0.262200   0.347040
+2024-25      106                                            Kevin Schade      Brentford MID thin_prior(<450)     False       15         4    2332.0   0.365403   0.143356
+2024-25      181                                      Christopher Nkunku        Chelsea MID thin_prior(<450)     False        3         4     878.0   0.515391   0.206409
+2024-25      573                                       Nikola MilenkoviÄ‡  Nott'm Forest DEF       new_to_epl     False       35         3    3330.0   0.123545   0.028214
+2024-25      617                     Francisco Evanilson de Lima Barbosa    Bournemouth FWD       new_to_epl     False       20         3    2376.0   0.490648   0.072545
+2024-25      633                                            Mikel Merino        Arsenal MID    returning_epl     False       10         3    1578.0   0.391547   0.123485
+2024-25      582                                            Jake O'Brien        Everton DEF       new_to_epl     False       13         2    1561.0   0.070338   0.038494
+2024-25      625                                          Ilkay GÃ¼ndogan       Man City MID    returning_epl     False       10         2    2231.0   0.138235   0.147964
+2024-25      755                                           Omar Marmoush       Man City FWD       new_to_epl     False       12         2    1195.0   0.425506   0.201603
+2024-25      762                                           Marco Asensio    Aston Villa MID       new_to_epl     False        6         2     751.0   0.363585   0.151525
+2024-25       12                                           Ethan Nwaneri        Arsenal MID thin_prior(<450)     False        1         1     883.0   0.180997   0.118414
+2024-25      135                                          Yankuba Minteh       Brighton MID       new_to_epl     False        9         1    1832.0   0.278540   0.239337
+2024-25      232                                           Iliman Ndiaye        Everton FWD    returning_epl     False       17         1    2478.0   0.202392   0.069324
+2024-25      364                                             Amad Diallo        Man Utd MID thin_prior(<450)     False       14         1    1887.0   0.226352   0.226832
+2024-25      417                                           Sandro Tonali      Newcastle MID thin_prior(<450)     False       21         1    2619.0   0.145649   0.074878
+2024-25      579                                          Ryan Sessegnon         Fulham DEF    returning_epl     False        0         1     576.0   0.387788   0.205331
+2024-25      580                                            Dean Huijsen    Bournemouth DEF       new_to_epl     False       23         1    2403.0   0.058910   0.087337
+2024-25      618                                        Georginio Rutter       Brighton MID    returning_epl     False       14         1    1679.0   0.304309   0.167910
+2024-25      765                                           Nico GonzÃ¡lez       Man City MID       new_to_epl     False        8         1     767.0   0.096138   0.009570
+2024-25      766                                           Patrick Dorgu        Man Utd DEF       new_to_epl     False        6         1     843.0   0.042142   0.103448
+2024-25      768                                              Mathys Tel          Spurs MID       new_to_epl     False        7         1     920.0   0.199402   0.245264
+2024-25      770                                        Marshall Munetsi         Wolves MID       new_to_epl     False       12         1    1076.0   0.236972   0.166339
+2024-25       10                                            Reiss Nelson         Fulham MID thin_prior(<450)     False        1         0     491.0   0.259959   0.207247
+2024-25       19                                        Emile Smith Rowe         Fulham MID thin_prior(<450)     False       13         0    2101.0   0.225393   0.104298
+2024-25       45                                             Ian Maatsen    Aston Villa DEF thin_prior(<450)     False        2         0    1073.0   0.082186   0.254474
+2024-25       49                                            Tyrone Mings    Aston Villa DEF thin_prior(<450)     False        5         0    1137.0   0.063259   0.014225
+2024-25       60                                             Tyler Adams    Bournemouth MID thin_prior(<450)     False       16         0    1965.0   0.064444   0.069018
+2024-25       62                                            David Brooks    Bournemouth MID thin_prior(<450)     False        1         0     937.0   0.275798   0.170457
+2024-25       68                                              James Hill    Bournemouth DEF thin_prior(<450)     False        1         0     458.0   0.038223   0.067613
+2024-25      149                                            Mats Wieffer       Brighton MID       new_to_epl     False        3         0     988.0   0.100139   0.097191
+2024-25      166                                   Kiernan Dewsbury-Hall        Chelsea MID    returning_epl     False        1         0     234.0   0.034398   0.309873
+2024-25      169                                         Conor Gallagher        Chelsea MID  no_understat_id     False        1         0       NaN        NaN        NaN
+2024-25      172                                             Reece James        Chelsea DEF thin_prior(<450)     False        3         0    1062.0   0.049226   0.112204
+2024-25      174                                             RomÃ©o Lavia        Chelsea MID thin_prior(<450)     False        2         0     830.0   0.015880   0.078423
+2024-25      188                                        Lesley Ugochukwu    Southampton MID thin_prior(<450)      True       14         0    1689.0   0.043905   0.051570
+2024-25      189                                           Wesley Fofana        Chelsea DEF    returning_epl     False        8         0    1192.0   0.015460   0.039712
+2024-25      205                                           Daichi Kamada Crystal Palace MID       new_to_epl     False        6         0    1527.0   0.057576   0.107980
+2024-25      226                                          Tim Iroegbunam        Everton MID thin_prior(<450)     False        4         0     533.0   0.035211   0.029612
+2024-25      228                                           Michael Keane        Everton DEF thin_prior(<450)     False        8         0    1043.0   0.097211   0.010668
+2024-25      239                                            Adama TraorÃ©         Fulham MID thin_prior(<450)     False        8         0    1761.0   0.289196   0.328340
+2024-25      262                                        Nathan Broadhead        Ipswich MID    returning_epl      True        1         0     677.0   0.243049   0.111480
+2024-25      263                                         Cameron Burgess        Ipswich DEF       new_to_epl      True       11         0    1538.0   0.054496   0.022042
+2024-25      264                                               Wes Burns        Ipswich MID       new_to_epl      True        2         0     962.0   0.038674   0.206255
+2024-25      265                                           Conor Chaplin        Ipswich MID       new_to_epl      True        2         0     851.0   0.151761   0.083429
+2024-25      266                                            Harry Clarke        Ipswich DEF       new_to_epl      True        1         0     378.0   0.013456   0.015573
+2024-25      267                                              Leif Davis        Ipswich DEF    returning_epl      True       28         0    2760.0   0.026023   0.197668
+2024-25      268                                              Liam Delap        Ipswich FWD    returning_epl      True       23         0    2671.0   0.350722   0.093823
+2024-25      270                                           Jacob Greaves        Ipswich DEF       new_to_epl      True       18         0    2208.0   0.058524   0.009212
+2024-25      274                                 Omari Giraud-Hutchinson        Ipswich MID    returning_epl      True       27         0    2620.0   0.121047   0.115886
+2024-25      277                                          Massimo Luongo        Ipswich MID       new_to_epl      True        1         0     185.0   0.000000   0.000000
+2024-25      278                                               Sam Morsy        Ipswich MID       new_to_epl      True       28         0    2767.0   0.009620   0.046089
+2024-25      282                                           Axel Tuanzebe        Ipswich DEF    returning_epl      True       11         0    1731.0   0.018393   0.032562
+2024-25      284                                         Luke Woolfenden        Ipswich DEF       new_to_epl      True        5         0    1170.0   0.004465   0.000000
+2024-25      285                                       Boubakary SoumarÃ©      Leicester MID    returning_epl      True       17         0    2182.0   0.010565   0.014347
+2024-25      288                                             Conor Coady      Leicester DEF    returning_epl      True       13         0    1710.0   0.033795   0.003692
+2024-25      291                                               Wout Faes      Leicester DEF    returning_epl      True       28         0    2799.0   0.050262   0.005484
+2024-25      295                                            James Justin      Leicester DEF    returning_epl      True       29         0    2937.0   0.062716   0.029439
+2024-25      296                                      Victor Kristiansen      Leicester DEF    returning_epl      True       27         0    2510.0   0.005721   0.059689
+2024-25      298                                         Stephy Mavididi      Leicester MID       new_to_epl      True        9         0    1586.0   0.192498   0.146611
+2024-25      299                                           Kasey McAteer      Leicester MID    returning_epl      True        2         0     854.0   0.152420   0.095402
+2024-25      300                                           Wilfred Ndidi      Leicester MID    returning_epl      True       24         0    2368.0   0.075005   0.105911
+2024-25      301                                             Caleb Okoli      Leicester DEF       new_to_epl      True        5         0    1113.0   0.070345   0.000000
+2024-25      306                                             Jamie Vardy      Leicester FWD    returning_epl      True       31         0    2890.0   0.333126   0.116394
+2024-25      307                                      Jannik Vestergaard      Leicester DEF    returning_epl      True        9         0    1411.0   0.007115   0.004583
+2024-25      309                                             Harry Winks      Leicester MID    returning_epl      True       14         0    1532.0   0.011021   0.077893
+2024-25      338                                       Sepp van den Berg      Brentford DEF       new_to_epl     False       22         0    2602.0   0.074289   0.035618
+2024-25      359                                         Kalvin Phillips        Ipswich MID thin_prior(<450)      True        7         0    1247.0   0.033150   0.023323
+2024-25      386                                            Jadon Sancho        Chelsea MID thin_prior(<450)     False       10         0    1760.0   0.123619   0.220619
+2024-25      389                                          Joshua Zirkzee        Man Utd FWD       new_to_epl     False        4         0    1378.0   0.340823   0.131261
+2024-25      420                                             Joe Willock      Newcastle MID thin_prior(<450)     False        1         0    1043.0   0.174102   0.268588
+2024-25      450                                    Carlos Alcaraz DurÃ¡n        Everton MID    returning_epl     False        4         0     753.0   0.198430   0.273548
+2024-25      452                                               Joe Aribo    Southampton MID    returning_epl      True       12         0    2019.0   0.130434   0.078310
+2024-25      453                                          Adam Armstrong    Southampton FWD    returning_epl      True       11         0    1282.0   0.222704   0.140787
+2024-25      455                                            Jan Bednarek    Southampton DEF    returning_epl      True       23         0    2538.0   0.036534   0.012551
+2024-25      456                                     Armel Bella-Kotchap    Southampton DEF    returning_epl      True        1         0     331.0   0.072666   0.000000
+2024-25      457                                              James Bree    Southampton DEF    returning_epl      True        7         0    1077.0   0.009138   0.089559
+2024-25      461                                   Taylor Harwood-Bellis    Southampton DEF       new_to_epl      True       25         0    2832.0   0.069762   0.063237
+2024-25      462                                      Kamaldeen Sulemana    Southampton MID    returning_epl      True       10         0    1405.0   0.099995   0.080864
+2024-25      467                                            Ryan Manning    Southampton DEF       new_to_epl      True        9         0    1495.0   0.020275   0.202968
+2024-25      470                                            Paul Onuachu    Southampton FWD    returning_epl      True        2         0    1015.0   0.433307   0.045744
+2024-25      471                                          Will Smallbone    Southampton MID    returning_epl      True        3         0     657.0   0.094476   0.080390
+2024-25      472                                           Jack Stephens    Southampton DEF    returning_epl      True        7         0    1418.0   0.042828   0.018280
+2024-25      474                                       Sugawara Yukinari    Southampton DEF       new_to_epl      True        5         0    1533.0   0.026396   0.192770
+2024-25      476                                      Kyle Walker-Peters    Southampton DEF    returning_epl      True       31         0    2934.0   0.035629   0.085810
+2024-25      477                                      Nathan Wood-Gordon    Southampton DEF       new_to_epl      True        5         0     780.0   0.033898   0.002478
+2024-25      481                                          Lucas Bergvall          Spurs MID       new_to_epl     False        6         0    1187.0   0.046193   0.054619
+2024-25      486                                           Radu DrÄƒguÈ™in          Spurs DEF thin_prior(<450)     False       11         0    1264.0   0.012621   0.036843
+2024-25      489                                             Archie Gray          Spurs MID       new_to_epl     False       12         0    1729.0   0.001533   0.007945
+2024-25      504                                             Djed Spence          Spurs DEF    returning_epl     False       16         0    1784.0   0.021038   0.093235
+2024-25      517                                         Aaron Cresswell       West Ham DEF thin_prior(<450)     False        2         0     821.0   0.016542   0.174259
+2024-25      518                                            Flynn Downes    Southampton MID    returning_epl      True       19         0    2175.0   0.037000   0.066852
+2024-25      532                                              Kurt Zouma       West Ham DEF  no_understat_id     False        1         0       NaN        NaN        NaN
+2024-25      548                         GonÃ§alo Manuel Ganchinho Guedes         Wolves MID    returning_epl     False        1         0     968.0   0.309598   0.133368
+2024-25      558                                         Yerson Mosquera         Wolves DEF       new_to_epl     False        3         0     448.0   0.093617   0.018985
+2024-25      563                                   Rodrigo Martins Gomes         Wolves MID       new_to_epl     False        1         0     756.0   0.081001   0.116597
+2024-25      566                                    JÃ¸rgen Strand Larsen         Wolves FWD       new_to_epl     False       27         0    2624.0   0.400942   0.115197
+2024-25      569                                         Jaden Philogene        Ipswich MID thin_prior(<450)      True        3         0     786.0   0.320054   0.038151
+2024-25      570                                            Abdul Fatawu      Leicester MID       new_to_epl      True        4         0     571.0   0.073458   0.232092
+2024-25      572                                               Leny Yoro        Man Utd DEF       new_to_epl     False        5         0    1152.0   0.087952   0.004205
+2024-25      577                                        Jesper LindstrÃ¸m        Everton MID       new_to_epl     False        2         0    1279.0   0.142033   0.202793
+2024-25      578                                      Riccardo Calafiori        Arsenal DEF       new_to_epl     False        2         0     986.0   0.070719   0.037023
+2024-25      588                                         Guido RodrÃ­guez       West Ham MID       new_to_epl     False        5         0    1179.0   0.012419   0.016739
+2024-25      591                                       Jean-Clair Todibo       West Ham DEF       new_to_epl     False       10         0    1833.0   0.013640   0.001461
+2024-25      593                                        Matthijs de Ligt        Man Utd DEF       new_to_epl     False       18         0    2141.0   0.120728   0.011817
+2024-25      594                                       Noussair Mazraoui        Man Utd DEF       new_to_epl     False       32         0    2881.0   0.025445   0.048871
+2024-25      596                               JoÃ£o Pedro Ferreira Silva  Nott'm Forest MID       new_to_epl     False        1         0     799.0   0.308485   0.377923
+2024-25      597                                      Myles Lewis-Skelly        Arsenal MID       new_to_epl     False        9         0    1371.0   0.016704   0.032768
+2024-25      600                                             Yasin Ayari       Brighton MID    returning_epl     False        8         0    1977.0   0.101713   0.141785
+2024-25      607                                           Nico O'Reilly       Man City MID       new_to_epl     False        3         0     526.0   0.187643   0.044580
+2024-25      608                                           Tyler Dibling    Southampton MID       new_to_epl      True       10         0    1860.0   0.149602   0.095791
+2024-25      619                                            Jens Cajuste        Ipswich MID       new_to_epl      True        9         0    2019.0   0.027304   0.027839
+2024-25      623                        Mateus GonÃ§alo Espanha Fernandes    Southampton MID       new_to_epl      True       31         0    2964.0   0.152144   0.116822
+2024-25      627                                             Roman Dixon        Everton DEF       new_to_epl     False        1         0      90.0   0.000000   0.000000
+2024-25      628                                          Ferdi Kadioglu       Brighton DEF       new_to_epl     False        2         0     401.0   0.135200   0.036934
+2024-25      629                                            Matt O'Riley       Brighton MID       new_to_epl     False        3         0     934.0   0.221616   0.232690
+2024-25      635                                      Bilal El Khannouss      Leicester MID       new_to_epl      True       17         0    2242.0   0.057886   0.197269
+2024-25      642                            AndrÃ© Trindade da Costa Neto         Wolves MID       new_to_epl     False       19         0    2538.0   0.010485   0.028555
+2024-25      650                                         Maxence Lacroix Crystal Palace DEF       new_to_epl     False       32         0    3126.0   0.079247   0.048603
+2024-25      652                                           Manuel Ugarte        Man Utd MID       new_to_epl     False       10         0    1802.0   0.054312   0.080715
+2024-25      654                                            Carlos Soler       West Ham MID       new_to_epl     False        3         0    1422.0   0.145076   0.068947
+2024-25      677                                           Ollie Scarles       West Ham DEF       new_to_epl     False        1         0     644.0   0.019193   0.016226
+2024-25      720                                        Emmanuel Agbadou         Wolves DEF       new_to_epl     False       13         0    1414.0   0.044197   0.012041
+2024-25      732                                      Abdukodir Khusanov       Man City DEF       new_to_epl     False        4         0     506.0   0.002765   0.018806
+2024-25      757                                          Michael Kayode      Brentford DEF       new_to_epl     False        4         0     527.0   0.030925   0.167602
+2024-25      767                                             Kevin Danso          Spurs DEF    returning_epl     False        5         0     840.0   0.029321   0.007335
+2025-26      684                                            Malick Thiaw      Newcastle DEF       new_to_epl     False       31        12    2968.0   0.178849   0.025074
+2025-26      136                        Igor Thiago Nascimento Rodrigues      Brentford FWD thin_prior(<450)     False       36        10    3292.0   0.487707   0.094321
+2025-26      661                                            Hugo EkitikÃ©      Liverpool FWD       new_to_epl     False       19         7    1835.0   0.585230   0.122189
+2025-26      666                                         Viktor GyÃ¶keres        Arsenal FWD       new_to_epl     False       14         6    2255.0   0.462489   0.105914
+2025-26      725                                          Piero HincapiÃ©        Arsenal DEF       new_to_epl     False       15         6    1786.0   0.020793   0.107204
+2025-26      382                                           Florian Wirtz      Liverpool MID       new_to_epl     False       24         5    2426.0   0.281086   0.199746
+2025-26      531                                          Daniel Ballard     Sunderland DEF       new_to_epl      True       18         5    2143.0   0.155198   0.066380
+2025-26      343                                          Pascal Struijk          Leeds DEF    returning_epl      True       28         4    2940.0   0.090838   0.033481
+2025-26      475                                             Sven Botman      Newcastle DEF thin_prior(<450)     False       13         4    1842.0   0.075783   0.072470
+2025-26      683                                           Omar Alderete     Sunderland DEF       new_to_epl      True       26         4    2808.0   0.049537   0.019470
+2025-26       26                                 MartÃ­n Zubimendi IbÃ¡Ã±ez        Arsenal MID       new_to_epl     False       32         3    3040.0   0.087167   0.032205
+2025-26      424                                              Oscar Bobb       Man City MID thin_prior(<450)     False        3         3    1046.0   0.122963   0.173555
+2025-26       74                                         Adrien Truffert    Bournemouth DEF       new_to_epl     False       36         2    3391.0   0.052782   0.116996
+2025-26      417                                            Rayan Cherki       Man City MID  no_understat_id     False       10         2       NaN        NaN        NaN
+2025-26      421                      Rodrigo 'Rodri' Hernandez Cascante       Man City MID thin_prior(<450)     False       14         2    1500.0   0.071309   0.136568
+2025-26      427                                       Tijjani Reijnders       Man City MID       new_to_epl     False        9         2    1642.0   0.266488   0.168451
+2025-26      694                                           Nordi Mukiele     Sunderland DEF       new_to_epl      True       26         2    2793.0   0.089545   0.088706
+2025-26      100                                           Junior Kroupi    Bournemouth FWD       new_to_epl     False        6         1    1708.0   0.386072   0.095679
+2025-26      148                                          Ferdi KadÄ±oÄŸlu       Brighton DEF thin_prior(<450)     False       31         1    3145.0   0.057795   0.064232
+2025-26      200                                          Jaidon Anthony        Burnley MID    returning_epl      True       25         1    2777.0   0.180339   0.141770
+2025-26      342                                            Jayden Bogle          Leeds DEF    returning_epl      True       30         1    2822.0   0.060342   0.112425
+2025-26      344                                              Jaka Bijol          Leeds DEF       new_to_epl      True        9         1    1895.0   0.034123   0.066452
+2025-26      348                                               Joe Rodon          Leeds DEF    returning_epl      True       29         1    2954.0   0.056244   0.014060
+2025-26      350                                        Brenden Aaronson          Leeds MID    returning_epl      True       19         1    2517.0   0.210296   0.202481
+2025-26      391                                         Ben Gannon-Doak      Liverpool MID    returning_epl     False        0         1      82.0   0.489348   0.501763
+2025-26      447                                            Ayden Heaven        Man Utd DEF thin_prior(<450)     False        6         1     923.0   0.020969   0.035636
+2025-26      633                                        Hugo Bueno LÃ³pez         Wolves DEF    returning_epl     False       19         1    2351.0   0.034309   0.141002
+2025-26      634                              Yerson Mosquera Valdelamar         Wolves DEF thin_prior(<450)     False       16         1    2154.0   0.123921   0.050254
+2025-26      714                                          Nick Woltemade      Newcastle FWD       new_to_epl     False       15         1    1953.0   0.345662   0.133700
+2025-26      723                                           Jaydee Canvot Crystal Palace DEF       new_to_epl     False        9         1    1334.0   0.105641   0.005557
+2025-26       50                                  Emiliano BuendÃ­a Stati    Aston Villa MID thin_prior(<450)     False        4         0    1778.0   0.191566   0.183555
+2025-26      109                                              Rico Henry      Brentford DEF thin_prior(<450)     False        5         0    1315.0   0.009969   0.021639
+2025-26      123                          FÃ¡bio Freitas Gouveia Carvalho      Brentford MID thin_prior(<450)     False        1         0      97.0   0.639806   0.000000
+2025-26      124                                        Jordan Henderson      Brentford MID    returning_epl     False       12         0    1935.0   0.025645   0.154443
+2025-26      143                                        Olivier Boscagli       Brighton DEF       new_to_epl     False        1         0     801.0   0.002328   0.016582
+2025-26      145                                         Maxim De Cuyper       Brighton DEF       new_to_epl     False        5         0    1412.0   0.111023   0.298659
+2025-26      170                                            James Milner       Brighton MID thin_prior(<450)     False        1         0     773.0   0.025412   0.076253
+2025-26      190                                           Hjalmar Ekdal        Burnley DEF    returning_epl      True       12         0    1545.0   0.035430   0.009795
+2025-26      191                                           Maxime EstÃ¨ve        Burnley DEF    returning_epl      True       30         0    2946.0   0.013797   0.021449
+2025-26      192                                     Quilindschy Hartman        Burnley DEF       new_to_epl      True       16         0    1843.0   0.018433   0.136252
+2025-26      193                                        Bashir Humphreys        Burnley DEF       new_to_epl      True       15         0    1585.0   0.029875   0.049084
+2025-26      195                                       Lucas Pires Silva        Burnley DEF       new_to_epl      True        8         0    1391.0   0.058403   0.098343
+2025-26      199                                             Joe Worrall        Burnley DEF    returning_epl      True        3         0     478.0   0.007174   0.000000
+2025-26      205                                             Josh Cullen        Burnley MID    returning_epl      True       17         0    1533.0   0.059544   0.106665
+2025-26      206                                          Marcus Edwards        Burnley MID       new_to_epl      True        6         0    1054.0   0.194987   0.217401
+2025-26      207                                         Hannibal Mejbri        Burnley MID    returning_epl      True        6         0    1251.0   0.053944   0.204186
+2025-26      209                                            Josh Laurent        Burnley MID       new_to_epl      True        6         0    1720.0   0.054611   0.038486
+2025-26      210                                           Loum Tchaouna        Burnley MID       new_to_epl      True        2         0    1268.0   0.089363   0.085148
+2025-26      215                                           Zian Flemming        Burnley FWD       new_to_epl      True       15         0    1795.0   0.402742   0.034337
+2025-26      217                                             Lyle Foster        Burnley FWD    returning_epl      True        7         0    1375.0   0.235125   0.075008
+2025-26      229                              BenoÃ®t Badiashile Mukinayi        Chelsea DEF thin_prior(<450)     False        1         0     478.0   0.000000   0.000000
+2025-26      233                                         Josh Acheampong        Chelsea DEF thin_prior(<450)     False        2         0     657.0   0.091907   0.018900
+2025-26      242                                   Kiernan Dewsbury-Hall        Everton MID thin_prior(<450)     False       27         0    2649.0   0.147115   0.223370
+2025-26      246                            Andrey Nascimento dos Santos        Chelsea MID    returning_epl     False        3         0    1217.0   0.188959   0.050907
+2025-26      310                                           Thierno Barry        Everton FWD       new_to_epl     False       10         0    1921.0   0.428651   0.047035
+2025-26      321                                    Jorge Cuenca Barreno         Fulham DEF thin_prior(<450)     False        5         0     949.0   0.004820   0.048924
+2025-26      335                                               Josh King         Fulham MID thin_prior(<450)     False        1         0    1306.0   0.261841   0.071639
+2025-26      347                                     Gabriel Gudmundsson          Leeds DEF       new_to_epl      True       26         0    2657.0   0.029731   0.105053
+2025-26      351                                         Wilfried Gnonto          Leeds MID    returning_epl      True        2         0     493.0   0.079896   0.227670
+2025-26      353                                            Daniel James          Leeds MID    returning_epl      True        2         0     538.0   0.133806   0.081893
+2025-26      354                                            Ethan Ampadu          Leeds MID    returning_epl      True       30         0    3130.0   0.055958   0.033825
+2025-26      356                                              Ilia Gruev          Leeds MID       new_to_epl      True        6         0    1310.0   0.050411   0.102614
+2025-26      358                                               Tanaka Ao          Leeds MID       new_to_epl      True        2         0    1330.0   0.148749   0.091876
+2025-26      362                                              JoÃ«l Piroe          Leeds FWD       new_to_epl      True        2         0     216.0   0.451543   0.035752
+2025-26      365                                            Lukas Nmecha          Leeds FWD    returning_epl      True        1         0    1076.0   0.489880   0.140900
+2025-26      370                                        Jeremie Frimpong      Liverpool DEF       new_to_epl     False        2         0    1027.0   0.045050   0.235853
+2025-26      443                                               Luke Shaw        Man Utd DEF thin_prior(<450)     False       35         0    3269.0   0.016487   0.041123
+2025-26      497                                             Lewis Miley      Newcastle MID thin_prior(<450)     False       10         0    1470.0   0.084245   0.142120
+2025-26      500                                           William Osula      Newcastle FWD thin_prior(<450)     False        1         0     777.0   0.569351   0.051736
+2025-26      510                               Jair Paula da Cunha Filho  Nott'm Forest DEF       new_to_epl     False        1         0     536.0   0.081409   0.013229
+2025-26      526                               Igor Jesus Maciel da Cruz  Nott'm Forest FWD       new_to_epl     False       18         0    2379.0   0.243553   0.086268
+2025-26      532                                               Trai Hume     Sunderland DEF       new_to_epl      True       32         0    3041.0   0.080144   0.061683
+2025-26      535                                           Dennis Cirkin     Sunderland DEF       new_to_epl      True        1         0     312.0   0.019142   0.000000
+2025-26      539                                             Luke O'Nien     Sunderland DEF       new_to_epl      True        1         0     556.0   0.033975   0.017198
+2025-26      541                                        Reinildo Mandava     Sunderland DEF       new_to_epl      True       13         0    1974.0   0.007751   0.013490
+2025-26      544                                            Habib Diarra     Sunderland MID       new_to_epl      True       14         0    1414.0   0.158594   0.041039
+2025-26      547                                             Enzo Le FÃ©e     Sunderland MID       new_to_epl      True       31         0    2953.0   0.067783   0.229996
+2025-26      551                                              Chris Rigg     Sunderland MID       new_to_epl      True        2         0     780.0   0.092319   0.137219
+2025-26      552                                             Noah Sadiki     Sunderland MID       new_to_epl      True       30         0    2914.0   0.049998   0.028711
+2025-26      553                                         Chemsdine Talbi     Sunderland MID       new_to_epl      True        7         0    1556.0   0.134409   0.034726
+2025-26      560                                           Wilson Isidor     Sunderland FWD       new_to_epl      True        4         0    1142.0   0.442861   0.000000
+2025-26      561                                  Eliezer Mayenda Dossou     Sunderland FWD       new_to_epl      True        2         0     740.0   0.244568   0.090308
+2025-26      603                                   El Hadji Malick Diouf       West Ham DEF       new_to_epl     False       28         0    2711.0   0.018566   0.108019
+2025-26      607                                            Nayef Aguerd       West Ham DEF    returning_epl     False        2         0     180.0   0.044289   0.000000
+2025-26      623                                           Freddie Potts       West Ham MID       new_to_epl     False        8         0    1152.0   0.016612   0.094337
+2025-26      660                                             Anton Stach          Leeds MID       new_to_epl      True       20         0    2394.0   0.109803   0.223990
+2025-26      663                                              Jhon Arias         Wolves MID       new_to_epl     False        2         0    1140.0   0.259985   0.070755
+2025-26      668                                            Granit Xhaka     Sunderland MID    returning_epl      True       30         0    2896.0   0.025088   0.115141
+2025-26      669                                               Dan Ndoye  Nott'm Forest MID       new_to_epl     False        8         0    1184.0   0.089119   0.118040
+2025-26      671                                           Callum Wilson       West Ham FWD thin_prior(<450)     False        1         0    1229.0   0.556745   0.075190
+2025-26      672                                             Jorrel Hato        Chelsea DEF       new_to_epl     False        3         0    1131.0   0.026921   0.056466
+2025-26      673 JoÃ£o Maria Lobo Alves Palhares Costa Palhinha GonÃ§alves          Spurs MID    returning_epl     False       15         0    2180.0   0.140671   0.031749
+2025-26      680                                           Armando Broja        Burnley FWD thin_prior(<450)      True        7         0     822.0   0.275531   0.066762
+2025-26      681                                          Benjamin Sesko        Man Utd FWD       new_to_epl     False        6         0    1636.0   0.687880   0.032883
+2025-26      682                                      David MÃ¸ller Wolfe         Wolves DEF       new_to_epl     False        5         0    1059.0   0.007016   0.110878
+2025-26      685                                          BafodÃ© DiakitÃ©    Bournemouth DEF       new_to_epl     False       11         0    1276.0   0.000978   0.005965
+2025-26      695                                      Jackson Tchatchoua         Wolves DEF       new_to_epl     False        9         0    1822.0   0.005212   0.110794
+2025-26      697                                              Amine Adli    Bournemouth MID       new_to_epl     False        4         0    1036.0   0.310524   0.111016
+2025-26      698                                             Noah Okafor          Leeds MID       new_to_epl      True        7         0    1592.0   0.355969   0.127725
+2025-26      699                            Douglas Luiz Soares de Paulo    Aston Villa MID    returning_epl     False        3         0     936.0   0.067544   0.175283
+2025-26      709                                         Ladislav KrejcÃ­         Wolves DEF       new_to_epl     False       20         0    2385.0   0.065074   0.056260
+2025-26      712                                      YÃ©remy Pino Santos Crystal Palace MID       new_to_epl     False       16         0    2134.0   0.184427   0.358570
+2025-26      713                                    Ãlex JimÃ©nez SÃ¡nchez    Bournemouth DEF  no_understat_id     False       17         0       NaN        NaN        NaN
+2025-26      716                                           NicolÃ² Savona  Nott'm Forest DEF       new_to_epl     False        8         0    1036.0   0.107329   0.051642
+2025-26      717                                             Xavi Simons          Spurs MID       new_to_epl     False       10         0    1768.0   0.138273   0.236737
+2025-26      718                                      Soungoutou Magassa       West Ham MID       new_to_epl     False        2         0     976.0   0.057108   0.068826
+2025-26      720                                          Tolu Arokodare         Wolves FWD       new_to_epl     False        7         0    1357.0   0.442067   0.076912
+2025-26      721                                    Veljko Milosavljevic    Bournemouth DEF       new_to_epl     False        1         0     363.0   0.088621   0.016614
+2025-26      722                           Florentino Ibrain Morris LuÃ­s        Burnley MID       new_to_epl      True       15         0    2146.0   0.043540   0.022544
+2025-26      724                                    Lutsharel Geertruida     Sunderland DEF       new_to_epl      True        7         0    1659.0   0.045419   0.041975
+2025-26      726                                       Randal Kolo Muani          Spurs FWD       new_to_epl     False        6         0    1704.0   0.142635   0.097564
+2025-26      727                                        Samuel Chukwueze         Fulham MID       new_to_epl     False        3         0    1052.0   0.199620   0.242626
+2025-26      728                                             Merlin RÃ¶hl        Everton MID       new_to_epl     False        1         0     650.0   0.077354   0.049983
+2025-26      730                                           Brian Brobbey     Sunderland FWD       new_to_epl      True       13         0    1943.0   0.329423   0.069871
+2025-26      731                            Kevin Santos Lopes de Macedo         Fulham MID       new_to_epl     False        3         0    1002.0   0.119821   0.111411
+2025-26      749                                             Mateus ManÃ©         Wolves FWD thin_prior(<450)     False       12         0    1784.0   0.099507   0.165558
+2025-26      783                                             Pascal GroÃŸ       Brighton MID    returning_epl     False       15         0    1635.0   0.068972   0.181331
+2025-26      785                           Pablo Felipe Pereira de Jesus       West Ham FWD       new_to_epl     False        4         0     844.0   0.151791   0.137855
+2025-26      791                                    ValentÃ­n Castellanos       West Ham FWD       new_to_epl     False       14         0    1430.0   0.448102   0.047046
+2025-26      794                                             Max Alleyne       Man City DEF       new_to_epl     False        1         0     138.0   0.248727   0.020976
+2025-26      796                                         Conor Gallagher          Spurs MID    returning_epl     False       10         0    1229.0   0.110754   0.062621
+2025-26      807                             Rayan Vitor SimplÃ­cio Rocha    Bournemouth MID       new_to_epl     False       11         0    1146.0   0.209561   0.218239
+2025-26      808                                           Tammy Abraham    Aston Villa FWD    returning_epl     False        1         0     253.0   0.728703   0.045963
+2025-26      814                                               Luca Netz  Nott'm Forest DEF       new_to_epl     False        1         0     348.0   0.000000   0.025360
+2025-26      816                                             Angel Gomes         Wolves MID    returning_epl     False        2         0     475.0   0.036644   0.056692
+
+total players to label: 395
+
+
+# Part B: reasons, fallback error, e_points cost, coverage (scratch script idea4_cost.py; manual origin labels idea4_labels.csv)
+
+goal-points check (pts_goals/e_goals by position): {'DEF': 6.0, 'FWD': 4.0, 'GK': 6.0, 'MID': 5.0}
+
+
+################ 2023-24 ################
+--- (1) population by reason (outfield step-0 rows) ---
+                                            players  player_gws  share_rows
+reason                                                                     
+academy                                           4         108      0.0042
+championship                                     28         945      0.0371
+championship (promoted club, heuristic)          16         497      0.0195
+foreign                                          46        1569      0.0617
+has_prior                                       272       10025      0.3940
+no crosswalk id                                 236        7012      0.2756
+returning to EPL (earlier season)                54        1937      0.0761
+thin EPL prior (<450 min)                        55        1977      0.0777
+unlabelled (never in a decision partition)       54        1374      0.0540
+--- (2) decision partitions by reason ---
+  LS: partition rows 6074; ALL no-prior rows 1465 = 24.12%; foreign 494 = 8.13%; foreign & Understat-covered 332 = 5.47%
+                                   players  rows  share_of_partition
+reason                                                              
+academy                                  4    16              0.0026
+championship                            28   319              0.0525
+foreign                                 45   494              0.0813
+has_prior                              246  3957              0.6515
+no crosswalk id                          2     2              0.0003
+returning to EPL (earlier season)       34   375              0.0617
+thin EPL prior (<450 min)               29   259              0.0426
+  T30: partition rows 1140; ALL no-prior rows 86 = 7.54%; foreign 44 = 3.86%; foreign & Understat-covered 40 = 3.51%
+                                   players  rows  share_of_partition
+reason                                                              
+academy                                  1     2              0.0018
+championship                             8    11              0.0096
+foreign                                 15    44              0.0386
+has_prior                              114   830              0.7281
+returning to EPL (earlier season)        5     7              0.0061
+thin EPL prior (<450 min)               10    22              0.0193
+--- (3) fallback error, foreign arrivals with >= 450 realised EPL minutes (player level, prior - realised) ---
+  DEF: n=18  npxG/90 prior 0.048 | realised mean 0.051 sd 0.038 | err mean -0.003 MAE 0.032 sd 0.038 | prior too high in 56%   xA/90 prior 0.056 realised 0.080 err -0.023 MAE 0.062
+  FWD: n=4  npxG/90 prior 0.374 | realised mean 0.473 sd 0.199 | err mean -0.100 MAE 0.168 sd 0.199 | prior too high in 25%   xA/90 prior 0.147 realised 0.107 err +0.041 MAE 0.051
+  MID: n=19  npxG/90 prior 0.130 | realised mean 0.140 sd 0.110 | err mean -0.011 MAE 0.086 sd 0.110 | prior too high in 47%   xA/90 prior 0.139 realised 0.119 err +0.019 MAE 0.082
+  foreign arrivals reaching T30 (n=14): npxG err mean -0.074 MAE 0.076; prior too high 7%; xA err mean -0.048
+                       name  pos      league  real_min  prior_np  real_np  err_np  prior_xa  real_xa  T30  LS
+element                                                                                                      
+211         Nicolas Jackson  FWD     La Liga    2818.0     0.374    0.634  -0.260     0.147    0.169   17  25
+616          Joško Gvardiol  DEF  Bundesliga    2335.0     0.048    0.119  -0.071     0.056    0.082    5  16
+599            Moussa Diaby  MID  Bundesliga    2233.0     0.130    0.260  -0.131     0.139    0.347    4  14
+519          Destiny Udogie  DEF     Serie A    2437.0     0.048    0.104  -0.056     0.056    0.094    4  24
+611             Axel Disasi  DEF     Ligue 1    2586.0     0.048    0.093  -0.045     0.056    0.007    3  30
+203              Malo Gusto  DEF     Ligue 1    1754.0     0.048    0.087  -0.039     0.056    0.283    2  13
+595            Milos Kerkez  DEF  Eredivisie    1982.0     0.048    0.077  -0.029     0.056    0.063    1  12
+309      Dominik Szoboszlai  MID  Bundesliga    2135.0     0.130    0.148  -0.019     0.139    0.238    1  22
+72          Justin Kluivert  MID     La Liga    2029.0     0.130    0.324  -0.194     0.139    0.074    1   3
+617          Rasmus Højlund  FWD     Serie A    2210.0     0.374    0.380  -0.006     0.147    0.072    1  18
+639        Micky van de Ven  DEF  Bundesliga    2345.0     0.048    0.037   0.010     0.056    0.001    1  20
+678             Jérémy Doku  MID     Ligue 1    1616.0     0.130    0.210  -0.080     0.139    0.305    1   4
+689          Mohammed Kudus  MID  Eredivisie    2490.0     0.130    0.187  -0.058     0.139    0.127    1  24
+792            Daniel Muñoz  DEF     Belgium    1440.0     0.048    0.110  -0.062     0.056    0.193    1  12
+--- (4) e_points: fallback contribution and oracle delta per row ---
+  all no-prior outfield    all rows  n= 8407 mean(1-w)=0.74  fallback contrib mean 0.136 max 2.197 (= 13.0% of e_points) | oracle delta mean +0.029  mean|d| 0.090  max|d| 21.877  p90|d| 0.214
+  all no-prior outfield    LS        n= 1463 mean(1-w)=0.46  fallback contrib mean 0.291 max 2.197 (= 11.5% of e_points) | oracle delta mean +0.015  mean|d| 0.142  max|d| 1.327  p90|d| 0.337
+  all no-prior outfield    T30       n=   86 mean(1-w)=0.42  fallback contrib mean 0.556 max 2.197 (= 11.7% of e_points) | oracle delta mean +0.342  mean|d| 0.429  max|d| 1.327  p90|d| 0.867
+  foreign                  all rows  n= 1569 mean(1-w)=0.57  fallback contrib mean 0.221 max 2.197 (= 13.3% of e_points) | oracle delta mean +0.029  mean|d| 0.120  max|d| 1.253  p90|d| 0.321
+  foreign                  LS        n=  494 mean(1-w)=0.45  fallback contrib mean 0.326 max 2.197 (= 11.9% of e_points) | oracle delta mean +0.052  mean|d| 0.174  max|d| 1.253  p90|d| 0.390
+  foreign                  T30       n=   44 mean(1-w)=0.41  fallback contrib mean 0.617 max 2.197 (= 12.8% of e_points) | oracle delta mean +0.370  mean|d| 0.413  max|d| 1.253  p90|d| 0.649
+  foreign & covered        all rows  n= 1117 mean(1-w)=0.57  fallback contrib mean 0.238 max 2.197 (= 13.8% of e_points) | oracle delta mean +0.041  mean|d| 0.127  max|d| 1.253  p90|d| 0.337
+  foreign & covered        LS        n=  332 mean(1-w)=0.46  fallback contrib mean 0.356 max 2.197 (= 12.3% of e_points) | oracle delta mean +0.087  mean|d| 0.191  max|d| 1.253  p90|d| 0.435
+  foreign & covered        T30       n=   40 mean(1-w)=0.40  fallback contrib mean 0.640 max 2.197 (= 13.2% of e_points) | oracle delta mean +0.400  mean|d| 0.420  max|d| 1.253  p90|d| 0.664
+  partition-wide LS: foreign&covered oracle sum|d| 63.4 over 6074 rows = 0.0104 e_points/partition-row
+  partition-wide T30: foreign&covered oracle sum|d| 16.8 over 1140 rows = 0.0147 e_points/partition-row
+--- (5) coverage: foreign arrivals by origin league ---
+             players  rows  LS_rows  T30_rows  understat_covered
+league                                                          
+Ligue 1           10   313      104         6               True
+Bundesliga         8   286       80        11               True
+Serie A            8   264       69         5               True
+La Liga            7   254       79        18               True
+Eredivisie         6   218       89         3              False
+Belgium            3    89       35         1              False
+Brazil             1    35       26         0              False
+Sweden             1    37        3         0              False
+Switzerland        1    37        8         0              False
+Turkey             1    36        1         0              False
+  foreign players 46, covered 33 (72%); T30 rows covered 40/44
+
+
+################ 2024-25 ################
+--- (1) population by reason (outfield step-0 rows) ---
+                                            players  player_gws  share_rows
+reason                                                                     
+academy                                           5         176      0.0073
+championship                                     14         532      0.0221
+championship (promoted club, heuristic)          18         476      0.0198
+foreign                                          42        1356      0.0563
+has_prior                                       282       10496      0.4357
+no crosswalk id                                 185        5775      0.2397
+returning to EPL (earlier season)                56        2091      0.0868
+thin EPL prior (<450 min)                        42        1527      0.0634
+unlabelled (never in a decision partition)       58        1663      0.0690
+--- (2) decision partitions by reason ---
+  LS: partition rows 6051; ALL no-prior rows 1343 = 22.19%; foreign 467 = 7.72%; foreign & Understat-covered 342 = 5.65%
+                                   players  rows  share_of_partition
+reason                                                              
+academy                                  5    24              0.0040
+championship                            14   132              0.0218
+foreign                                 42   467              0.0772
+has_prior                              229  4041              0.6678
+no crosswalk id                          2     2              0.0003
+returning to EPL (earlier season)       38   528              0.0873
+thin EPL prior (<450 min)               25   190              0.0314
+  T30: partition rows 1140; ALL no-prior rows 58 = 5.09%; foreign 23 = 2.02%; foreign & Understat-covered 18 = 1.58%
+                                   players  rows  share_of_partition
+reason                                                              
+foreign                                 12    23              0.0202
+has_prior                              112   867              0.7605
+returning to EPL (earlier season)        6    18              0.0158
+thin EPL prior (<450 min)                6    17              0.0149
+--- (3) fallback error, foreign arrivals with >= 450 realised EPL minutes (player level, prior - realised) ---
+  DEF: n=16  npxG/90 prior 0.062 | realised mean 0.059 sd 0.035 | err mean +0.004 MAE 0.028 sd 0.035 | prior too high in 50%   xA/90 prior 0.066 realised 0.052 err +0.013 MAE 0.049
+  FWD: n=4  npxG/90 prior 0.438 | realised mean 0.414 sd 0.062 | err mean +0.024 MAE 0.050 sd 0.062 | prior too high in 75%   xA/90 prior 0.171 realised 0.130 err +0.041 MAE 0.056
+  MID: n=20  npxG/90 prior 0.153 | realised mean 0.143 sd 0.106 | err mean +0.011 MAE 0.090 sd 0.106 | prior too high in 65%   xA/90 prior 0.159 realised 0.144 err +0.015 MAE 0.088
+  foreign arrivals reaching T30 (n=12): npxG err mean -0.050 MAE 0.066; prior too high 33%; xA err mean -0.011
+                                        name  pos      league  real_min  prior_np  real_np  err_np  prior_xa  real_xa  T30  LS
+element                                                                                                                       
+571      Sávio 'Savinho' Moreira de Oliveira  MID     La Liga    1801.0     0.153    0.262  -0.109     0.159    0.347    5  12
+573                        Nikola Milenković  DEF     Serie A    3330.0     0.062    0.124  -0.061     0.066    0.028    3  35
+617      Francisco Evanilson de Lima Barbosa  FWD    Portugal    2376.0     0.438    0.491  -0.052     0.171    0.073    3  20
+582                             Jake O'Brien  DEF     Ligue 1    1561.0     0.062    0.070  -0.008     0.066    0.038    2  13
+755                            Omar Marmoush  FWD  Bundesliga    1195.0     0.438    0.426   0.013     0.171    0.202    2  12
+762                            Marco Asensio  MID     Ligue 1     751.0     0.153    0.364  -0.210     0.159    0.152    2   6
+580                             Dean Huijsen  DEF     Serie A    2403.0     0.062    0.059   0.003     0.066    0.087    1  23
+135                           Yankuba Minteh  MID  Eredivisie    1832.0     0.153    0.279  -0.125     0.159    0.239    1   9
+765                            Nico González  MID    Portugal     767.0     0.153    0.096   0.057     0.159    0.010    1   8
+766                            Patrick Dorgu  DEF     Serie A     843.0     0.062    0.042   0.020     0.066    0.103    1   6
+768                               Mathys Tel  MID  Bundesliga     920.0     0.153    0.199  -0.046     0.159    0.245    1   7
+770                         Marshall Munetsi  MID     Ligue 1    1076.0     0.153    0.237  -0.083     0.159    0.166    1  12
+--- (4) e_points: fallback contribution and oracle delta per row ---
+  all no-prior outfield    all rows  n= 7821 mean(1-w)=0.73  fallback contrib mean 0.162 max 2.118 (= 15.1% of e_points) | oracle delta mean +0.005  mean|d| 0.095  max|d| 3.191  p90|d| 0.255
+  all no-prior outfield    LS        n= 1341 mean(1-w)=0.46  fallback contrib mean 0.333 max 2.118 (= 13.3% of e_points) | oracle delta mean -0.050  mean|d| 0.146  max|d| 1.519  p90|d| 0.358
+  all no-prior outfield    T30       n=   58 mean(1-w)=0.40  fallback contrib mean 0.577 max 2.118 (= 12.7% of e_points) | oracle delta mean +0.316  mean|d| 0.389  max|d| 1.519  p90|d| 0.764
+  foreign                  all rows  n= 1356 mean(1-w)=0.57  fallback contrib mean 0.264 max 2.118 (= 15.3% of e_points) | oracle delta mean -0.014  mean|d| 0.109  max|d| 1.244  p90|d| 0.285
+  foreign                  LS        n=  467 mean(1-w)=0.45  fallback contrib mean 0.363 max 2.118 (= 13.4% of e_points) | oracle delta mean -0.021  mean|d| 0.125  max|d| 1.244  p90|d| 0.343
+  foreign                  T30       n=   23 mean(1-w)=0.45  fallback contrib mean 0.713 max 2.118 (= 16.1% of e_points) | oracle delta mean +0.204  mean|d| 0.280  max|d| 0.834  p90|d| 0.705
+  foreign & covered        all rows  n=  897 mean(1-w)=0.56  fallback contrib mean 0.258 max 2.118 (= 14.1% of e_points) | oracle delta mean -0.015  mean|d| 0.097  max|d| 1.244  p90|d| 0.254
+  foreign & covered        LS        n=  342 mean(1-w)=0.46  fallback contrib mean 0.345 max 2.118 (= 12.5% of e_points) | oracle delta mean -0.001  mean|d| 0.114  max|d| 1.244  p90|d| 0.286
+  foreign & covered        T30       n=   18 mean(1-w)=0.48  fallback contrib mean 0.686 max 2.118 (= 15.5% of e_points) | oracle delta mean +0.287  mean|d| 0.293  max|d| 0.834  p90|d| 0.687
+  partition-wide LS: foreign&covered oracle sum|d| 38.9 over 6051 rows = 0.0064 e_points/partition-row
+  partition-wide T30: foreign&covered oracle sum|d| 5.3 over 1140 rows = 0.0046 e_points/partition-row
+--- (5) coverage: foreign arrivals by origin league ---
+            players  rows  LS_rows  T30_rows  understat_covered
+league                                                         
+Serie A          10   328       96         5               True
+Ligue 1           9   242       76         5               True
+Bundesliga        6   176      123         3               True
+Portugal          5   163       61         4              False
+La Liga           4   151       47         5               True
+Eredivisie        3   114       17         1              False
+Belgium           1    36       17         0              False
+Brazil            1    36       19         0              False
+Scotland          1    36        3         0              False
+Sweden            1    38        6         0              False
+Turkey            1    36        2         0              False
+  foreign players 42, covered 29 (69%); T30 rows covered 18/23
+
+
+################ 2025-26 ################
+--- (1) population by reason (outfield step-0 rows) ---
+                                            players  player_gws  share_rows
+reason                                                                     
+championship                                     17         638      0.0246
+championship (promoted club, heuristic)          11         359      0.0138
+foreign                                          38        1409      0.0543
+has_prior                                       265        9879      0.3806
+no crosswalk id                                 259        8466      0.3262
+returning to EPL (earlier season)                43        1506      0.0580
+thin EPL prior (<450 min)                        51        1854      0.0714
+unlabelled (never in a decision partition)       60        1844      0.0710
+--- (2) decision partitions by reason ---
+  LS: partition rows 6042; ALL no-prior rows 1433 = 23.72%; foreign 519 = 8.59%; foreign & Understat-covered 383 = 6.34%
+                                            players  rows  share_of_partition
+reason                                                                       
+championship                                     17   159              0.0263
+championship (promoted club, heuristic)           3    35              0.0058
+foreign                                          38   519              0.0859
+has_prior                                       234  3938              0.6518
+no crosswalk id                                   2    27              0.0045
+returning to EPL (earlier season)                26   353              0.0584
+thin EPL prior (<450 min)                        22   232              0.0384
+unlabelled (never in a decision partition)       16   108              0.0179
+  T30: partition rows 1140; ALL no-prior rows 92 = 8.07%; foreign 53 = 4.65%; foreign & Understat-covered 46 = 4.04%
+                                   players  rows  share_of_partition
+reason                                                              
+championship                             1     5              0.0044
+foreign                                 14    53              0.0465
+has_prior                              128   849              0.7447
+no crosswalk id                          1     2              0.0018
+returning to EPL (earlier season)        7    10              0.0088
+thin EPL prior (<450 min)                7    22              0.0193
+--- (3) fallback error, foreign arrivals with >= 450 realised EPL minutes (player level, prior - realised) ---
+  DEF: n=19  npxG/90 prior 0.054 | realised mean 0.047 sd 0.047 | err mean +0.007 MAE 0.039 sd 0.047 | prior too high in 74%   xA/90 prior 0.062 realised 0.086 err -0.025 MAE 0.060
+  FWD: n=7  npxG/90 prior 0.423 | realised mean 0.449 sd 0.149 | err mean -0.026 MAE 0.109 sd 0.149 | prior too high in 43%   xA/90 prior 0.156 realised 0.089 err +0.066 MAE 0.066
+  MID: n=12  npxG/90 prior 0.163 | realised mean 0.183 sd 0.105 | err mean -0.020 MAE 0.090 sd 0.105 | prior too high in 58%   xA/90 prior 0.157 realised 0.103 err +0.054 MAE 0.074
+  foreign arrivals reaching T30 (n=14): npxG err mean -0.028 MAE 0.063; prior too high 50%; xA err mean +0.017
+                            name  pos      league  real_min  prior_np  real_np  err_np  prior_xa  real_xa  T30  LS
+element                                                                                                           
+684                 Malick Thiaw  DEF     Serie A    2968.0     0.054    0.179  -0.125     0.062    0.025   12  31
+661                 Hugo Ekitiké  FWD  Bundesliga    1835.0     0.423    0.585  -0.162     0.156    0.122    7  19
+725               Piero Hincapié  DEF  Bundesliga    1786.0     0.054    0.021   0.033     0.062    0.107    6  15
+666              Viktor Gyökeres  FWD    Portugal    2255.0     0.423    0.462  -0.040     0.156    0.106    6  14
+382                Florian Wirtz  MID  Bundesliga    2426.0     0.163    0.281  -0.118     0.157    0.200    5  24
+683                Omar Alderete  DEF     La Liga    2808.0     0.054    0.050   0.004     0.062    0.019    4  26
+26       Martín Zubimendi Ibáñez  MID     La Liga    3040.0     0.163    0.087   0.076     0.157    0.032    3  32
+694                Nordi Mukiele  DEF  Bundesliga    2793.0     0.054    0.090  -0.036     0.062    0.089    2  26
+427            Tijjani Reijnders  MID     Serie A    1642.0     0.163    0.266  -0.104     0.157    0.168    2   9
+74               Adrien Truffert  DEF     Ligue 1    3391.0     0.054    0.053   0.001     0.062    0.117    2  36
+100                Junior Kroupi  FWD     Ligue 2    1708.0     0.423    0.386   0.037     0.156    0.096    1   6
+344                   Jaka Bijol  DEF     Serie A    1895.0     0.054    0.034   0.020     0.062    0.066    1   9
+714               Nick Woltemade  FWD  Bundesliga    1953.0     0.423    0.346   0.077     0.156    0.134    1  15
+723                Jaydee Canvot  DEF     Ligue 1    1334.0     0.054    0.106  -0.052     0.062    0.006    1   9
+--- (4) e_points: fallback contribution and oracle delta per row ---
+  all no-prior outfield    all rows  n= 7610 mean(1-w)=0.72  fallback contrib mean 0.165 max 2.534 (= 13.7% of e_points) | oracle delta mean +0.001  mean|d| 0.077  max|d| 3.248  p90|d| 0.202
+  all no-prior outfield    LS        n= 1406 mean(1-w)=0.45  fallback contrib mean 0.339 max 1.996 (= 11.7% of e_points) | oracle delta mean -0.040  mean|d| 0.124  max|d| 1.255  p90|d| 0.283
+  all no-prior outfield    T30       n=   90 mean(1-w)=0.42  fallback contrib mean 0.573 max 1.996 (= 12.8% of e_points) | oracle delta mean +0.093  mean|d| 0.201  max|d| 3.248  p90|d| 0.417
+  foreign                  all rows  n= 1409 mean(1-w)=0.53  fallback contrib mean 0.263 max 2.534 (= 13.4% of e_points) | oracle delta mean +0.006  mean|d| 0.097  max|d| 1.127  p90|d| 0.252
+  foreign                  LS        n=  519 mean(1-w)=0.45  fallback contrib mean 0.370 max 1.996 (= 12.2% of e_points) | oracle delta mean -0.007  mean|d| 0.140  max|d| 1.127  p90|d| 0.334
+  foreign                  T30       n=   53 mean(1-w)=0.43  fallback contrib mean 0.655 max 1.996 (= 14.5% of e_points) | oracle delta mean +0.094  mean|d| 0.218  max|d| 1.127  p90|d| 0.438
+  foreign & covered        all rows  n=  923 mean(1-w)=0.51  fallback contrib mean 0.274 max 1.996 (= 12.9% of e_points) | oracle delta mean +0.026  mean|d| 0.107  max|d| 1.127  p90|d| 0.265
+  foreign & covered        LS        n=  383 mean(1-w)=0.44  fallback contrib mean 0.368 max 1.996 (= 11.6% of e_points) | oracle delta mean +0.019  mean|d| 0.146  max|d| 1.127  p90|d| 0.345
+  foreign & covered        T30       n=   46 mean(1-w)=0.42  fallback contrib mean 0.538 max 1.996 (= 11.9% of e_points) | oracle delta mean +0.114  mean|d| 0.244  max|d| 1.127  p90|d| 0.456
+  partition-wide LS: foreign&covered oracle sum|d| 55.8 over 6042 rows = 0.0092 e_points/partition-row
+  partition-wide T30: foreign&covered oracle sum|d| 11.2 over 1140 rows = 0.0098 e_points/partition-row
+--- (5) coverage: foreign arrivals by origin league ---
+            players  rows  LS_rows  T30_rows  understat_covered
+league                                                         
+Bundesliga        9   331      131        21               True
+Serie A           7   258       75        15               True
+Ligue 1           5   183       96         3               True
+Eredivisie        4   148       25         0              False
+La Liga           4   151       81         7               True
+Belgium           3   113       42         0              False
+Brazil            3   113       21         0              False
+Czech             1    38       28         0              False
+Ligue 2           1    37        6         1              False
+Portugal          1    37       14         6              False
+  foreign players 38, covered 25 (66%); T30 rows covered 46/53
+
+
+################ ALL SEASONS: movers per league (labelled foreign arrivals) ################
+league
+Serie A        25
+Ligue 1        24
+Bundesliga     23
+La Liga        15
+Eredivisie     13
+Belgium         7
+Portugal        6
+Brazil          5
+Turkey          2
+Sweden          2
+Czech           1
+Ligue 2         1
+Scotland        1
+Switzerland     1
+covered total: 87  uncovered: 39
+unlabelled new_to_epl players (never LS/T30): {'2023-24': 54, '2024-25': 58, '2025-26': 60}

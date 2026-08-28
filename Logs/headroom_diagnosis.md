@@ -394,7 +394,7 @@ All on the tuning seasons 2023-24 + 2024-25 only; 2025-26 not opened for any of 
 | 1. Penalty term rebuild | measured 2026-08-26, **NOT adopted** (rank up, Brier/movers failed); the same-season JOIN LEAK closed in production 2026-08-27 (magnitude unchanged) | `Logs/penalty_fix_prereg.md`; KNOWN_ISSUES #19 |
 | 2. Bonus term rebuild | outcome-weighted rebuild **FAILED**; DELETE **ADOPTED** 2026-08-26 | `Logs/bonus_rebuild_prereg.md`, `Logs/bonus_delete_prereg.md` |
 | 3. TC2 rule refinement (captain's club must double) | **FAIL** — pre-registered falsifier not cleared: selects the same week as the rule of record in both tuning seasons; cannot bind because the argmax captain on a double gameweek is a doubling player by construction | `Logs/p4_chip_policy_log.md` §16 |
-| 4. Cross-league priors | not started | — |
+| 4. Cross-league priors | **DECLINED ON EXPECTED VALUE, NOT A FEASIBILITY FAIL** (2026-08-28, three seasons, read-only). Pre-registered falsifier (≥ 5% of squad-relevant rows lacking an EPL prior) literally CLEARED: 7.54 / 5.09 / 8.07%, bar not amended. Declined because the touchable population (foreign arrivals from Understat-covered leagues) is 3.51 / 1.58 / 4.04% of squad-relevant rows; the position prior is unbiased for the arrival cohort; the top-30 undershoot is selection, not league strength; oracle ceiling 0.24–0.42 per affected row but 0.005–0.015 spread over the partition, realistic ~0.003–0.005; ~30% of arrivals from uncovered leagues; per-league factor unfittable (1–3 players per cell). **Open question left behind:** thin-prior / returning-EPL players are half the no-prior squad-relevant rows and already have EPL history on disk that the one-season blend ignores | `Logs/idea4_cross_league_log.md` |
 | 5. Teammate-absence conditional rates | **FAIL** — exposure large (~10% of decision-partition rows behind a key absence) but no role transfer separable from zero; penalties flip sign across seasons; shot/creation shifts ±0.01 (SE 0.01); only minutes (+6–8 per appearance) is above noise, a minutes-model quantity | `Logs/teammate_absence_log.md` |
 | 6. Props re-test on the corrected equation | not run (the corrected equation is not adopted) | — |
 | 7. Price-change anticipation → bank-value term | **DECLINED ON EXPECTED VALUE, NOT TESTED** (no measurement made; not a fail): a price change is 0.1m against a 100m squad, and the daily transfer-flow history a backtest needs may not exist on disk. The price-momentum sub-check falls with it | this entry |
@@ -414,3 +414,10 @@ row only because the ~50× team_pen_rate undersizing cancels it (KNOWN_ISSUES #1
 
 The §5 sequence is therefore closed at items 1–4 as written; what remains open is unchanged from the 2026-08-26
 handoff §7 (penalty magnitude + fallback together, top-end over-prediction with §5's constraint, bonus level).
+
+**MODELLING CLOSED (2026-08-28).** Ideas 3, 5, the selection calibration (9b) and the hold preference at
+near-ties (`Logs/hold_preference_prereg.md`) failed on measurement; ideas 7 and 4 were declined on expected
+value; the GK p_cs LEVEL shrink is parked with a measured 0.26–0.50 e_points/row effect and three open design
+questions (`Logs/seal_register.md`). The one open modelling question on record is the thin-prior /
+returning-EPL reach-back (`Logs/idea4_cross_league_log.md`, side findings). The project moves to the prod
+switch: live ingestion for 2026-27, then the shadow-mode runner.
