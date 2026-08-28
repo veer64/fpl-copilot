@@ -6,9 +6,11 @@ WHY THIS EXISTS
 ---------------
 Understat ids are stable across seasons; vaastav's `element` is not -- it is
 reshuffled every summer, so element 234 is one player in one season and somebody
-else the next (KNOWN_ISSUES #6). `player_id_crosswalk_final.csv` bridges the two,
-but ONLY for 2025-26. Porting the pipeline to any other season needs its own
-bridge, and the vaastav side has to be rematched from scratch each time.
+else the next (KNOWN_ISSUES #6). The legacy `player_id_crosswalk_final.csv`
+bridged the two for 2025-26 only, by hand, and was frozen; since 2026-08-28 every
+season -- 2025-26 included -- uses this builder's `crosswalk_<season>.csv`
+(see eval/walkforward_season.py::crosswalk_for for the switch and its
+verification). The vaastav side has to be rematched from scratch each season.
 
 WITHOUT THIS the attacking-rate component has nothing to join on and every player
 silently falls back to the position-average rate, which would gut the model while
@@ -113,6 +115,38 @@ MANUAL = {
         691: ("9983", "Beto; Everton FWD; 943v898 min, 3v3 G, 0v0 A; id independently "
                       "confirmed by KNOWN_ISSUES #3"),
         9: ("1389", "Jorginho; Arsenal MID; 913v911 min, 0v0 G, 2v2 A"),
+        5: ("5613", "Gabriel Magalhaes = Understat 'Gabriel'; Arsenal DEF; 3042v3042 "
+                    "min. Single-token name shared by three Arsenal players, so the "
+                    "guard refuses it automatically (correctly); pinned by hand, same "
+                    "id the pre-guard fuzzy pass had found"),
+    },
+    # 2025-26 (added 2026-08-28, when the season was moved off the frozen legacy
+    # `player_id_crosswalk_final.csv` onto this builder). Every entry below is a
+    # case the automatic passes cannot or must not reach: single-token Understat
+    # playing names (guarded, see _single_token_ok), first-name-form mismatches
+    # ("Mathis Cherki" for Rayan Cherki; "Alejandro Jimenez" for Alex Jimenez
+    # Sanchez -- token_set_ratio 67 against the 88 floor), and the Felipe/Morato
+    # collision documented in KNOWN_ISSUES #3.
+    "2025-26": {
+        417: ("8094", "Rayan Cherki = Understat 'Mathis Cherki'; Man City MID; "
+                      "1772v1792 min, 4v4 G, 12v12 A; first-name-form mismatch"),
+        713: ("12168", "Alex Jimenez Sanchez = Understat 'Alejandro Jimenez'; "
+                       "Bournemouth DEF; 2315v2354 min; first-name-form mismatch"),
+        311: ("9983", "Beto; Everton FWD; same id as 2023-24 / 2024-25 and as "
+                      "KNOWN_ISSUES #3; single-token name"),
+        807: ("14395", "Rayan Vitor Simplicio Rocha = Understat 'Rayan'; "
+                       "Bournemouth; single-token name -- the id the unguarded "
+                       "fuzzy pass handed to Cherki"),
+        19: ("7752", "Gabriel Martinelli; Arsenal; same id as 2023-24 / 2024-25; "
+                     "one of Arsenal's three Gabriels"),
+        511: ("13068", "Morato = Felipe Rodrigues da Silva; Nott'm Forest DEF; "
+                       "same id as 2024-25; the automatic club+token pass hands "
+                       "him Jota Silva's id (KNOWN_ISSUES #3) -- pinned by hand"),
+        100: ("11504", "Junior Kroupi = Understat 'Eli Junior Kroupi'; Bournemouth "
+                       "FWD; the only Kroupi in either source. Profile audit "
+                       "disagrees on goals (17 vaastav v 13 Understat) and minutes "
+                       "(1826 v 1708) beyond tolerance -- source-side discrepancy, "
+                       "identity not in doubt; pinned so the audit does not drop him"),
     },
     "2024-25": {
         9: ("7752", "Gabriel Martinelli; Arsenal MID; 2284v2310 min, 8v8 G, 4v4 A"),
@@ -132,8 +166,20 @@ MANUAL = {
                        "existed -- wrong, because the candidate list had been "
                        "distorted by the very mis-match being removed. Morato was "
                        "unclaimed all along."),
+        3: ("5613", "Gabriel Magalhaes = Understat 'Gabriel'; Arsenal DEF; 2363 min; "
+                    "single-token name shared by three Arsenal players -- guard "
+                    "refuses it automatically; pinned, same id as before the guard"),
+        152: ("5061", "Kepa Arrizabalaga = Understat 'Kepa'; 2790 min; LOAN case "
+                      "(vaastav lists the parent club, Understat the loan club) so "
+                      "the single-token guard's club check cannot corroborate; "
+                      "pinned, same id as before the guard"),
     },
 }
+# 2025-26 Gabriel Magalhaes lives in the 2025-26 block above (element 5 -> 5613).
+MANUAL["2025-26"][5] = ("5613", "Gabriel Magalhaes = Understat 'Gabriel'; Arsenal DEF; "
+                                "2750v2748 min; single-token name shared by three "
+                                "Arsenal players -- guard refuses it automatically; "
+                                "pinned, same id as the legacy file")
 
 
 def _norm(s):
@@ -205,11 +251,24 @@ AUDIT_GOAL_ABS = 3
 AUDIT_MIN_MINUTES = 450     # only audit players with enough football to judge
 
 
+AUDIT_COLS = ["element", "name", "team", "minutes", "goals_v",
+              "understat_id", "player_name", "team_title", "time", "goals"]
+
+
 def _audit(cw, vp, us, tmap, verbose=True):
-    """Profile-agreement audit. RAISES on minutes or goals disagreement; club
-    disagreement only WARNS, because mid-season transfers produce genuine false
-    positives (Ouattara, Ramsey, Garnacho, Nelson and Doak all legitimately show
-    one club in vaastav and another in Understat)."""
+    """Profile-agreement audit. Returns the DataFrame of HARD disagreements
+    (minutes or goals beyond tolerance) -- every one of them, never raising --
+    so the caller can report them all and drop the pairs. Club disagreement only
+    WARNS, because mid-season transfers produce genuine false positives
+    (Ouattara, Ramsey, Garnacho, Nelson and Doak all legitimately show one club
+    in vaastav and another in Understat).
+
+    2026-08-28: this used to raise AssertionError with a table that referenced a
+    `position` column `vp` does not carry, so on the first real disagreement it
+    died with KeyError instead of reporting -- the safety net existed and could
+    not speak. It found three bad pairs in 2025-26 (Cherki->'Rayan',
+    Felipe->Jota Silva, Kroupi's minutes) and reported none of them.
+    """
     d = (cw.merge(vp, on="element", how="inner")
            .merge(us[["id", "player_name", "team_title", "time", "goals"]],
                   left_on=cw["understat_id"].name, right_on="id", how="left",
@@ -221,7 +280,7 @@ def _audit(cw, vp, us, tmap, verbose=True):
         d[c] = pd.to_numeric(d[c], errors="coerce")
     d = d[d["time"].notna() & (d["minutes"] >= AUDIT_MIN_MINUTES)]
     if not len(d):
-        return
+        return d.reindex(columns=AUDIT_COLS)
 
     tol = np.maximum(AUDIT_MIN_FLOOR,
                      AUDIT_MIN_FRAC * np.maximum(d["minutes"], d["time"]))
@@ -235,17 +294,44 @@ def _audit(cw, vp, us, tmap, verbose=True):
         print(f"  [audit] {int(bad_club.sum())} pair(s) disagree on club -- usually a "
               "mid-season transfer, reported not enforced")
 
-    hard = d[bad_min | bad_goal]
-    if len(hard):
-        cols = ["element", "name", "team", "position", "minutes", "goals_v",
-                "understat_id", "player_name", "team_title", "time", "goals"]
-        raise AssertionError(
-            "profile audit FAILED: matched pair(s) disagree on minutes or goals by "
-            "more than the tolerance, which is the signature of a one-to-one wrong "
-            "match. Resolve by hand (add to MANUAL) before using this crosswalk.\n"
-            + hard[cols].sort_values("minutes", ascending=False).to_string(index=False))
+    hard = d.loc[bad_min | bad_goal, AUDIT_COLS].sort_values("minutes", ascending=False)
     if verbose:
-        print(f"  [audit] {len(d)} pairs checked on minutes+goals, all within tolerance")
+        if len(hard):
+            print(f"  [audit] {len(d)} pairs checked on minutes+goals; "
+                  f"{len(hard)} HARD disagreement(s) -- the signature of a one-to-one "
+                  "wrong match. These pairs are DROPPED (unmatched is acceptable, a "
+                  "wrong id is not); pin the right id in MANUAL if the identity is known:")
+            print(hard.to_string(index=False))
+        else:
+            print(f"  [audit] {len(d)} pairs checked on minutes+goals, all within tolerance")
+    return hard
+
+
+def _single_token_ok(cand_key, v_team, u_title, tmap, club_keys):
+    """Guard for a SINGLE-TOKEN Understat playing name ("Rayan", "Beto",
+    "Gabriel", "Rodri" ...). token_set_ratio scores such a name at 100 against
+    ANY FPL full name containing that token, so on name alone "Rayan Cherki"
+    (Man City) reached "Rayan" (Rayan Vitor, Bournemouth) -- a wrong id, which
+    is worse than none because it imports another player's scoring rate.
+
+    Corroboration chosen: CLUB agreement, plus the token must identify exactly
+    one Understat player at that club. Club is the one field both sources carry
+    for every player at every score level; position is not in `vp`, and a
+    minutes profile is what the post-build audit already checks. Loanees whose
+    club differs between sources (the Ugochukwu case) fall through to unmatched
+    and are pinned in MANUAL -- acceptable; a wrong id is not.
+
+    `club_keys`: normalised keys of EVERY Understat player at the FPL element's
+    club (matched or not), so an already-claimed club-mate still counts against
+    uniqueness (the KNOWN_ISSUES #3 lesson).
+    """
+    toks = cand_key.split()
+    if len(toks) != 1:
+        return True
+    if not _teams_agree(v_team, u_title, tmap):
+        return False
+    tok = toks[0]
+    return sum(1 for k in club_keys if tok in k.split()) == 1
 
 
 def build(season, verbose=True):
@@ -298,6 +384,13 @@ def build(season, verbose=True):
         if not r.key or not choices:
             continue
         top = process.extract(r.key, choices, scorer=fuzz.token_set_ratio, limit=5)
+        # Single-token Understat names need corroboration (see _single_token_ok);
+        # an uncorroborated one is removed from the candidate list BEFORE the
+        # floor/margin logic so it can neither win nor block the runner-up.
+        club_keys = [k for i, k in enumerate(us_keys)
+                     if _teams_agree(r.team, us_titles_all[i], tmap)]
+        top = [t for t in top
+               if _single_token_ok(t[0], r.team, u_titles[t[2]], tmap, club_keys)]
         if not top:
             continue
         best_s, runner = top[0][1], (top[1][1] if len(top) > 1 else 0.0)
@@ -391,7 +484,15 @@ def build(season, verbose=True):
             f"(KNOWN_ISSUES #3):\n{dup.to_string(index=False)}")
     assert cw.element.is_unique, "an element was matched twice"
 
-    _audit(cw, vp, us, tmap, verbose=verbose)
+    hard = _audit(cw, vp, us, tmap, verbose=verbose)
+    # A pair the audit rejects is dropped, never kept: the element falls back to
+    # the position prior, which is the lesser error. MANUAL entries are exempt --
+    # they carry their own evidence (Kroupi's source-side goals discrepancy).
+    manual_els = set(MANUAL.get(season, {}))
+    drop = [e for e in hard["element"].tolist() if e not in manual_els]
+    if drop and verbose:
+        print(f"  [audit] dropped {len(drop)} audited-out pair(s): elements {drop}")
+    cw = cw[~cw.element.isin(drop)].copy()
 
     cov = vp.merge(cw[["element", "understat_id"]], on="element", how="left")
     got = cov.understat_id.notna()
@@ -404,6 +505,8 @@ def build(season, verbose=True):
         "matched_fuzzy_club": int((cw.match_type == "fuzzy+club").sum()),
         "matched_club_token": int((cw.match_type == "club+token").sum()),
         "matched_manual": int((cw.match_type == "manual").sum()),
+        "audit_hard_disagreements": int(len(hard)),
+        "audit_dropped": int(len(drop)),
         "pct_elements": round(100 * got.mean(), 1),
         # The number that matters: unmatched players are overwhelmingly zero-minute
         # squad filler Understat never tracked, so headcount understates coverage.

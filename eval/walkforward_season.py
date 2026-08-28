@@ -71,10 +71,18 @@ def train_seasons_for(season):
 
 
 def crosswalk_for(season):
-    """2025-26 keeps its hand-audited file; every other season uses the per-season
-    build from eval/build_crosswalk.py."""
-    if season == "2025-26":
-        return pd.read_csv(REPO / "data" / "history" / "player_id_crosswalk_final.csv")
+    """Every season uses the per-season build from eval/build_crosswalk.py.
+
+    Until 2026-08-28, 2025-26 was hard-routed to the frozen legacy
+    `player_id_crosswalk_final.csv` (840 'legacy' rows, 316 without an id) and
+    never ran the builder; Rayan Cherki (1772 min, top-30 twice) and Alex
+    Jimenez Sanchez (2315 min) had no Understat id all season and sat on the
+    position prior with no current-season blend. The rebuilt 2025-26 crosswalk
+    was verified against the legacy file before the switch: +11 ids gained
+    (two with real minutes), 0 lost, 0 changed, 0 audit drops
+    (Tests/test_crosswalk_fixes.py). The legacy file is kept on disk for
+    provenance only.
+    """
     p = REPO / "data" / "history" / f"crosswalk_{season.replace('-', '_')}.csv"
     if not p.exists():
         raise FileNotFoundError(

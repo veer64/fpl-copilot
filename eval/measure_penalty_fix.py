@@ -147,8 +147,9 @@ def main():
         # movers
         top = d[d.groupby("gw")["e_points"].rank(ascending=False, method="first") <= 30].copy()
         top["dpts"] = top.e_points_fix - top.e_points
-        cw = (pd.read_csv(REPO / "data" / "history" / ("player_id_crosswalk_final.csv" if season == "2025-26"
-                                                     else f"crosswalk_{tag}.csv")))
+        # every season, 2025-26 included, uses the builder's file (2026-08-28 switch;
+        # see walkforward_season.crosswalk_for)
+        cw = pd.read_csv(REPO / "data" / "history" / f"crosswalk_{tag}.csv")
         cw["understat_id"] = pd.to_numeric(cw["understat_id"], errors="coerce")
         prior = us[us.yr == yr - 1][["id", "pen"]].copy(); prior["id"] = pd.to_numeric(prior["id"])
         mv = (top.groupby("element").agg(name=("nm", "first"), rows=("dpts", "size"),
