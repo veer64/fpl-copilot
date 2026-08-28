@@ -62,16 +62,43 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", required=True)
     ap.add_argument("--tc2", type=int, default=None, help="schedule Triple Captain 2 IN-SIM at this gameweek (rule of record: earliest H2 double not already holding a chip; p4 log 12c ii). Captain = the MIP's own cap variable at that deadline (argmax step-0 e_points in the XI); no post-deadline information.")
-    ap.add_argument("--arm", required=True, choices=["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel", "leakfix"])
+    ap.add_argument("--arm", required=True, choices=["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel", "leakfix", "gap0", "props_gap0", "hmin_gap0", "both_gap0", "hold_gap0"])
+    ap.add_argument("--hold-eps", type=float, default=None, help="hold_gap0 arm: simulator.HOLD_PREFERENCE_EPS (Logs/hold_preference_prereg.md); required for that arm")
     a = ap.parse_args()
     season, arm, tag = a.season, a.arm, a.season.replace("-", "_")
     ARMS_DIR.mkdir(parents=True, exist_ok=True)
     out = ARMS_DIR / (f"armlog_{tag}_{arm}_tc2.parquet" if a.tc2 else f"armlog_{tag}_{arm}.parquet")
+    if arm == "hold_gap0":
+        out = ARMS_DIR / f"armlog_{tag}_hold_gap0_eps{a.hold_eps:g}{'_tc2' if a.tc2 else ''}.parquet"
     if out.exists():
         print(f"skip existing {out.name}"); return
     simulator.OPENING_HORIZON_ACTIVE = False
     ref = pd.read_parquet(P1 / f"fslog_{tag}_{OPENING}_wc{WC1}.parquet")
+    if arm in ("props_gap0", "hmin_gap0", "both_gap0"):
+        # like-for-like base for the exploratory arms is the gap0 reference path (TC2 in-sim; TC flag never changes a decision)
+        ref = pd.read_parquet(ARMS_DIR / f"armlog_{tag}_gap0_tc2.parquet")
     if arm == "baseline8":
+        wf_path = REPO / "data" / f"walkforward_h6_{tag}.parquet"
+    elif arm in ("props_gap0", "hmin_gap0", "both_gap0"):
+        # EXPLORATORY (2026-08-27; not a pre-registration, no bars, NOT adoptable): the props / horizon-minutes
+        # arm frames rebuilt by eval/walkforward_arms.py on the leak-fixed canonical, solved at MIP gap 0.
+        # Frames live in data/arms_gap0/ so the record's original arm frames (data/arms/) are untouched.
+        # Both arms were previously REJECTED on their pre-registered component tests.
+        wf_path = REPO / "data" / "arms_gap0" / f"walkforward_h6_{tag}_{arm.replace('_gap0', '')}.parquet"
+    elif arm == "hold_gap0":
+        # PRE-REGISTERED TEST (Logs/hold_preference_prereg.md): gap0 reference config + hold preference at
+        # near-ties, epsilon from --hold-eps, applied in-process and restored after. Not adopted.
+        assert a.hold_eps is not None and a.hold_eps >= 0, "hold_gap0 requires --hold-eps"
+        simulator.HOLD_PREFERENCE_EPS = float(a.hold_eps)
+        wf_path = REPO / "data" / f"walkforward_h6_{tag}.parquet"
+    elif arm == "gap0":
+        # Leak-fixed canonical + solver MIP gap 0 (commit 37ad782, 2026-08-27). Same frame as
+        # `leakfix`; the change is solver-side. Asserted below that the solver in force has gap 0.
+        import optimize as _opt
+        _s = _opt._default_solver()
+        _rel = getattr(_s, "gapRel", None); _rel = _s.optionsDict.get("gapRel") if _rel is None else _rel
+        _abs = getattr(_s, "gapAbs", None); _abs = _s.optionsDict.get("gapAbs") if _abs is None else _abs
+        assert _rel == 0.0 and _abs == 0.0, f"gap0 arm requires a zero-gap solver, got rel={_rel} abs={_abs}"
         wf_path = REPO / "data" / f"walkforward_h6_{tag}.parquet"
     elif arm == "leakfix":
         # Season figures on the CANONICAL rebuilt after the penalty-join leak fix
@@ -93,7 +120,7 @@ def main():
     else:
         wf_path = ARMS_DIR / f"walkforward_h6_{tag}_{arm}.parquet"
     df = simulator.load_season(walkforward_path=str(wf_path), horizon_aware=True, season=season)
-    if arm == "leakfix":
+    if arm in ("leakfix", "gap0", "hold_gap0"):
         assert "penalty_join_prior_season" in df.columns and bool(df["penalty_join_prior_season"].iloc[0]) is True, \
             "leakfix arm requires a canonical rebuilt on the leak fix (stamp penalty_join_prior_season)"
         assert df["bonus_mode"].iloc[0] == "delete" and bool(df["penalty_fix_active"].iloc[0]) is False \
@@ -105,9 +132,17 @@ def main():
         assert bool(df["penalty_fix_active"].iloc[0]) == (arm == "cal_penfix")
     elif arm == "penfix":
         assert bool(df["penalty_fix_active"].iloc[0]) is True, "penfix frame is not stamped penalty_fix_active"
+    elif arm in ("props_gap0", "hmin_gap0", "both_gap0"):
+        assert df["arm"].unique().tolist() == [arm.replace("_gap0", "")], "arm frame is not stamped with this arm"
+        # walkforward_arms.py writes its own stamp set (no penalty_join_prior_season column); provenance is
+        # asserted BIT-EXACTLY instead: the arm frame's penalty_share must equal the leak-fixed canonical's
+        # on every joined row (the pre-fix canonical differs on thousands of rows).
+        _canon = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}.parquet", columns=["element", "gw", "cutoff", "penalty_share"])
+        _j = df[["element", "gw", "cutoff", "penalty_share"]].merge(_canon, on=["element", "gw", "cutoff"], suffixes=("", "_canon"))
+        assert len(_j) > 0 and float((_j["penalty_share"] - _j["penalty_share_canon"]).abs().max()) == 0.0,             "arm frame's penalty_share is not bit-identical to the leak-fixed canonical -- not built on the fixed code"
     elif arm != "baseline8":
         assert df["arm"].unique().tolist() == [arm], "arm frame is not stamped with this arm"
-    start_gw = START_GW.get(season, 1) if arm not in ("penfix", "cal", "cal_penfix", "bonusow", "bonusdel", "leakfix") else 1
+    start_gw = START_GW.get(season, 1) if arm not in ("penfix", "cal", "cal_penfix", "bonusow", "bonusdel", "leakfix", "gap0", "hold_gap0") else 1
     if arm == "baseline8":
         assert start_gw > 1, "baseline8 is the GW8-start like-for-like check; this season runs in full"
     bb1, bb2 = rfs.BB1[(season, OPENING)], rfs.BB2[season]
@@ -123,6 +158,7 @@ def main():
         print(f"{season} {arm}: resuming from the reference cell's state at end of GW{start_gw - 1}: {initial}", flush=True)
     t0 = time.time()
     state, log = simulator.simulate_season(df, policy="mip", horizon=rfs.H, decay=rfs.DECAY, gws=gws, initial_state=initial, verbose=False, **sched)
+    simulator.HOLD_PREFERENCE_EPS = None      # gate rests None (hold_gap0 sets it in-process only)
     log = log.copy()
     played = set(int(g) for g in log["gw"])
     if start_gw > 1:
@@ -139,10 +175,13 @@ def main():
     log["season"], log["opening"], log["arm"] = season, OPENING, arm
     log["wc1"], log["wc2"], log["fh2"], log["bb1"], log["bb2"] = WC1, rfs.WC2[season], rfs.FH2[season], bb1, bb2
     log["wf_file"] = wf_path.name; log["start_gw"] = start_gw
-    log["resume_from"] = f"fslog_{tag}_{OPENING}_wc{WC1}.parquet@GW{start_gw - 1}" if start_gw > 1 else "none"
-    log["props_active"] = arm in ("props", "both"); log["horizon_minutes_active"] = arm in ("hmin", "both")
-    log["penalty_fix_active"] = arm in ("penfix", "cal_penfix"); log["topend_cal_active"] = arm in ("cal", "cal_penfix"); log["bonus_mode"] = {"bonusow": "outcome", "bonusdel": "delete", "leakfix": "delete"}.get(arm, "incumbent")
+    log["resume_from"] = ((f"armlog_{tag}_gap0_tc2.parquet@GW{start_gw - 1}" if arm in ("props_gap0", "hmin_gap0", "both_gap0") else f"fslog_{tag}_{OPENING}_wc{WC1}.parquet@GW{start_gw - 1}") if start_gw > 1 else "none")
+    log["props_active"] = arm in ("props", "both", "props_gap0", "both_gap0"); log["horizon_minutes_active"] = arm in ("hmin", "both", "hmin_gap0", "both_gap0"); log["exploratory_not_adoptable"] = arm in ("props_gap0", "hmin_gap0", "both_gap0")
+    log["penalty_fix_active"] = arm in ("penfix", "cal_penfix"); log["topend_cal_active"] = arm in ("cal", "cal_penfix"); log["bonus_mode"] = {"bonusow": "outcome", "bonusdel": "delete", "leakfix": "delete", "gap0": "delete", "hold_gap0": "delete"}.get(arm, "incumbent")
     log["penalty_join_prior_season"] = bool(df["penalty_join_prior_season"].iloc[0]) if "penalty_join_prior_season" in df.columns else False
+    import optimize as _opt2
+    _s2 = _opt2._default_solver(); _r2 = getattr(_s2, "gapRel", None); _r2 = _s2.optionsDict.get("gapRel") if _r2 is None else _r2
+    log["solver_gap_zero"] = (_r2 == 0.0)   # stamp: was this path solved at MIP gap 0 (commit 37ad782)?
     log["tc2_gw"] = int(a.tc2) if a.tc2 else -1
     log["segment_total"] = int(log["points"].sum())
     log["final_total"] = int(state.total_points)
