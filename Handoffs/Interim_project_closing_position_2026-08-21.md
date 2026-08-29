@@ -54,6 +54,45 @@ Measured-and-off gates (all False): `OPENING_HORIZON_ACTIVE`,
 
 ## 3. Reference figures (single draws, sd ≈ 60 — identify, never rank)
 
+> **FIGURES OF RECORD, 2026-08-28 (supersede everything below in this section).** Reference cells re-pointed
+> to the **horizon-minutes arm on the gap0 convention** — penalty-join leak fix (e04fb72) + solver MIP gap 0
+> (37ad782) + fixed crosswalk (a758541), `bonus_mode=delete`, all chips, WC1 @ GW2, TC2 in-sim (2025-26) or the
+> TC2-equivalent captain multiple at the rule week where the arm ran TC2 zero (2023-24, 2024-25):
+>
+> | Season | Path ex-TC2 | TC2 | BB1 / BB2 / TC1 | **Chip-inclusive** | Avg manager (fplcache) | Margin |
+> |---|---|---|---|---|---|---|
+> | 2023-24 | 2386 | +10 (GW25 equiv.) | +7 / +16 / +6 (GW6) | **2425** | 2003 | +422 |
+> | 2024-25 | 2254 | +29 (GW24 equiv.) | +16 / +27 / +9 (GW18) | **2335** | 2008 | +327 |
+> | 2025-26 | 2216 | +7 (GW26 in-sim, Gabriel) | +12 / +15 / +16 (GW17) | **2266** | 1895 | +371 |
+>
+> **CONFIGURATION ROLES, stated plainly:**
+> - **Reference cells: horizon** (2425 / 2335 / 2266; `data/arms/armlog_*_hmin_gap0[_tc2]`).
+> - **Production intent: combined** (props + horizon), figures **2459 / 2264** — two seasons only; no 2023-24
+>   cell exists because the anytime-scorer market began autumn 2024.
+> - **Shadow: baseline gap0** (2343 / 2306 / 2216; `data/arms/armlog_*_gap0_tc2`).
+> - **The mismatch is explicit: the figures of record describe horizon, not the production configuration.**
+>
+> **OBJECTION, on the record:** the horizon arm was REJECTED on its pre-registered component test — minutes rank
+> falls on both decision partitions at every step k = 1–5 in all three seasons (−0.014 to −0.049). This adoption
+> cites season totals, which the standing rule forbids, and horizon is the specific case the rule was written from
+> (+109 / +49 / −84 on totals while worse where decisions are made). The decomposition found four comparable
+> decisions across three seasons netting +62 against +224 of path gain; no mechanism was identified. Deliberate
+> choice made with that evidence in view. **The standing rule still applies to everything else: no future
+> adoption decision may cite season totals.**
+>
+> **What production = combined requires before it can pick anything:** a live props puller inside each deadline
+> window; a per-gameweek crosswalk pass with manual name mapping (162 and 57 manual entries historically, ~150
+> unmatched rows per season); an incremental consensus builder; a paid odds plan. None exists. Props degrades
+> silently to horizon-only when odds are missing — a coverage flag per deadline is required before combined runs
+> live. **The shadow comparison has no statistical power:** paired per-gameweek sd ~13, detectable difference
+> 6.8 pts/gw at n = 15 and 4.3 at n = 38, against historical config differences of 0 to +4 pts/gw; the
+> 15-gameweek checkpoint is a mechanics review, not a verdict.
+>
+> Superseded, dated: 2251 / 2306 / 2268 (2026-08-26, pre-fix); 2343 / 2300 / 2190 (2026-08-27, leak fix only);
+> 2343 / 2306 / 2190 (2026-08-27, gap0 pre-crosswalk); 2343 / 2306 / 2216 (2026-08-28, gap0 on the fixed
+> crosswalk — the previous candidate). 2024-25's 2306 was numerically unchanged across several conventions by
+> coincidence, not stability. Index: `Logs/season_totals_index.md` (header carries the same objection).
+
 > **FIGURES OF RECORD, 2026-08-26 (supersede the table below):** system as configured =
 > `bonus_mode=delete` + Triple Captain 2 scheduled IN-SIM on the 12c (ii) week (GW25 / GW24 / GW26; captain =
 > the MIP's cap variable at that deadline from cutoff predictions; path identical to the no-TC2 run in every

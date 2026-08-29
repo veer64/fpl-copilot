@@ -66,10 +66,26 @@
 # base_wc2 rows (2296 / 2294 / 2206, TC2 scored zero, incumbent bonus term)
 # stay indexed and drift-checked but are SUPERSEDED as reference cells.
 #
+# REFERENCE CELLS OF RECORD MOVED AGAIN 2026-08-28: the reference cells are
+# now the HORIZON-MINUTES arm on the gap0 convention (penalty leak fix e04fb72 +
+# solver gap 0 37ad782 + fixed crosswalk a758541, BONUS_MODE="delete", all
+# chips, WC1 @ GW2, TC2 in-sim): data/arms/armlog_*_hmin_gap0[_tc2] rows
+# = 2425 / 2335 / 2266. That arm was REJECTED on its pre-registered component
+# test and this adoption cites season totals, which the standing rule forbids;
+# the objection is recorded in the HEADER of the generated index, not only in
+# the commit message. Superseded, dated: 2251/2306/2268 (bonusdel_tc2, pre-fix,
+# 2026-08-26); 2343/2300/2190 (leakfix_tc2, leak fix only, 2026-08-27);
+# 2343/2306/2190 (gap0_tc2 pre-crosswalk, 2026-08-27); 2343/2306/2216
+# (gap0_tc2 on the fixed crosswalk -- the previous candidate, 2026-08-28; now
+# the SHADOW configuration). Configuration roles: reference = horizon;
+# production intent = combined (props+horizon, 2459 / 2264, two seasons);
+# shadow = baseline gap0 (2343 / 2306 / 2216).
+#
 # Self-check (drift only -- circular by construction, kept for that purpose):
 # the recompute chain is validated against the corrected reference figures
-# (fslog base_wc2 chip-inclusive == 2296/2294/2206) and the p1 baselines'
-# path totals (2204/2362/2032) before writing.
+# (fslog base_wc2 chip-inclusive == 2296/2294/2206), the p1 baselines'
+# path totals (2204/2362/2032) and every gap0-family arm figure of record
+# (EXPECT_ARMS_CHIP / EXPECT_REFERENCE_CHIP) before writing.
 
 import datetime as dt
 import re
@@ -111,7 +127,8 @@ STAMPS = ["minutes_availability", "odds_horizon_gws", "dgw_handling",
 # artefacts of superseded configs). Rows sourced from them are FLAGGED
 # superseded, never deleted.
 STALE_SUFFIXES = ["prefix", "dcbase", "prerateblend", "preunify", "presynth",
-                  "synth", "baseline", "d1cards", "av", "odds2", "dgwonly"]
+                  "synth", "baseline", "d1cards", "av", "odds2", "dgwonly",
+                  "precrosswalk"]      # 2025-26 canonical / arm frames before the crosswalk fix (a758541)
 STALE_RE = re.compile(r"_(" + "|".join(STALE_SUFFIXES) + r")\.parquet")
 
 # Known-of-record figures the recompute chain must reproduce exactly.
@@ -137,18 +154,42 @@ EXPECT_ARMS_CHIP = {("2023-24", "hmin"): 2405, ("2024-25", "baseline8"): 2294,
                     ("2023-24", "cal_penfix"): 2286, ("2024-25", "cal_penfix"): 2399, ("2025-26", "cal_penfix"): 2135,
                     ("2023-24", "bonusow"): 2280, ("2024-25", "bonusow"): 2312, ("2025-26", "bonusow"): 2094,
                     ("2023-24", "bonusdel"): 2241, ("2024-25", "bonusdel"): 2277, ("2025-26", "bonusdel"): 2261,
-                    ("2023-24", "bonusdel_tc2"): 2251, ("2024-25", "bonusdel_tc2"): 2306, ("2025-26", "bonusdel_tc2"): 2268}
-# THE REFERENCE CELLS OF RECORD (2026-08-26): bonus deleted, TC2 in-sim.
-EXPECT_REFERENCE_CHIP = {"2023-24": 2251, "2024-25": 2306, "2025-26": 2268}
+                    ("2023-24", "bonusdel_tc2"): 2251, ("2024-25", "bonusdel_tc2"): 2306, ("2025-26", "bonusdel_tc2"): 2268,
+                    # gap0 family (2026-08-27/28; data/leakfix_logs/arms_table_crosswalk.txt, gap0_chip_reads.txt).
+                    # Arms that ran TC2 zero carry a TC2-equivalent captain multiple at the rule week (GW25/24/26).
+                    ("2023-24", "gap0_tc2"): 2343, ("2024-25", "gap0_tc2"): 2306, ("2025-26", "gap0_tc2"): 2216,
+                    ("2025-26", "gap0_tc2_precrosswalk"): 2190,
+                    ("2023-24", "hmin_gap0"): 2425, ("2024-25", "hmin_gap0"): 2335, ("2025-26", "hmin_gap0_tc2"): 2266,
+                    ("2025-26", "hmin_gap0_tc2_precrosswalk"): 2266,
+                    ("2024-25", "props_gap0"): 2328, ("2025-26", "props_gap0_tc2"): 2221, ("2025-26", "props_gap0_tc2_precrosswalk"): 2212,
+                    ("2024-25", "both_gap0"): 2459, ("2025-26", "both_gap0_tc2"): 2264, ("2025-26", "both_gap0_tc2_precrosswalk"): 2283}
+# THE REFERENCE CELLS OF RECORD (2026-08-28): HORIZON-MINUTES arm on the gap0 convention.
+# Was 2251/2306/2268 (bonusdel_tc2, 2026-08-26). See the module docstring and the index HEADER for the
+# recorded objection: the horizon arm was REJECTED on its pre-registered component test.
+EXPECT_REFERENCE_CHIP = {"2023-24": 2425, "2024-25": 2335, "2025-26": 2266}
+REFERENCE_ARM = {"2023-24": "hmin_gap0", "2024-25": "hmin_gap0", "2025-26": "hmin_gap0_tc2"}
+GAP0_FAMILY = ("gap0", "props_gap0", "hmin_gap0", "both_gap0", "hold_gap0")
+TC2_RULE_WEEK = {"2023-24": 25, "2024-25": 24, "2025-26": 26}      # p4 log 12c (ii)
 ARM_LABEL = {"baseline8": "baseline re-run", "props": "arm=props",
              "hmin": "arm=horizon_minutes", "both": "arm=props+horizon_minutes",
              "penfix": "arm=penalty_fix (NOT adopted)", "cal": "arm=topend_cal (NOT adopted)",
              "cal_penfix": "arm=topend_cal+penalty_fix (NOT adopted)",
              "bonusow": "arm=bonus_rebuild_outcome (NOT adopted)",
              "bonusdel": "arm=bonus_delete (ADOPTED; TC2 scored zero)",
-             "bonusdel_tc2": "bonus_delete + TC2 in-sim (SUPERSEDED reference cell, pre-leak-fix canonical)",
+             "bonusdel_tc2": "bonus_delete + TC2 in-sim (SUPERSEDED reference cell 2026-08-26, pre-leak-fix canonical)",
              "leakfix": "arm=leak-fixed canonical (bonus_delete; TC2 scored zero)",
-             "leakfix_tc2": "REFERENCE CELL OF RECORD: leak-fixed canonical + bonus_delete + TC2 in-sim"}
+             "leakfix_tc2": "leak-fixed canonical + bonus_delete + TC2 in-sim (SUPERSEDED reference cell 2026-08-27; MIP gap 1e-4)",
+             "gap0_tc2": "SHADOW: baseline gap0 (leak fix + solver gap 0 + fixed crosswalk; bonus_delete; TC2 in-sim)",
+             "gap0_tc2_precrosswalk": "baseline gap0 on the PRE-CROSSWALK 2025-26 canonical (SUPERSEDED candidate 2026-08-27)",
+             "hmin_gap0": "REFERENCE CELL OF RECORD (2026-08-28): arm=horizon_minutes on gap0 (TC2 zero; TC2-equivalent read at the rule week)",
+             "hmin_gap0_tc2": "REFERENCE CELL OF RECORD (2026-08-28): arm=horizon_minutes on gap0 + TC2 in-sim",
+             "hmin_gap0_tc2_precrosswalk": "arm=horizon_minutes on gap0, PRE-CROSSWALK 2025-26 frame (SUPERSEDED)",
+             "props_gap0": "arm=props on gap0 (EXPLORATORY; TC2 zero; TC2-equivalent read at the rule week)",
+             "props_gap0_tc2": "arm=props on gap0 + TC2 in-sim (EXPLORATORY)",
+             "props_gap0_tc2_precrosswalk": "arm=props on gap0, PRE-CROSSWALK 2025-26 frame (SUPERSEDED)",
+             "both_gap0": "PRODUCTION INTENT: arm=props+horizon_minutes on gap0 (TC2 zero; TC2-equivalent read at the rule week)",
+             "both_gap0_tc2": "PRODUCTION INTENT: arm=props+horizon_minutes on gap0 + TC2 in-sim",
+             "both_gap0_tc2_precrosswalk": "arm=props+horizon_minutes on gap0, PRE-CROSSWALK 2025-26 frame (SUPERSEDED)"}
 # arms whose walk-forward frame lives in data/ (not data/arms/); bonusdel_tc2 shares bonusdel's frame
 ARM_WF_IN_DATA = {"penfix": "penfix", "cal": "cal", "cal_penfix": "cal_penfix", "bonusow": "bonusow",
                   "bonusdel": "bonusdel", "bonusdel_tc2": "bonusdel",
@@ -425,8 +466,8 @@ def rows_fullsystem():
             fs_chip[season] = r["chip"]
             r["flags"] = (r["flags"] + "; " if r["flags"] else "") + (
                 "SUPERSEDED AS REFERENCE CELL (2026-08-26): TC2 scored zero and incumbent bonus term; "
-                f"the reference of record is arms/armlog_{season.replace('-', '_')}_leakfix_tc2 "
-                f"({EXPECT_REFERENCE_CHIP[season]}, leak-fixed convention 2026-08-27)")
+                f"the reference of record is arms/armlog_{season.replace('-', '_')}_{REFERENCE_ARM[season]} "
+                f"({EXPECT_REFERENCE_CHIP[season]}, horizon arm on the gap0 convention, 2026-08-28)")
         out.append(r)
     assert fs_chip == EXPECT_FS_WC2_CHIP, (
         f"chip-inclusive recompute drifted from the corrected reference "
@@ -516,20 +557,72 @@ def cap_pred_arm(season, arm):
     return cap_pred(season)
 
 
+def _gap0_frames(season, base_arm, precrosswalk):
+    """(canonical frame name, arm frame name or None) for a gap0-family arm, as the
+    strings the index uses for wf provenance (relative to data/). 2025-26 rows built
+    before the crosswalk fix point at the preserved _precrosswalk files."""
+    tag = season.replace("-", "_")
+    suf = "_precrosswalk" if (precrosswalk and season == "2025-26") else ""
+    canon = f"walkforward_h6_{tag}{suf}.parquet"
+    a = base_arm.replace("_gap0", "")
+    arm_wf = None if base_arm in ("gap0", "hold_gap0") else f"arms_gap0/walkforward_h6_{tag}_{a}{suf}.parquet"
+    return canon, arm_wf
+
+
+def cap_pred_gap0(season, base_arm, precrosswalk):
+    """TC1 captain predictions for the gap0 family, mirroring data/leakfix_logs/arms_table.py
+    exactly: the canonical's own-cutoff e_points, overridden by the arm frame's where the arm
+    touches step 0 (props / both). hmin leaves step 0 untouched."""
+    canon, arm_wf = _gap0_frames(season, base_arm, precrosswalk)
+    key = ("gap0cp", season, base_arm, precrosswalk)
+    if key in _cap_cache:
+        return _cap_cache[key]
+    wf = pd.read_parquet(REPO / "data" / canon, columns=["cutoff", "gw", "name", "e_points"])
+    own = wf[wf["cutoff"] == wf["gw"]]
+    cp = {(int(g), n): float(v or 0) for g, n, v in zip(own["gw"], own["name"], own["e_points"])}
+    if base_arm in ("props_gap0", "both_gap0"):
+        a = pd.read_parquet(REPO / "data" / arm_wf, columns=["cutoff", "gw", "name", "e_points"])
+        ao = a[a["cutoff"] == a["gw"]]
+        cp.update({(int(g), n): float(v or 0) for g, n, v in zip(ao["gw"], ao["name"], ao["e_points"])})
+    _cap_cache[key] = cp
+    return cp
+
+
+def _prefix_log(resume_from, tag):
+    """Log whose GW1..k rows are stitched in front of an arm that starts at GW k+1.
+    Pre-gap0 arms resumed from the fslog reference; gap0 arms resume from armlog_*_gap0_tc2
+    (the runner stamps `resume_from`)."""
+    name = str(resume_from).split("@")[0] if resume_from not in (None, "none", "") else ""
+    if name.startswith("armlog_"):
+        return pd.read_parquet(ARMS / name)
+    if name.startswith("fslog_"):
+        return pd.read_parquet(P1 / name)
+    return pd.read_parquet(P1 / f"fslog_{tag}_base_wc2.parquet")
+
+
 def rows_arms():
-    """Closed non-adoptions. 2024-25 arms start at GW8 from the reference
-    cell's GW7 state: the reference's GW1-7 rows are stitched in front so the
-    chip reads (BB1@7) and the legality check see the full played season; the
-    like-for-like number is the GW8-38 segment delta (props_season_log.md)."""
+    """Arms, incl. THE REFERENCE CELLS OF RECORD (hmin_gap0, 2026-08-28). 2024-25 arms
+    start at GW8 from their baseline's GW7 state (fslog base_wc2 for the 2026-08-26 arms;
+    armlog gap0_tc2 for the gap0 family, per the log's `resume_from` stamp): the prefix rows
+    are stitched in front so the chip reads (BB1@7) and the legality check see the full
+    played season; the like-for-like number is the GW8-38 segment delta.
+    gap0-family arms that ran TC2 ZERO carry a TC2-equivalent captain multiple at the rule
+    week (GW25 / GW24 / GW26) instead of the old BB2-week read, exactly as
+    data/leakfix_logs/arms_table.py (the source of record for the four-config table)."""
     out, got = [], {}
     for p in sorted(ARMS.glob("armlog_*.parquet")):
         d = pd.read_parquet(p)
-        season, arm = d["season"].iloc[0], d["arm"].iloc[0]
+        season, base_arm = d["season"].iloc[0], d["arm"].iloc[0]
+        precrosswalk = p.stem.endswith("_precrosswalk")
+        arm = base_arm
         if "tc2_gw" in d.columns and int(d["tc2_gw"].iloc[0]) > 0:
             arm = f"{arm}_tc2"          # in-sim TC2 variant (armlog_*_tc2.parquet; the log's arm column is the base arm)
+        if precrosswalk:
+            arm = f"{arm}_precrosswalk"
+        gap0 = base_arm in GAP0_FAMILY
         tag = season.replace("-", "_")
         start_gw = int(d["start_gw"].iloc[0])
-        ref = pd.read_parquet(P1 / f"fslog_{tag}_base_wc2.parquet")
+        ref = _prefix_log(d["resume_from"].iloc[0] if "resume_from" in d.columns else None, tag)
         full = (pd.concat([ref[ref["gw"] < start_gw], d], ignore_index=True)
                 if start_gw > 1 else d)
         assert int(d["final_total"].iloc[0]) == int(full["points"].sum()), \
@@ -539,39 +632,73 @@ def rows_arms():
         wc, fh, bb = chip_weeks(full)
         assert set(bb) == {bb1, bb2} and 2 in wc, f"{p.name}: not the reference chip schedule"
         tc_in = tc_weeks_insim(full)
-        assert (tc_in == [] or arm in ("bonusdel_tc2", "leakfix_tc2")), f"{p.name}: in-sim TC on a non-TC2 arm"
-        reads = standing_reads(full, 2, [bb1, bb2], cap_pred_arm(season, arm))
+        assert (tc_in == [] or arm.endswith("_tc2") or "_tc2_" in arm or arm in ("bonusdel_tc2", "leakfix_tc2")), \
+            f"{p.name}: in-sim TC on a non-TC2 arm"
+        if gap0:
+            canon_wf, arm_wf = _gap0_frames(season, base_arm, precrosswalk)
+            cp = cap_pred_gap0(season, base_arm, precrosswalk)
+            reads = [("bench", bb1, int(full.loc[bb1, "bench_points"])),
+                     ("bench", bb2, int(full.loc[bb2, "bench_points"]))]
+            tc1_gw, tc1 = tc1_read(full, {2, bb1}, cp)
+            reads.append(("TC1 cap", tc1_gw, tc1))
+            if not tc_in:
+                w = TC2_RULE_WEEK[season]
+                reads.append(("TC2 cap (rule week; arm ran TC2 zero)", w, int(full.loc[w, "captain_bonus"])))
+            wf = arm_wf or canon_wf
+        else:
+            reads = standing_reads(full, 2, [bb1, bb2], cap_pred_arm(season, arm))
+            wf = (d["wf_file"].iloc[0] if (arm == "baseline8" or arm in ARM_WF_IN_DATA)
+                  else "arms/" + d["wf_file"].iloc[0])
+            if base_arm == "leakfix" and season == "2025-26":
+                # built on the 2025-26 canonical BEFORE the crosswalk fix; that file is preserved as _precrosswalk
+                wf = "walkforward_h6_2025_26_precrosswalk.parquet"
         if tc_in:
             # TC2 is IN the path (the simulator tripled the captain); listed for the record, never added.
             g = tc_in[0]
             reads.append(("TC2 in-sim", g, int(full.loc[g, "captain_bonus"]) // 2))
-        wf = (d["wf_file"].iloc[0] if (arm == "baseline8" or arm in ARM_WF_IN_DATA)
-              else "arms/" + d["wf_file"].iloc[0])
         extra = " ".join(x for x, c in (("PROPS", "props_active"),
                                         ("HORIZON_MINUTES", "horizon_minutes_active"))
                          if c in d.columns and bool(d[c].iloc[0]))
         if arm == "baseline8":
             flags = "like-for-like check of the resume mechanism -- reproduces the reference GW8-38 exactly"
         elif arm == "leakfix_tc2":
-            flags = ("REFERENCE CELL OF RECORD (2026-08-27, leak-fixed convention): canonical rebuilt after the "
-                     "penalty-join leak fix (commit e04fb72; stamp penalty_join_prior_season), BONUS_MODE=delete, "
-                     "Triple Captain 2 IN-SIM on the 12c(ii) week; captain = the MIP cap variable at that deadline. "
-                     "Re-measurement of a committed fix, not a selection event (Logs/seal_register.md)")
+            flags = ("SUPERSEDED AS REFERENCE CELL (2026-08-27 -> 2026-08-28): leak fix only (e04fb72), MIP gap still 1e-4, "
+                     "2025-26 on the pre-crosswalk canonical; figures 2343 / 2300 / 2190. Was the leak-fixed re-measurement of "
+                     f"a committed fix. The reference of record is arms/armlog_{tag}_{REFERENCE_ARM[season]} ({EXPECT_REFERENCE_CHIP[season]})")
         elif arm == "leakfix":
             flags = "leak-fixed canonical, TC2 scored zero -- see the leakfix_tc2 row"
         elif arm == "bonusdel_tc2":
             flags = ("SUPERSEDED AS REFERENCE CELL (2026-08-27): built on the pre-leak-fix canonical (same-season "
-                     f"Understat penalty join, KNOWN_ISSUES #19); the reference of record is arms/armlog_{tag}_leakfix_tc2 "
-                     f"({EXPECT_REFERENCE_CHIP[season]}). Was: REFERENCE CELL OF RECORD 2026-08-26 (2251/2306/2268): "
+                     f"Understat penalty join, KNOWN_ISSUES #19); the reference of record is arms/armlog_{tag}_{REFERENCE_ARM[season]} "
+                     f"({EXPECT_REFERENCE_CHIP[season]}, 2026-08-28). Was: REFERENCE CELL OF RECORD 2026-08-26 (2251/2306/2268): "
                      "BONUS_MODE=delete + TC2 in-sim (p4 log section 15); path identical to arm=bonus_delete in all 38 gws")
         elif arm == "bonusdel":
             flags = "ADOPTED on component metrics (Logs/bonus_delete_prereg.md); TC2 scored zero here -- see the bonusdel_tc2 row"
+        elif arm == REFERENCE_ARM.get(season) and gap0:
+            flags = ("REFERENCE CELL OF RECORD (2026-08-28): horizon-minutes lever 1 on the gap0 convention (leak fix e04fb72, "
+                     "solver gap 0 37ad782, fixed crosswalk a758541, BONUS_MODE=delete, TC2 " + ("in-sim" if tc_in else
+                     "scored zero -> TC2-equivalent captain multiple at the rule week") + "). OBJECTION ON RECORD: this arm was "
+                     "REJECTED on its pre-registered component test (minutes rank falls on both decision partitions at every step "
+                     "k=1-5 in all three seasons, -0.014 to -0.049); this adoption cites season totals, which the standing rule "
+                     "forbids, and horizon is the case that rule was written from (+109/+49/-84 on totals while worse where "
+                     "decisions are made). Deliberate choice made with that evidence in view; see the index header")
+        elif base_arm == "gap0" and not precrosswalk:
+            flags = ("SHADOW configuration (2026-08-28). Was the reference candidate 2343 / 2306 / 2216 (gap0 baseline on the fixed "
+                     "crosswalk) -- SUPERSEDED as reference by the horizon arm the same day, before any re-pointing; never the cell of record")
+        elif precrosswalk:
+            flags = ("SUPERSEDED (2026-08-28): 2025-26 built on the pre-crosswalk canonical / arm frame (Cherki 417 without an "
+                     "Understat id); the gap0_tc2 pre-crosswalk candidate 2343 / 2306 / 2190 was never adopted")
+        elif base_arm == "both_gap0":
+            flags = ("PRODUCTION INTENT (2026-08-28): combined props + horizon minutes. EXPLORATORY figure; both levers failed "
+                     "their pre-registered component tests; no 2023-24 cell (anytime-scorer market began autumn 2024)")
+        elif base_arm == "props_gap0":
+            flags = "EXPLORATORY -- props conditional spec on gap0; FAILED its pre-registered test (conditions 1-2); never evidence"
         else:
             flags = "NOT ADOPTED -- failed its pre-registered component test; season figure only, never evidence"
         if start_gw > 1:
-            flags += (f"; starts GW{start_gw} from the reference cell's GW{start_gw - 1} state "
-                      f"(GW1-{start_gw - 1} stitched = reference); like-for-like = GW{start_gw}-38 "
-                      f"segment vs reference")
+            prefix = "arms/" + str(d["resume_from"].iloc[0]).split("@")[0] if gap0 else "the fslog reference cell"
+            flags += (f"; starts GW{start_gw} from {prefix}'s GW{start_gw - 1} state "
+                      f"(GW1-{start_gw - 1} stitched); like-for-like = GW{start_gw}-38 segment vs that baseline")
         sched = sched_str(wc, fh, bb) + (f" TC@{tc_in[0]} (in-sim)" if tc_in else "")
         r = row("arms", season, f"{ARM_LABEL[arm]} start=GW{start_gw}", 6, 0.45,
                 sched, wf, gates_str(d, extra),
@@ -582,8 +709,9 @@ def rows_arms():
     for k, v in EXPECT_ARMS_CHIP.items():
         if k in got:
             assert got[k] == v, f"arms recompute drifted for {k}: {got[k]} != {v}"
-    ref = {s_: got[(s_, "leakfix_tc2")] for s_ in EXPECT_REFERENCE_CHIP if (s_, "leakfix_tc2") in got}
+    ref = {s_: got[(s_, a_)] for s_, a_ in REFERENCE_ARM.items() if (s_, a_) in got}
     assert ref == EXPECT_REFERENCE_CHIP, f"REFERENCE cells drifted: {ref} != {EXPECT_REFERENCE_CHIP}"
+    print("gap0-family recompute:", {k: v for k, v in sorted(got.items()) if k[1].split('_')[0] in ("gap0", "hmin", "props", "both", "leakfix")})
     return out
 
 
@@ -648,7 +776,7 @@ SECTIONS = [
      "predictions. These rows are MEASUREMENTS of an upper bound, never "
      "baselines, never adoptable, comparable only to their reference cell "
      "(fslog base_wc2). Same TC2@BB2 drop as the full system."),
-    ("arms", "ARMS -- 2026-08-26 arms incl. THE REFERENCE CELLS OF RECORD (data/arms/armlog_*)",
+    ("arms", "ARMS -- 2026-08-26/27/28 arms incl. THE REFERENCE CELLS OF RECORD = hmin_gap0 (data/arms/armlog_*)",
      "Full-system wc2 config with a feature applied in-process for the season "
      "figure only: props (conditional spec, w=0.75 m=1.396; PROPS_HOOK rests "
      "None) and/or horizon minutes lever 1 (HORIZON_MINUTES_ACTIVE rests "
@@ -666,7 +794,14 @@ SECTIONS = [
      "MIP's cap at that deadline; path identical to bonusdel in every gameweek, "
      "so the TC2 read is exactly the extra captain multiple, +10 / +29 / +7). "
      "Their `TC2 in-sim` read is listed for the record and NOT added -- it is "
-     "already inside the path total."),
+     "already inside the path total. ALSO HERE (2026-08-27/28), the gap0 family: "
+     "leakfix / leakfix_tc2 (leak fix only, SUPERSEDED), gap0_tc2 (leak fix + solver "
+     "gap 0 + fixed crosswalk = the SHADOW configuration), hmin_gap0 / hmin_gap0_tc2 "
+     "(**THE REFERENCE CELLS OF RECORD 2026-08-28 -- with the objection recorded in the "
+     "header**), props_gap0 (exploratory), both_gap0 (PRODUCTION INTENT), and the "
+     "2025-26 _precrosswalk rows (SUPERSEDED). gap0-family arms that ran TC2 zero carry "
+     "a TC2-equivalent captain multiple at the rule week (GW25/24/26) instead of the "
+     "old BB2-week read, exactly as data/leakfix_logs/arms_table.py."),
     ("references", "REFERENCES -- pre-canonical lineage figures",
      "Retained for lineage only."),
 ]
@@ -688,7 +823,52 @@ measurably WORSE where decisions are made, scored +109 / +49 / -84 by season
 total; props, slightly better on the component read, scored -56 / -107. Run
 the totals first and both calls come out wrong.
 
-**REFERENCE CELLS OF RECORD (moved 2026-08-26).** The system as configured is
+**REFERENCE CELLS OF RECORD (moved 2026-08-28) -- and the objection, on the record.**
+The reference cells are now the **horizon-minutes arm on the gap0 convention**:
+penalty-join leak fix (e04fb72) + solver MIP gap 0 (37ad782) + fixed crosswalk
+(a758541), `BONUS_MODE = "delete"`, all chips, WC1 @ GW2, TC2 in-sim on the 12c(ii)
+week (2025-26) or the TC2-equivalent captain multiple at that week where the arm ran
+TC2 zero (2023-24, 2024-25). **Reference cells: 2023-24 2425 / 2024-25 2335 /
+2025-26 2266** (paths ex-TC2 2386 / 2254 / 2216; `data/arms/armlog_*_hmin_gap0[_tc2]`).
+
+*Objection, recorded here and not only in the commit message:* the horizon-minutes
+arm was **REJECTED on its pre-registered component test** -- its minutes rank falls on
+both decision partitions at every step k = 1-5 in all three seasons (-0.014 to -0.049;
+`Logs/horizon_minutes_log.md` section 5). This adoption **cites season totals, which the
+standing rule forbids**, and horizon is the specific case that rule was written from
+(+109 / +49 / -84 on totals while measurably worse where decisions are made;
+`Logs/instrument_b_log.md`). The decomposition (`data/leakfix_logs/decomp_all_cells.txt`)
+found four comparable (independent) decisions across three seasons netting +62 against
++224 of path gain; no mechanism was identified -- the remainder is path divergence.
+This was a deliberate choice made with that evidence in view. **The standing rule still
+applies to everything else: no future adoption decision may cite season totals.**
+
+*Superseded as reference cells, dated, retained and flagged, never deleted:*
+2251 / 2306 / 2268 (bonusdel_tc2, pre-fix canonicals, 2026-08-26);
+2343 / 2300 / 2190 (leakfix_tc2, leak fix only, MIP gap 1e-4, 2026-08-27);
+2343 / 2306 / 2190 (gap0_tc2 on the pre-crosswalk 2025-26 canonical, 2026-08-27);
+2343 / 2306 / 2216 (gap0_tc2 on the fixed crosswalk -- the previous candidate,
+2026-08-28, never adopted; now the SHADOW row). Note that 2024-25's 2306 was
+numerically unchanged from bonusdel_tc2 through gap0_tc2 **by coincidence, not
+stability**: the leak fix moved its path (2249 -> 2233, leakfix_tc2 read 2300) and the
+zero-gap solver moved it back through a single GW3 action (2248 -> 2306); the
+crosswalk fix did not touch 2024-25 at all.
+
+*Configuration roles (2026-08-28):* **reference cells = horizon** (2425 / 2335 / 2266);
+**production intent = combined** (props + horizon), figures 2459 / 2264 -- two seasons
+only, no 2023-24 cell because the anytime-scorer market began autumn 2024;
+**shadow = baseline gap0** (2343 / 2306 / 2216). The mismatch is explicit: **the figures
+of record describe horizon, not the production configuration.** Before combined can pick
+anything live it needs a live props puller inside each deadline window, a per-gameweek
+crosswalk pass with manual name mapping (162 and 57 manual entries historically, ~150
+unmatched rows per season), an incremental consensus builder and a paid odds plan --
+none of which exists; props degrades SILENTLY to horizon-only when odds are missing, so
+a per-deadline coverage flag is required before combined runs live. The shadow
+comparison has no statistical power: paired per-gameweek sd ~13, detectable difference
+6.8 pts/gw at n = 15 and 4.3 at n = 38, against historical config differences of 0 to
++4 pts/gw; the 15-gameweek checkpoint is a mechanics review, not a verdict.
+
+**REFERENCE CELLS OF RECORD (moved 2026-08-26; SUPERSEDED 2026-08-28, kept for lineage).** The system as configured was
 `BONUS_MODE = "delete"` (adopted on component metrics, Logs/bonus_delete_prereg.md)
 with Triple Captain 2 scheduled IN-SIM on the rule-of-record week (p4 log
 section 12c (ii): the earliest second-half double holding no other chip -- GW25 /
@@ -750,8 +930,8 @@ marked **(r)** and decomposed in the `chip reads` column; `= path` means no
 exogenous chips were scheduled, so the two totals are identical by
 construction. The recompute chain is drift-checked at generation time against
 the old-convention fslog base_wc2 figures (2296/2294/2206), the reference
-cells of record (arms bonusdel_tc2 -> 2251/2306/2268) and the p1 baselines
-(2204/2362/2032); generation FAILS on drift. That check is
+cells of record (arms hmin_gap0 -> 2425/2335/2266, plus every gap0-family and
+superseded arm figure) and the p1 baselines (2204/2362/2032); generation FAILS on drift. That check is
 circular by construction (same convention both sides) and is kept ONLY for
 drift; legality is the structural check above.
 
@@ -814,9 +994,13 @@ FOOTER = """
    base_wc2 (the reference they were measured against, old convention); the
    2024-25 rows by their GW8-38 segment (props_season_log.md), never by the
    stitched total's margin. Closed non-adoptions; never baselines.
-10. **Reference cells of record** (arms bonusdel_tc2) vs arms bonusdel: differ by
-   the in-sim TC2 alone (path identical); future arms should be run with TC2
-   in-sim and compared to bonusdel_tc2 directly.
+10. **gap0 family** (gap0_tc2 / props_gap0 / hmin_gap0 / both_gap0, 2026-08-27/28):
+   comparable only to each other within a season -- the four-config table of
+   `data/leakfix_logs/arms_table_crosswalk.txt`; 2024-25 arms by their GW8-38
+   segment vs gap0_tc2. hmin_gap0 rows are THE REFERENCE CELLS OF RECORD
+   (2026-08-28, objection in the header); gap0_tc2 is the SHADOW row; both_gap0 the
+   PRODUCTION-INTENT row. The bonusdel_tc2 / leakfix_tc2 / _precrosswalk rows are
+   superseded lineage.
 11. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
    REFERENCE row: NOT comparable.
 
@@ -834,6 +1018,14 @@ FOOTER = """
   (2251/2306/2268). 2296/2294/2206 (fslog base_wc2) are SUPERSEDED as
   reference cells: TC2 scored zero and the incumbent bonus term; retained,
   flagged, never deleted.
+- MOVED 2026-08-28: the reference cells are the arms hmin_gap0 rows
+  (2425/2335/2266) -- the horizon-minutes arm, REJECTED on its component test;
+  adopted on season totals against the standing rule, deliberately, objection
+  recorded in the header. Superseded, dated: 2251/2306/2268 (2026-08-26),
+  2343/2300/2190 (2026-08-27, leak fix only), 2343/2306/2190 (2026-08-27,
+  gap0 pre-crosswalk), 2343/2306/2216 (2026-08-28, gap0 on the fixed crosswalk,
+  the previous candidate -- now the SHADOW row). The standing rule still applies
+  to everything else.
 - Oracle rows are deliberate-leakage instruments (oracle_minutes_active
   stamp). NEVER adopt, never baseline.
 - The four reference figures are retained for lineage only.
