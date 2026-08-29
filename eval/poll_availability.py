@@ -68,6 +68,17 @@ WINDOW_HOURS = 4.0          # polling window opens deadline - 4h
 FINAL_HOUR_CADENCE = 600    # seconds, inside the last hour
 NORMAL_CADENCE = 1800       # seconds, rest of the window
 POST_DEADLINE_GRACE = 30    # minutes: one poll allowed after the deadline
+# Due-gate tolerance, seconds. The stored poll is stamped at FETCH time (~3 s
+# after the tick minute) while the next tick fires ~1-2 s after its minute, so
+# an exact (now - last) >= cadence test comes up ~1 s short, logs "next poll
+# in 0 min", skips, and shifts every later poll one slot late (GW2 window
+# 2026-08-28: 14:30 and 17:00/17:20 skipped; final hour got 4 polls of 6, the
+# last one 20 min out). 30 s absorbs fetch latency, scheduler latency and
+# clock jitter with a wide margin, and cannot double-poll: the tick AFTER a
+# poll sits a full tick interval (600 s scheduler, 60 s --watch) inside the
+# cadence, so the tolerance only has to stay below the shortest tick interval.
+DUE_TOLERANCE = 30
+assert 0 < DUE_TOLERANCE < 60, "tolerance must stay below the --watch tick interval"
 
 FIELDS = ["status", "chance_of_playing_this_round",
           "chance_of_playing_next_round", "news", "news_added"]
@@ -221,9 +232,12 @@ def due(season, deadline, now=None):
             if not have_post else "post-deadline poll already taken"
     cadence = FINAL_HOUR_CADENCE if to_deadline <= 3600 else NORMAL_CADENCE
     last = max((ts for ts, _ in snaps), default=None)
-    if last is None or (now - last).total_seconds() >= cadence:
+    # Tolerant comparison (see DUE_TOLERANCE): a tick that lands within the
+    # tolerance of the cadence is due, so the schedule holds :30 / :00 and the
+    # final hour keeps all six slots.
+    if last is None or (now - last).total_seconds() >= cadence - DUE_TOLERANCE:
         return True, f"cadence {cadence // 60} min"
-    wait = cadence - (now - last).total_seconds()
+    wait = cadence - DUE_TOLERANCE - (now - last).total_seconds()
     return False, f"next poll in {wait / 60:.0f} min"
 
 

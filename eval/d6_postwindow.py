@@ -67,14 +67,29 @@ def main():
         if not cache.exists():
             lines.append("blind-window diff: PENDING -- fplcache clone not present (git clone https://github.com/Randdalf/fplcache into repo/fplcache, then rerun this script)")
         else:
-            subprocess.run(["git", "-C", str(cache.parent), "pull", "--ff-only", "-q"], capture_output=True, text=True, timeout=600)
-            snaps = sorted(cache.glob("*/*/*/*.json.xz"))
+            # The pull result is REPORTED, not swallowed: a failed pull (offline, auth,
+            # diverged clone) must be distinguishable from an upstream that has simply
+            # not published a post-deadline snapshot yet (2026-08-28: PENDING with the
+            # newest snapshot at 08-09 -- a manual pull said "Already up to date", but
+            # this script could not have told us that).
+            try:
+                pr = subprocess.run(["git", "-C", str(cache.parent), "pull", "--ff-only"], capture_output=True, text=True, timeout=600)
+                pull_msg = (pr.stdout.strip().splitlines() or pr.stderr.strip().splitlines() or ["(no output)"])[-1]
+                head = subprocess.run(["git", "-C", str(cache.parent), "log", "-1", "--format=%h %cd", "--date=iso-strict"], capture_output=True, text=True, timeout=60).stdout.strip()
+                lines.append(f"fplcache pull: exit {pr.returncode} ({'OK' if pr.returncode == 0 else 'FAILED'}) -- {pull_msg}; HEAD {head}")
+                if pr.returncode != 0 and verdict == "SUCCESS":
+                    verdict = "PARTIAL"
+            except Exception as e:
+                lines.append(f"fplcache pull: FAILED to run ({type(e).__name__}: {e})")
+                verdict = "PARTIAL" if verdict == "SUCCESS" else verdict
             def ts(p):
                 y, mo, d, hm = p.parts[-4], p.parts[-3], p.parts[-2], p.name.split(".")[0]
                 return datetime(int(y), int(mo), int(d), int(hm[:2]), int(hm[2:]), tzinfo=timezone.utc)
+            snaps = sorted(cache.glob("*/*/*/*.json.xz"), key=ts)     # numeric order, not lexical ("8/9" > "8/28")
             after = [p for p in snaps if ts(p) >= deadline]
             if not after:
-                lines.append(f"blind-window diff: PENDING -- fplcache has no snapshot after the deadline yet (newest {ts(snaps[-1]):%Y-%m-%d %H:%M}Z if snaps else 'none'); rerun later")
+                newest = f"{ts(snaps[-1]):%Y-%m-%d %H:%M}Z" if snaps else "none"
+                lines.append(f"blind-window diff: PENDING -- fplcache has no snapshot after the deadline yet (newest {newest}); rerun later")
             else:
                 r2 = subprocess.run([UV, "run", "python", "eval/build_availability.py", "--season", season, "--cache", str(cache), "--out", str(LIVE / f"availability_{season}_fplcache.parquet")], cwd=REPO, capture_output=True, text=True, timeout=900)
                 lines.append(f"fplcache build exit {r2.returncode}")
