@@ -216,8 +216,14 @@ def preflight(season, gw, strict=False, config="baseline"):
             _finding(findings, strict,
                      f"{season} is absent from defensive.DC_RULE_SEASONS -- get_dc_hits would return empty")
 
-    # odds file: the fixture universe AND the market lambdas
-    odds = pd.read_parquet(REPO / "data" / "history" / "odds_all_seasons.parquet",
+    # odds file: the fixture universe AND the market lambdas. Resolved the way
+    # dixon_coles._load_matches resolves it: the frozen archive if it carries the
+    # season, else the *_with_* extension (FPL-API fixture slice, prices null).
+    odds_path = REPO / "data" / "history" / "odds_all_seasons.parquet"
+    ext = REPO / "data" / "history" / f"odds_all_seasons_with_{tag}.parquet"
+    if season not in set(pd.read_parquet(odds_path, columns=["season"])["season"].unique()) and ext.exists():
+        odds_path = ext
+    odds = pd.read_parquet(odds_path,
                            columns=["season", "Date", "B365H", "B365D", "B365A"])
     os_ = odds[odds["season"] == season].copy()
     if len(os_) == 0:
@@ -237,7 +243,17 @@ def preflight(season, gw, strict=False, config="baseline"):
                      f"odds rows in the GW{gw} kickoff window ({len(win)}) < vaastav fixtures "
                      f"({n_fixtures}) -- missing fixtures fall out of the frame entirely")
         n_unpriced = int(win[["B365H", "B365D", "B365A"]].isna().any(axis=1).sum())
-        if n_unpriced:
+        if len(win) and n_unpriced == len(win):
+            # The fixture half of the universe exists but the PRICES do not: the
+            # whole deadline gameweek would run pure-DC. Per-fixture gaps are the
+            # designed, counted fallback; a fully unpriced gameweek is a live
+            # quality regression vs every backtest (100% priced) and raises under
+            # strict until live odds pulling (a separate job) lands.
+            _finding(findings, strict,
+                     f"odds PRICES missing for ALL {len(win)} GW{gw} fixtures -- the fixture "
+                     f"universe is present but every lambda would be pure DC "
+                     f"(lambda_source='dc'); live odds pulling is a separate pending job")
+        elif n_unpriced:
             findings.append(  # graceful by design (pure-DC fallback, counted) -- never strict
                 f"note: {n_unpriced} GW{gw} fixture(s) without B365 prices -> pure-DC lambdas "
                 f"(lambda_source='dc'); correct behaviour, not an error")

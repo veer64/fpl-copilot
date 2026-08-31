@@ -95,10 +95,13 @@ def test_nonstrict_preflight_reports_instead_of_raising():
     deliberately, in the closing commit."""
     findings = ld.preflight("2026-27", 3, strict=False)
     joined = " ".join(findings)
-    still_open = ["availability", "DC_SEASONS", "DC_RULE_SEASONS", "odds_all_seasons"]
+    # Still open: the DC hold (#21) and the odds PRICES (fixture universe closed
+    # by fetch_fixtures; live odds pulling is a separate pending job).
+    still_open = ["DC_SEASONS", "DC_RULE_SEASONS", "odds PRICES"]
     for needle in still_open:
         assert needle in joined, f"expected a finding mentioning {needle} (still open)"
-    closed = ["vaastav master has NO rows", "BLEND_PRIOR", "ladder", "crosswalk missing"]
+    closed = ["vaastav master has NO rows", "BLEND_PRIOR", "ladder", "crosswalk missing",
+              "no data/availability_", "odds_all_seasons has NO rows"]
     for needle in closed:
         assert needle not in joined, \
             f"finding {needle!r} reappeared although its input was closed on 2026-08-31"

@@ -57,8 +57,27 @@ MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
 
 
-def _load_matches():
-    odds = pd.read_parquet(BASE + r"\data\history\odds_all_seasons.parquet")
+def _load_matches(predict_season=None):
+    """The odds/fixture archive, resolved PER PREDICT SEASON: a season the frozen
+    archive contains reads the archive verbatim (so historical builds stay
+    byte-identical -- the 2025-26 parity gate); a season it does not contain
+    (2026-27+) reads odds_all_seasons_with_{tag}.parquet, the archive plus the
+    FPL-API fixture slice (eval/fetch_fixtures.py: fixture columns real, price
+    columns null -> those fixtures take the pure-DC path, counted per fixture).
+    Missing extension -> loud FileNotFoundError, never an empty universe."""
+    from pathlib import Path as _P
+    path = _P(BASE) / "data" / "history" / "odds_all_seasons.parquet"
+    if predict_season is not None:
+        seasons = set(pd.read_parquet(path, columns=["season"])["season"].unique())
+        if predict_season not in seasons:
+            ext = _P(BASE) / "data" / "history" / \
+                f"odds_all_seasons_with_{predict_season.replace('-', '_')}.parquet"
+            if not ext.exists():
+                raise FileNotFoundError(
+                    f"{predict_season} is in neither {path.name} nor {ext.name}. Run "
+                    f"eval/fetch_fixtures.py --season {predict_season} then --combine first.")
+            path = ext
+    odds = pd.read_parquet(path)
     m = odds[["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "season",
               "B365H", "B365D", "B365A"]].copy()
     m.columns = ["date", "home", "away", "home_goals", "away_goals", "season",
@@ -248,7 +267,7 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
                       p_home_cs, p_away_cs].
     lam_* use pure market (best WDL); p_*_cs use the 0.2 DC blend (best CS Brier)."""
     predict_season = PREDICT_SEASON if predict_season is None else predict_season
-    matches = _load_matches()
+    matches = _load_matches(predict_season)
     teams = sorted(set(matches["home"]) | set(matches["away"]))
 
     if cutoff_date is None:
