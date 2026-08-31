@@ -1,0 +1,57 @@
+# FPL Copilot production stack (DigitalOcean droplet).
+#
+# Replaces the hand-run pair (docker build/run + manual `docker network
+# connect fpl-network`) whose attachment nothing recreated -- a container
+# restart silently cut the app off from Postgres (observed live 2026-08-31:
+# app on the default bridge, fpl-postgres unreachable by name, /health still
+# green because it does not touch the DB).
+#
+# Same container names, same ports, same env var names as the manual setup.
+# Compose puts both services on one project network where the service name
+# resolves, so DB_HOST=fpl-postgres in ~/fpl-copilot/.env works unchanged and
+# survives restarts and reboots with no manual step.
+#
+# Interpolation (${DB_PASSWORD}, ${DB_NAME}) is read by compose from .env in
+# this directory -- the same untracked ~/fpl-copilot/.env the app already
+# uses; nothing is duplicated and no secret lives in this file.
+#
+# One deliberate change from the old setup, because it is the point of the
+# migration: restart: unless-stopped (the old containers had restart=no, so a
+# droplet reboot left everything down).
+#
+# Data: NAMED volume fpl_pgdata. The pre-migration anonymous volume
+# (0255e948...) is left untouched as a fallback; see Logs/… and the
+# 2026-08-31 backup backups/fpl_backup_2026-08-31.dump (sha256 3c9373ad…).
+
+services:
+  fpl-postgres:
+    image: postgres:16-alpine
+    container_name: fpl-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-fpl}
+    ports:
+      - "5432:5432"
+    volumes:
+      - fpl_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${DB_NAME:-fpl}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  fpl-copilot:
+    build: .
+    image: fpl-copilot
+    container_name: fpl-copilot
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      fpl-postgres:
+        condition: service_healthy
+
+volumes:
+  fpl_pgdata:

@@ -15,9 +15,14 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            set -e
             cd fpl-copilot
             git pull
-            docker build -t fpl-copilot .
-            docker stop fpl-copilot || true
-            docker rm fpl-copilot || true
-            docker run -d -p 8000:8000 --name fpl-copilot fpl-copilot
+            # Compose owns the whole stack: builds the app image, keeps
+            # fpl-postgres up (named volume fpl_pgdata), and recreates only
+            # what changed. Both services share the project network, so the
+            # app reaches the DB by service name with NO manual
+            # `docker network connect` -- the step the old script depended on
+            # implicitly and nothing performed after a restart.
+            docker compose up -d --build --remove-orphans
+            docker compose ps
