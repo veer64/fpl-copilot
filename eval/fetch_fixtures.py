@@ -138,7 +138,11 @@ def build_slice(season):
             df[c] = pd.NA
     df = df[list(schema.columns)]
     for c in schema.columns:
-        want = "float64" if c in SCORE_INT_COLS else str(schema[c].dtype)
+        # Any archive int64 column is all-NA in this slice (scores excepted, and those
+        # are the SCORE_INT_COLS) -- int64 cannot hold NA, so every such column goes
+        # float64 here and in the combined file (same documented lossless cast).
+        want = ("float64" if (c in SCORE_INT_COLS or schema[c].dtype.kind in "iu")
+                else str(schema[c].dtype))
         try:
             df[c] = df[c].astype(want)
         except (TypeError, ValueError):
@@ -170,8 +174,9 @@ def combine(season):
     add = pd.read_parquet(HIST / f"odds_fixtures_{tag}.parquet")
     base = pd.read_parquet(ODDS)
     assert season not in set(base["season"]), "season already in the archive"
-    for c in SCORE_INT_COLS:
-        base[c] = base[c].astype("float64")      # documented lossless cast (future fixtures are null)
+    for c in base.columns:                       # documented lossless cast: every int64 archive
+        if base[c].dtype.kind in "iu":           # column is NA for 2026-27 rows (scores of future
+            base[c] = base[c].astype("float64")  # fixtures, unpulled stat columns)
     assert list(base.columns) == list(add.columns)
     out = HIST / f"odds_all_seasons_with_{tag}.parquet"
     combined = pd.concat([base, add], ignore_index=True)
