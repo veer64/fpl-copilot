@@ -86,10 +86,20 @@ def test_strict_preflight_rejects_missing_season():
 
 def test_nonstrict_preflight_reports_instead_of_raising():
     findings = ld.preflight("2026-27", 3, strict=False)
-    assert len(findings) >= 5          # vaastav, crosswalk, blend, ladder, DC sets, availability...
+    assert len(findings) >= 5          # vaastav, blend, ladder, DC sets, availability...
     joined = " ".join(findings)
-    for needle in ("vaastav", "crosswalk", "BLEND_PRIOR", "ladder", "DC_SEASONS", "availability"):
+    # The 2026-27 ingestion session (2026-08-31) closes these gaps one by one, so a
+    # finding is REQUIRED only while its input is genuinely absent from the paths
+    # preflight checks. The crosswalk was the first to close (crosswalk_2026_27.csv,
+    # commit 97927b8); the rest still read the frozen archives and stay required
+    # until the consumers are re-pointed (a gated future change).
+    needles = ["vaastav", "BLEND_PRIOR", "ladder", "DC_SEASONS", "availability"]
+    if not (ROOT / "data" / "history" / "crosswalk_2026_27.csv").exists():
+        needles.append("crosswalk")
+    for needle in needles:
         assert needle in joined, f"expected a finding mentioning {needle}"
+    assert "crosswalk" not in joined or not (ROOT / "data" / "history" / "crosswalk_2026_27.csv").exists(), \
+        "preflight still reports a missing crosswalk although the file exists"
 
 
 def test_minutes_ladder_parser_finds_current_seasons():
