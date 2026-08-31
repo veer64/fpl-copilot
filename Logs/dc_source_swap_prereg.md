@@ -138,3 +138,46 @@ before any experiment runs, and the suite pins the default.
 6. Season-total runs on the swapped frames (2 configs, TC2 in-sim). ~1-2 h.
 7. Report; verdict; log. Whatever the verdict, the gate stays defaulted to
    core_insights.
+
+---
+
+# RESULT — 2026-08-31: **FAIL** (Bar 2, DEF family). Recorded and stopped.
+
+Run order honoured: gate committed and parity proven first (suite 212, three-cutoff
+step-0 PASS both configs, gate at default); then the fast metrics. Bar 2 was the
+first bar evaluated and it FAILED, so per the stop rule the remaining runs (Bar 1
+frame rebuilds, season totals) were HALTED — the in-flight swapped-frame rebuild was
+killed unfinished and no Bar-1 or Bar-3 number exists. Season totals were therefore
+never produced; nothing here cites them.
+
+**Bar 2 (Brier vs FPL-official hits, evaluation intersection 9,746 single-match
+player-gws; multi-match player-gws excluded per the pre-registration):**
+
+| family | n | official hit rate | Brier pre | Brier post | verdict |
+|---|---|---|---|---|---|
+| DEF (bar) | 3,619 | 0.212 | 0.15950 | 0.16154 | **NOT improved (+0.00205) — FAIL** |
+| MID (bar) | 4,853 | 0.111 | 0.09300 | 0.09182 | improved (−0.00118) |
+| FWD (report-only) | 1,274 | 0.006 | 0.00624 | 0.00624 | flat constant, unchanged |
+
+Reliability (reported, not a bar): ECE improved on both families (DEF 0.0516 →
+0.0442; MID 0.0346 → 0.0257). This is noted for the record and deliberately NOT
+used to soften the verdict — the bar was Brier, stated before any number.
+
+**Item 7 (label and prediction flips, 10,223 joined single-match player-gws):**
+exact metric agreement 78.42%; direction at the label level: official counts MORE
+than core on 19.65% of rows, core more on 1.93% (mean delta core−official −0.35;
+range −10..+3). NOTE: this full-season, single-match, native-column comparison
+shows the OPPOSITE dominant sign to #21's two spot cross-checks (which had core
+counting more) — recorded as an observation; not re-litigated here. Label flips:
+DEF 98 FPL-hit-core-no vs 8 core-hit-FPL-no; MID 105 vs 5; FWD 3 vs 0. Official
+hit rates are higher than core's (DEF 0.208 vs 0.184; MID 0.108 vs 0.089).
+Prediction flips at p>=0.5 on the intersection: 152 gained, 119 lost (257 → 290
+predicted hits).
+
+**Verdict: FAIL.** The swap did not earn itself under its own bars: predicted DC
+hits did not calibrate better (Brier) against FPL's own counts on the DEF family.
+Per the pre-registration: no variants, no partial swap, no re-weighting.
+`DC_SOURCE` stays `"core_insights"`; DC_SEASONS / DC_RULE_SEASONS untouched; the
+season-less `_DC_HITS_CACHE` key remains flagged for whenever a future adoption
+happens. #21 stays OPEN as a recorded discrepancy — with this test's outcome and
+the sign observation appended.

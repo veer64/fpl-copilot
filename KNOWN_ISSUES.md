@@ -1091,7 +1091,14 @@ selection) read that file so 2296 / 2294 / 2206 do not silently move. *(2026-08-
 
 ## #21 -- the DC term trains on core-insights counts; the FPL API's native defensive_contribution disagrees, one-signed
 
-**Status:** Open question, recorded 2026-08-31. NOT fixed, NOT swapped -- deliberately. Scope:
+**Status:** Open discrepancy, recorded 2026-08-31. NOT fixed, NOT swapped. The pre-registered swap
+test RAN on 2026-08-31 and **FAILED its bars** (`Logs/dc_source_swap_prereg.md` RESULT section):
+Brier vs FPL-official hits worsened on the DEF family (+0.00205) while MID improved -- the bar
+required both. `defensive.DC_SOURCE` stays `"core_insights"` (gated, test-pinned). NOTE the test
+also recorded a SIGN observation: at the label level over the full 2025-26 season (single-match
+player-gws, native column), official counts MORE than core on 19.65% of rows vs 1.93% the other
+way -- the opposite dominant sign to the two spot cross-checks below. Recorded, not re-litigated.
+Any future swap attempt is a NEW pre-registration. Scope:
 `squad/defensive.py` (trains and feature-engineers on `core_insights_matchstats.parquet` counts) vs the
 FPL API's `defensive_contribution` field (exposed natively as the metric COUNT in bootstrap-static,
 event/{gw}/live and element-summary, verified 2026-08-31). Evidence:
@@ -1138,4 +1145,17 @@ pre-registered decision partitions. Ingestion for both sources already exists (`
 `eval/fetch_fpl_history.py`); the season-boundary constants (#DC_SEASONS / DC_RULE_SEASONS /
 defensive.SEASON / the season-less _DC_HITS_CACHE, see Logs/core_insights_ingest_log.md) are a separate
 prerequisite either way.
+
+### Outcome (2026-08-31)
+
+That pre-registration was written, committed BEFORE any number (`Logs/dc_source_swap_prereg.md`,
+cd199a3), and run. Scope narrowed as stated up front: official counts exist only for 2025-26 (0.0%
+populated earlier; the rule began 2025-26) and the term is structurally inert pre-rule, so the
+substantive test was 2025-26 alone -- a three-season-tuning-era result, nothing out-of-sample (seal
+released 2026-08-27). **FAIL on Bar 2**: same model, same features, only the source swapped; Brier
+against FPL-official hits on the 9,746-row evaluation intersection went 0.15950 -> 0.16154 on DEF
+(worse) and 0.09300 -> 0.09182 on MID (better); the bar required improvement on both. Per the stop
+rule, Bar-1 rank and season totals were never produced. ECE improved on both families (reported in
+the prereg RESULT, deliberately not used to soften the verdict). The gate and its default remain;
+this issue stays open as a recorded, quantified discrepancy.
 
