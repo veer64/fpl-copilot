@@ -19,6 +19,7 @@ import live_deadline as ld  # noqa: E402
 
 SEASON = "2025-26"
 CANON = ROOT / "data" / f"walkforward_h6_{SEASON.replace('-', '_')}.parquet"
+COMBINED = ROOT / "data" / "arms_gap0" / f"walkforward_h6_{SEASON.replace('-', '_')}_both.parquet"
 
 
 @pytest.mark.skipif(not CANON.exists(), reason="canonical 2025-26 frame not on disk")
@@ -30,6 +31,29 @@ def test_parity_one_cutoff_bit_identical():
     # strict-relevant findings on a healthy backtest gameweek should be notes only
     hard = [f for f in findings if not f.startswith("note:")]
     assert hard == [], f"unexpected hard findings on a healthy cutoff: {hard}"
+
+
+@pytest.mark.skipif(not COMBINED.exists(), reason="combined arm frame not on disk")
+def test_parity_combined_config_bit_identical():
+    """The production config: props ON (module gate) + horizon minutes ON (inert at
+    step 0 by construction). Must be bit-identical to the arm record file."""
+    import assembly
+    frame, findings = ld.build_deadline_frame(SEASON, 20, strict=False, config="combined")
+    assert assembly.PROPS_HOOK is None, "the props module gate must rest None after a build"
+    ok, lines = ld.compare_to_canonical(frame, SEASON, 20, canonical_path=COMBINED,
+                                        allow_only_live={"penalty_join_prior_season"})
+    assert ok, "combined live path diverged from the arm record:\n" + "\n".join(lines)
+    assert any("props overrode" in f for f in findings), "props hook did not fire"
+    hard = [f for f in findings if not f.startswith("note:")]
+    assert hard == [], f"unexpected hard findings on a healthy cutoff: {hard}"
+
+
+def test_props_coverage_floor_constant():
+    """Historical 2025-26 coverage is 100% every gameweek; the strict floor must sit
+    below that but at the pre-registered 80% gate."""
+    assert ld.PROPS_MIN_FIXTURE_COVERAGE == 0.80
+    priced, total = ld.props_fixture_coverage(SEASON, 20)
+    assert total > 0 and priced / total >= ld.PROPS_MIN_FIXTURE_COVERAGE
 
 
 def test_compare_detects_divergence():

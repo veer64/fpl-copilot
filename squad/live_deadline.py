@@ -65,6 +65,22 @@ DC_RULE_FROM = "2025-26"      # the defensive-contribution rule exists from this
 MIN_FRAME_ROWS = 300          # an empty/withered frame is the get_minutes silent-empty symptom
 TOP_N = 30                    # decision partition for the crosswalk-coverage check
 
+# COMBINED config (props ON + horizon minutes ON -- the production arm; baseline is the shadow).
+# GATE PLUMBING, stated plainly: the props gate is a MODULE GLOBAL -- assembly.PROPS_HOOK is set
+# to a props_feature.PropsHook and restored to None in a finally block, exactly as
+# eval/walkforward_arms.py does. There is no constructor argument or config object; a crash
+# between set and restore would leave the hook armed for the next caller in the same process.
+# postflight verifies the global rests None. The horizon-minutes lever has NO module gate that
+# any consumer reads (HORIZON_MINUTES_ACTIVE is a documentation constant): it is an input
+# substitution at steps 1-5 performed by the arm builder, and at horizon=1 (targets == [gw])
+# there are no steps 1-5, so it is STRUCTURALLY INERT for a step-0 frame -- nothing to set.
+# Strict floor for props coverage: the pre-registered coverage gate's own line (props_prereg.md
+# section 1: a partition covered below 80% cannot pass). Historical 2025-26 per-gameweek fixture
+# coverage is 100% in every gameweek (min share 1.0), so any breach of 0.80 live is anomalous,
+# while 0.80 still tolerates one unpriced fixture in the smallest (7-fixture) gameweeks.
+PROPS_MIN_FIXTURE_COVERAGE = 0.80
+ARM_STAMPS = ("arm", "props_active", "props_spec", "horizon_minutes_active", "horizon_levers")
+
 
 class LiveStrictError(RuntimeError):
     """A silent fallback (or missing input) that strict mode refuses to run past."""
@@ -100,11 +116,39 @@ def _minutes_ladder():
     return re.findall(r"\"(\d{4}-\d{2})\"", m.group(1)) or re.findall(r"'(\d{4}-\d{2})'", m.group(1))
 
 
-def preflight(season, gw, strict=False):
+def props_fixture_coverage(season, gw):
+    """(priced fixtures, total fixtures) for the gameweek, from the props consensus
+    fixture file and the vaastav master. Read-only."""
+    fx = pd.read_parquet(REPO / "data" / "odds_props" / f"props_consensus_fixture_{season}.parquet",
+                         columns=["gw", "event_id"])
+    priced = int(fx.loc[fx["gw"] == gw, "event_id"].nunique())
+    h = pd.read_parquet(REPO / "data" / "history" / "all_seasons_fixed.parquet",
+                        columns=["season", "GW", "fixture"])
+    total = int(h[(h["season"] == season) & (h["GW"] == gw)]["fixture"].nunique())
+    return priced, total
+
+
+def preflight(season, gw, strict=False, config="baseline"):
     """Input inventory BEFORE the build. Read-only. Returns finding strings;
     under strict every finding raises instead."""
     findings = []
     tag = season.replace("-", "_")
+
+    if config == "combined":
+        pb = REPO / "data" / "odds_props" / f"props_consensus_book_{season}.parquet"
+        if not pb.exists():
+            _finding(findings, strict, f"props per-book consensus missing: {pb.name} -- the props "
+                                       f"hook cannot condition per book")
+        else:
+            priced, total = props_fixture_coverage(season, gw)
+            if total and priced / total < PROPS_MIN_FIXTURE_COVERAGE:
+                _finding(findings, strict,
+                         f"props coverage {priced}/{total} fixtures at GW{gw} is below the strict floor "
+                         f"{PROPS_MIN_FIXTURE_COVERAGE:.0%} -- unpriced fixtures silently keep the model rate")
+            else:
+                findings.append(f"note: props coverage {priced}/{total} fixtures at GW{gw}")
+        findings.append("note: horizon-minutes lever is structurally inert at horizon=1 "
+                        "(acts at steps 1-5 only; a step-0 frame has none)")
 
     # vaastav master: the skeleton, the minutes frame and prices all come from it
     hist = REPO / "data" / "history" / "all_seasons_fixed.parquet"
@@ -256,17 +300,46 @@ def postflight(frame, season, gw, strict=False):
     return findings
 
 
-def build_deadline_frame(season, gw, strict=False, verbose=False):
-    """ONE step-0 frame via the SHARED harness. Returns (frame, findings)."""
-    findings = preflight(season, gw, strict=strict)
-    frame = wfs.walk_forward(season, cutoffs=[int(gw)], horizon=1, verbose=verbose)
+def build_deadline_frame(season, gw, strict=False, verbose=False, config="baseline"):
+    """ONE step-0 frame via the SHARED harness. config='combined' arms the props
+    hook through the EXISTING module gate (assembly.PROPS_HOOK) with a finally
+    restore; no branch below the seam. Returns (frame, findings)."""
+    assert config in ("baseline", "combined"), config
+    findings = preflight(season, gw, strict=strict, config=config)
+    hook = None
+    if config == "combined":
+        import props_feature
+        hook = props_feature.PropsHook(season)
+        hook.cutoff = int(gw)
+        assembly.PROPS_HOOK = hook
+    try:
+        frame = wfs.walk_forward(season, cutoffs=[int(gw)], horizon=1, verbose=verbose)
+    finally:
+        assembly.PROPS_HOOK = None
+    if config == "combined":
+        if assembly.PROPS_HOOK is not None:      # the module-global gate must rest None
+            raise LiveStrictError("assembly.PROPS_HOOK did not rest None after the build")
+        if hook.n_override == 0:
+            _finding(findings, strict, "props ON but ZERO player-fixtures overridden -- the hook "
+                                       "silently produced a model-only frame")
+        else:
+            findings.append(f"note: props overrode {hook.n_override} player-fixtures; partial doubles "
+                            f"excluded {hook.n_partial_excluded}; GK skipped {hook.n_gk_skipped}")
+        # stamp the frame the way the arm builder stamps its record files
+        import props_feature
+        frame["arm"] = "both"
+        frame["props_active"] = True
+        frame["props_spec"] = props_feature.PROPS_SPEC
+        frame["horizon_minutes_active"] = True
+        frame["horizon_levers"] = "refit"
     findings += postflight(frame, season, gw, strict=strict)
     return frame, findings
 
 
-def compare_to_canonical(frame, season, gw, canonical_path=None):
+def compare_to_canonical(frame, season, gw, canonical_path=None, allow_only_live=frozenset()):
     """The parity assertion: identical rows, identical columns, max |delta|
-    exactly 0.0 on every numeric column. Returns (ok, report_lines)."""
+    exactly 0.0 on every numeric column. `allow_only_live` names stamp columns
+    the record file predates (never data columns). Returns (ok, report_lines)."""
     tag = season.replace("-", "_")
     path = Path(canonical_path) if canonical_path else REPO / "data" / f"walkforward_h6_{tag}.parquet"
     canon = pd.read_parquet(path)
@@ -274,13 +347,16 @@ def compare_to_canonical(frame, season, gw, canonical_path=None):
     l = frame[frame["gw"] == gw].sort_values("element").reset_index(drop=True)
     lines = [f"GW{gw}: live {len(l)} rows vs canonical {len(c)} rows ({path.name})"]
     ok = True
-    if set(l.columns) != set(c.columns):
+    only_live = set(l.columns) - set(c.columns) - set(allow_only_live)
+    only_canon = set(c.columns) - set(l.columns)
+    tolerated = (set(l.columns) - set(c.columns)) & set(allow_only_live)
+    if tolerated:
+        lines.append(f"  tolerated only-live stamp column(s) the record file predates: {sorted(tolerated)}")
+    if only_live or only_canon:
         ok = False
-        lines.append(f"  COLUMN SET DIFFERS: only-live {sorted(set(l.columns) - set(c.columns))}, "
-                     f"only-canonical {sorted(set(c.columns) - set(l.columns))}")
-        common = [col for col in c.columns if col in set(l.columns)]
-    else:
-        common = list(c.columns)
+        lines.append(f"  COLUMN SET DIFFERS: only-live {sorted(only_live)}, "
+                     f"only-canonical {sorted(only_canon)}")
+    common = [col for col in c.columns if col in set(l.columns)]
     if len(l) != len(c) or not (l["element"].values == c["element"].values).all():
         ok = False
         lines.append(f"  ROW SET DIFFERS: only-live {sorted(set(l['element']) - set(c['element']))[:10]}, "
@@ -319,15 +395,22 @@ def main():
     ap.add_argument("--gw", type=int, nargs="+", required=True)
     ap.add_argument("--strict", action="store_true", help="LIVE ONLY: every silent fallback raises")
     ap.add_argument("--parity", action="store_true", help="assert bit-identity vs the canonical frame")
+    ap.add_argument("--config", choices=["baseline", "combined"], default="baseline")
     a = ap.parse_args()
     all_ok = True
     for gw in a.gw:
-        frame, findings = build_deadline_frame(a.season, gw, strict=a.strict, verbose=False)
-        print(f"\n=== {a.season} GW{gw}: {len(frame)} step-0 rows built through the shared harness")
+        frame, findings = build_deadline_frame(a.season, gw, strict=a.strict, verbose=False, config=a.config)
+        print(f"\n=== {a.season} GW{gw} [{a.config}]: {len(frame)} step-0 rows built through the shared harness")
         for fn in findings:
             print(f"  finding: {fn}")
         if a.parity:
-            ok, lines = compare_to_canonical(frame, a.season, gw)
+            tag = a.season.replace("-", "_")
+            if a.config == "combined":
+                canonical = REPO / "data" / "arms_gap0" / f"walkforward_h6_{tag}_both.parquet"
+                ok, lines = compare_to_canonical(frame, a.season, gw, canonical_path=canonical,
+                                                 allow_only_live={"penalty_join_prior_season"})
+            else:
+                ok, lines = compare_to_canonical(frame, a.season, gw)
             for ln in lines:
                 print(ln)
             all_ok = all_ok and ok

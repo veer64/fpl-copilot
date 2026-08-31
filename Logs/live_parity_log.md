@@ -112,3 +112,53 @@ the boundary between strict raises and notes.
 
 No 2026-27 ingestion was built and nothing was fetched. The parity harness is the gate: any future
 live input pipeline must feed the same files the harness reads and keep this test green.
+
+## 7. COMBINED-arm parity (2026-08-31) — PASS
+
+Production runs the COMBINED arm (props ON + horizon minutes ON) with baseline as the shadow; section 2
+proved the baseline only. Extension: `build_deadline_frame(..., config="combined")`, compared against the
+record file `data/arms_gap0/walkforward_h6_2025_26_both.parquet` (the crosswalk-fixed gap0 build of
+2026-08-28 17:43, the frame behind the reference cells; the `_precrosswalk` copies are superseded).
+
+| cutoff | rows live = record | props overrides | partial doubles excluded | verdict |
+|---|---|---|---|---|
+| GW5 | 741 = 741 | 410 player-fixtures | 0 | **BIT-IDENTICAL** |
+| GW20 | 790 = 790 | 422 | 0 | **BIT-IDENTICAL** |
+| GW33 (DGW) | 829 = 829 | 463 | 17 (amendment 3: kept on the model) | **BIT-IDENTICAL** |
+
+46 numeric + 20 non-numeric columns, max |Δ| exactly 0.0. One tolerated column-set asymmetry, stamps only:
+the live frame carries `penalty_join_prior_season` (added to the harness's stamp list by e04fb72) which the
+arm builder's stamp list predates — a provenance column, not a data column; the comparator names it
+explicitly and tolerates nothing else.
+
+**Gate plumbing, stated plainly (a live-safety concern).** The props gate is a MODULE GLOBAL:
+`assembly.PROPS_HOOK` is set to a `props_feature.PropsHook(season)` with `.cutoff` assigned, and restored
+to `None` in a `finally` — the same mutation `eval/walkforward_arms.py` performs. There is no constructor
+argument or config object; a crash between set and restore would leave the hook armed for the next caller
+in the same process. `build_deadline_frame` restores in `finally` and verifies the global rests `None`;
+the suite asserts it too. The horizon-minutes lever has NO consumed gate at all
+(`HORIZON_MINUTES_ACTIVE` is documentation): it is an input substitution at steps 1–5 done by the arm
+builder's `minutes_frames`, which is not importable (a closure of its `main`). Nothing to set at
+horizon = 1 — and that is the honest description of the current plumbing, not a defect introduced here.
+
+**Horizon under one cutoff, explicitly.** The lever acts at steps 1–5; `horizon=1` produces only step 0,
+whose minutes frame is the canonical step-0 model by construction in BOTH paths. So a horizon-on live
+step-0 build is IDENTICAL to a horizon-off one, and identical to the arm record's step-0 rows — proven
+above, expected, not a divergence. The one place the single-cutoff shortcut genuinely cannot reproduce
+the arm frame is steps 1–5 themselves: a full live deadline frame for the H = 6 planner will need the
+per-step minutes substitution, and that code currently lives only inside `walkforward_arms.main`. Flagged
+for the ingestion task; not built here.
+
+**Props coverage floor.** Historical 2025-26 per-gameweek fixture coverage: min 7/7, median 10/10, max
+13/13 — **100% in every gameweek** (the pull covered all 380 fixtures). Strict floor chosen:
+`PROPS_MIN_FIXTURE_COVERAGE = 0.80` — the pre-registration's own coverage gate ("a partition the market
+covers below 80% cannot pass", props_prereg.md §1), sitting far below the historical minimum of 1.0 so
+any breach is anomalous by construction, while still tolerating one unpriced fixture in the smallest
+(7-fixture) gameweeks. Below it, a props-on live run raises under strict; per-fixture degradation above
+it stays counted (`n_override`, partial doubles, GK skips are findings on every build). A combined build
+that overrides ZERO player-fixtures raises under strict regardless of the floor.
+
+**Tests** (suite 174): `test_parity_combined_config_bit_identical` (builds GW20 combined, asserts
+bit-identity vs the record and that the gate rests None), `test_props_coverage_floor_constant`. A future
+change that breaks combined parity fails the suite.
+
