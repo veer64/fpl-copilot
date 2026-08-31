@@ -33,8 +33,8 @@ MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
 
 BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
-TRAIN_SEASONS = ["2022-23", "2023-24", "2024-25"]
-PREDICT_SEASON = "2025-26"
+TRAIN_SEASONS = ["2022-23", "2023-24", "2024-25", "2025-26"]
+PREDICT_SEASON = "2026-27"
 
 
 def _prepare(df):
@@ -87,7 +87,13 @@ def _build_frames(col):
     """Cold-start frame (cs), starter-only frame (sd), bench frame (bd)."""
     sa = (col.groupby(["season", "name"]).agg(prev_start_rate=("starts", "mean"),
           prev_avg_minutes=("minutes_capped", "mean"), prev_games=("starts", "size")).reset_index())
-    order = ["2022-23", "2023-24", "2024-25", "2025-26"]
+    # The prev-season ladder: season N's aggregates become season N+1's prior.
+    # MUST cover every season in the data -- one season short and the whole
+    # league silently gets prev_* = 0 / transfer_status = 2 (all-cold-start),
+    # erasing the prior-season prior exactly when it carries most of the
+    # September signal. Guarded by Tests/test_season_constants.py, which fails
+    # the moment the stack contains a season this list does not.
+    order = ["2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]
     pm = {order[i]: order[i - 1] for i in range(1, len(order))}
     sa["season"] = sa["season"].map({v: k for k, v in pm.items()}); sa = sa.dropna(subset=["season"])
 
