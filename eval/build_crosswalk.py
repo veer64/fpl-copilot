@@ -58,7 +58,35 @@ ALL_SEASONS = HISTORY / "all_seasons_fixed.parquet"
 UNDERSTAT = HISTORY / "understat_season_aggregates.parquet"
 
 # Understat labels a season by its start year: "2023" == our "2023-24".
-SEASON_TO_US = {f"{y}-{str(y+1)[-2:]}": str(y) for y in range(2016, 2026)}
+# Widened to 2026-27 on 2026-08-31 (the 2026-27 ingestion session).
+SEASON_TO_US = {f"{y}-{str(y+1)[-2:]}": str(y) for y in range(2016, 2027)}
+
+
+def _sources(season, us_season):
+    """(vaastav-shaped path, aggregates path) for the season. The frozen archives
+    are preferred verbatim; a season they do not contain (2026-27+) reads the
+    *_with_{tag}.parquet files produced by this session's fetchers
+    (eval/fetch_fpl_history.py --combine, eval/build_understat_aggregates.py
+    --combine). Neither present -> raise; silently reading an empty season would
+    produce an empty crosswalk and gut the rate join downstream."""
+    tag = season.replace("-", "_")
+    v_path = ALL_SEASONS
+    if season not in set(pd.read_parquet(ALL_SEASONS, columns=["season"])["season"].unique()):
+        v_path = HISTORY / f"all_seasons_with_{tag}.parquet"
+        if not v_path.exists():
+            raise FileNotFoundError(
+                f"{season} is in neither {ALL_SEASONS.name} nor {v_path.name}. Run "
+                f"eval/fetch_fpl_history.py --season {season} --gw <n> then --combine first.")
+    u_path = UNDERSTAT
+    if us_season not in set(pd.read_parquet(UNDERSTAT, columns=["understat_season"])
+                            ["understat_season"].astype(str).unique()):
+        u_path = HISTORY / f"understat_season_aggregates_with_{tag}.parquet"
+        if not u_path.exists():
+            raise FileNotFoundError(
+                f"understat_season {us_season} is in neither {UNDERSTAT.name} nor "
+                f"{u_path.name}. Run eval/build_understat_aggregates.py --season {season} "
+                f"then --combine first.")
+    return v_path, u_path
 
 FUZZY_FLOOR = 88          # token_set_ratio below this is not trusted at all
 FUZZY_MARGIN = 4          # best must beat runner-up by this to be unambiguous
@@ -147,6 +175,29 @@ MANUAL = {
                        "disagrees on goals (17 vaastav v 13 Understat) and minutes "
                        "(1826 v 1708) beyond tolerance -- source-side discrepancy, "
                        "identity not in doubt; pinned so the audit does not drop him"),
+    },
+    # 2026-27 (added 2026-08-31, first live-season build; GW1 is the only final
+    # gameweek, so every minutes profile below is GW1 FPL-API vs GW1 Understat).
+    # All four are cases the automatic passes correctly refuse; the twelve
+    # single-token names the guard DID admit were each verified by GW1 minutes
+    # agreement (Logs/crosswalk_2026_27_log.md).
+    "2026-27": {
+        399: ("8094", "Rayan Cherki = Understat 'Mathis Cherki'; Man City MID; "
+                      "27v25 min GW1; same id as the 2025-26 manual entry; "
+                      "first-name-form mismatch (the Cherki case itself)"),
+        248: ("9983", "Beto = Norberto Bercique Gomes Betuncal; Everton FWD; "
+                      "11v7 min GW1; same id as 2023-24/2024-25/2025-26 and "
+                      "KNOWN_ISSUES #3; single-token playing name scores below "
+                      "every floor against his legal name"),
+        592: ("10485", "Abdoul Ouattara = Understat 'Guemissongui Ouattara'; "
+                       "Ipswich DEF; 10v8 min GW1; first-name-form mismatch; the "
+                       "other Ouattara (Dango, Brentford, 68 min GW1) is correctly "
+                       "claimed by element 95"),
+        119: ("14854", "Joao Pedro Loureiro da Costa = Understat 'Costinha'; "
+                       "Brighton DEF; 26v21 min GW1; the ONLY unclaimed Brighton "
+                       "player in the GW1 Understat roster; 'Costinha' is the "
+                       "diminutive of his surname 'da Costa'; single-token name, "
+                       "guard refuses automatically (correctly)"),
     },
     "2024-25": {
         9: ("7752", "Gabriel Martinelli; Arsenal MID; 2284v2310 min, 8v8 G, 4v4 A"),
@@ -337,9 +388,12 @@ def _single_token_ok(cand_key, v_team, u_title, tmap, club_keys):
 def build(season, verbose=True):
     """Return (crosswalk DataFrame, stats dict). Raises on a duplicate claim."""
     us_season = SEASON_TO_US[season]
+    v_path, u_path = _sources(season, us_season)
+    if verbose and (v_path != ALL_SEASONS or u_path != UNDERSTAT):
+        print(f"  sources: {v_path.name} + {u_path.name}")
 
-    v = pd.read_parquet(ALL_SEASONS, columns=["season", "element", "name", "team",
-                                              "minutes", "position", "goals_scored"])
+    v = pd.read_parquet(v_path, columns=["season", "element", "name", "team",
+                                         "minutes", "position", "goals_scored"])
     v = v[(v.season == season) & (v.position != "AM")]
     # One row per element, carrying total minutes so coverage can be weighted by
     # who actually matters rather than by raw headcount.
@@ -349,8 +403,8 @@ def build(season, verbose=True):
           .reset_index())
     vp["key"] = vp["name"].map(_norm)
 
-    us = pd.read_parquet(UNDERSTAT)
-    us = us[us.understat_season == us_season].copy()
+    us = pd.read_parquet(u_path)
+    us = us[us.understat_season.astype(str) == us_season].copy()
     us["key"] = us["player_name"].map(_norm)
     us = us.drop_duplicates("id")
 
