@@ -25,6 +25,14 @@ SEASON = "2025-2026"
 FWD_BASE_RATE = 0.005
 FEATURES = ["roll_dc90_3c", "roll_dc90_5c", "roll_hit_5", "roll_mins_3"]
 
+# COUNT SOURCE (gated, KNOWN_ISSUES #21 / Logs/dc_source_swap_prereg.md).
+#   "core_insights" -- the DEFAULT and the current behaviour, bit-identical.
+#   "fpl_official"  -- the pre-registered test path: the native FPL
+#                      defensive_contribution count from the season stack.
+# The default MUST stay "core_insights" until the swap is adopted in its own
+# commit (which must also season-key _DC_HITS_CACHE). Tests pin the default.
+DC_SOURCE = "core_insights"
+
 MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
 
@@ -34,8 +42,8 @@ def _mk():
                               learning_rate=0.05, random_state=42, verbose=-1)
 
 
-def _build_features():
-    """Load matchstats, attach position, build target + rolling features for 2025-26."""
+def _raw_rows_core():
+    """The current source: core-insights matchstats, PL-only, 2025-26 only."""
     ms = pd.read_parquet(BASE + r"\data\history\core_insights_matchstats.parquet")
     ms_pl = ms[ms["match_id"].str.contains("-prem-", na=False)].copy()
     for c in ["tackles", "interceptions", "recoveries", "blocks", "clearances", "minutes_played"]:
@@ -51,8 +59,40 @@ def _build_features():
     ms_pl["dc_threshold"] = np.where(ms_pl["position"] == "Defender", 10, 12)
     ms_pl["dc_hit"] = (ms_pl["dc_metric"] >= ms_pl["dc_threshold"]).astype(int)
     played = ms_pl[ms_pl["minutes_played"] >= 1].copy()
+    return played[played["season"] == SEASON]
 
-    d = played[played["season"] == SEASON].sort_values(["player_id", "gw"]).reset_index(drop=True)
+
+def _raw_rows_official():
+    """The pre-registered alternative (Logs/dc_source_swap_prereg.md): the NATIVE
+    FPL defensive_contribution count from the season stack -- the awarded count
+    itself, not a reconstruction, because FPL being definitionally right is the
+    premise. Per (player, GW, fixture) rows; element == core player_id; same
+    thresholds, GKs excluded exactly as the core pipeline excludes them (the
+    model never predicts goalkeepers)."""
+    from season_stack import stack_path
+    df = pd.read_parquet(stack_path(), columns=["season", "element", "GW", "fixture",
+                                                "position", "minutes", "defensive_contribution"])
+    d = df[df["season"] == "2025-26"].copy()
+    d["position"] = d["position"].map({"DEF": "Defender", "MID": "Midfielder", "FWD": "Forward"})
+    d = d[d["position"].notna()]                       # GK out, as in the core pipeline
+    d = d.rename(columns={"element": "player_id", "GW": "gw", "minutes": "minutes_played"})
+    d["dc_metric"] = pd.to_numeric(d["defensive_contribution"], errors="coerce")
+    d["dc_threshold"] = np.where(d["position"] == "Defender", 10, 12)
+    d["dc_hit"] = (d["dc_metric"] >= d["dc_threshold"]).astype(int)
+    return d[d["minutes_played"] >= 1].copy()
+
+
+def _build_features():
+    """Raw per-match rows from the gated source, then the SHARED target +
+    rolling-feature construction (identical code either way)."""
+    if DC_SOURCE == "core_insights":
+        played = _raw_rows_core()
+    elif DC_SOURCE == "fpl_official":
+        played = _raw_rows_official()
+    else:
+        raise ValueError(f"unknown DC_SOURCE {DC_SOURCE!r}")
+
+    d = played.sort_values(["player_id", "gw"]).reset_index(drop=True)
     d["dc_per90"] = d["dc_metric"] / d["minutes_played"].clip(lower=1) * 90
     grp = d.groupby("player_id")
     rp = lambda c, w, h: grp[c].transform(lambda s: s.shift(1).rolling(w, min_periods=1).agg(h))
@@ -246,9 +286,11 @@ def get_dc_hits(season, cutoff_gw, target_gws):
     cols = ["player_id", "position", "p_dc_hit", "gw"]
     if season not in DC_RULE_SEASONS:
         return pd.DataFrame(columns=cols)
-    if "full" not in _DC_HITS_CACHE:
-        _DC_HITS_CACHE["full"] = get_dc_2526()
-    at_k = _DC_HITS_CACHE["full"]
+    # Cache keyed by source: in-process hygiene for the pre-registered swap test
+    # ONLY -- the season-less key defect (#21) remains an adoption-time fix.
+    if DC_SOURCE not in _DC_HITS_CACHE:
+        _DC_HITS_CACHE[DC_SOURCE] = get_dc_2526()
+    at_k = _DC_HITS_CACHE[DC_SOURCE]
     at_k = at_k[at_k["gw"] == cutoff_gw][["player_id", "position", "p_dc_hit"]]
     if len(at_k) == 0:
         return pd.DataFrame(columns=cols)

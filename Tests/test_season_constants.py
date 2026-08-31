@@ -55,6 +55,15 @@ def test_stack_path_resolves_and_contains_archive():
         "the resolved stack must always contain the frozen archive seasons"
 
 
+def test_dc_source_gate_defaults_to_core_insights():
+    """KNOWN_ISSUES #21 / Logs/dc_source_swap_prereg.md: the DC count source is
+    gated and MUST default to the current source until the swap is adopted in
+    its own commit (which must also season-key _DC_HITS_CACHE). A change here
+    without that adoption commit is a regression."""
+    import defensive
+    assert defensive.DC_SOURCE == "core_insights"
+
+
 def test_dc_seasons_deliberately_held_back():
     """KNOWN_ISSUES #21: the DC source is unmeasured; DC_SEASONS stays at 2025-26
     until that pre-registration. This test DOCUMENTS the hold -- when the swap is
