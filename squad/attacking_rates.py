@@ -43,7 +43,8 @@ RATE_BLEND_ACTIVE = True
 RATE_BLEND_K = 8.0
 # The blend prior is the SINGLE immediately-previous season, from the D2
 # per-match files -- exactly the design that was tuned and replicated.
-BLEND_PRIOR = {"2023-24": "2022-23", "2024-25": "2023-24", "2025-26": "2024-25"}
+BLEND_PRIOR = {"2023-24": "2022-23", "2024-25": "2023-24", "2025-26": "2024-25",
+               "2026-27": "2025-26"}
 _MATCHES_CACHE = {}
 
 MLFLOW_URI = "http://127.0.0.1:5000"
@@ -63,6 +64,7 @@ PRIOR_SEASONS = {
     "2023-24": ["2020", "2021", "2022"],
     "2024-25": ["2021", "2022", "2023"],
     "2025-26": ["2022", "2023", "2024"],
+    "2026-27": ["2023", "2024", "2025"],
 }
 
 _NUM_COLS = ["games", "time", "goals", "xG", "assists", "xA", "shots", "key_passes",
