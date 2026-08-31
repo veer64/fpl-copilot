@@ -1088,3 +1088,54 @@ bonus (~0.26 per likely starter per week; forwards understated by ~0.3-0.6, keep
 low e_points level as this decision, not as a model failure. Pre-adoption canonicals preserved as
 `walkforward_h6_{season}_prebonusdel.parquet`; measure scripts that read the reference cells' predictions (TC1
 selection) read that file so 2296 / 2294 / 2206 do not silently move. *(2026-08-26, later: those are now the OLD-convention figures; the reference cells of record are the bonusdel_tc2 rows, 2251 / 2306 / 2268.)*
+
+## #21 -- the DC term trains on core-insights counts; the FPL API's native defensive_contribution disagrees, one-signed
+
+**Status:** Open question, recorded 2026-08-31. NOT fixed, NOT swapped -- deliberately. Scope:
+`squad/defensive.py` (trains and feature-engineers on `core_insights_matchstats.parquet` counts) vs the
+FPL API's `defensive_contribution` field (exposed natively as the metric COUNT in bootstrap-static,
+event/{gw}/live and element-summary, verified 2026-08-31). Evidence:
+`Logs/core_insights_ingest_log.md`, `Logs/fpl_api_ingest_log.md`, the 2026-08-31 read-only investigation.
+
+### What was found
+
+The two sources disagree on the defensive-contribution metric for the same player-gameweeks:
+
+- 2025-26 GW20: **87.25% exact agreement** (298 joined rows, on-disk comparison).
+- 2026-27 GW1: **93.55% exact agreement** (310 played rows, fetcher cross-check).
+- Disagreements are **ONE-SIGNED: core-insights always counts MORE than FPL, by +4 to +22**. Tackles and
+  CBI (clearances+blocks+interceptions) match the API EXACTLY (1.000 on every played row), so the excess
+  sits in recoveries/clearances counting for a small set of players.
+- On GW1 alone: **7 players flip the >=10 threshold and 4 flip >=12** -- the exact thresholds
+  `defensive.py` predicts against (CBIT >= 10 for defenders, CBIRT >= 12 otherwise).
+
+Also recorded here because it is the same instrument drifting: **core-insights renamed the tackles
+semantic in 2026-27** -- their `tackles` column is 100% null this season while `tackles_won` carries the
+data and matches the API's native tackles exactly. `eval/fetch_core_insights.py` carries an evidenced
+`column_map {"tackles": "tackles_won"}` with an ambiguity guard (both populated -> raise). Zero-filling
+the dead column would have dropped cbit agreement with the API to **36% silently** -- the silent-fallback
+family (#10/#13/#14/#15) refused by construction.
+
+### Why it matters
+
+**FPL awards the points.** Where the two sources disagree, FPL is definitionally right, and a model
+trained on core-insights counts predicts threshold hits that cannot occur (and misses ones that will).
+The one-signed direction means the bias is systematic, not noise: the training labels overstate the
+metric for the affected players.
+
+### Why it is NOT fixed
+
+Switching the DC source changes ~13% of training labels and the rolling features built from them. That is
+a MODEL change, not an ingestion change, and it needs its own pre-registration with bars stated before any
+number is seen -- the same discipline every other input swap in this project has been held to.
+
+### To close
+
+A pre-registration stating the bar BEFORE measurement, on the tuning seasons: the same walk-forward DC
+model trained on core-insights counts vs trained on FPL API counts (the API exposes both the composite
+count and its components, so the identical cbit/cbirt/threshold construction applies), scored on the
+pre-registered decision partitions. Ingestion for both sources already exists (`eval/fetch_core_insights.py`,
+`eval/fetch_fpl_history.py`); the season-boundary constants (#DC_SEASONS / DC_RULE_SEASONS /
+defensive.SEASON / the season-less _DC_HITS_CACHE, see Logs/core_insights_ingest_log.md) are a separate
+prerequisite either way.
+
