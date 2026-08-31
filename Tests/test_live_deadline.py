@@ -95,9 +95,8 @@ def test_nonstrict_preflight_reports_instead_of_raising():
     deliberately, in the closing commit."""
     findings = ld.preflight("2026-27", 3, strict=False)
     joined = " ".join(findings)
-    # Still open: the DC hold (#21) and the odds PRICES (fixture universe closed
-    # by fetch_fixtures; live odds pulling is a separate pending job).
-    still_open = ["DC_SEASONS", "DC_RULE_SEASONS", "odds PRICES"]
+    # Still open at any GW: the DC hold (#21).
+    still_open = ["DC_SEASONS", "DC_RULE_SEASONS"]
     for needle in still_open:
         assert needle in joined, f"expected a finding mentioning {needle} (still open)"
     closed = ["vaastav master has NO rows", "BLEND_PRIOR", "ladder", "crosswalk missing",
@@ -105,6 +104,13 @@ def test_nonstrict_preflight_reports_instead_of_raising():
     for needle in closed:
         assert needle not in joined, \
             f"finding {needle!r} reappeared although its input was closed on 2026-08-31"
+    # Still open, pinned at GW1: the odds PRICES (the fixture universe closed on
+    # 2026-08-31; live odds pulling is a separate pending job). The prices check
+    # derives the GW's kickoff window from the FPL-API master's rows for that GW,
+    # so it can only fire for a gameweek the master already covers -- GW1 today.
+    joined_gw1 = " ".join(ld.preflight("2026-27", 1, strict=False))
+    assert "odds PRICES" in joined_gw1, \
+        "expected the all-unpriced-gameweek finding at GW1 (still open until live odds land)"
 
 
 def test_minutes_ladder_parser_finds_current_seasons():
