@@ -57,6 +57,62 @@ def minutes_frames(m_k, k, targets, hmin):
     return pd.concat(frames, ignore_index=True), n_refit, n_stale
 
 
+def cutoff_components(season, k, targets, tr, gw_start, gw_end, all_gws):
+    """The five per-cutoff component getters, computed ONCE per cutoff and shared by
+    every arm (and by the no-hook repro build). Extracted verbatim from main()'s loop
+    body so the LIVE path (squad/live_deadline.py) calls the same code: what the old
+    closure captured from the enclosing scope is now an explicit signature."""
+    rates, priors = rates_mod.get_rates(season, up_to_gw=k)
+    cutoff_date = gw_start.loc[k].tz_localize(None)
+    m_k = minutes_mod.get_minutes(up_to_gw=k, predict_gws=[k], per_fixture=True, availability=wfs.AVAILABILITY,
+                                  train_seasons=tr, predict_season=season)
+    bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean = bonus_mod.get_bonus_model(up_to_gw=k, train_until=tr[-1], predict_season=season)
+    odds_until = gw_end.loc[min(k + wfs.ODDS_HORIZON_GWS, max(all_gws))].tz_localize(None)
+    f_k = dc_mod.get_fixtures(predict_season=season, cutoff_date=cutoff_date, odds_available_until=odds_until)
+    dc_k = def_mod.get_dc_hits(season, k, targets)
+    return dict(m_k=m_k, rates=rates, priors=priors, f_k=f_k, dc_k=dc_k, bps_model=bps_model,
+                bps_to_bonus=bps_to_bonus, BPS_FEATURES=BPS_FEATURES, bonus_mean=bonus_mean)
+
+
+def assemble_cutoff(comp, df, cw, mins, k, targets, season, dc_enabled, hook=None):
+    """ONE master-equation evaluation for one cutoff: the `assemble` closure from
+    main(), lifted with an explicit signature. The props gate is the SAME module
+    global with the SAME finally restore; the steps-1-5 horizon-minutes substitution
+    enters through `mins` (built by minutes_frames). No behaviour change."""
+    assembly.PROPS_HOOK = hook
+    if hook is not None:
+        hook.cutoff = k
+    try:
+        a_k = assembly.collapse_to_gameweek(assembly.assemble_fixtures(
+            df, cw, mins, comp["rates"], comp["priors"], comp["f_k"].copy(), comp["dc_k"],
+            comp["bps_model"], comp["bps_to_bonus"], comp["BPS_FEATURES"], comp["bonus_mean"],
+            gws=targets, season=season, dc_enabled=dc_enabled))
+    finally:
+        assembly.PROPS_HOOK = None
+    a_k["cutoff"] = k; a_k["horizon_step"] = a_k["gw"] - k
+    return a_k
+
+
+def stamp_arm_frame(res, season, tr, arm, dc_enabled):
+    """The arm builder's provenance stamps (the #13 lesson), extracted so the live
+    path stamps a frame IDENTICALLY to the record files. Returns res, stamped."""
+    res["season_label"] = season
+    res["minutes_availability"] = bool(wfs.AVAILABILITY); res["odds_horizon_gws"] = int(wfs.ODDS_HORIZON_GWS)
+    res["dgw_handling"] = "per_fixture"; res["dc_rule_active"] = bool(dc_enabled)
+    res["d1_terms_active"] = bool(assembly.D1_TERMS_ACTIVE); res["cs_unified"] = bool(assembly.CS_UNIFIED)
+    res["penalty_fix_active"] = bool(assembly.PENALTY_FIX_ACTIVE)
+    res["topend_cal_active"] = bool(assembly.TOPEND_CAL_ACTIVE); res["fixture_scale_gamma"] = float(assembly.FIXTURE_SCALE_GAMMA)
+    res["bonus_mode"] = str(assembly.BONUS_MODE)
+    res["rate_blend_active"] = bool(rates_mod.RATE_BLEND_ACTIVE); res["rate_blend_k"] = float(rates_mod.RATE_BLEND_K)
+    import synthetic_lambda as synth_mod
+    res["synthetic_lambda_active"] = bool(synth_mod.SYNTHETIC_LAMBDA_ACTIVE)
+    res["train_seasons"] = ",".join(tr)
+    res["arm"] = arm
+    res["props_active"] = arm in ("props", "both"); res["props_spec"] = props_feature.PROPS_SPEC if arm in ("props", "both") else "off"
+    res["horizon_minutes_active"] = arm in ("hmin", "both"); res["horizon_levers"] = "refit" if arm in ("hmin", "both") else "off"
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", required=True)
@@ -87,32 +143,12 @@ def main():
     t_all = time.time()
     for k in cutoffs:
         t0 = time.time()
-        rates, priors = rates_mod.get_rates(season, up_to_gw=k)
-        cutoff_date = gw_start.loc[k].tz_localize(None)
         targets = [g for g in all_gws if k <= g < k + H]
-        m_k = minutes_mod.get_minutes(up_to_gw=k, predict_gws=[k], per_fixture=True, availability=wfs.AVAILABILITY,
-                                      train_seasons=tr, predict_season=season)
-        bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean = bonus_mod.get_bonus_model(up_to_gw=k, train_until=tr[-1], predict_season=season)
-        odds_until = gw_end.loc[min(k + wfs.ODDS_HORIZON_GWS, max(all_gws))].tz_localize(None)
-        f_k = dc_mod.get_fixtures(predict_season=season, cutoff_date=cutoff_date, odds_available_until=odds_until)
-        dc_k = def_mod.get_dc_hits(season, k, targets)
-
-        def assemble(mins, hook):
-            assembly.PROPS_HOOK = hook
-            if hook is not None:
-                hook.cutoff = k
-            try:
-                a_k = assembly.collapse_to_gameweek(assembly.assemble_fixtures(
-                    df, cw, mins, rates, priors, f_k.copy(), dc_k, bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
-                    gws=targets, season=season, dc_enabled=dc_enabled))
-            finally:
-                assembly.PROPS_HOOK = None
-            a_k["cutoff"] = k; a_k["horizon_step"] = a_k["gw"] - k
-            return a_k
+        comp = cutoff_components(season, k, targets, tr, gw_start, gw_end, all_gws)
 
         # reproducibility: the no-hook rebuild against the canonical rows of this cutoff
-        stale_m, _, _ = minutes_frames(m_k, k, targets, None)
-        base = assemble(stale_m, None)
+        stale_m, _, _ = minutes_frames(comp["m_k"], k, targets, None)
+        base = assemble_cutoff(comp, df, cw, stale_m, k, targets, season, dc_enabled, None)
         c = canon[canon["cutoff"] == k][["gw", "element", "e_points"]]
         j = base[["gw", "element", "e_points"]].merge(c, on=["gw", "element"], how="outer", suffixes=("_re", "_can"), indicator=True)
         both = j[j["_merge"] == "both"]
@@ -120,28 +156,14 @@ def main():
         repro.append(dict(cutoff=k, n_canon=len(c), n_rebuilt=len(base), n_both=len(both), max_abs_diff=float(d.max()) if len(d) else None,
                           n_diff_gt_1e6=int((d > 1e-6).sum()), only_canon=int((j["_merge"] == "right_only").sum()), only_rebuilt=int((j["_merge"] == "left_only").sum())))
         for arm in arms:
-            mins, n_r, n_s = minutes_frames(m_k, k, targets, hmin if arm in ("hmin", "both") else None)
+            mins, n_r, n_s = minutes_frames(comp["m_k"], k, targets, hmin if arm in ("hmin", "both") else None)
             stale_counts[arm][0] += n_r; stale_counts[arm][1] += n_s
-            out[arm].append(assemble(mins, hooks[arm]))
+            out[arm].append(assemble_cutoff(comp, df, cw, mins, k, targets, season, dc_enabled, hooks[arm]))
         r = repro[-1]
         print(f"  cutoff GW{k:2d}: {len(base):5d} rows; repro max|d e_points| {r['max_abs_diff']:.2e} on {r['n_both']} rows "
               f"(only-canon {r['only_canon']}, only-rebuilt {r['only_rebuilt']}); {time.time() - t0:.0f}s", flush=True)
     for arm in arms:
-        res = pd.concat(out[arm], ignore_index=True)
-        res["season_label"] = season
-        res["minutes_availability"] = bool(wfs.AVAILABILITY); res["odds_horizon_gws"] = int(wfs.ODDS_HORIZON_GWS)
-        res["dgw_handling"] = "per_fixture"; res["dc_rule_active"] = bool(dc_enabled)
-        res["d1_terms_active"] = bool(assembly.D1_TERMS_ACTIVE); res["cs_unified"] = bool(assembly.CS_UNIFIED)
-        res["penalty_fix_active"] = bool(assembly.PENALTY_FIX_ACTIVE)
-        res["topend_cal_active"] = bool(assembly.TOPEND_CAL_ACTIVE); res["fixture_scale_gamma"] = float(assembly.FIXTURE_SCALE_GAMMA)
-        res["bonus_mode"] = str(assembly.BONUS_MODE)
-        res["rate_blend_active"] = bool(rates_mod.RATE_BLEND_ACTIVE); res["rate_blend_k"] = float(rates_mod.RATE_BLEND_K)
-        import synthetic_lambda as synth_mod
-        res["synthetic_lambda_active"] = bool(synth_mod.SYNTHETIC_LAMBDA_ACTIVE)
-        res["train_seasons"] = ",".join(tr)
-        res["arm"] = arm
-        res["props_active"] = arm in ("props", "both"); res["props_spec"] = props_feature.PROPS_SPEC if arm in ("props", "both") else "off"
-        res["horizon_minutes_active"] = arm in ("hmin", "both"); res["horizon_levers"] = "refit" if arm in ("hmin", "both") else "off"
+        res = stamp_arm_frame(pd.concat(out[arm], ignore_index=True), season, tr, arm, dc_enabled)
         path = out_dir / f"walkforward_h6_{tag}_{arm}.parquet"
         tmp = path.with_suffix(".tmp.parquet"); res.to_parquet(tmp, index=False); os.replace(tmp, path)
         hook = hooks[arm]
