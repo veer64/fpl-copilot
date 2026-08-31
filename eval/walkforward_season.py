@@ -57,11 +57,20 @@ BASE = str(REPO)
 AVAILABILITY = True          # matches the 2025-26 canonical config
 ODDS_HORIZON_GWS = 0         # fixed project decision; see eval/walkforward.py
 ORDER = ["2016-17", "2017-18", "2018-19", "2019-20", "2020-21",
-         "2021-22", "2022-23", "2023-24", "2024-25", "2025-26"]
-# Seasons whose scoring includes the defensive-contribution rule.
+         "2021-22", "2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]
+# Seasons whose scoring includes the defensive-contribution rule. NOTE: the DC
+# rule IS in force in 2026-27, but this set is deliberately NOT extended --
+# the DC term's data source is an open measured question (KNOWN_ISSUES #21:
+# core-insights disagrees with FPL's official counts on 6-13% of rows,
+# one-signed; switching changes ~13% of training labels) and extending it
+# needs that pre-registration plus defensive.SEASON / the season-less
+# _DC_HITS_CACHE fixes. Until then a 2026-27 build zeroes the term and
+# live_deadline STRICT MODE RAISES on it, which is the intended state.
 DC_SEASONS = {"2025-26"}
 # Seasons the P(start) label exists for, hence the only ones usable for training.
-LABELLED = {"2022-23", "2023-24", "2024-25", "2025-26"}
+# 2026-27 rows come from the FPL API (starts exposed natively, verified 100.00%
+# vs vaastav on GW1).
+LABELLED = {"2022-23", "2023-24", "2024-25", "2025-26", "2026-27"}
 
 
 def train_seasons_for(season):
