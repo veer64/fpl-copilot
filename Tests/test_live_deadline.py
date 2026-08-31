@@ -85,21 +85,23 @@ def test_strict_preflight_rejects_missing_season():
 
 
 def test_nonstrict_preflight_reports_instead_of_raising():
+    """The 2026-27 findings list is a LEDGER of what is still open. The ingestion
+    session of 2026-08-31 closed the gaps one by one (crosswalk 97927b8; stack /
+    ladder / BLEND_PRIOR / ORDER+LABELLED and the consumer repointing in
+    963d24c..17426f3), so this test pins BOTH directions: the findings that must
+    still fire (their inputs are genuinely open) and the ones that must have
+    STOPPED firing (their inputs exist now -- a reappearance means a regression
+    in a resolver or a constant). Each future closure updates this test
+    deliberately, in the closing commit."""
     findings = ld.preflight("2026-27", 3, strict=False)
-    assert len(findings) >= 5          # vaastav, blend, ladder, DC sets, availability...
     joined = " ".join(findings)
-    # The 2026-27 ingestion session (2026-08-31) closes these gaps one by one, so a
-    # finding is REQUIRED only while its input is genuinely absent from the paths
-    # preflight checks. The crosswalk was the first to close (crosswalk_2026_27.csv,
-    # commit 97927b8); the rest still read the frozen archives and stay required
-    # until the consumers are re-pointed (a gated future change).
-    needles = ["vaastav", "BLEND_PRIOR", "ladder", "DC_SEASONS", "availability"]
-    if not (ROOT / "data" / "history" / "crosswalk_2026_27.csv").exists():
-        needles.append("crosswalk")
-    for needle in needles:
-        assert needle in joined, f"expected a finding mentioning {needle}"
-    assert "crosswalk" not in joined or not (ROOT / "data" / "history" / "crosswalk_2026_27.csv").exists(), \
-        "preflight still reports a missing crosswalk although the file exists"
+    still_open = ["availability", "DC_SEASONS", "DC_RULE_SEASONS", "odds_all_seasons"]
+    for needle in still_open:
+        assert needle in joined, f"expected a finding mentioning {needle} (still open)"
+    closed = ["vaastav master has NO rows", "BLEND_PRIOR", "ladder", "crosswalk missing"]
+    for needle in closed:
+        assert needle not in joined, \
+            f"finding {needle!r} reappeared although its input was closed on 2026-08-31"
 
 
 def test_minutes_ladder_parser_finds_current_seasons():
