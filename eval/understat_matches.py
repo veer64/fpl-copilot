@@ -53,9 +53,11 @@ RAW_DIR = REPO / "data" / "history" / "understat_raw"
 OUT_DIR = REPO / "data" / "history"
 VAASTAV = REPO / "data" / "history" / "all_seasons_fixed.parquet"
 
-SEASONS = {"2022-23": 2022, "2023-24": 2023, "2024-25": 2024, "2025-26": 2025}
+SEASONS = {"2022-23": 2022, "2023-24": 2023, "2024-25": 2024, "2025-26": 2025,
+           "2026-27": 2026}
 RATE_SECONDS = 1.05
 HEADERS = {"User-Agent": "Mozilla/5.0", "X-Requested-With": "XMLHttpRequest"}
+FETCH_RETRIES = 3
 
 NUMERIC = ["minutes", "goals", "own_goals", "npg", "assists", "shots",
            "key_passes", "xG", "xA", "npxG", "xGChain", "xGBuildup",
@@ -63,11 +65,28 @@ NUMERIC = ["minutes", "goals", "own_goals", "npg", "assists", "shots",
 
 
 def _fetch_json(url):
-    req = urllib.request.Request(url, headers=HEADERS)
-    raw = urllib.request.urlopen(req, timeout=30).read()
-    if raw[:2] == b"\x1f\x8b":
-        raw = gzip.decompress(raw)
-    return json.loads(raw.decode("utf-8"))
+    """Polite fetch: 1 req/s spacing lives at the call sites; here, 3 retries with
+    backoff for transient errors, and an IMMEDIATE hard stop on 403/429 -- if
+    Understat is blocking or rate-limiting, hammering it is the one wrong answer."""
+    for attempt in range(1, FETCH_RETRIES + 1):
+        try:
+            req = urllib.request.Request(url, headers=HEADERS)
+            raw = urllib.request.urlopen(req, timeout=30).read()
+            if raw[:2] == b"\x1f\x8b":
+                raw = gzip.decompress(raw)
+            return json.loads(raw.decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 429):
+                raise RuntimeError(
+                    f"{url} -> HTTP {e.code}: Understat is blocking/rate-limiting. STOP; wait "
+                    f"and retry later at 1 req/s. Do not reduce the spacing.") from e
+            if attempt == FETCH_RETRIES:
+                raise
+            time.sleep(2 ** attempt)
+        except Exception:
+            if attempt == FETCH_RETRIES:
+                raise
+            time.sleep(2 ** attempt)
 
 
 def _league(year):
@@ -97,15 +116,65 @@ def _fetch_match(year, match_id):
 
 
 def _gw_lookup(season):
-    """date -> (gw, ambiguous) from vaastav kickoff dates for the season."""
+    """date -> (gw, ambiguous) from kickoff dates for the season, plus the
+    per-gw fixture counts (for completeness checks on a live season).
+
+    Source: vaastav rows in all_seasons_fixed.parquet where the season exists
+    there (the archive); otherwise the FPL-API season file
+    data/history/fpl_api_{tag}.parquet (2026-27+; built by
+    eval/fetch_fpl_history.py, which only ever contains data_checked-FINAL
+    gameweeks -- so a date that maps to nothing is a not-yet-final gameweek,
+    which is exactly the deferral signal pull_season uses). Neither present ->
+    raise; a silent empty lookup would send every row to gw=None."""
     v = pd.read_parquet(VAASTAV, columns=["season", "GW", "kickoff_time"])
     v = v[v["season"] == season].copy()
+    source = "vaastav"
+    if len(v) == 0:
+        api = OUT_DIR / f"fpl_api_{season.replace('-', '_')}.parquet"
+        if not api.exists():
+            raise LookupError(
+                f"no kickoff source for {season}: no rows in {VAASTAV.name} and no "
+                f"{api.name}. Run eval/fetch_fpl_history.py first -- without a kickoff "
+                f"calendar every Understat match would land gw=None.")
+        v = pd.read_parquet(api, columns=["season", "GW", "kickoff_time"])
+        v = v[v["season"] == season].copy()
+        source = api.name
     v["date"] = pd.to_datetime(v["kickoff_time"]).dt.date
     out = {}
     for date, sub in v.groupby("date"):
         counts = sub["GW"].value_counts()
         out[date] = (int(counts.idxmax()), len(counts) > 1)
-    return out
+    fixture_counts = (v.assign(fx=v["kickoff_time"])
+                      .groupby("GW")["fx"].nunique().astype(int).to_dict())
+    return out, fixture_counts, source
+
+
+def split_final_deferred(df, lookup, fixture_counts, live_season):
+    """Assign gameweeks and split (final_rows, deferred_matches).
+
+    Live season (FPL-API kickoff source, final gameweeks only): a match whose
+    date maps to no gameweek, or whose gameweek is not fully covered by
+    Understat results yet, is DEFERRED -- returned separately, never written to
+    the season file, listed match-by-match. Archive season: every date must
+    map; a residual gw=None RAISES (it can never silently pass through)."""
+    mapped = df["match_date"].map(lambda d: lookup.get(d, (None, True)))
+    df = df.copy()
+    df["gw"] = [m[0] for m in mapped]
+    df["gw_ambiguous"] = [m[1] for m in mapped]
+    if not live_season:
+        bad = df[df["gw"].isna()]
+        if len(bad):
+            raise ValueError(
+                f"{bad['match_id'].nunique()} match(es) map to no gameweek on an archive "
+                f"season -- refusing to write gw=None rows: "
+                f"{bad[['match_id', 'match_date', 'team']].drop_duplicates('match_id').head(10).to_dict('records')}")
+        return df, pd.DataFrame(columns=df.columns)
+    deferred_mask = df["gw"].isna()
+    # completeness per mapped gameweek: all of the gameweek's fixtures must be present
+    have = df[~deferred_mask].groupby("gw")["match_id"].nunique()
+    incomplete = [int(g) for g, n in have.items() if n < fixture_counts.get(int(g), 10 ** 9)]
+    deferred_mask |= df["gw"].isin(incomplete)
+    return df[~deferred_mask].copy(), df[deferred_mask].copy()
 
 
 def _rows_for_match(entry, match_data, season):
@@ -190,21 +259,45 @@ def pull_season(season, verbose=True):
 
     df = pd.DataFrame(rows)
     if len(df):
-        lookup = _gw_lookup(season)
-        mapped = df["match_date"].map(lambda d: lookup.get(d, (None, True)))
-        df["gw"] = [m[0] for m in mapped]
-        df["gw_ambiguous"] = [m[1] for m in mapped]
-        for c in NUMERIC:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+        lookup, fixture_counts, source = _gw_lookup(season)
+        live_season = source != "vaastav"
+        df, deferred = split_final_deferred(df, lookup, fixture_counts, live_season)
+        for frame in (df, deferred):
+            for c in NUMERIC:
+                if len(frame):
+                    frame[c] = pd.to_numeric(frame[c], errors="coerce")
         df["match_date"] = pd.to_datetime(df["match_date"])
+        # the split carries None gws before filtering, which floats the column;
+        # the written season file holds final gameweeks only, so int64 like the
+        # archive seasons' files
+        df["gw"] = df["gw"].astype("int64")
+        df["gw_ambiguous"] = df["gw_ambiguous"].astype(bool)
         df["pulled_at"] = pd.Timestamp.now(tz=timezone.utc).isoformat()
-        out = OUT_DIR / f"understat_matches_{season.replace('-', '_')}.parquet"
-        df.to_parquet(out, index=False)
+        tag = season.replace("-", "_")
+        out = OUT_DIR / f"understat_matches_{tag}.parquet"
+        tmp = out.with_suffix(".tmp.parquet")
+        df.to_parquet(tmp, index=False)
+        tmp.replace(out)
         if verbose:
             print(f"  -> {out.name}: {len(df)} rows, "
                   f"{df['match_id'].nunique()} matches, "
                   f"gw range {int(df['gw'].min())}-{int(df['gw'].max())}, "
-                  f"ambiguous-gw rows: {int(df['gw_ambiguous'].sum())}", flush=True)
+                  f"ambiguous-gw rows: {int(df['gw_ambiguous'].sum())} "
+                  f"(kickoff source: {source})", flush=True)
+        if live_season:
+            for r in deferred.drop_duplicates("match_id").itertuples():
+                print(f"  DEFERRED match {r.match_id} {pd.Timestamp(r.match_date).date()} "
+                      f"{r.team} vs {r.opponent}: gameweek not yet FINAL in the FPL-API "
+                      f"file (or gameweek incomplete on Understat) -- will be written "
+                      f"when it finalises", flush=True)
+            prov = {"season": season, "pulled_at": pd.Timestamp.now(tz=timezone.utc).isoformat(),
+                    "kickoff_source": source,
+                    "final_gws": {int(g): int(n) for g, n in
+                                  df.groupby("gw")["match_id"].nunique().items()},
+                    "deferred_matches": deferred.drop_duplicates("match_id")[
+                        ["match_id", "team", "opponent"]].to_dict("records")}
+            (OUT_DIR / f"understat_matches_{tag}.provenance.json").write_text(
+                json.dumps(prov, indent=1, default=str), encoding="utf-8")
     for mid, dt, err in failures:
         print(f"  FAILED match {mid} ({dt}): {err}", flush=True)
     return len(df), df["match_id"].nunique() if len(df) else 0, failures
