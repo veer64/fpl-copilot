@@ -24,7 +24,8 @@ import lightgbm as lgb
 MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
 
-BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
+# Repo-relative (was a hardcoded C:\ path; this code also runs on the Linux droplet).
+BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 TRAIN_UNTIL_SEASON = "2024-25"
 PREDICT_SEASON = "2025-26"
 
@@ -125,7 +126,8 @@ def get_bonus_model(up_to_gw=None, log_mlflow=False, train_until=None,
     log_mlflow=True logs params/metrics/model as ONE MLflow run (default off, so
     assembly.py and the 38-GW walk-forward stay unchanged and fast).
     """
-    df = pd.read_parquet(BASE + r"\data\history\all_seasons_fixed.parquet")
+    from season_stack import stack_path
+    df = pd.read_parquet(stack_path())
     d = df[(df["position"] != "AM") & (df["minutes"] >= 1)].copy()
     for c in ["bps", "bonus"] + COMP + EXTRA:
         d[c] = pd.to_numeric(d[c], errors="coerce")

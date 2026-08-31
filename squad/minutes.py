@@ -32,7 +32,10 @@ AVAILABILITY_DEFAULT = True
 MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
 
-BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
+# Repo-relative (was a hardcoded C:\ path; this code also runs on the Linux
+# droplet). Kept as a string because squad/horizon_minutes.py concatenates
+# against it; minutes.py's own read goes through season_stack.stack_path().
+BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 TRAIN_SEASONS = ["2022-23", "2023-24", "2024-25", "2025-26"]
 PREDICT_SEASON = "2026-27"
 
@@ -241,7 +244,8 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
     availability = AVAILABILITY_DEFAULT if availability is None else availability
     AV = avf.FEATURES if availability else []
 
-    df = pd.read_parquet(BASE + r"\data\history\all_seasons_fixed.parquet")
+    from season_stack import stack_path
+    df = pd.read_parquet(stack_path())
     col = _prepare(df)
     if AV:
         col = avf.attach(col)

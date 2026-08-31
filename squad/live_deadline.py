@@ -122,8 +122,8 @@ def props_fixture_coverage(season, gw):
     fx = pd.read_parquet(REPO / "data" / "odds_props" / f"props_consensus_fixture_{season}.parquet",
                          columns=["gw", "event_id"])
     priced = int(fx.loc[fx["gw"] == gw, "event_id"].nunique())
-    h = pd.read_parquet(REPO / "data" / "history" / "all_seasons_fixed.parquet",
-                        columns=["season", "GW", "fixture"])
+    from season_stack import stack_path
+    h = pd.read_parquet(stack_path(), columns=["season", "GW", "fixture"])
     total = int(h[(h["season"] == season) & (h["GW"] == gw)]["fixture"].nunique())
     return priced, total
 
@@ -150,8 +150,10 @@ def preflight(season, gw, strict=False, config="baseline"):
         findings.append("note: horizon-minutes lever is structurally inert at horizon=1 "
                         "(acts at steps 1-5 only; a step-0 frame has none)")
 
-    # vaastav master: the skeleton, the minutes frame and prices all come from it
-    hist = REPO / "data" / "history" / "all_seasons_fixed.parquet"
+    # the season stack: the skeleton, the minutes frame and prices all come from it
+    # (season_stack.stack_path resolves the archive or the *_with_* extension)
+    from season_stack import stack_path
+    hist = stack_path()
     h = pd.read_parquet(hist, columns=["season", "GW"])
     hs = h[h["season"] == season]
     if len(hs) == 0:
@@ -276,7 +278,8 @@ def postflight(frame, season, gw, strict=False):
 
     # team_pen_rate fallback (exact detection: teams absent from the season's
     # vaastav penalty aggregate received the hard-coded 0.08)
-    hist = pd.read_parquet(REPO / "data" / "history" / "all_seasons_fixed.parquet",
+    from season_stack import stack_path
+    hist = pd.read_parquet(stack_path(),
                            columns=["season", "team", "penalties_missed"])
     have = set(hist.loc[hist["season"] == season].groupby("team").size().index)
     fb_teams = sorted(set(f["team"]) - have)

@@ -109,7 +109,8 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
             "module docstring.")
     dc_enabled = season in DC_SEASONS
 
-    df = pd.read_parquet(BASE + r"\data\history\all_seasons_fixed.parquet")
+    from season_stack import stack_path
+    df = pd.read_parquet(stack_path())
     cw = crosswalk_for(season)
 
     v = df[df["season"] == season].copy()
