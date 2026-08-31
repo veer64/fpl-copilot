@@ -117,3 +117,46 @@ def test_minutes_ladder_parser_finds_current_seasons():
     """The ladder check parses minutes.py source; it must see the seasons that ARE there."""
     ladder = ld._minutes_ladder()
     assert ladder and "2025-26" in ladder and "2022-23" in ladder
+
+
+@pytest.mark.skipif(not COMBINED.exists(), reason="combined arm frame not on disk")
+def test_extraction_reproduces_arm_record_full_cutoff():
+    """EXTRACTION PARITY: the functions lifted out of walkforward_arms.main
+    (cutoff_components / minutes_frames / assemble_cutoff / stamp_arm_frame)
+    must rebuild a full six-step cutoff of the arm record file bit-identically
+    -- every step, every common column. GW5 so this and the GW20 horizon test
+    cover two cutoffs. Fails on any future divergence between the extracted
+    path and the record."""
+    frame, _ = ld.build_deadline_frame(SEASON, 5, strict=False, config="combined", horizon=6)
+    for step in range(6):
+        ok, lines = ld.compare_to_canonical(frame, SEASON, 5, canonical_path=COMBINED,
+                                            allow_only_live={"penalty_join_prior_season"}, step=step)
+        assert ok, f"extraction diverged at step {step}:\n" + "\n".join(lines)
+
+
+@pytest.mark.skipif(not CANON.exists(), reason="canonical 2025-26 frame not on disk")
+def test_live_horizon6_baseline_all_steps():
+    """LIVE HORIZON-6, baseline: all six steps of a GW20 build must be
+    bit-identical to the canonical file's rows at (cutoff=20, step)."""
+    frame, findings = ld.build_deadline_frame(SEASON, 20, strict=False, horizon=6)
+    for step in range(6):
+        ok, lines = ld.compare_to_canonical(frame, SEASON, 20, step=step)
+        assert ok, f"baseline step {step} diverged:\n" + "\n".join(lines)
+    hard = [f for f in findings if not f.startswith("note:")]
+    assert hard == [], f"unexpected hard findings on a healthy horizon-6 cutoff: {hard}"
+
+
+@pytest.mark.skipif(not COMBINED.exists(), reason="combined arm frame not on disk")
+def test_live_horizon6_combined_all_steps():
+    """LIVE HORIZON-6, combined: all six steps of a GW20 build (props hook +
+    steps-1-5 hmin substitution) must be bit-identical to the arm record."""
+    import assembly
+    frame, findings = ld.build_deadline_frame(SEASON, 20, strict=False, config="combined", horizon=6)
+    assert assembly.PROPS_HOOK is None, "the props module gate must rest None after a build"
+    assert any("horizon minutes steps 1-5" in f for f in findings), "the substitution did not report"
+    for step in range(6):
+        ok, lines = ld.compare_to_canonical(frame, SEASON, 20, canonical_path=COMBINED,
+                                            allow_only_live={"penalty_join_prior_season"}, step=step)
+        assert ok, f"combined step {step} diverged from the arm record:\n" + "\n".join(lines)
+    hard = [f for f in findings if not f.startswith("note:")]
+    assert hard == [], f"unexpected hard findings on a healthy horizon-6 cutoff: {hard}"
