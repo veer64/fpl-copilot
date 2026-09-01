@@ -1146,6 +1146,20 @@ pre-registered decision partitions. Ingestion for both sources already exists (`
 defensive.SEASON / the season-less _DC_HITS_CACHE, see Logs/core_insights_ingest_log.md) are a separate
 prerequisite either way.
 
+### Sign correction (2026-08-31, exploratory measurement — Logs/dc_source_swap_exploratory_log.md §5)
+
+The evidence block above is CORRECTED. **Every disagreeing row in both spot checks was a
+GOALKEEPER**: FPL's native `defensive_contribution` is exactly CBIT (DEF) / CBIRT (MID/FWD) —
+100.00% identity against FPL's own component columns — and **0 for goalkeepers**, while the
+cross-checks' `np.where(position == "Defender", cbit, cbirt)` handed GKs the CBIRT formula, so
+each GK's recoveries-dominated CBIRT (+4..+22) was compared against a definitional zero. The GW1
+"7 flips at 10 / 4 flips at 12" are all goalkeepers — players the DC model never predicts. The
+"one-signed, core counts more" claim dissolves entirely into that artefact. The REAL, model-
+relevant discrepancy has the OPPOSITE sign: FPL counts MORE tackles than core's `tackles` column
+(17.3% of player-matches, mean −0.33/match, to −41/season for one player; core-higher 0.48%),
+while C+B+I (97.3%), recoveries (98.5%) and per-GW CBIR-without-tackles (96.0%) agree. Official
+hit rates are HIGHER than core's (DEF 0.208 vs 0.184; MID 0.108 vs 0.089).
+
 ### Outcome (2026-08-31)
 
 That pre-registration was written, committed BEFORE any number (`Logs/dc_source_swap_prereg.md`,

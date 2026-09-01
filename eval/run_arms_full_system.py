@@ -64,12 +64,18 @@ def main():
     ap.add_argument("--tc2", type=int, default=None, help="schedule Triple Captain 2 IN-SIM at this gameweek (rule of record: earliest H2 double not already holding a chip; p4 log 12c ii). Captain = the MIP's own cap variable at that deadline (argmax step-0 e_points in the XI); no post-deadline information.")
     ap.add_argument("--arm", required=True, choices=["baseline8", "props", "hmin", "both", "penfix", "cal", "cal_penfix", "bonusow", "bonusdel", "leakfix", "gap0", "props_gap0", "hmin_gap0", "both_gap0", "hold_gap0"])
     ap.add_argument("--hold-eps", type=float, default=None, help="hold_gap0 arm: simulator.HOLD_PREFERENCE_EPS (Logs/hold_preference_prereg.md); required for that arm")
+    ap.add_argument("--wf-path", default=None, help="EXPLORATORY override: read the walk-forward frame from this path instead of the arm's default. The output MUST also be overridden (--out) so record armlogs are never touched.")
+    ap.add_argument("--out", default=None, help="EXPLORATORY override: write the armlog to this path (required with --wf-path).")
     a = ap.parse_args()
     season, arm, tag = a.season, a.arm, a.season.replace("-", "_")
     ARMS_DIR.mkdir(parents=True, exist_ok=True)
     out = ARMS_DIR / (f"armlog_{tag}_{arm}_tc2.parquet" if a.tc2 else f"armlog_{tag}_{arm}.parquet")
     if arm == "hold_gap0":
         out = ARMS_DIR / f"armlog_{tag}_hold_gap0_eps{a.hold_eps:g}{'_tc2' if a.tc2 else ''}.parquet"
+    if a.wf_path is not None:
+        assert a.out is not None, "--wf-path requires --out: an overridden frame may not write a record armlog name"
+    if a.out is not None:
+        out = Path(a.out)
     if out.exists():
         print(f"skip existing {out.name}"); return
     simulator.OPENING_HORIZON_ACTIVE = False
@@ -119,6 +125,9 @@ def main():
         wf_path = REPO / "data" / f"walkforward_h6_{tag}_penfix.parquet"
     else:
         wf_path = ARMS_DIR / f"walkforward_h6_{tag}_{arm}.parquet"
+    if a.wf_path is not None:                    # EXPLORATORY override (see --wf-path help)
+        wf_path = Path(a.wf_path)
+        print(f"wf-path OVERRIDE in force: {wf_path}")
     df = simulator.load_season(walkforward_path=str(wf_path), horizon_aware=True, season=season)
     if arm in ("leakfix", "gap0", "hold_gap0"):
         assert "penalty_join_prior_season" in df.columns and bool(df["penalty_join_prior_season"].iloc[0]) is True, \
