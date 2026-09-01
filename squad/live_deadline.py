@@ -144,14 +144,20 @@ def preflight(season, gw, strict=False, config="baseline", horizon=1):
             _finding(findings, strict, f"props per-book consensus missing: {pb.name} -- the props "
                                        f"hook cannot condition per book")
         else:
+            # The floor is STRICT for the DEADLINE gameweek only: the props hook moves
+            # step-0 rows exclusively (props_feature.PropsHook: "only rows with
+            # gw == cutoff move"), so steps-1+ board coverage never reaches the model
+            # -- the same step-0-only correction the odds check got (ODDS_HORIZON_GWS).
             for g in target_gws:
                 priced, total = props_fixture_coverage(season, g)
-                if total and priced / total < PROPS_MIN_FIXTURE_COVERAGE:
+                if g == int(gw) and total and priced / total < PROPS_MIN_FIXTURE_COVERAGE:
                     _finding(findings, strict,
-                             f"props coverage {priced}/{total} fixtures at GW{g} is below the strict floor "
-                             f"{PROPS_MIN_FIXTURE_COVERAGE:.0%} -- unpriced fixtures silently keep the model rate")
+                             f"props coverage {priced}/{total} fixtures at GW{g} (the DEADLINE gameweek) is "
+                             f"below the strict floor {PROPS_MIN_FIXTURE_COVERAGE:.0%} -- unpriced fixtures "
+                             f"silently keep the model rate at step 0; run eval/pull_live_props.py")
                 else:
-                    findings.append(f"note: props coverage {priced}/{total} fixtures at GW{g}")
+                    findings.append(f"note: props coverage {priced}/{total} fixtures at GW{g}"
+                                    + ("" if g == int(gw) else " (steps-1+: inert, the hook is step-0-only)"))
         if horizon == 1:
             findings.append("note: horizon-minutes lever is structurally inert at horizon=1 "
                             "(acts at steps 1-5 only; a step-0 frame has none)")

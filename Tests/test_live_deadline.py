@@ -108,10 +108,22 @@ def test_strict_preflight_rejects_missing_season():
         ld.preflight("2027-28", 3, strict=True)
 
 
-def test_strict_preflight_combined_still_raises_on_open_gaps():
-    """The two remaining 2026-27 gaps are combined-config inputs (props book,
-    hmin refit): strict must still raise there until they close."""
-    with pytest.raises(ld.LiveStrictError):
+def test_strict_preflight_combined_clean_at_live_deadline():
+    """THE MILESTONE (2026-09-01): a 2026-27 GW3 horizon-6 COMBINED strict
+    preflight passes end to end -- master+skeleton, crosswalk, availability,
+    blend, odds, hmin refit, props book and the deadline-gw props board all
+    exist. This test's predecessor pinned the last two gaps open; this is the
+    closing update. If it ever raises again, a live input has rotted."""
+    findings = ld.preflight("2026-27", 3, strict=True, config="combined", horizon=6)
+    assert all(f.startswith("note:") for f in findings)
+
+
+def test_unavailable_props_board_raises_not_degrades(monkeypatch):
+    """The floor's whole purpose: props degrade SILENTLY to model-only per
+    unpriced row, so an unavailable/thin DEADLINE board must RAISE under
+    strict -- the combined config can never quietly become horizon-only."""
+    monkeypatch.setattr(ld, "props_fixture_coverage", lambda season, gw: (0, 10))
+    with pytest.raises(ld.LiveStrictError, match="props coverage 0/10.*DEADLINE"):
         ld.preflight("2026-27", 3, strict=True, config="combined", horizon=6)
 
 
