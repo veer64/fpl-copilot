@@ -1062,33 +1062,39 @@ Built by `eval/build_props_crosswalk.py` before any de-vig or feature, per `Logs
 
 ## 2026-27
 
-- **Match rate:** 1,275 of 1,425 priced name-rows (89.47%) across 30 fixtures; 70 distinct unmatched names (150 rows), left null.
-- **Provenance:** exact 1,030, token_subset 180, club+token 56, fuzzy 9. Distinct fuzzy pairs 3, surname-token pairs 20, token-subset pairs 64 (all listed below); manual entries 0 names / 0 rows (table below), manual conflicts 0, manual entries refused because the element was not at a fixture club that gameweek 0.
+- **Match rate:** 1,274 of 1,425 priced name-rows (89.40%) across 30 fixtures; 71 distinct unmatched names (151 rows), left null.
+- **Provenance:** exact 1,030, token_subset 179, club+token 56, fuzzy 9. Distinct fuzzy pairs 3, surname-token pairs 20, token-subset pairs 64 (all listed below); manual entries 0 names / 0 rows (table below), manual conflicts 0, manual entries refused because the element was not at a fixture club that gameweek 0.
 - **assert_crosswalk_unique:** 354 per-book boards asserted (no element claimed twice, no name mapped twice), 0 raised.
 - **Uniqueness:** per-book board violations 0; cross-book multi-spellings of one element 6 (e.g. "Josh King" / "Joshua King" — the consensus must merge by element, not by string); cross-fixture name→element inconsistencies 0.
-- **Placeholder prices:** 241 matched rows (115 players) with < 90 season minutes priced at mean implied ≥ 0.25 — youth/fringe names carried on boards at short prices; a data-quality item for the de-vig step, not a matching error.
+- **Placeholder prices:** 185 matched rows (90 players) with < 90 season minutes priced at mean implied ≥ 0.25 — youth/fringe names carried on boards at short prices; a data-quality item for the de-vig step, not a matching error.
 - **Team audit:** 0 matched rows whose element's club is not in the fixture.
 - **Homonyms:** 0 exact-matched names that also exist at another club this season (listed).
-- **Plausibility flags:** 0 price/position (GK ≥ .15 or DEF ≥ .35 mean implied), 145 price/minutes (played 0 with mean implied ≥ .30).
-- **Outfield starters not covered:** 6 players / 6 player-fixtures / 482 minutes of 14,925 outfield starter minutes in priced fixtures → outfield starter coverage **96.67%**. Split: **unpriced** (no candidate name on the board) 6 player-fixtures; **unmatched with a candidate name** 0 player-fixtures across 0 players — the manual-pass list below. Goalkeepers are not priced on these boards (19 GKs, 1,710 minutes) and are excluded.
+- **Plausibility flags:** 0 price/position (GK ≥ .15 or DEF ≥ .35 mean implied), 113 price/minutes (played 0 with mean implied ≥ .30).
+- **Outfield starters not covered:** 11 players / 14 player-fixtures / 1,139 minutes of 29,976 outfield starter minutes in priced fixtures → outfield starter coverage **96.11%**. Split: **unpriced** (no candidate name on the board) 13 player-fixtures; **unmatched with a candidate name** 1 player-fixtures across 1 players — the manual-pass list below. Goalkeepers are not priced on these boards (21 GKs, 3,420 minutes) and are excluded.
 
 **Top uncovered OUTFIELD starters by minutes (played ≥60 in a priced fixture, no book name mapped to them; mostly unpriced):**
 
 | player | team | pos | fixtures | minutes |
 |---|---|---|---|---|
-| Jan Paul van Hecke | Spurs | DEF | 1 | 90 |
+| Jan Paul van Hecke | Spurs | DEF | 2 | 180 |
+| Morgan Rogers | Chelsea | MID | 2 | 171 |
+| Youri Tielemans | Man Utd | MID | 2 | 156 |
 | Marcos Senesi Barón | Spurs | DEF | 1 | 90 |
+| Mateus Fernandes | Spurs | MID | 1 | 90 |
+| Omar Marmoush | Spurs | FWD | 1 | 90 |
 | Sandro Tonali | Spurs | MID | 1 | 90 |
-| Morgan Rogers | Chelsea | MID | 1 | 81 |
-| Youri Tielemans | Man Utd | MID | 1 | 66 |
+| Nico González Iglesias | Newcastle | MID | 1 | 70 |
+| Nicolas Jackson | Aston Villa | FWD | 1 | 70 |
+| Eddie Nketiah | Crystal Palace | FWD | 1 | 67 |
 | Harry Wilson | Leeds | MID | 1 | 65 |
 
 **Unmatched WITH a candidate name — the proposed MANUAL pass (not applied; each needs club + position + minutes evidence):**
 
 | FPL name | team | pos | book name(s) on the board | fixtures | minutes |
 |---|---|---|---|---|---|
+| Eddie Nketiah | Crystal Palace | FWD | Edward Nketiah | 1 | 67 |
 
-**Unmatched book names, by mean implied probability (top 25 of 70):**
+**Unmatched book names, by mean implied probability (top 25 of 71):**
 
 | book name | fixture (first) | books | mean implied | best candidate score |
 |---|---|---|---|---|
@@ -1226,122 +1232,90 @@ Built by `eval/build_props_crosswalk.py` before any de-vig or feature, per `Logs
 **Price/position flags: 0**
 
 
-**Price/minutes flags: 145**
+**Price/minutes flags: 113**
 
 | book name | → FPL name | team | pos | score | mean implied | gw |
 |---|---|---|---|---|---|---|
-| Oliver McBurnie | Oli McBurnie | Hull City | FWD | 90 | 0.307 | 3 |
 | Jorgen Strand Larsen | Jørgen Strand Larsen | Crystal Palace | FWD | 90 | 0.324 | 3 |
-| Gabriel Jesus | Gabriel Fernando de Jesus | Arsenal | FWD | 95 | 0.433 | 1 |
-| Gabriel Martinelli | Gabriel Martinelli Silva | Arsenal | MID | 95 | 0.344 | 1 |
-| Alvaro Daniel Rodriguez Munoz | Álvaro Rodríguez | Bournemouth | FWD | 95 | 0.360 | 2 |
-| Rayan Vitor | Rayan Vitor Simplício Rocha | Bournemouth | MID | 95 | 0.302 | 2 |
+| Oliver McBurnie | Oli McBurnie | Hull City | FWD | 90 | 0.307 | 3 |
 | Fabio Vieira | Fábio Ferreira Vieira | Arsenal | MID | 95 | 0.312 | 1 |
-| Promise Oluwatobi Emmanuel David | Promise David | Brighton | FWD | 95 | 0.382 | 1 |
+| Gabriel Jesus | Gabriel Fernando de Jesus | Arsenal | FWD | 95 | 0.433 | 1 |
 | Eli Junior Kroupi | Junior Kroupi | Bournemouth | MID | 95 | 0.580 | 2 |
-| Marc Guiu | Marc Guiu Paz | Chelsea | FWD | 95 | 0.383 | 2 |
-| Estevao Oliveira Goncalves | Estêvão Almeida de Oliveira Gonçalves | Chelsea | MID | 95 | 0.303 | 2 |
-| Matheus Cunha | Matheus Santos Carneiro da Cunha | Man Utd | MID | 95 | 0.388 | 2 |
-| Promise Oluwatobi Emmanuel David | Promise David | Brighton | FWD | 95 | 0.300 | 2 |
-| Dominic Solanke | Dominic Solanke-Mitchell | Spurs | FWD | 95 | 0.374 | 2 |
 | Marc Guiu | Marc Guiu Paz | Chelsea | FWD | 95 | 0.391 | 1 |
-| Erling Braut Haaland | Erling Haaland | Man City | FWD | 95 | 0.565 | 2 |
-| Gabriel Jesus | Gabriel Fernando de Jesus | Arsenal | FWD | 95 | 0.349 | 2 |
+| Marc Guiu | Marc Guiu Paz | Chelsea | FWD | 95 | 0.383 | 2 |
+| Gabriel Martinelli | Gabriel Martinelli Silva | Arsenal | MID | 95 | 0.344 | 1 |
+| Estevao Oliveira Goncalves | Estêvão Almeida de Oliveira Gonçalves | Chelsea | MID | 95 | 0.303 | 2 |
 | Fabio Carvalho | Fábio Freitas Gouveia Carvalho | Brentford | MID | 95 | 0.345 | 3 |
 | Promise Oluwatobi Emmanuel David | Promise David | Brighton | FWD | 95 | 0.396 | 3 |
-| Rodrigo Muniz | Rodrigo Muniz Carvalho | Fulham | FWD | 95 | 0.353 | 3 |
-| Eli Junior Kroupi | Junior Kroupi | Bournemouth | MID | 95 | 0.357 | 3 |
-| Dominic Solanke | Dominic Solanke-Mitchell | Spurs | FWD | 95 | 0.308 | 3 |
-| Alvaro Daniel Rodriguez Munoz | Álvaro Rodríguez | Bournemouth | FWD | 95 | 0.311 | 3 |
-| Erling Braut Haaland | Erling Haaland | Man City | FWD | 95 | 0.738 | 3 |
-| Bruno Fernandes | Bruno Borges Fernandes | Man Utd | MID | 95 | 0.366 | 2 |
-| Mikel Merino | Mikel Merino Zazón | Arsenal | MID | 95 | 0.307 | 2 |
 | Kaoru Mitoma | Mitoma Kaoru | Brighton | MID | 95 | 0.316 | 3 |
+| Gabriel Jesus | Gabriel Fernando de Jesus | Arsenal | FWD | 95 | 0.349 | 2 |
+| Alvaro Daniel Rodriguez Munoz | Álvaro Rodríguez | Bournemouth | FWD | 95 | 0.311 | 3 |
+| Rodrigo Muniz | Rodrigo Muniz Carvalho | Fulham | FWD | 95 | 0.353 | 3 |
+| Promise Oluwatobi Emmanuel David | Promise David | Brighton | FWD | 95 | 0.382 | 1 |
 | Gabriel Jesus | Gabriel Fernando de Jesus | Arsenal | FWD | 95 | 0.369 | 3 |
+| Gabriel Martinelli | Gabriel Martinelli Silva | Arsenal | MID | 95 | 0.321 | 3 |
+| Dominic Solanke | Dominic Solanke-Mitchell | Spurs | FWD | 95 | 0.308 | 3 |
+| Eli Junior Kroupi | Junior Kroupi | Bournemouth | MID | 95 | 0.357 | 3 |
+| Erling Braut Haaland | Erling Haaland | Man City | FWD | 95 | 0.738 | 3 |
 | Matheus Cunha | Matheus Santos Carneiro da Cunha | Man Utd | MID | 95 | 0.305 | 3 |
 | Bruno Fernandes | Bruno Borges Fernandes | Man Utd | MID | 95 | 0.340 | 3 |
-| Gabriel Martinelli | Gabriel Martinelli Silva | Arsenal | MID | 95 | 0.321 | 3 |
-| Brian Madjo | Brian Madjo | Aston Villa | FWD | 100 | 0.312 | 1 |
-| Sidiki Cherif | Sidiki Cherif | Coventry City | FWD | 100 | 0.372 | 2 |
-| Taiwo Awoniyi | Taiwo Awoniyi | Coventry City | FWD | 100 | 0.422 | 2 |
-| Francisco Evanilson de Lima Barbosa | Francisco Evanilson de Lima Barbosa | Bournemouth | FWD | 100 | 0.351 | 2 |
-| Daniel Jebbison | Daniel Jebbison | Bournemouth | FWD | 100 | 0.327 | 2 |
-| Jean-Philippe Mateta | Jean-Philippe Mateta | Crystal Palace | FWD | 100 | 0.329 | 2 |
-| Ellis Simms | Ellis Simms | Coventry City | FWD | 100 | 0.400 | 2 |
-| Haji Wright | Haji Wright | Coventry City | FWD | 100 | 0.488 | 2 |
-| Brandon Thomas-Asante | Brandon Thomas-Asante | Coventry City | FWD | 100 | 0.353 | 2 |
-| Rio Ngumoha | Rio Ngumoha | Liverpool | MID | 100 | 0.300 | 2 |
-| Hugo Ekitike | Hugo Ekitiké | Liverpool | FWD | 100 | 0.500 | 2 |
-| Richarlison de Andrade | Richarlison de Andrade | Spurs | FWD | 100 | 0.403 | 2 |
-| Yoane Wissa | Yoane Wissa | Newcastle | FWD | 100 | 0.333 | 2 |
-| Cody Gakpo | Cody Gakpo | Liverpool | MID | 100 | 0.360 | 2 |
-| Federico Chiesa | Federico Chiesa | Liverpool | MID | 100 | 0.337 | 2 |
-| Lewis Koumas | Lewis Koumas | Liverpool | MID | 100 | 0.328 | 2 |
-| Alexander Isak | Alexander Isak | Liverpool | FWD | 100 | 0.467 | 2 |
-| Wilson Odobert | Wilson Odobert | Spurs | MID | 100 | 0.308 | 2 |
-| Xavi Simons | Xavi Simons | Spurs | MID | 100 | 0.323 | 2 |
-| Nick Woltemade | Nick Woltemade | Newcastle | FWD | 100 | 0.313 | 2 |
-| Tammy Abraham | Tammy Abraham | Aston Villa | FWD | 100 | 0.342 | 1 |
-| Ollie Watkins | Ollie Watkins | Aston Villa | FWD | 100 | 0.358 | 1 |
-| Liam Delap | Liam Delap | Chelsea | FWD | 100 | 0.353 | 1 |
-| Jeremy Monga | Jeremy Monga | Man City | MID | 100 | 0.328 | 1 |
-| Claudio Echeverri | Claudio Echeverri | Man City | MID | 100 | 0.323 | 1 |
-| Antoine Semenyo | Antoine Semenyo | Man City | MID | 100 | 0.389 | 2 |
 | Nicolas Jackson | Nicolas Jackson | Chelsea | FWD | 100 | 0.411 | 1 |
-| Federico Chiesa | Federico Chiesa | Liverpool | MID | 100 | 0.305 | 1 |
-| Joshua Zirkzee | Joshua Zirkzee | Man Utd | FWD | 100 | 0.398 | 1 |
 | Omar Marmoush | Omar Marmoush | Man City | FWD | 100 | 0.428 | 1 |
 | Stefanos Tzimas | Stefanos Tzimas | Brighton | FWD | 100 | 0.385 | 1 |
-| Lukas Nmecha | Lukas Nmecha | Leeds | FWD | 100 | 0.312 | 1 |
+| Federico Chiesa | Federico Chiesa | Liverpool | MID | 100 | 0.305 | 1 |
+| Jeremy Monga | Jeremy Monga | Man City | MID | 100 | 0.328 | 1 |
+| Liam Delap | Liam Delap | Chelsea | FWD | 100 | 0.353 | 1 |
 | Dane Scarlett | Dane Scarlett | Spurs | FWD | 100 | 0.334 | 1 |
-| Joshua Zirkzee | Joshua Zirkzee | Man Utd | FWD | 100 | 0.386 | 2 |
-| Marcus Rashford | Marcus Rashford | Man Utd | MID | 100 | 0.372 | 2 |
-| Bryan Mbeumo | Bryan Mbeumo | Man Utd | MID | 100 | 0.427 | 2 |
-| Benjamin Sesko | Benjamin Sesko | Man Utd | FWD | 100 | 0.476 | 2 |
-| Callum Wilson | Callum Wilson | Brentford | FWD | 100 | 0.357 | 2 |
-| Lukas Nmecha | Lukas Nmecha | Leeds | FWD | 100 | 0.343 | 2 |
-| Dominic Calvert-Lewin | Dominic Calvert-Lewin | Leeds | FWD | 100 | 0.375 | 2 |
-| Igor Thiago Nascimento Rodrigues | Igor Thiago Nascimento Rodrigues | Brentford | FWD | 100 | 0.424 | 2 |
-| Sean Neave | Sean Neave | Newcastle | FWD | 100 | 0.383 | 2 |
-| Joao Pedro Junqueira de Jesus | João Pedro Junqueira de Jesus | Chelsea | FWD | 100 | 0.459 | 2 |
-| Cole Palmer | Cole Palmer | Chelsea | MID | 100 | 0.403 | 2 |
-| Danny Welbeck | Danny Welbeck | Chelsea | FWD | 100 | 0.414 | 2 |
+| Max Dowman | Max Dowman | Arsenal | MID | 100 | 0.335 | 1 |
+| Ethan Nwaneri | Ethan Nwaneri | Arsenal | MID | 100 | 0.335 | 1 |
+| Richarlison de Andrade | Richarlison de Andrade | Spurs | FWD | 100 | 0.403 | 2 |
+| Hugo Ekitike | Hugo Ekitiké | Liverpool | FWD | 100 | 0.500 | 2 |
+| Lewis Koumas | Lewis Koumas | Liverpool | MID | 100 | 0.328 | 2 |
+| Federico Chiesa | Federico Chiesa | Liverpool | MID | 100 | 0.337 | 2 |
+| Haji Wright | Haji Wright | Coventry City | FWD | 100 | 0.488 | 2 |
+| Ellis Simms | Ellis Simms | Coventry City | FWD | 100 | 0.400 | 2 |
+| Sidiki Cherif | Sidiki Cherif | Coventry City | FWD | 100 | 0.372 | 2 |
 | William Osula | William Osula | Newcastle | FWD | 100 | 0.381 | 2 |
-| Christos Tzolis | Christos Tzolis | Arsenal | MID | 100 | 0.355 | 2 |
-| Bukayo Saka | Bukayo Saka | Arsenal | MID | 100 | 0.341 | 2 |
-| Wilson Isidor | Wilson Isidor | Sunderland | FWD | 100 | 0.346 | 2 |
+| Joshua Zirkzee | Joshua Zirkzee | Man Utd | FWD | 100 | 0.386 | 2 |
+| Viktor Gyokeres | Viktor Gyökeres | Arsenal | FWD | 100 | 0.442 | 2 |
+| Alexander Isak | Alexander Isak | Liverpool | FWD | 100 | 0.502 | 3 |
+| Rio Ngumoha | Rio Ngumoha | Liverpool | MID | 100 | 0.313 | 3 |
+| Sean Neave | Sean Neave | Newcastle | FWD | 100 | 0.383 | 2 |
+| Wilson Odobert | Wilson Odobert | Spurs | MID | 100 | 0.308 | 2 |
+| Danny Welbeck | Danny Welbeck | Chelsea | FWD | 100 | 0.414 | 2 |
+| Xavi Simons | Xavi Simons | Spurs | MID | 100 | 0.323 | 2 |
 | Lewis Koumas | Lewis Koumas | Liverpool | MID | 100 | 0.378 | 3 |
 | Cody Gakpo | Cody Gakpo | Liverpool | MID | 100 | 0.404 | 3 |
 | Dominik Szoboszlai | Dominik Szoboszlai | Liverpool | MID | 100 | 0.307 | 3 |
 | Victor Munoz | Victor Munoz | Liverpool | MID | 100 | 0.329 | 3 |
 | Callum Wilson | Callum Wilson | Brentford | FWD | 100 | 0.456 | 3 |
 | Federico Chiesa | Federico Chiesa | Liverpool | MID | 100 | 0.420 | 3 |
-| Hugo Ekitike | Hugo Ekitiké | Liverpool | FWD | 100 | 0.524 | 3 |
-| Harvey Elliott | Harvey Elliott | Liverpool | MID | 100 | 0.312 | 3 |
-| Antoni Milambo | Antoni Milambo | Brentford | MID | 100 | 0.313 | 3 |
-| Igor Thiago Nascimento Rodrigues | Igor Thiago Nascimento Rodrigues | Brentford | FWD | 100 | 0.521 | 3 |
-| Alexander Isak | Alexander Isak | Liverpool | FWD | 100 | 0.502 | 3 |
-| Rio Ngumoha | Rio Ngumoha | Liverpool | MID | 100 | 0.313 | 3 |
-| Gonzalo Garcia | Gonzalo García | Fulham | FWD | 100 | 0.306 | 2 |
-| Viktor Gyokeres | Viktor Gyökeres | Arsenal | FWD | 100 | 0.442 | 2 |
-| Kai Havertz | Kai Havertz | Arsenal | FWD | 100 | 0.406 | 2 |
-| Brian Brobbey | Brian Brobbey | Sunderland | FWD | 100 | 0.348 | 2 |
+| Jean-Philippe Mateta | Jean-Philippe Mateta | Crystal Palace | FWD | 100 | 0.329 | 2 |
+| Claudio Echeverri | Claudio Echeverri | Man City | MID | 100 | 0.323 | 1 |
+| Daniel Jebbison | Daniel Jebbison | Bournemouth | FWD | 100 | 0.327 | 2 |
+| Joshua Zirkzee | Joshua Zirkzee | Man Utd | FWD | 100 | 0.398 | 1 |
+| Lukas Nmecha | Lukas Nmecha | Leeds | FWD | 100 | 0.312 | 1 |
+| Ollie Watkins | Ollie Watkins | Aston Villa | FWD | 100 | 0.358 | 1 |
+| Tammy Abraham | Tammy Abraham | Aston Villa | FWD | 100 | 0.342 | 1 |
+| Brian Madjo | Brian Madjo | Aston Villa | FWD | 100 | 0.312 | 1 |
+| Reiss Nelson | Reiss Nelson | Arsenal | MID | 100 | 0.488 | 1 |
+| Viktor Gyokeres | Viktor Gyökeres | Arsenal | FWD | 100 | 0.536 | 1 |
 | Stefanos Tzimas | Stefanos Tzimas | Brighton | FWD | 100 | 0.473 | 3 |
 | Dominic Calvert-Lewin | Dominic Calvert-Lewin | Leeds | FWD | 100 | 0.316 | 3 |
 | Charalampos Kostoulas | Charalampos Kostoulas | Brighton | FWD | 100 | 0.388 | 3 |
 | Zadok Yohanna | Zadok Yohanna | Brighton | MID | 100 | 0.377 | 3 |
 | Georginio Rutter | Georginio Rutter | Brighton | FWD | 100 | 0.318 | 3 |
 | Kevin Schade | Kevin Schade | Brentford | MID | 100 | 0.345 | 3 |
-| Jonah Kusi-Asare | Jonah Kusi-Asare | Fulham | FWD | 100 | 0.364 | 3 |
-| Gonzalo Garcia | Gonzalo García | Fulham | FWD | 100 | 0.373 | 3 |
-| Bradley Burrowes | Bradley Burrowes | Aston Villa | MID | 100 | 0.339 | 3 |
-| Phil Foden | Phil Foden | Man City | MID | 100 | 0.372 | 3 |
+| Igor Thiago Nascimento Rodrigues | Igor Thiago Nascimento Rodrigues | Brentford | FWD | 100 | 0.521 | 3 |
+| Antoni Milambo | Antoni Milambo | Brentford | MID | 100 | 0.313 | 3 |
+| Harvey Elliott | Harvey Elliott | Liverpool | MID | 100 | 0.312 | 3 |
+| Hugo Ekitike | Hugo Ekitiké | Liverpool | FWD | 100 | 0.524 | 3 |
 | Antoine Semenyo | Antoine Semenyo | Man City | MID | 100 | 0.508 | 3 |
 | Rayan Cherki | Rayan Cherki | Man City | MID | 100 | 0.369 | 3 |
-| Ismaila Sarr | Ismaïla Sarr | Crystal Palace | MID | 100 | 0.398 | 3 |
-| Jean-Philippe Mateta | Jean-Philippe Mateta | Crystal Palace | FWD | 100 | 0.449 | 3 |
-| Brian Madjo | Brian Madjo | Aston Villa | FWD | 100 | 0.372 | 3 |
-| Tammy Abraham | Tammy Abraham | Aston Villa | FWD | 100 | 0.415 | 3 |
+| Bradley Burrowes | Bradley Burrowes | Aston Villa | MID | 100 | 0.339 | 3 |
+| Phil Foden | Phil Foden | Man City | MID | 100 | 0.372 | 3 |
+| Jonah Kusi-Asare | Jonah Kusi-Asare | Fulham | FWD | 100 | 0.364 | 3 |
+| Gonzalo Garcia | Gonzalo García | Fulham | FWD | 100 | 0.373 | 3 |
 | Jeremy Monga | Jeremy Monga | Man City | MID | 100 | 0.390 | 3 |
 | Ryan McAidoo | Ryan McAidoo | Man City | MID | 100 | 0.403 | 3 |
 | Claudio Echeverri | Claudio Echeverri | Man City | MID | 100 | 0.397 | 3 |
@@ -1354,10 +1328,10 @@ Built by `eval/build_props_crosswalk.py` before any de-vig or feature, per `Logs
 | Nick Woltemade | Nick Woltemade | Newcastle | FWD | 100 | 0.374 | 3 |
 | Yoane Wissa | Yoane Wissa | Newcastle | FWD | 100 | 0.394 | 3 |
 | Sean Neave | Sean Neave | Newcastle | FWD | 100 | 0.333 | 3 |
-| Max Dowman | Max Dowman | Arsenal | MID | 100 | 0.335 | 1 |
-| Ethan Nwaneri | Ethan Nwaneri | Arsenal | MID | 100 | 0.335 | 1 |
-| Reiss Nelson | Reiss Nelson | Arsenal | MID | 100 | 0.488 | 1 |
-| Viktor Gyokeres | Viktor Gyökeres | Arsenal | FWD | 100 | 0.536 | 1 |
+| Ismaila Sarr | Ismaïla Sarr | Crystal Palace | MID | 100 | 0.398 | 3 |
+| Jean-Philippe Mateta | Jean-Philippe Mateta | Crystal Palace | FWD | 100 | 0.449 | 3 |
+| Brian Madjo | Brian Madjo | Aston Villa | FWD | 100 | 0.372 | 3 |
+| Tammy Abraham | Tammy Abraham | Aston Villa | FWD | 100 | 0.415 | 3 |
 | Igor Jesus Maciel da Cruz | Igor Jesus Maciel da Cruz | Nott'm Forest | FWD | 100 | 0.305 | 3 |
 | Arnaud Kalimuendo | Arnaud Kalimuendo | Nott'm Forest | FWD | 100 | 0.356 | 3 |
 | Morgan Gibbs-White | Morgan Gibbs-White | Nott'm Forest | MID | 100 | 0.309 | 3 |
