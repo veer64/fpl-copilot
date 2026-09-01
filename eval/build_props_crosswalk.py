@@ -16,7 +16,7 @@ from build_crosswalk import _norm, FUZZY_FLOOR, FUZZY_MARGIN  # noqa: E402
 from pull_player_props_history import TOKENS  # noqa: E402
 
 SCALE = REPO / "data" / "odds_props" / "raw" / "scale"
-SEASONS = ["2024-25", "2025-26"]
+SEASONS = ["2024-25", "2025-26", "2026-27"]
 MARKET = "player_goal_scorer_anytime"
 TOKEN_MIN = 4
 
@@ -144,8 +144,9 @@ def assert_board_unique(cw_event, event_label):
 
 def main():
     use_manual = "--no-manual" not in sys.argv
-    h = pd.read_parquet(REPO / "data/history/all_seasons_fixed.parquet",
-                        columns=["season", "element", "name", "team", "position", "GW", "minutes"])
+    sys.path.insert(0, str(REPO / "squad"))
+    from season_stack import load_stack
+    h = load_stack(columns=["season", "element", "name", "team", "position", "GW", "minutes"])  # stack + forward skeleton: 2026-27 lives here, not in the frozen archive
     h["minutes"] = pd.to_numeric(h["minutes"], errors="coerce").fillna(0)
     h = h[h["position"] != "AM"]
     md = ["# Player-prop name crosswalk — precision report (2026-08-24)\n",
@@ -173,7 +174,8 @@ def main():
         boards_asserted = 0
         season_min = v.groupby("element")["minutes"].sum()
         for r in man.itertuples():
-            f = SCALE / season / f"gw{int(r.gw):02d}_{r.event_id}_euus.json"
+            cand = sorted((SCALE / season).glob(f"gw{int(r.gw):02d}_{r.event_id}_*.json"))
+            f = cand[-1] if cand else SCALE / season / "MISSING"
             if not f.exists():
                 continue
             d = json.loads(f.read_text(encoding="utf-8"))["data"]
@@ -272,7 +274,11 @@ def main():
             for p_ in pl.itertuples():
                 cov_rows.append(dict(gw=fx.gw, element=int(p_.element), name=p_.name, team=p_.team, position=p_.position,
                                      minutes=float(p_.minutes), covered=int(p_.element) in matched_els))
-        cov = pd.DataFrame(cov_rows)
+        cov = (pd.DataFrame(cov_rows) if cov_rows else
+               pd.DataFrame(columns=["gw", "element", "name", "team", "position", "minutes", "covered"]))
+        if not len(cov):
+            print(f"  {season}: no played >=60-min rows joined the priced fixtures yet "
+                  f"(early season / actuals pending) -- coverage section EMPTY, not an error")
         # uncovered OUTFIELD starters: unpriced (no candidate name on that board)
         # vs unmatched-with-candidate (a board name shares a >=4-char token)
         unpriced_n, cand_rows = 0, []

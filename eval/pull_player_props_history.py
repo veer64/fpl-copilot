@@ -21,28 +21,35 @@ sys.path.insert(0, str(REPO / "eval"))
 import probe_player_props_coverage as p  # noqa: E402  (get, load_key, SPORT, MARKET)
 
 RAW = REPO / "data" / "odds_props" / "raw" / "scale"
-SNAP = {"2024-25": "2025/5/30", "2025-26": "2026/5/30"}
-REGIONS = "eu,us"
+SNAP = {"2024-25": "2025/5/30", "2025-26": "2026/5/30",
+        "2026-27": None}          # live season: the NEWEST fplcache snapshot on disk
+REGIONS = "eu,us,us2"             # us2 added 2026-08-31: bovada (and rebet) moved there;
+                                  # 3 regions -> 30 credits/fixture on the historical endpoint
 MIN_REMAINING = 1500          # never run the account below this
 TOKENS = {"Man City": "Manchester City", "Man Utd": "Manchester United", "Spurs": "Tottenham",
           "Nott'm Forest": "Nottingham", "Wolves": "Wolverhampton", "Sheffield Utd": "Sheffield",
           "Newcastle": "Newcastle", "West Ham": "West Ham", "Brighton": "Brighton", "Leicester": "Leicester",
           "Ipswich": "Ipswich", "Southampton": "Southampton", "Luton": "Luton", "Burnley": "Burnley",
           "Leeds": "Leeds", "Sunderland": "Sunderland", "Crystal Palace": "Crystal Palace",
+          "Coventry City": "Coventry", "Hull City": "Hull",   # promoted 2026-27
+
           "Aston Villa": "Aston Villa", "Bournemouth": "Bournemouth", "Brentford": "Brentford",
           "Chelsea": "Chelsea", "Everton": "Everton", "Fulham": "Fulham", "Liverpool": "Liverpool",
           "Arsenal": "Arsenal"}
 
 
 def fpl_deadlines(season):
-    snap = sorted(glob.glob(str(REPO / "fplcache" / "cache" / SNAP[season] / "*.json.xz")))[-1]
-    with lzma.open(snap) as f:
+    pat = SNAP[season]
+    snaps = (sorted(glob.glob(str(REPO / "fplcache" / "cache" / pat / "*.json.xz"))) if pat
+             else sorted(glob.glob(str(REPO / "fplcache" / "cache" / "*" / "*" / "*" / "*.json.xz"))))
+    with lzma.open(snaps[-1]) as f:
         return {int(e["id"]): e["deadline_time"] for e in json.load(f)["events"]}
 
 
 def fixtures(season):
-    h = pd.read_parquet(REPO / "data/history/all_seasons_fixed.parquet",
-                        columns=["season", "GW", "fixture", "team", "was_home", "kickoff_time"])
+    sys.path.insert(0, str(REPO / "squad"))
+    from season_stack import load_stack
+    h = load_stack(columns=["season", "GW", "fixture", "team", "was_home", "kickoff_time"])
     h = h[h["season"] == season]
     h["kickoff_time"] = pd.to_datetime(h["kickoff_time"], utc=True)
     out = []

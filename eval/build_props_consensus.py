@@ -10,6 +10,10 @@ import numpy as np
 import pandas as pd
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "squad"))
+from props_feature import PARTICIPATION_BOOKS, START_BOOKS  # noqa: E402  (the void-rule gate)
+_ALLOWED_BOOKS = set(PARTICIPATION_BOOKS) | set(START_BOOKS)
+_excluded_counter = {}
 sys.path.insert(0, str(REPO / "eval"))
 from build_crosswalk import _norm  # noqa: E402
 
@@ -44,12 +48,22 @@ def main():
         man = man[man["event_id"].notna() & (man["books"].astype(str) != "CALL_FAILED")]
         rows, totals, clips, dropped, fallback, book_rows = [], [], 0, [], 0, []
         for r in man.itertuples():
-            f = SCALE / season / f"gw{int(r.gw):02d}_{r.event_id}_euus.json"
+            cand = sorted((SCALE / season).glob(f"gw{int(r.gw):02d}_{r.event_id}_*.json"))
+            f = cand[-1] if cand else SCALE / season / "MISSING"
             if not f.exists():
                 continue
             d = json.loads(f.read_text(encoding="utf-8"))["data"]
             per_book, size, whole_total = {}, {}, {}
             for bk in d["bookmakers"]:
+                # VOID-RULE GATE (2026-08-31): only books with an ESTABLISHED void
+                # rule may enter the consensus -- the conditioning P(appear|start)
+                # depends on it, and the hook asserts unknown books at construction.
+                # Books without a rule (props_feature.EXCLUDED_BOOKS_NO_VOID_RULE)
+                # are dropped HERE, counted, never assumed. No-op for 2024-25 /
+                # 2025-26 raw boards (only the seven known books appear there).
+                if bk["key"] not in _ALLOWED_BOOKS:
+                    _excluded_counter[bk["key"]] = _excluded_counter.get(bk["key"], 0) + 1
+                    continue
                 for mk in bk["markets"]:
                     if mk["key"] != MARKET:
                         continue
@@ -121,8 +135,19 @@ def main():
                .agg(lambda_mkt=("lambda_fixture", "sum"), n_fixtures_priced=("event_id", "nunique"),
                     n_books_min=("n_books", "min"), n_books_mean=("n_books", "mean"), onexbet_any=("onexbet", "max")).reset_index())
         gwf["p_mkt_gw"] = 1.0 - np.exp(-gwf["lambda_mkt"])
-        wf = pd.read_parquet(REPO / "data" / f"walkforward_h6_{tag}.parquet",
-                             columns=["cutoff", "gw", "element", "name", "position", "team", "e_points", "p_start", "e_minutes", "n_fixtures"])
+        wf_p = REPO / f"data/walkforward_h6_{tag}.parquet"
+        if wf_p.exists():
+            wf = pd.read_parquet(wf_p, columns=["cutoff", "gw", "element", "name", "position", "team", "e_points", "p_start", "e_minutes", "n_fixtures"])
+        else:
+            # live season: no canonical frame yet -- n_fixtures derives from the
+            # SAME stack+skeleton the walkforward would read (identical quantity)
+            sys.path.insert(0, str(REPO / "squad"))
+            from season_stack import load_stack
+            _st = load_stack(columns=["season", "element", "GW", "fixture"])
+            _st = _st[_st["season"] == season]
+            wf = (_st.groupby(["element", "GW"], as_index=False)["fixture"].nunique()
+                  .rename(columns={"GW": "gw", "fixture": "n_fixtures"}))
+            wf["cutoff"] = wf["gw"]; wf["horizon_step"] = 0
         own = wf[wf["cutoff"] == wf["gw"]].copy()
         gwf = gwf.merge(own[["gw", "element", "n_fixtures"]], on=["gw", "element"], how="left")
         gwf["partial_double"] = (gwf["n_fixtures"].notna()) & (gwf["n_fixtures_priced"] < gwf["n_fixtures"])
@@ -135,11 +160,16 @@ def main():
         m = own.merge(gwf, on=["gw", "element", "n_fixtures"], how="left")
         m = m[m["gw"].isin(gwf["gw"].unique())]
         m["covered"] = m["p_mkt_gw"].notna() & ~m["partial_double"].eq(True)
-        m["rk"] = m.groupby("gw")["e_points"].rank(ascending=False, method="first")
-        parts = {"likely starters (p_start >= .75)": m["p_start"] >= 0.75,
-                 "uncertain (.25-.75)": (m["p_start"] >= 0.25) & (m["p_start"] < 0.75),
-                 "written off (p_start < .25)": m["p_start"] < 0.25,
-                 f"squad-relevant (top {TOP} e_points in gw)": m["rk"] <= TOP}
+        if "e_points" in own.columns:
+            m["rk"] = m.groupby("gw")["e_points"].rank(ascending=False, method="first")
+            parts = {"likely starters (p_start >= .75)": m["p_start"] >= 0.75,
+                     "uncertain (.25-.75)": (m["p_start"] >= 0.25) & (m["p_start"] < 0.75),
+                     "written off (p_start < .25)": m["p_start"] < 0.25,
+                     f"squad-relevant (top {TOP} e_points in gw)": m["rk"] <= TOP}
+        else:
+            parts = {}
+            print("  live season: no walkforward frame on disk -- partition coverage is the live "
+                  "preflight's job (props_fixture_coverage); partitions skipped here, not silently faked")
         hist = pd.read_parquet(REPO / "data/history/all_seasons_fixed.parquet", columns=["season", "element", "minutes"])
         hist["minutes"] = pd.to_numeric(hist["minutes"], errors="coerce").fillna(0)
         smin = hist[hist["season"] == season].groupby("element")["minutes"].sum()
@@ -200,5 +230,11 @@ def main():
         print(f"\nappended the rebuild section to {log}")
 
 
+def _report_excluded():
+    if _excluded_counter:
+        print(f"void-rule gate: excluded book rows {_excluded_counter} (no established void rule -- see props_feature)")
+
+
 if __name__ == "__main__":
     main()
+    _report_excluded()

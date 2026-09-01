@@ -41,7 +41,19 @@ PROPS_M = 1.396                           # by calibration on the conditioned qu
 PROPS_SPEC = "conditional: w = 0.75, m = 1.396"
 PARTICIPATION_BOOKS = {"draftkings", "betmgm", "bovada",      # verified: void unless the player takes part
                        "fanduel", "onexbet"}                   # ASSIGNED, unverified (P1 could not separate them)
-START_BOOKS = {"betrivers", "mybookieag"}                      # verified: void unless the player starts
+START_BOOKS = {"betrivers", "mybookieag",                      # verified: void unless the player starts
+               # 2026-08-31 panel-drift additions, void rules from the books' OWN published rules:
+               # fanatics -- "a player must start for player proposition bets to be considered
+               #             action" (Fanatics Soccer Betting Guide / house rules)
+               # rebet    -- "if a player was not in the starting lineup, the pick will be
+               #             voided" (rebet.app/sports-prediction-rules)
+               "fanatics", "rebet"}
+# 2026-27 books with NO established void rule -- EXCLUDED at consensus build, never
+# assumed: ballybet, betparx (no published soccer player-prop rule found),
+# espnbet (rules page unreachable), williamhill_us (Caesars soccer section
+# truncated; a basketball-section quote is not a soccer rule). Re-admit any of
+# them only with a quoted published rule.
+EXCLUDED_BOOKS_NO_VOID_RULE = {"ballybet", "betparx", "espnbet", "williamhill_us"}
 SUB_FLOOR = 0.30                                               # assembly: p_play_any = p_start + (1 - p_start) * 0.30
 EPS = 1e-6
 
