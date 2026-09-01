@@ -62,8 +62,9 @@ def _check_levers(levers):
 def _frames(availability, train_seasons, predict_season):
     """The step-0 model's own frames, built once per call: col (labels),
     csx (prediction/feature frame incl. cold-start and starter-history)."""
-    df = pd.read_parquet(mm.BASE + r"\data\history\all_seasons_fixed.parquet")
-    col = mm._prepare(df)
+    from season_stack import load_stack
+    df = load_stack()   # stack + forward skeleton: a LIVE cutoff's prediction rows
+    col = mm._prepare(df)  # are its forward rows (2026-27 refit, 2026-08-31)
     AV = avf.FEATURES if availability else []
     if AV:
         col = avf.attach(col)
@@ -76,6 +77,7 @@ def _frames(availability, train_seasons, predict_season):
     S2 = mm.S1 + ["past60_rate_3", "past60_rate_5", "last_start_minutes"]
     feats = dict(xFP=FP + AV, xS2=S2 + AV, xS1=mm.S1 + AV, xSUBF=mm.SUBF + AV, xSUBRF=mm.SUBRF + AV)
     labels = col[["season", "element", "GW", "starts", "minutes", "minutes_capped"]].copy()
+    labels = labels[labels["starts"].notna()]   # forward-skeleton rows carry no label
     labels["played_60"] = (labels["minutes_capped"] >= 60).astype(int)
     labels["came_on"] = (labels["minutes"] > 0).astype(int)
     return csx, labels, feats

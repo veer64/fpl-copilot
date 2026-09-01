@@ -44,7 +44,14 @@ def _prepare(df):
     """Build the collapsed player-GW frame + all engineered features.
     Pure feature engineering — no training, no season filtering."""
     df = df[df["position"] != "AM"].copy()
-    model_df = df[df["starts"].notna()].copy()
+    # Labeled rows PLUS forward-skeleton rows (minutes NaN is the skeleton's
+    # sentinel): an unplayed gameweek's prediction universe is its forward rows,
+    # which carry no labels by design. Pre-2022 label-less seasons have REAL
+    # minutes, so they stay excluded exactly as before (KNOWN_ISSUES #11) and
+    # every historical frame is bit-identical (the parity suite proves it).
+    # Label consumers guard themselves: sd/bd select starts==1/0 (NaN excluded),
+    # and the p_start fit filters starts.notna() explicitly below.
+    model_df = df[df["starts"].notna() | df["minutes"].isna()].copy()
 
     key = ["season", "element", "GW"]
     model_df = model_df.sort_values(key).reset_index(drop=True)
@@ -259,6 +266,7 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
     xFP, xS2, xS1, xSUBF, xSUBRF = FP + AV, S2 + AV, S1 + AV, SUBF + AV, SUBRF + AV
 
     trc = cs[_train_mask(cs, up_to_gw, train_seasons, predict_season)]
+    trc = trc[trc["starts"].notna()]     # forward-skeleton rows carry no label
     m_ps = lgb.LGBMClassifier(n_estimators=300, learning_rate=0.05, num_leaves=31,
                               random_state=42, verbose=-1).fit(trc[xFP], trc["starts"])
 
