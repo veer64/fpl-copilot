@@ -29,15 +29,20 @@ def test_unmapped_club_fails_loudly():
 
 
 @pytest.mark.skipif(not FIX.exists(), reason="combined fixture file not on disk")
-def test_fixture_universe_reaches_dixon_coles_as_pure_dc():
-    """get_fixtures('2026-27') must return all fixtures with lambda_source='dc'
-    (counted, not silent) since every price column is null."""
+def test_fixture_universe_reaches_dixon_coles_priced_and_counted():
+    """get_fixtures('2026-27'): every fixture priced by the live pull flips
+    lambda_source to 'odds'; every unpriced fixture takes the counted pure-DC
+    fallback -- and BOTH are visible per fixture, never silent. (Until
+    2026-08-31's live pull this asserted all-dc; the pull is the change.)"""
     import dixon_coles as dc
     out = dc.get_fixtures(predict_season="2026-27", cutoff_date="2026-08-21",
                           odds_available_until=None)
     assert len(out) == 380
-    assert (out["lambda_source"] == "dc").all()
-    assert (~out["odds_used"]).all()
+    src = out["lambda_source"].value_counts().to_dict()
+    assert set(src) <= {"dc", "odds", "synthetic"}
+    assert src.get("odds", 0) >= 1, "the live pull priced fixtures but none flipped to market"
+    assert (out.loc[out["lambda_source"] == "odds", "odds_used"]).all()
+    assert (~out.loc[out["lambda_source"] == "dc", "odds_used"]).all()
     assert out["lam_home"].notna().all() and out["p_home_cs"].notna().all()
 
 

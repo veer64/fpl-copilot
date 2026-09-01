@@ -175,7 +175,7 @@ def preflight(season, gw, strict=False, config="baseline", horizon=1):
     hk_all = load_stack(columns=["season", "GW", "kickoff_time", "fixture"])
     hs = hk_all[hk_all["season"] == season]
     if len(hs) == 0:
-        _finding(findings, strict, f"vaastav master has NO rows for {season} ({hist.name})")
+        _finding(findings, strict, f"vaastav master has NO rows for {season} (stack + forward skeleton)")
     elif gw not in set(hs["GW"].astype(int)):
         _finding(findings, strict, f"vaastav master has no GW{gw} rows for {season}")
 
@@ -306,13 +306,16 @@ def preflight(season, gw, strict=False, config="baseline", horizon=1):
                              f"odds rows in the steps-1+ window ({len(fwin)}) < master fixtures ({n_fx}) "
                              f"-- missing fixtures fall out of steps 1-{horizon - 1} entirely")
                 n_unp6 = int(fwin[["B365H", "B365D", "B365A"]].isna().any(axis=1).sum())
-                if len(fwin) and n_unp6 == len(fwin):
-                    _finding(findings, strict,
-                             f"odds PRICES missing for ALL {len(fwin)} fixtures in the steps-1+ window "
-                             f"(GW{target_gws[1]}..GW{last_gw}) -- every steps-1-5 lambda would be pure DC; "
-                             f"live odds pulling is a separate pending job")
-                elif n_unp6:
-                    findings.append(f"note: {n_unp6} steps-1+ fixture(s) without B365 prices -> pure-DC lambdas")
+                if n_unp6:
+                    # NOTE, not strict (corrected 2026-08-31): ODDS_HORIZON_GWS = 0, so
+                    # steps 1+ price at pure DC BY THE PROJECT CONVENTION -- exactly what
+                    # every backtest did even with the whole season priced. Unpriced
+                    # steps-1+ file rows are therefore not a live quality regression;
+                    # only the DEADLINE gameweek's prices reach the model (checked above).
+                    findings.append(
+                        f"note: {n_unp6}/{len(fwin)} steps-1+ window fixture(s) without prices in "
+                        f"the odds file -- inert either way: ODDS_HORIZON_GWS=0 prices step 0 only "
+                        f"(the backtest convention)")
 
     if strict:
         # decision-time only (network): non-strict report mode stays offline

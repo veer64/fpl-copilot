@@ -100,9 +100,19 @@ def test_strict_preflight_passes_for_backtest_season():
 
 
 def test_strict_preflight_rejects_missing_season():
-    """A season with no data (2026-27 today) must raise, not degrade silently."""
+    """A season with no data must raise, not degrade silently. 2026-27 GRADUATED
+    on 2026-08-31 -- master+skeleton, crosswalk, availability, blend and live
+    odds all exist, so a baseline GW3 strict preflight now passes; the pin moves
+    to a genuinely nonexistent season."""
     with pytest.raises(ld.LiveStrictError):
-        ld.preflight("2026-27", 3, strict=True)
+        ld.preflight("2027-28", 3, strict=True)
+
+
+def test_strict_preflight_combined_still_raises_on_open_gaps():
+    """The two remaining 2026-27 gaps are combined-config inputs (props book,
+    hmin refit): strict must still raise there until they close."""
+    with pytest.raises(ld.LiveStrictError):
+        ld.preflight("2026-27", 3, strict=True, config="combined", horizon=6)
 
 
 def test_nonstrict_preflight_reports_instead_of_raising():

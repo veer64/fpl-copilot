@@ -364,7 +364,12 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
                 "cs_blend_w": CS_BLEND_W,
                 "n_teams": nt,
                 "optimizer": "L-BFGS-B on weighted Poisson NLL",
-                "odds_source": "Bet365 (B365H/D/A)",
+                "odds_source": "Bet365 closing (B365H/D/A; football-data archive seasons). "
+                               "2026-27+: the-odds-api uk h2h, de-margined MEDIAN CONSENSUS "
+                               "over a fixed 12-book panel, pre-deadline snapshot -- NOT "
+                               "Bet365, NOT closing; the B365* columns carry it because they "
+                               "are the only price columns the model reads "
+                               "(eval/fetch_live_odds.py provenance has the per-pull detail)",
                 "odds_available_until": str(odds_available_until),
                 "odds_coverage_pct": round(100 * float(usable.mean()), 1),
             },
