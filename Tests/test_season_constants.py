@@ -55,17 +55,20 @@ def test_stack_path_resolves_and_contains_archive():
         "the resolved stack must always contain the frozen archive seasons"
 
 
-def test_dc_source_gate_defaults_to_core_insights():
-    """KNOWN_ISSUES #21 / Logs/dc_source_swap_prereg.md: the DC count source is
-    gated and MUST default to the current source until the swap is adopted in
-    its own commit (which must also season-key _DC_HITS_CACHE). A change here
-    without that adoption commit is a regression."""
+def test_dc_source_adopted_fpl_official():
+    """ADOPTED 2026-08-31 as a JUDGEMENT CALL (the pre-registered test FAILED;
+    the exploratory re-measurement is not a pass -- both logs say so): the DC
+    count source defaults to the native FPL count. core_insights remains a
+    valid gate value so the frozen 2025-26 records stay reproducible."""
     import defensive
-    assert defensive.DC_SOURCE == "core_insights"
+    assert defensive.DC_SOURCE == "fpl_official"
 
 
-def test_dc_seasons_deliberately_held_back():
-    """KNOWN_ISSUES #21: the DC source is unmeasured; DC_SEASONS stays at 2025-26
-    until that pre-registration. This test DOCUMENTS the hold -- when the swap is
-    measured and adopted, update this test alongside the constant."""
-    assert wfs.DC_SEASONS == {"2025-26"}
+def test_dc_seasons_extended_at_adoption():
+    """The #21 hold on these sets was released by the 2026-08-31 adoption (this
+    test's predecessor documented the hold and required updating in the closing
+    commit -- this is that update). Both sets carry 2026-27; the same commit
+    made the official source season-parametric and season-keyed the cache."""
+    import defensive
+    assert wfs.DC_SEASONS == {"2025-26", "2026-27"}
+    assert defensive.DC_RULE_SEASONS == {"2025-26", "2026-27"}

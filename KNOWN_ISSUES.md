@@ -1091,7 +1091,16 @@ selection) read that file so 2296 / 2294 / 2206 do not silently move. *(2026-08-
 
 ## #21 -- the DC term trains on core-insights counts; the FPL API's native defensive_contribution disagrees, one-signed
 
-**Status:** Open discrepancy, recorded 2026-08-31. NOT fixed, NOT swapped. The pre-registered swap
+**Status: CLOSED by ADOPTION, 2026-08-31 — a JUDGEMENT CALL, not a passed pre-registration.**
+`defensive.DC_SOURCE` now defaults to `"fpl_official"`; DC_SEASONS / DC_RULE_SEASONS carry 2026-27;
+the official source is season-parametric and `_DC_HITS_CACHE` is keyed (source, season) — all in one
+commit, as this issue required. Adoption is on CORRECTNESS (FPL awards the points; where the sources
+disagree core-insights is wrong by definition; this issue's original one-signed evidence was a
+goalkeeper artefact — see the sign correction below), made with the failed pre-registration in view
+(`Logs/dc_source_swap_exploratory_log.md`, ADOPTION section). The 2025-26 reference cells built on
+core-insights DC are SUPERSEDED and not yet re-pointed. History below kept verbatim:
+
+The pre-registered swap
 test RAN on 2026-08-31 and **FAILED its bars** (`Logs/dc_source_swap_prereg.md` RESULT section):
 Brier vs FPL-official hits worsened on the DEF family (+0.00205) while MID improved -- the bar
 required both. `defensive.DC_SOURCE` stays `"core_insights"` (gated, test-pinned). NOTE the test

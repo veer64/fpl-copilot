@@ -25,13 +25,20 @@ SEASON = "2025-2026"
 FWD_BASE_RATE = 0.005
 FEATURES = ["roll_dc90_3c", "roll_dc90_5c", "roll_hit_5", "roll_mins_3"]
 
-# COUNT SOURCE (gated, KNOWN_ISSUES #21 / Logs/dc_source_swap_prereg.md).
-#   "core_insights" -- the DEFAULT and the current behaviour, bit-identical.
-#   "fpl_official"  -- the pre-registered test path: the native FPL
-#                      defensive_contribution count from the season stack.
-# The default MUST stay "core_insights" until the swap is adopted in its own
-# commit (which must also season-key _DC_HITS_CACHE). Tests pin the default.
-DC_SOURCE = "core_insights"
+# COUNT SOURCE (gated). ADOPTED 2026-08-31: default "fpl_official" -- a
+# JUDGEMENT CALL, not a passed pre-registration. The pre-registered test of
+# this swap FAILED on unsliced Brier (Logs/dc_source_swap_prereg.md, commits
+# cd199a3/8e653f2/24ec9c0); the exploratory re-measurement changed the
+# endpoint after that fail and is not citable as a pass
+# (Logs/dc_source_swap_exploratory_log.md). Adoption is on CORRECTNESS: FPL
+# awards the points, and where the sources disagree core-insights is wrong by
+# definition (the real discrepancy is FPL counting MORE tackles on 17.3% of
+# matches; #21's original one-signed evidence was a goalkeeper artefact).
+#   "fpl_official"  -- the native FPL defensive_contribution count from the
+#                      season stack (the awarded count itself).
+#   "core_insights" -- the pre-adoption source, retained so the frozen
+#                      2025-26 records stay reproducible bit-for-bit.
+DC_SOURCE = "fpl_official"
 
 MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
@@ -62,17 +69,18 @@ def _raw_rows_core():
     return played[played["season"] == SEASON]
 
 
-def _raw_rows_official():
-    """The pre-registered alternative (Logs/dc_source_swap_prereg.md): the NATIVE
+def _raw_rows_official(season="2025-26"):
+    """The ADOPTED source (2026-08-31, judgement call -- see DC_SOURCE): the NATIVE
     FPL defensive_contribution count from the season stack -- the awarded count
     itself, not a reconstruction, because FPL being definitionally right is the
     premise. Per (player, GW, fixture) rows; element == core player_id; same
     thresholds, GKs excluded exactly as the core pipeline excludes them (the
-    model never predicts goalkeepers)."""
+    model never predicts goalkeepers). Season-parametric: the writers' season
+    format ("2025-26", "2026-27")."""
     from season_stack import stack_path
     df = pd.read_parquet(stack_path(), columns=["season", "element", "GW", "fixture",
                                                 "position", "minutes", "defensive_contribution"])
-    d = df[df["season"] == "2025-26"].copy()
+    d = df[df["season"] == season].copy()
     d["position"] = d["position"].map({"DEF": "Defender", "MID": "Midfielder", "FWD": "Forward"})
     d = d[d["position"].notna()]                       # GK out, as in the core pipeline
     d = d.rename(columns={"element": "player_id", "GW": "gw", "minutes": "minutes_played"})
@@ -82,13 +90,17 @@ def _raw_rows_official():
     return d[d["minutes_played"] >= 1].copy()
 
 
-def _build_features():
+def _build_features(season="2025-26"):
     """Raw per-match rows from the gated source, then the SHARED target +
-    rolling-feature construction (identical code either way)."""
+    rolling-feature construction (identical code either way). `season` is in
+    the writers' format; the core path serves 2025-26 only (its files cover
+    nothing else -- defensive.SEASON), the official path any stack season."""
     if DC_SOURCE == "core_insights":
+        assert season == "2025-26", \
+            f"core_insights DC features exist for 2025-26 only, not {season!r} (Bug #7 / file coverage)"
         played = _raw_rows_core()
     elif DC_SOURCE == "fpl_official":
-        played = _raw_rows_official()
+        played = _raw_rows_official(season)
     else:
         raise ValueError(f"unknown DC_SOURCE {DC_SOURCE!r}")
 
@@ -222,14 +234,21 @@ def _eval_metrics(dc_out):
     return m
 
 
-def get_dc_2526(recency_weight=False, log_mlflow=False):
+def get_dc_2526(recency_weight=False, log_mlflow=False, season="2025-26"):
     """Run the walk-forward over every gameweek and return the full-season DC table.
     Returns DataFrame[season, player_id, gw, position, p_dc_hit, dc_hit].
-    log_mlflow=True logs params/metrics/per-gameweek table as ONE MLflow run
-    (default off, so assembly.py stays unchanged and fast)."""
-    d = _build_features()
+    (Name kept for its call sites; season-parametric since the 2026-08-31
+    adoption.) log_mlflow=True logs params/metrics/per-gameweek table as ONE
+    MLflow run (default off, so assembly.py stays unchanged and fast)."""
+    d = _build_features(season)
     preds = [_predict_gw(d, g, recency_weight) for g in sorted(d["gw"].unique())]
     preds = [p for p in preds if p is not None]      # drop early gameweeks with no features
+    if not preds:
+        # A live season with no feature-bearing gameweek yet (rolling features
+        # are shift(1)-based, so GW1 alone predicts nothing): the honest cold
+        # start is the EMPTY typed frame -- assembly then prices DC at the
+        # position base rates, and live postflight reports it.
+        return pd.DataFrame(columns=["season", "player_id", "gw", "position", "p_dc_hit", "dc_hit"])
     dc_out = pd.concat(preds, ignore_index=True)
 
     if log_mlflow:
@@ -268,7 +287,9 @@ def get_dc_2526(recency_weight=False, log_mlflow=False):
 
 # Seasons the defensive-contribution rule exists for (2025-26 onward). The
 # writers' season format ("2025-26"), not this module's SEASON constant.
-DC_RULE_SEASONS = {"2025-26"}
+# 2026-27 added at the 2026-08-31 adoption -- the rule is in force this
+# season; leaving it out zeroed every defender's DC term.
+DC_RULE_SEASONS = {"2025-26", "2026-27"}
 _DC_HITS_CACHE = {}
 
 
@@ -286,11 +307,14 @@ def get_dc_hits(season, cutoff_gw, target_gws):
     cols = ["player_id", "position", "p_dc_hit", "gw"]
     if season not in DC_RULE_SEASONS:
         return pd.DataFrame(columns=cols)
-    # Cache keyed by source: in-process hygiene for the pre-registered swap test
-    # ONLY -- the season-less key defect (#21) remains an adoption-time fix.
-    if DC_SOURCE not in _DC_HITS_CACHE:
-        _DC_HITS_CACHE[DC_SOURCE] = get_dc_2526()
-    at_k = _DC_HITS_CACHE[DC_SOURCE]
+    # Cache keyed by (source, SEASON) -- the season-less "full" key defect
+    # flagged in #21 and both swap logs, fixed at the 2026-08-31 adoption as
+    # mandated: widening DC_RULE_SEASONS without this would have served last
+    # season's probabilities to a 2026-27 build.
+    ck = (DC_SOURCE, season)
+    if ck not in _DC_HITS_CACHE:
+        _DC_HITS_CACHE[ck] = get_dc_2526(season=season)
+    at_k = _DC_HITS_CACHE[ck]
     at_k = at_k[at_k["gw"] == cutoff_gw][["player_id", "position", "p_dc_hit"]]
     if len(at_k) == 0:
         return pd.DataFrame(columns=cols)

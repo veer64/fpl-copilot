@@ -130,3 +130,73 @@ With the gate at its default (`core_insights`), the three-cutoff step-0 parity
 Per the task: everything above is measurement. The decision belongs to the
 project owner and will be recorded as a judgement call made with the failed
 pre-registration in view.
+
+
+---
+
+# ADOPTION — 2026-08-31: FPL-official DC source. A JUDGEMENT CALL, not a passed pre-registration.
+
+The pre-registered test of this swap FAILED on unsliced Brier
+(Logs/dc_source_swap_prereg.md, commits cd199a3 / 8e653f2 / 24ec9c0). This exploratory
+re-measurement changed the endpoint after that fail and is therefore not citable as a
+passed pre-registration. Adoption is on CORRECTNESS, not performance:
+
+- FPL awards the points. Where the sources disagree, core-insights is wrong by definition.
+- The real discrepancy is FPL counting MORE tackles than core-insights on 17.3% of
+  matches, mean 0.33, up to 41 across a season. CBI matches 97.3%, recoveries 98.5%.
+- #21's original evidence was an artefact: every disagreeing row in both spot checks was
+  a goalkeeper, compared against FPL's definitional zero using the outfield formula.
+  All 7/4 threshold flips were GKs the model never predicts.
+- It reaches decisions: 163 of 231 label flips and 222 of 271 prediction flips land on
+  the decision partitions.
+
+## Evidence AGAINST, unsoftened
+
+- Brier is mixed. DEF worse on all-players (+0.0020) and likely-starters (+0.0005),
+  better on top-30 (-0.0012); MID better everywhere except top-30.
+- Combined top-30 rank falls -0.0379 — the sharpest negative in the table, on the
+  partition that matters most, for the config intended for production.
+- One season only. The DC rule began 2025-26, so no earlier season can test it. One draw.
+- Season totals are illustration and were not cited: baseline -5, combined +23,
+  against paired sd ~85.
+
+## What changed (one commit)
+
+DC_SOURCE default core_insights -> fpl_official (pin test updated); DC_SEASONS and
+DC_RULE_SEASONS += 2026-27 (hold test updated per its own note); the official source is
+season-parametric (defensive.SEASON's hard filter no longer binds it; the core path
+asserts its 2025-26-only coverage); _DC_HITS_CACHE keyed (source, season) — the
+season-less-key defect both logs flagged, fixed together as mandated; an empty-
+predictions guard for a live season with no feature-bearing gameweek yet. The
+record-parity tests pin core_insights explicitly: their guarantee is that the gate
+reproduces the frozen artefacts bit-for-bit, and it does (suite 212).
+
+## Verification
+
+- **Machinery**: live_deadline vs a separately-invoked harness build under fpl_official,
+  both configs, GW5/20/33: BIT-IDENTICAL in all six cells. Same code, same answer —
+  unaffected by source, as designed.
+- **Quantified move vs the frozen records** (identical per-row across configs at step 0,
+  as established): GW5 243/741 rows, mean |d e_points| 0.0146, max 0.540; GW20 235/790,
+  0.0205, 0.498; GW33 251/829, 0.0417, 1.396. Season totals (illustration): baseline
+  2160 -> 2155 armlog, combined 2227 -> 2250.
+- **Strict preflight, 2026-27 GW1 horizon-6 combined — DC no longer appears.** Four
+  findings remain: props book missing, hmin refit missing, odds PRICES for all
+  fixtures, horizon skeleton (master GW2-6).
+- **DC term for 2026-27**: currently the honest cold start — 0 predicted rows (rolling
+  features are shift(1)-based; GW1 alone predicts nothing), so assembly prices DC at
+  position base rates and live postflight reports it; predictions begin as played
+  gameweeks accrue. 2025-26 under the official source for the eyeball: 10,234 rows,
+  p_dc_hit mean 0.132, p50 0.070, p90 0.369, p99 0.576, max 0.840; official hit rates
+  DEF 0.212 / MID 0.113 / FWD 0.007.
+
+## Reference cells SUPERSEDED (not re-pointed here)
+
+The cells of record (2425 / 2335 / 2266, horizon arm on gap0) were built on
+core-insights DC. This adoption is a model change, so the 2025-26 figures are
+superseded — precisely: 2425 and 2335 are DC-INERT (the rule did not exist in
+2023-24/2024-25; those frames carry no DC term and do not move), while **2266 (and the
+combined 2264 cell) are stale**. Re-pointing requires: rebuilding the 2025-26 canonical
+and arm frames under fpl_official, re-running the armlogs on the record conventions,
+and updating EXPECT_REFERENCE_CHIP / EXPECT_ARMS_CHIP with the index regenerated and
+its drift asserts moved — deliberately NOT done in this commit.
