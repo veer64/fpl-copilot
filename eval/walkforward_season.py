@@ -110,9 +110,9 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
             "module docstring.")
     dc_enabled = season in DC_SEASONS
 
-    from season_stack import stack_path
-    df = pd.read_parquet(stack_path())
-    cw = crosswalk_for(season)
+    from season_stack import load_stack
+    df = load_stack()          # stack + forward skeleton: a live build's calendar,
+    cw = crosswalk_for(season)  # minutes universe and row universe need unplayed gws
 
     v = df[df["season"] == season].copy()
     v["kick"] = pd.to_datetime(v["kickoff_time"])

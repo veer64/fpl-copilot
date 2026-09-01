@@ -244,8 +244,9 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
     availability = AVAILABILITY_DEFAULT if availability is None else availability
     AV = avf.FEATURES if availability else []
 
-    from season_stack import stack_path
-    df = pd.read_parquet(stack_path())
+    from season_stack import load_stack
+    df = load_stack()   # stack + forward skeleton: the prediction universe for an
+                        # unplayed gameweek is its forward rows (measurement NaN)
     col = _prepare(df)
     if AV:
         col = avf.attach(col)

@@ -122,8 +122,8 @@ def props_fixture_coverage(season, gw):
     fx = pd.read_parquet(REPO / "data" / "odds_props" / f"props_consensus_fixture_{season}.parquet",
                          columns=["gw", "event_id"])
     priced = int(fx.loc[fx["gw"] == gw, "event_id"].nunique())
-    from season_stack import stack_path
-    h = pd.read_parquet(stack_path(), columns=["season", "GW", "fixture"])
+    from season_stack import load_stack
+    h = load_stack(columns=["season", "GW", "fixture"])
     total = int(h[(h["season"] == season) & (h["GW"] == gw)]["fixture"].nunique())
     return priced, total
 
@@ -168,12 +168,12 @@ def preflight(season, gw, strict=False, config="baseline", horizon=1):
                          f"hmin refit file has no rows for cutoff GW{gw} -- every steps-1-5 row would "
                          f"silently keep the stale step-0 copy")
 
-    # the season stack: the skeleton, the minutes frame and prices all come from it
-    # (season_stack.stack_path resolves the archive or the *_with_* extension)
-    from season_stack import stack_path
-    hist = stack_path()
-    h = pd.read_parquet(hist, columns=["season", "GW"])
-    hs = h[h["season"] == season]
+    # the season stack: the skeleton, the minutes frame and prices all come from it.
+    # load_stack = archive/extension PLUS the forward skeleton, exactly what the
+    # build itself sees -- so gameweek-coverage checks here mirror reality.
+    from season_stack import load_stack
+    hk_all = load_stack(columns=["season", "GW", "kickoff_time", "fixture"])
+    hs = hk_all[hk_all["season"] == season]
     if len(hs) == 0:
         _finding(findings, strict, f"vaastav master has NO rows for {season} ({hist.name})")
     elif gw not in set(hs["GW"].astype(int)):
@@ -249,8 +249,7 @@ def preflight(season, gw, strict=False, config="baseline", horizon=1):
                  f"odds_all_seasons has NO rows for {season} -- there is no fixture universe; "
                  f"get_fixtures returns empty and the assembly fixture join fails")
     elif len(hs):
-        hk = pd.read_parquet(hist, columns=["season", "GW", "kickoff_time", "fixture"])
-        hk = hk[(hk["season"] == season) & (hk["GW"] == gw)]
+        hk = hs[hs["GW"] == gw]
         n_fixtures = hk["fixture"].nunique()
         k0 = pd.to_datetime(hk["kickoff_time"]).min().date()
         k1 = pd.to_datetime(hk["kickoff_time"]).max().date()
@@ -278,25 +277,23 @@ def preflight(season, gw, strict=False, config="baseline", horizon=1):
 
     if horizon > 1:
         # THE HORIZON SKELETON. walk_forward and the arm pipeline both derive targets
-        # from the master's own gameweeks (targets = [g for g in all_gws if k <= g < k+H]),
-        # so a master truncated at the last PLAYED gameweek silently SHORTENS the horizon
-        # -- no error, just fewer steps. Live 2026-27 hits exactly this: the FPL-API
-        # master gains a gameweek only after it is played, and no current ingester builds
-        # future-gameweek skeleton rows. (A genuinely blank gameweek would also be
-        # flagged here; none exists in the stored seasons.)
+        # from the (stack + forward skeleton) gameweeks, so a window not covered by
+        # played rows OR forward rows silently SHORTENS the horizon -- no error, just
+        # fewer steps. eval/build_forward_skeleton.py supplies the forward rows; this
+        # finding fires when the skeleton is absent or stale for the window. (A
+        # genuinely blank gameweek would also be flagged here.)
         have_gws = set(hs["GW"].astype(int)) if len(hs) else set()
         missing = [g for g in target_gws if g not in have_gws]
         if missing:
             _finding(findings, strict,
-                     f"horizon-{horizon} build: master has NO rows for target gameweek(s) {missing} -- "
-                     f"targets derive from the master, so those steps would be SILENTLY DROPPED "
+                     f"horizon-{horizon} build: no master or forward-skeleton rows for target "
+                     f"gameweek(s) {missing} -- those steps would be SILENTLY DROPPED "
                      f"(the {horizon}-step frame quietly becomes {horizon - len(missing)}-step); "
-                     f"no current ingester builds future-gameweek skeleton rows")
+                     f"build/refresh the skeleton: uv run python eval/build_forward_skeleton.py")
         elif len(os_):
             # odds fixture rows + prices across the FUTURE part of the horizon window
             # (the deadline gameweek itself is checked above)
-            hk6 = pd.read_parquet(hist, columns=["season", "GW", "kickoff_time", "fixture"])
-            hk6 = hk6[(hk6["season"] == season) & (hk6["GW"].astype(int).isin(target_gws[1:]))]
+            hk6 = hs[hs["GW"].astype(int).isin(target_gws[1:])]
             if len(hk6):
                 w0 = pd.to_datetime(hk6["kickoff_time"]).min().date()
                 w1 = pd.to_datetime(hk6["kickoff_time"]).max().date()
@@ -316,7 +313,68 @@ def preflight(season, gw, strict=False, config="baseline", horizon=1):
                              f"live odds pulling is a separate pending job")
                 elif n_unp6:
                     findings.append(f"note: {n_unp6} steps-1+ fixture(s) without B365 prices -> pure-DC lambdas")
+
+    if strict:
+        # decision-time only (network): non-strict report mode stays offline
+        _fixture_calendar_check(findings, strict, season, target_gws)
     return findings
+
+
+def _pull_fixtures():
+    """One fixtures/ pull (id, event, kickoff_time). Isolated so tests monkeypatch it."""
+    import json as _json
+    import urllib.request as _rq
+    req = _rq.Request("https://fantasy.premierleague.com/api/fixtures/",
+                      headers={"User-Agent": "Mozilla/5.0 (fpl-copilot live preflight)"})
+    with _rq.urlopen(req, timeout=30) as r:
+        return _json.loads(r.read().decode("utf-8"))
+
+
+def _fixture_calendar_check(findings, strict, season, target_gws):
+    """#14-class guard (strict, decision time): a fixture moving between frame
+    build and deadline shifts match_date and silently drops its Dixon-Coles
+    join. Re-pull fixtures/ and compare (fixture id, event, kickoff_time)
+    against the calendar snapshot the forward skeleton was built from; any
+    mismatch touching the target gameweeks raises."""
+    import json as _json
+    from season_stack import forward_path
+    fp = forward_path()
+    if fp is None:
+        return
+    prov_p = fp.with_suffix(".provenance.json")
+    if not prov_p.exists():
+        _finding(findings, strict, f"forward skeleton {fp.name} has no provenance sidecar -- "
+                                   f"the calendar snapshot for the re-pull check is missing")
+        return
+    prov = _json.loads(prov_p.read_text(encoding="utf-8"))
+    if prov.get("season") != season or not set(target_gws) & set(prov.get("gws_covered", [])):
+        return
+    try:
+        fresh = _pull_fixtures()
+    except Exception as e:  # noqa: BLE001 -- offline at decision time IS the finding
+        _finding(findings, strict,
+                 f"could not re-pull fixtures/ to verify the calendar at decision time ({e}) -- "
+                 f"a fixture moved since the skeleton build would silently drop its DC join")
+        return
+    cal = prov["calendar"]
+    tset = set(int(g) for g in target_gws)
+    moved = []
+    for f in fresh:
+        old = cal.get(str(f["id"]))
+        if old is None:
+            if f.get("event") in tset:
+                moved.append((int(f["id"]), "NEW fixture not in the snapshot", [f.get("event"), f.get("kickoff_time")]))
+            continue
+        if [f.get("event"), f.get("kickoff_time")] != old and (old[0] in tset or f.get("event") in tset):
+            moved.append((int(f["id"]), old, [f.get("event"), f.get("kickoff_time")]))
+    if moved:
+        _finding(findings, strict,
+                 f"fixture calendar MOVED since the skeleton was built: {moved[:4]}"
+                 f"{' (+more)' if len(moved) > 4 else ''} -- rebuild the skeleton "
+                 f"(eval/build_forward_skeleton.py) before this deadline; a moved kickoff shifts "
+                 f"match_date and silently drops the Dixon-Coles join (the #14 class)")
+    else:
+        findings.append("note: fixture-calendar re-pull matches the skeleton snapshot on the target gameweeks")
 
 
 def postflight(frame, season, gw, strict=False, horizon=1):
@@ -406,9 +464,9 @@ def build_deadline_frame(season, gw, strict=False, verbose=False, config="baseli
     else:
         import props_feature
         import walkforward_arms as arms_mod
-        from season_stack import stack_path
+        from season_stack import load_stack
         k = int(gw)
-        df = pd.read_parquet(stack_path())
+        df = load_stack()          # stack + forward skeleton (matches walk_forward's read)
         cw = wfs.crosswalk_for(season)
         tr = wfs.train_seasons_for(season)
         dc_enabled = season in wfs.DC_SEASONS

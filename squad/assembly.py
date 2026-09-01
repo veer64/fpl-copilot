@@ -589,7 +589,13 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
 
     # Team penalty rate: expected pens per match for each team-season
     # Compute from the full season data: realized penalties / (38 matches or actual gameweek count)
-    team_pen_rate = (v_full.groupby(["season", "team"])
+    # PLAYED gameweeks only in the denominator: forward-skeleton rows (synthetic
+    # future player-fixtures, minutes NaN) would otherwise inflate gw_count -- a
+    # live 2026-27 build with the full calendar present would divide one played
+    # gameweek's pens by 38. Historical rows always carry minutes, so complete
+    # seasons are bit-identical (the parity suite proves it).
+    _played = v_full[v_full["minutes"].notna()]
+    team_pen_rate = (_played.groupby(["season", "team"])
                      .agg(total_pens=("penalties_missed", "sum"),
                           gw_count=("gw", "nunique"))
                      .reset_index())
