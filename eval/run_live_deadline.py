@@ -1,0 +1,288 @@
+# run_live_deadline.py -- the unattended per-deadline runner (first used GW3,
+# 2026-09-04). Runs the runbook's deadline-day refreshes IN ORDER, then the
+# strict build for BOTH configs, then the free-pick solve, and writes ONE
+# status file a human can read from a phone:
+#
+#     data/live/GW{gw}_BUILD_STATUS.txt   (first line: SUCCESS or FAILED)
+#     data/live/GW{gw}_BUILD_RUN.log      (full step output, nothing swallowed)
+#
+# FAILURE CONTRACT (the reason this file exists):
+#   * every subprocess exit code is checked -- a non-zero code FAILS the run
+#     and stops it (the `| grep -v` exit-code swallow of 2026-08-31 is the
+#     recorded failure this guards against; no pipes are used at all);
+#   * a strict preflight raise (LiveStrictError) STOPS the run -- no build,
+#     no workaround; the finding text goes in the status file;
+#   * ANY exception still writes a FAILED status file with the traceback.
+#
+# No fetch_fpl_history and no skeleton rebuild here: the deadline gameweek has
+# not been played, so there is no ingest -- and the skeleton collision assert
+# only concerns a skeleton left stale AFTER an ingest. The skeleton is
+# untouched on deadline day by design.
+#
+# The solve is the production opening convention: a FREE-PICK fifteen via the
+# single-gameweek MIP (OPENING_HORIZON gates are off / not adopted). There is
+# no tracked live squad state yet, so there are no transfers to price; the
+# status file says so explicitly rather than inventing a state.
+#
+# Usage:  .venv\Scripts\python.exe eval\run_live_deadline.py --season 2026-27 --gw 3
+
+import argparse
+import io
+import re
+import subprocess
+import sys
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+PY = str(REPO / ".venv" / "Scripts" / "python.exe")
+sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "squad"))
+
+
+def utc_now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+
+
+class Runner:
+    def __init__(self, season, gw):
+        self.season, self.gw = season, gw
+        live = REPO / "data" / "live"
+        live.mkdir(parents=True, exist_ok=True)
+        self.status_path = live / f"GW{gw}_BUILD_STATUS.txt"
+        self.log_path = live / f"GW{gw}_BUILD_RUN.log"
+        self.log_f = self.log_path.open("w", encoding="utf-8", errors="replace")
+        self.sections = []          # (title, text) blocks for the status file
+        self.step_outputs = {}      # step name -> captured output
+        self.failed = None          # first failure line, if any
+
+    def log(self, text):
+        self.log_f.write(text + "\n")
+        self.log_f.flush()
+
+    def section(self, title, text):
+        self.sections.append((title, text))
+
+    def run_step(self, name, args):
+        """One CLI step. Output captured to the run log; exit code is law."""
+        self.log(f"\n===== {name} @ {utc_now()} =====")
+        r = subprocess.run([PY] + args, cwd=str(REPO),
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=1200)
+        out = r.stdout or ""
+        self.log(out)
+        self.log(f"===== {name} exit code {r.returncode} =====")
+        self.step_outputs[name] = out
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"step '{name}' exited {r.returncode}. Last output:\n{out[-1500:]}")
+        return out
+
+    def write_status(self):
+        first = "FAILED" if self.failed else "SUCCESS"
+        buf = io.StringIO()
+        buf.write(f"{first}\n")
+        buf.write(f"GW{self.gw} {self.season} deadline build -- written {utc_now()}\n")
+        if self.failed:
+            buf.write(f"\nFAILURE:\n{self.failed}\n")
+        for title, text in self.sections:
+            buf.write(f"\n== {title} ==\n{text}\n")
+        buf.write(f"\nFull step output: {self.log_path.name}\n")
+        self.status_path.write_text(buf.getvalue(), encoding="utf-8")
+        print(f"status -> {self.status_path}")
+
+
+def team_block(team, availability):
+    """Format a solved fifteen for the status file, with sanity flags."""
+    av = availability  # element -> (status, chance, news)
+    lines = []
+    starters = team[team["role"] != "bench"]
+    bench = team[team["role"] == "bench"]
+    order = {"GKP": 0, "DEF": 1, "MID": 2, "FWD": 3}
+    for label, part in (("XI", starters), ("BENCH (in order)", bench)):
+        lines.append(f"{label}:")
+        rows = part if label == "XI" else part  # bench already ordered by assign_bench_order
+        for _, r in rows.iterrows():
+            tag = {"CAPTAIN": " (C)", "VICE": " (V)"}.get(r["role"], "")
+            st, ch, news = av.get(int(r["element"]), ("?", None, ""))
+            flag = ""
+            if st not in ("a", "?"):
+                flag = f"  [FLAG status={st}" + (f" chance={ch}" if ch is not None else "") + \
+                       (f" news={news[:60]}" if news else "") + "]"
+            lines.append(f"  {r['name']:24s} {r['position']:3s} {r['team']:14.14s} "
+                         f"{r['value']/10:5.1f}  e_pts {r['e_points']:.2f}{tag}{flag}")
+    cost = team["value"].sum() / 10
+    lines.append(f"squad cost {cost:.1f} / 100.0 | predicted XI+C points "
+                 f"{starters['e_points'].sum() + team.loc[team['role'] == 'CAPTAIN', 'e_points'].iloc[0]:.2f}")
+    return "\n".join(lines)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--season", required=True)
+    ap.add_argument("--gw", type=int, required=True)
+    a = ap.parse_args()
+    R = Runner(a.season, a.gw)
+    try:
+        run(R, a.season, a.gw)
+    except Exception:
+        if R.failed is None:
+            R.failed = traceback.format_exc()[-3000:]
+    finally:
+        R.write_status()
+    sys.exit(1 if R.failed else 0)
+
+
+def run(R, season, gw):
+    import pandas as pd
+
+    # ---- 1. deadline-day refreshes, runbook order (no ingest, no skeleton) ----
+    try:
+        R.run_step("merge_live_availability",
+                   ["eval/merge_live_availability.py", "--season", season])
+        odds_out = R.run_step("fetch_live_odds",
+                              ["eval/fetch_live_odds.py", "--season", season])
+        R.run_step("pull_live_props",
+                   ["eval/pull_live_props.py", "--season", season, "--gw", str(gw)])
+        R.run_step("build_props_crosswalk", ["eval/build_props_crosswalk.py"])
+        R.run_step("build_props_consensus",
+                   ["eval/build_props_consensus.py", "--seasons", season])
+        R.run_step("run_horizon_minutes (skip-if-exists)",
+                   ["eval/run_horizon_minutes.py", "--season", season,
+                    "--levers", "refit", "--cutoffs", str(gw)])
+    except RuntimeError as e:
+        R.failed = str(e)
+        return
+
+    # ---- 2. the named check: Jackson's props mapping ----
+    tagged = season  # csv naming uses the dashed season
+    cw = pd.read_csv(REPO / "data" / "odds_props" / f"props_crosswalk_{tagged}.csv")
+    jk = cw[(cw["gw"] == gw) & cw["key"].str.contains("jackson", na=False)]
+    if len(jk) == 0:
+        jackson = ("NOT ON THE BOARD: no 'jackson' key on any GW%d board -- his props "
+                   "cannot reach the model this gameweek (positional/model paths only). "
+                   "NOT a build blocker, but the Cherki-class risk stands." % gw)
+    else:
+        r0 = jk.iloc[0]
+        ok = pd.notna(r0["element"]) and r0["match_type"] == "exact"
+        jackson = (f"key='{r0['book_name']}' fixture='{r0['fixture']}' -> element "
+                   f"{r0['element']} match_type={r0['match_type']} score={r0['score']:.0f}"
+                   + ("  [OK]" if ok else "  [** FAILED TO EXACT-MATCH -- Cherki class, "
+                                          "investigate before trusting his rows **]"))
+    R.section("JACKSON PROPS MAPPING", jackson)
+
+    # ---- 3. strict builds, combined first; a raise STOPS the run ----
+    import live_deadline as ld
+    frames = {}
+    for config in ("combined", "baseline"):
+        try:
+            frame, findings = ld.build_deadline_frame(
+                season, gw, strict=True, config=config, horizon=6)
+            frames[config] = frame
+            note = "\n".join(f"  - {f}" for f in findings) if findings else "  (no findings)"
+            R.section(f"STRICT BUILD {config.upper()}",
+                      f"PASSED, {len(frame)} rows. Findings (notes):\n{note}")
+        except ld.LiveStrictError as e:
+            R.failed = (f"STRICT PREFLIGHT RAISED for config={config} -- stopping, "
+                        f"not building, per the failure contract:\n{e}")
+            R.section(f"STRICT BUILD {config.upper()}", f"RAISED:\n{e}")
+            return
+    R.log("both strict builds passed")
+
+    # ---- 4. coverage + credits (parsed from this run's own step output) ----
+    m = re.search(r"(\d+)/(\d+) events priced.*credits remaining (\d+)", odds_out, re.S)
+    odds_line = (f"h2h events priced {m.group(1)}/{m.group(2)}, credits remaining {m.group(3)}"
+                 if m else "could not parse fetch_live_odds output -- see run log")
+    priced, total = ld.props_fixture_coverage(season, gw)
+    props_out = R.step_outputs.get("pull_live_props", "")
+    mc = re.findall(r"credits", props_out)
+    R.section("COVERAGE & CREDITS",
+              f"props: {priced}/{total} GW{gw} fixtures have a consensus board\n"
+              f"odds:  {odds_line}\n"
+              f"props pull output tail: {props_out.strip()[-400:] if props_out else 'n/a'}")
+
+    # ---- 5. solve both configs (free pick -- no tracked squad state) ----
+    import simulator as sim
+    from optimize import optimize_squad
+    import pulp
+    hist = pd.read_parquet(REPO / "data" / "history" /
+                           f"fpl_api_{season.replace('-', '_')}.parquet",
+                           columns=["season", "element", "round", "value"])
+    skel = pd.read_parquet(REPO / "data" / "history" /
+                           f"forward_skeleton_{season.replace('-', '_')}.parquet",
+                           columns=["season", "element", "round", "value"])
+    tmp_dir = REPO / "data" / "live"
+    tmp_hist = tmp_dir / f"_tmp_prices_{season.replace('-', '_')}.parquet"
+    pd.concat([hist, skel], ignore_index=True).to_parquet(tmp_hist, index=False)
+
+    # availability lookup for sanity flags (the deadline gameweek's as-of view)
+    av = pd.read_parquet(REPO / "data" / f"availability_{season[2:4]}{season[5:7]}.parquet")
+    av = av[av["gw"] == gw]
+    avmap = {int(r["element"]): (r.get("asof_status"), r.get("asof_chance_of_playing_this_round"),
+                                 str(r.get("asof_news") or ""))
+             for _, r in av.iterrows()}
+
+    teams = {}
+    for config, frame in frames.items():
+        fp = tmp_dir / f"_tmp_frame_{config}.parquet"
+        f2 = frame.copy()
+        for c in ("actual_points", "minutes"):
+            if c not in f2.columns:
+                f2[c] = float("nan")
+        f2.to_parquet(fp, index=False)
+        df = sim.load_season(walkforward_path=str(fp), history_path=str(tmp_hist),
+                             horizon_aware=True, season=season)
+        pool = sim.gw_slice(df, gw, cutoff=gw)
+        prob, sol = optimize_squad(pool)
+        if pulp.LpStatus[prob.status] != "Optimal":
+            raise RuntimeError(f"{config} solve status {pulp.LpStatus[prob.status]}")
+        team = sim.solution_to_squad(pool, sol)
+        teams[config] = team
+        R.section(f"SQUAD -- {config.upper()}"
+                  + (" (production)" if config == "combined" else " (shadow)"),
+                  team_block(team, avmap)
+                  + "\nTransfers: none possible -- no tracked live squad state; this is "
+                    "the free-pick fifteen (opening convention, single-gw objective).")
+
+    # ---- 6. where the configs disagree ----
+    tc, tb = teams["combined"], teams["baseline"]
+    s_c, s_b = set(tc["element"]), set(tb["element"])
+    xi_c = set(tc.loc[tc["role"] != "bench", "element"])
+    xi_b = set(tb.loc[tb["role"] != "bench", "element"])
+    cap = {k: t.loc[t["role"] == "CAPTAIN", "name"].iloc[0] for k, t in teams.items()}
+    vice = {k: t.loc[t["role"] == "VICE", "name"].iloc[0] for k, t in teams.items()}
+    name_of = dict(zip(pd.concat([tc, tb])["element"], pd.concat([tc, tb])["name"]))
+    only_c = sorted(name_of[e] for e in s_c - s_b)
+    only_b = sorted(name_of[e] for e in s_b - s_c)
+    xi_only_c = sorted(name_of[e] for e in xi_c - xi_b)
+    xi_only_b = sorted(name_of[e] for e in xi_b - xi_c)
+    R.section("CONFIG DISAGREEMENT (combined vs baseline)",
+              f"fifteen: {len(s_c & s_b)}/15 shared\n"
+              f"  only combined: {only_c or 'none'}\n"
+              f"  only baseline: {only_b or 'none'}\n"
+              f"XI: {len(xi_c & xi_b)}/11 shared\n"
+              f"  XI only combined: {xi_only_c or 'none'}\n"
+              f"  XI only baseline: {xi_only_b or 'none'}\n"
+              f"captain: combined={cap['combined']} baseline={cap['baseline']}"
+              f"{'  [SAME]' if cap['combined'] == cap['baseline'] else '  [DIFFER]'}\n"
+              f"vice: combined={vice['combined']} baseline={vice['baseline']}")
+
+    # ---- 7. plain-terms sanity flags on the production squad ----
+    flags = []
+    for _, r in tc.iterrows():
+        st, ch, news = avmap.get(int(r["element"]), ("?", None, ""))
+        if st not in ("a", "?") and r["role"] != "bench":
+            flags.append(f"starter {r['name']} has status '{st}'"
+                         + (f" chance {ch}" if ch is not None else "")
+                         + (f" -- {news[:80]}" if news else ""))
+    gk_cap = tc.loc[tc["role"] == "CAPTAIN", "position"].iloc[0] == "GKP"
+    if gk_cap:
+        flags.append("CAPTAIN IS A GOALKEEPER -- almost certainly wrong")
+    R.section("SANITY FLAGS (production squad)",
+              "\n".join(f"  - {f}" for f in flags) if flags else "  none raised")
+
+
+if __name__ == "__main__":
+    main()
