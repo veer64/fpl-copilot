@@ -134,6 +134,14 @@ def main():
             R.failed = traceback.format_exc()[-3000:]
     finally:
         R.write_status()
+        if R.failed:
+            # best-effort FAILED row so /health surfaces the failure even if
+            # nobody reads the status file; never masks the original error
+            try:
+                import db_write
+                db_write.write_failed_run(a.season, a.gw, R.failed)
+            except Exception:
+                pass
     sys.exit(1 if R.failed else 0)
 
 
@@ -178,11 +186,13 @@ def run(R, season, gw):
     # ---- 3. strict builds, combined first; a raise STOPS the run ----
     import live_deadline as ld
     frames = {}
+    findings_by = {}
     for config in ("combined", "baseline"):
         try:
             frame, findings = ld.build_deadline_frame(
                 season, gw, strict=True, config=config, horizon=6)
             frames[config] = frame
+            findings_by[config] = list(findings)
             note = "\n".join(f"  - {f}" for f in findings) if findings else "  (no findings)"
             R.section(f"STRICT BUILD {config.upper()}",
                       f"PASSED, {len(frame)} rows. Findings (notes):\n{note}")
@@ -284,6 +294,31 @@ def run(R, season, gw):
         flags.append("CAPTAIN IS A GOALKEEPER -- almost certainly wrong")
     R.section("SANITY FLAGS (production squad)",
               "\n".join(f"  - {f}" for f in flags) if flags else "  none raised")
+
+    # ---- 8. write the run to Postgres (serving reads it; /health watches it) ----
+    # A failure here after a successful build is NOT silent: it goes in the
+    # status file as its own section, the runner exits non-zero (the
+    # dispatcher counts it as a failed attempt), and /health reports the
+    # missing run because no model_runs row landed for this gameweek.
+    try:
+        import db_write
+        price_df = pd.read_parquet(tmp_hist)
+        price_map = dict(zip(price_df[price_df["round"] == gw]["element"].astype(int),
+                             price_df[price_df["round"] == gw]["value"].astype(int)))
+        run_id = db_write.write_run(
+            season, gw, frames, teams, findings_by,
+            started_at=None, recovered=False,
+            credits_remaining=int(m.group(3)) if m else None,
+            note="unattended deadline build",
+            availability=avmap, prices=price_map)
+        R.section("POSTGRES", f"run_id {run_id} written (predictions x{sum(len(f) for f in frames.values())}, "
+                              f"picks x{sum(len(t) for t in teams.values())}, players_live refreshed)")
+    except Exception as e:
+        R.failed = (f"DB WRITE FAILED after a successful build -- the frame exists on "
+                    f"the volume but Postgres is STALE for GW{gw}. /health will show "
+                    f"the missing run. Error: {type(e).__name__}: {e}")
+        R.section("POSTGRES", f"WRITE FAILED: {type(e).__name__}: {e}")
+        return
 
 
 if __name__ == "__main__":

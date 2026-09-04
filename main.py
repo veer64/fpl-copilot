@@ -11,7 +11,13 @@ conversation_history = []
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    # The master plan's contract: {status, git_sha, model_versions,
+    # data_freshness_by_source, db_ok} -- plus last_run and reasons, so a
+    # failed or missing pipeline run surfaces HERE instead of only in an
+    # unread status file. The old one-liner returned ok while Postgres was
+    # unreachable (observed live 2026-08-31); this one touches the DB.
+    from model_tools import health
+    return health()
 
 class ChatRequest(BaseModel):
     message: str

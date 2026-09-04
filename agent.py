@@ -1,54 +1,98 @@
+# Tools over the MODEL's outputs (model_tools.py). Every prediction answer
+# carries model_version and built_at; picks say when they were recovered
+# post-deadline. 'combined' is the production config -- users get it by
+# default; the baseline shadow is reachable only via get_picks(shadow=true).
 tools_schema = [
     {
         "name": "resolve_player",
-        "description": "Search for a player by name (partial matches allowed). Returns a list of candidate players with their IDs, since names can be ambiguous.",
+        "description": "Search for a player by name (partial matches allowed). Returns candidates with player_id, team, position, price.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "The player's name or partial name to search for"}
+                "name": {"type": "string", "description": "The player's name or partial name"}
             },
             "required": ["name"]
         }
     },
     {
         "name": "get_player_card",
-        "description": "Get full details for one specific player, given their player_id.",
+        "description": "Full details for one player: identity, price, availability status, and the production model's predictions for the coming gameweeks.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "player_id": {"type": "integer", "description": "The player's unique ID"}
+                "player_id": {"type": "integer", "description": "The player's FPL element id"}
             },
             "required": ["player_id"]
         }
     },
     {
-        "name": "predict_points",
-        "description": "Get the predicted points for a specific player's next gameweek, given their player_id.",
+        "name": "get_prediction",
+        "description": "The production model's predicted points for a player: one target gameweek if gw is given, else the whole six-gameweek horizon of the latest run. Includes e_points, expected minutes, start probability, and the model_version/built_at provenance.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "player_id": {"type": "integer", "description": "The player's unique ID"}
+                "player_id": {"type": "integer", "description": "The player's FPL element id"},
+                "gw": {"type": "integer", "description": "Optional target gameweek"}
             },
             "required": ["player_id"]
         }
     },
     {
-        "name": "optimize_squad",
-        "description": "Build and return the mathematically optimal 15-player FPL squad under budget (£100m), position, and club-limit constraints. Takes no arguments.",
+        "name": "compare_players",
+        "description": "Compare two players under the production model: next-gameweek expected points, start probability, and the six-gameweek horizon sum, with a verdict.",
         "input_schema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "player_id_a": {"type": "integer"},
+                "player_id_b": {"type": "integer"}
+            },
+            "required": ["player_id_a", "player_id_b"]
+        }
+    },
+    {
+        "name": "get_picks",
+        "description": "The solved squad from the latest pipeline run: the fifteen, starting XI, captain, vice-captain, and bench in order. Use for 'who should I captain', 'what team should I field'. shadow=true returns the baseline config's squad (the tracked comparison), never shown as the recommendation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "gw": {"type": "integer", "description": "Optional gameweek (default: latest run)"},
+                "shadow": {"type": "boolean", "description": "true for the baseline shadow squad"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_best_squad",
+        "description": "The optimal fifteen. At the default full budget this is the stored production solve (instant); a custom budget runs the real optimiser (takes seconds).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "budget": {"type": "number", "description": "Budget in millions, e.g. 95.5 (default 100.0)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "optimise",
+        "description": "Run the production optimiser on the latest model frame with constraints: force players in, ban players, or change the budget. A real MIP solve -- takes seconds. Returns fifteen + XI + captain + vice.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "lock_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that MUST be in the squad"},
+                "ban_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that must NOT be in the squad"},
+                "budget": {"type": "number", "description": "Budget in millions (default 100.0)"}
+            },
             "required": []
         }
     },
     {
         "name": "list_players",
-        "description": "List players filtered by team and/or position. Use this for questions like 'who plays for Chelsea', 'list all defenders', or 'who is Arsenal's left back'. Do NOT use resolve_player for these kinds of queries.",
+        "description": "List players filtered by team and/or position (e.g. 'who plays for Chelsea', 'list all defenders'). Do NOT use resolve_player for these.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "team": {"type": "string", "description": "Filter by team name (partial match allowed), e.g. 'Chelsea'"},
-                "position": {"type": "string", "description": "Filter by position: Goalkeeper, Defender, Midfielder, or Forward"}
+                "team": {"type": "string", "description": "Team name, partial match"},
+                "position": {"type": "string", "description": "GKP, DEF, MID or FWD (full words accepted)"}
             },
             "required": []
         }
@@ -58,7 +102,9 @@ tools_schema = [
 import os
 from dotenv import load_dotenv
 import anthropic
-from tools import list_players, resolve_player, get_player_card, predict_points, optimize_squad
+from model_tools import (list_players, resolve_player, get_player_card,
+                         get_prediction, compare_players, get_picks,
+                         get_best_squad, optimise)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -68,8 +114,11 @@ client = anthropic.Anthropic()
 available_functions = {
     "resolve_player": resolve_player,
     "get_player_card": get_player_card,
-    "predict_points": predict_points,
-    "optimize_squad": optimize_squad,
+    "get_prediction": get_prediction,
+    "compare_players": compare_players,
+    "get_picks": get_picks,
+    "get_best_squad": get_best_squad,
+    "optimise": optimise,
     "list_players": list_players
 }
 
