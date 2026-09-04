@@ -52,6 +52,32 @@ services:
     depends_on:
       fpl-postgres:
         condition: service_healthy
+    volumes:
+      - fpl_model_data:/app/data
+
+  # The scheduler: SAME image as the app, DIFFERENT job -- it runs one piece
+  # of scheduled work and exits, it never serves. Host cron (root, UTC)
+  # invokes it as `docker compose run --rm fpl-scheduler ...`; the profile
+  # keeps `docker compose up -d` from starting it as a long-lived service.
+  # It reuses the image the app service builds (no second build).
+  #
+  # /app/.env bind mount: fetch_live_odds / pull_live_props read the KEY by
+  # parsing the .env FILE (never printed), so the container must see the
+  # LIVE file, not the copy baked in at image build time.
+  #
+  # fpl_model_data holds data/ -- the ~40MB live subset (see
+  # Logs/data_directory_inventory_log.md), not the research artefacts. The
+  # app mounts it too: the deadline frame the scheduler writes is what the
+  # api will read to run the optimiser on demand (next task).
+  fpl-scheduler:
+    image: fpl-copilot
+    profiles: ["scheduler"]
+    env_file: .env
+    volumes:
+      - fpl_model_data:/app/data
+      - ./.env:/app/.env:ro
+    command: ["uv", "run", "python", "eval/deadline_dispatcher.py", "--season", "2026-27"]
 
 volumes:
   fpl_pgdata:
+  fpl_model_data:

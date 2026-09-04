@@ -24,7 +24,9 @@
 # no tracked live squad state yet, so there are no transfers to price; the
 # status file says so explicitly rather than inventing a state.
 #
-# Usage:  .venv\Scripts\python.exe eval\run_live_deadline.py --season 2026-27 --gw 3
+# Usage:  python eval/run_live_deadline.py --season 2026-27 --gw 3
+# (any interpreter: subprocess steps reuse sys.executable, so the same file
+#  runs under the Windows venv and inside the Linux container unchanged)
 
 import argparse
 import io
@@ -36,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PY = str(REPO / ".venv" / "Scripts" / "python.exe")
+PY = sys.executable
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "squad"))
 
