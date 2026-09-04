@@ -50,6 +50,7 @@ import argparse
 import gzip
 import json
 import os
+from _replace_retry import replace_with_retry
 import sys
 import tempfile
 import time
@@ -157,7 +158,7 @@ def store_raw(data, season, ts):
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(gzip.compress(json.dumps(data).encode("utf-8")))
-        os.replace(tmp, out)
+        replace_with_retry(tmp, out)
     except BaseException:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -214,7 +215,7 @@ def detect_changes(prev_data, cur_data, cur_ts, season, gw, deadline):
                .drop_duplicates(["snapshot_time", "element"]))
     tmp = out.with_suffix(".tmp.parquet")
     new.to_parquet(tmp, index=False)
-    os.replace(tmp, out)
+    replace_with_retry(tmp, out)
     return len(rows)
 
 
@@ -329,7 +330,7 @@ def build(season=None):
         out = LIVE / f"availability_{s.replace('-', '_')}_live.parquet"
         tmp = out.with_suffix(".tmp.parquet")
         df.to_parquet(tmp, index=False)
-        os.replace(tmp, out)
+        replace_with_retry(tmp, out)
         print(f"{s}: {len(df)} rows, {df['gw'].nunique()} gameweek(s) -> {out}")
 
 

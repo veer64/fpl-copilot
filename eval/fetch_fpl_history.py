@@ -39,6 +39,7 @@ Usage:
 import argparse
 import json
 import os
+from _replace_retry import replace_with_retry
 import sys
 import time
 import urllib.request
@@ -204,7 +205,7 @@ def write_final(df, prov, season):
               .sort_values(["GW", "element", "fixture"]).reset_index(drop=True))
     tmp = out.with_suffix(".tmp.parquet")
     df.to_parquet(tmp, index=False)
-    os.replace(tmp, out)
+    replace_with_retry(tmp, out)
     meta = json.loads(side.read_text(encoding="utf-8")) if side.exists() else {}
     meta[str(prov["gw"])] = prov
     side.write_text(json.dumps(meta, indent=1), encoding="utf-8")
@@ -217,7 +218,7 @@ def write_provisional(df, prov, season):
     out = HIST / f"fpl_api_{tag}_PROVISIONAL_gw{prov['gw']}.parquet"
     tmp = out.with_suffix(".tmp.parquet")
     df.to_parquet(tmp, index=False)
-    os.replace(tmp, out)
+    replace_with_retry(tmp, out)
     out.with_suffix(".provenance.json").write_text(json.dumps(prov, indent=1), encoding="utf-8")
     log(f"PROVISIONAL -> {out.name} -- never merged into the season file or the combined stack")
     return out
@@ -242,7 +243,7 @@ def combine(season):
     combined = pd.concat([base, api], ignore_index=True)
     tmp = out.with_suffix(".tmp.parquet")
     combined.to_parquet(tmp, index=False)
-    os.replace(tmp, out)
+    replace_with_retry(tmp, out)
     log(f"COMBINED -> {out.name}: {len(base)} archive rows (source of truth, untouched) + {len(api)} API rows")
     return out
 

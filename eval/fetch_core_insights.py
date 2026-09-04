@@ -37,6 +37,7 @@ import argparse
 import io
 import json
 import os
+from _replace_retry import replace_with_retry
 import sys
 import time
 import urllib.request
@@ -267,7 +268,7 @@ def _upsert(df, path, gw, keys):
         df = pd.concat([old[old["gw"] != gw], df], ignore_index=True).sort_values(keys).reset_index(drop=True)
     tmp = path.with_suffix(".tmp.parquet")
     df.to_parquet(tmp, index=False)
-    os.replace(tmp, path)
+    replace_with_retry(tmp, path)
     return df
 
 
@@ -289,7 +290,7 @@ def write(ms, gs, prov, season, final):
         for df, p in ((ms, p_ms), (gs, p_gs)):
             tmp = p.with_suffix(".tmp.parquet")
             df.to_parquet(tmp, index=False)
-            os.replace(tmp, p)
+            replace_with_retry(tmp, p)
         p_ms.with_suffix(".provenance.json").write_text(json.dumps(prov, indent=1), encoding="utf-8")
         log(f"PROVISIONAL -> {p_ms.name} + {p_gs.name} -- never merged")
 
@@ -310,7 +311,7 @@ def combine(season):
         out = pd.concat([base, add], ignore_index=True)
         tmp = out_p.with_suffix(".tmp.parquet")
         out.to_parquet(tmp, index=False)
-        os.replace(tmp, out_p)
+        replace_with_retry(tmp, out_p)
         log(f"COMBINED -> {out_p.name}: {len(base)} existing (untouched) + {len(add)} new rows")
 
 

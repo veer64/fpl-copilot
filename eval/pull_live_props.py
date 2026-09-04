@@ -130,7 +130,8 @@ def pull_gw(season, gw):
         for r in rows:
             w.writerow(r)
     import os
-    os.replace(tmp, manifest)
+    from _replace_retry import replace_with_retry
+    replace_with_retry(tmp, manifest)
     n_ok = sum(1 for r in rows if r[12] not in ("CALL_FAILED",) and not str(r[12]).startswith("UNMATCHED"))
     print(f"GW{gw}: {n_ok}/{len(ffx)} fixtures pulled ({spent} credits, remaining {remaining}); "
           f"unmatched {unmatched or 'none'}")

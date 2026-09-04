@@ -56,6 +56,7 @@ Usage:
 import argparse
 import json
 import os
+from _replace_retry import replace_with_retry
 import sys
 import urllib.request
 from datetime import datetime, timezone
@@ -150,7 +151,7 @@ def build_live(season):
     out = HIST / f"forward_skeleton_{season.replace('-', '_')}.parquet"
     tmp = out.with_suffix(".tmp.parquet")
     df.to_parquet(tmp, index=False)
-    os.replace(tmp, out)
+    replace_with_retry(tmp, out)
     prov = dict(
         season=season, pulled_at=datetime.now(timezone.utc).isoformat(),
         rows=len(df), fixtures_forward=int(df["fixture"].nunique()),

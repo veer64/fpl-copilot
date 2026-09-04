@@ -4,6 +4,7 @@ Usage: uv run python eval/run_horizon_minutes.py --season 2024-25 --levers refit
 """
 import argparse
 import os
+from _replace_retry import replace_with_retry
 import sys
 import time
 from pathlib import Path
@@ -51,7 +52,7 @@ def main():
     res["season"] = a.season
     tmp = out.with_suffix(".tmp.parquet")
     res.to_parquet(tmp, index=False)
-    os.replace(tmp, out)
+    replace_with_retry(tmp, out)
     print(f"DONE {out.name}: {len(res):,} rows in {(time.time() - t_all) / 60:.1f} min", flush=True)
 
 

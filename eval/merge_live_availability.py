@@ -25,6 +25,7 @@ Usage: uv run python eval/merge_live_availability.py --season 2026-27
 import argparse
 import json
 import os
+from _replace_retry import replace_with_retry
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -64,7 +65,7 @@ def merge(season):
     out = REPO / "data" / f"availability_{tag_short}.parquet"
     tmp = out.with_suffix(".tmp.parquet")
     merged.to_parquet(tmp, index=False)
-    os.replace(tmp, out)
+    replace_with_retry(tmp, out)
     prov = dict(season=season, built_at=datetime.now(timezone.utc).isoformat(),
                 rows=len(merged), poller_rows=len(poller), fplcache_only_rows=len(fpl_only),
                 overlap_keys=len(overlap), overlap_disagreements=disagreements,

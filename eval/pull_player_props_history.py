@@ -9,6 +9,7 @@ import glob
 import json
 import lzma
 import os
+from _replace_retry import replace_with_retry
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -68,7 +69,7 @@ def tok(name):
 def atomic_write(path, obj):
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(obj), encoding="utf-8")
-    os.replace(tmp, path)
+    replace_with_retry(tmp, path)
 
 
 def main():

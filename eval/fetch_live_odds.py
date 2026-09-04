@@ -36,6 +36,7 @@ Usage: uv run python eval/fetch_live_odds.py --season 2026-27
 import argparse
 import json
 import os
+from _replace_retry import replace_with_retry
 import statistics
 import sys
 import time
@@ -168,7 +169,7 @@ def main():
     df = df.reset_index()[list(pd.read_parquet(slice_p).columns)]  # original column order
     tmp = slice_p.with_suffix(".tmp.parquet")
     df.to_parquet(tmp, index=False)
-    os.replace(tmp, slice_p)
+    replace_with_retry(tmp, slice_p)
 
     import fetch_fixtures
     fetch_fixtures.combine(a.season)                 # regenerate the *_with_* file

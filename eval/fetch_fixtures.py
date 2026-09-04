@@ -44,6 +44,7 @@ Usage:
 import argparse
 import json
 import os
+from _replace_retry import replace_with_retry
 import sys
 import urllib.request
 from datetime import datetime, timezone
@@ -162,7 +163,7 @@ def write_slice(df, prov, season):
     out = HIST / f"odds_fixtures_{tag}.parquet"
     tmp = out.with_suffix(".tmp.parquet")
     df.to_parquet(tmp, index=False)
-    os.replace(tmp, out)
+    replace_with_retry(tmp, out)
     out.with_suffix(".provenance.json").write_text(json.dumps(prov, indent=1), encoding="utf-8")
     print(f"-> {out.name}: {len(df)} fixtures, {prov['finished']} finished with scores; "
           f"E0 spellings reused: {prov['e0_spellings_reused']}")
@@ -182,7 +183,7 @@ def combine(season):
     combined = pd.concat([base, add], ignore_index=True)
     tmp = out.with_suffix(".tmp.parquet")
     combined.to_parquet(tmp, index=False)
-    os.replace(tmp, out)
+    replace_with_retry(tmp, out)
     print(f"COMBINED -> {out.name}: {len(base)} archive rows (source file untouched) + {len(add)}")
 
 

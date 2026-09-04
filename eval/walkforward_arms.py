@@ -12,6 +12,7 @@ Usage: uv run python eval/walkforward_arms.py --season 2024-25 --from-cutoff 8 -
 import argparse
 import json
 import os
+from _replace_retry import replace_with_retry
 import sys
 import time
 from pathlib import Path
@@ -165,7 +166,7 @@ def main():
     for arm in arms:
         res = stamp_arm_frame(pd.concat(out[arm], ignore_index=True), season, tr, arm, dc_enabled)
         path = out_dir / f"walkforward_h6_{tag}_{arm}.parquet"
-        tmp = path.with_suffix(".tmp.parquet"); res.to_parquet(tmp, index=False); os.replace(tmp, path)
+        tmp = path.with_suffix(".tmp.parquet"); res.to_parquet(tmp, index=False); replace_with_retry(tmp, path)
         hook = hooks[arm]
         side = dict(season=season, arm=arm, cutoffs=[cutoffs[0], cutoffs[-1]], rows=len(res),
                     props=(dict(overridden_player_fixtures=hook.n_override, partial_doubles_excluded=hook.n_partial_excluded,
