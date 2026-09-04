@@ -47,7 +47,7 @@ from scipy.optimize import minimize
 # the module loads its data lazily.
 import synthetic_lambda
 
-BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
+BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 PREDICT_SEASON = "2025-26"
 HALF_LIFE_DAYS = 365
 LAM_BLEND_W = 0.0     # goal expectations: pure market (best WDL)

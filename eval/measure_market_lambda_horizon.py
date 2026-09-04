@@ -46,7 +46,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-BASE = Path(r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot")
+BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE))
 
 DATA = BASE / "data" / "d4_market_lambda_dataset.parquet"

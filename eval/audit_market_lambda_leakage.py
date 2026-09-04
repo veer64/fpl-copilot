@@ -25,7 +25,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-BASE = Path(r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot")
+BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE))
 from squad.dixon_coles import _implied_lambdas, _fit_dc_decay  # noqa: E402
 

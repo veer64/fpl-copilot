@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import spearmanr
 
-BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
+BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 
 def evaluate_by_position(df, title):
     """Compute starter-band Spearman and MAE by position."""

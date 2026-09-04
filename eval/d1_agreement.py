@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
+BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 POSITIONS = ["GK", "DEF", "MID", "FWD"]
 KS = [1, 3, 5]
 PAIRS = {

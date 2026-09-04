@@ -31,7 +31,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-BASE = Path(r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot")
+BASE = Path(__file__).resolve().parent.parent
 DATA = BASE / "data" / "d4_market_lambda_dataset.parquet"
 LOG = BASE / "Logs" / "d4_market_lambda_log.md"
 

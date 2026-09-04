@@ -47,7 +47,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-BASE = Path(r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot")
+BASE = Path(__file__).resolve().parent.parent
 DATASET = BASE / "data" / "d4_market_lambda_dataset.parquet"
 DC_CACHE = BASE / "data" / "history" / "d4_dc_walkforward_params.parquet"
 VAASTAV = BASE / "data" / "history" / "all_seasons_fixed.parquet"

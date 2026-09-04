@@ -21,7 +21,7 @@ from dixon_coles import get_fixtures
 from defensive import get_dc_2526
 from bonus import get_bonus_model
 
-BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
+BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 GOAL_PTS = {"FWD": 4, "MID": 5, "DEF": 6, "GK": 6}
 CS_PTS   = {"FWD": 0, "MID": 1, "DEF": 4, "GK": 4}
 LEAGUE_AVG_LAMBDA = 1.40

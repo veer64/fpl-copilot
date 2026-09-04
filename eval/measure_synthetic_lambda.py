@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-BASE = Path(r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot")
+BASE = Path(__file__).resolve().parent.parent
 PAIRS = {
     "2023-24": ("walkforward_h6_2023_24.parquet", "walkforward_h6_2023_24_synth.parquet"),
     "2024-25": ("walkforward_h6_2024_25.parquet", "walkforward_h6_2024_25_synth.parquet"),

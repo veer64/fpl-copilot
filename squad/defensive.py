@@ -20,7 +20,7 @@ import pandas as pd
 import numpy as np
 import lightgbm as lgb
 
-BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
+BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 SEASON = "2025-2026"
 FWD_BASE_RATE = 0.005
 FEATURES = ["roll_dc90_3c", "roll_dc90_5c", "roll_hit_5", "roll_mins_3"]

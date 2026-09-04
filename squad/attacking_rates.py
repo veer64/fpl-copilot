@@ -28,7 +28,7 @@
 import pandas as pd
 import numpy as np
 
-BASE = r"C:\Users\veers\OneDrive\Documents\FPL Agent\fpl-copilot"
+BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 MIN_TIME = 450        # ~5 full matches of pooled time for a usable rate
 
 # --- D2 Phase 3: cross-season blend (adopted per Logs/rate_blend_log.md) ----
