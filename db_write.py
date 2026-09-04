@@ -204,7 +204,7 @@ def write_run(season, gw, frames, teams, findings_by, started_at=None,
                          float(r["e_points"])))
 
             if availability is not None or prices is not None:
-                f = frames.get("combined") or next(iter(frames.values()))
+                f = frames["combined"] if "combined" in frames else next(iter(frames.values()))
                 ident = f[f["gw"] == gw][["element", "name", "position", "team"]]
                 now = datetime.now(timezone.utc)
                 for _, r in ident.iterrows():
