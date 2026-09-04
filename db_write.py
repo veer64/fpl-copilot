@@ -207,6 +207,23 @@ def write_run(season, gw, frames, teams, findings_by, started_at=None,
                 f = frames["combined"] if "combined" in frames else next(iter(frames.values()))
                 ident = f[f["gw"] == gw][["element", "name", "position", "team"]]
                 now = datetime.now(timezone.utc)
+                def _int_or_none(x):
+                    # NA-proof: pd.NA/np.nan/None -> None, numerics -> int
+                    try:
+                        f = float(x)
+                        return None if f != f else int(f)
+                    except (TypeError, ValueError):
+                        return None
+
+                def _str_or_none(x):
+                    try:
+                        if x is None or x != x:
+                            return None
+                    except (TypeError, ValueError):
+                        return None
+                    s = str(x)
+                    return s if s and s.lower() not in ("nan", "<na>") else None
+
                 for _, r in ident.iterrows():
                     e = int(r["element"])
                     st, ch, news = (availability or {}).get(e, (None, None, None))
@@ -219,8 +236,8 @@ def write_run(season, gw, frames, teams, findings_by, started_at=None,
                              news=EXCLUDED.news, updated_at=EXCLUDED.updated_at""",
                         (e, r["name"], r["position"], str(r["team"]),
                          (prices or {}).get(e),
-                         st, None if ch != ch else (int(ch) if ch is not None else None),
-                         news, now))
+                         _str_or_none(st), _int_or_none(ch),
+                         _str_or_none(news), now))
         conn.commit()
         return run_id
     finally:
