@@ -128,7 +128,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     tr = wfs.train_seasons_for(season)
     dc_enabled = season in wfs.DC_SEASONS
-    df = pd.read_parquet(wfs.BASE + r"\data\history\all_seasons_fixed.parquet")
+    df = pd.read_parquet(wfs.BASE + "/data/history/all_seasons_fixed.parquet")
     cw = wfs.crosswalk_for(season)
     v = df[df["season"] == season].copy()
     v["kick"] = pd.to_datetime(v["kickoff_time"])

@@ -188,8 +188,8 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
     Returns a frame with a `cutoff` column: filter to cutoff == k for the view a
     planner had at gameweek k.
     """
-    df = pd.read_parquet(BASE + r"\data\history\all_seasons_fixed.parquet")
-    cw = pd.read_csv(BASE + r"\data\history\player_id_crosswalk_final.csv")
+    df = pd.read_parquet(BASE + "/data/history/all_seasons_fixed.parquet")
+    cw = pd.read_csv(BASE + "/data/history/player_id_crosswalk_final.csv")
 
     v25 = df[df["season"] == "2025-26"].copy()
     v25["kick"] = pd.to_datetime(v25["kickoff_time"])

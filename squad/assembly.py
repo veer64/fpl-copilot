@@ -260,8 +260,8 @@ def build_fixture_predictions(log_mlflow=False, availability=None):
     inherited from whatever minutes.py happens to default to -- the exact trap
     recorded as KNOWN_ISSUES #10, where regenerating an artefact silently moved the
     reference from 1984 to 1938. None keeps minutes.py's own default."""
-    df = pd.read_parquet(BASE + r"\data\history\all_seasons_fixed.parquet")
-    cw = pd.read_csv(BASE + r"\data\history\player_id_crosswalk_final.csv")
+    df = pd.read_parquet(BASE + "/data/history/all_seasons_fixed.parquet")
+    cw = pd.read_csv(BASE + "/data/history/player_id_crosswalk_final.csv")
 
     # --- run the five components (each logs a NESTED child run if enabled) ---
     print("Running components...")
@@ -313,7 +313,7 @@ def _attach_penalty_share(v_full, cw, season):
     pass silently as a modelled penalty term. The same-season record is NEVER
     used as a substitute: that would re-introduce the leak.
     """
-    us = pd.read_parquet(BASE + r"\data\history\understat_season_aggregates.parquet")
+    us = pd.read_parquet(BASE + "/data/history/understat_season_aggregates.parquet")
     us["games_numeric"] = pd.to_numeric(us["games"], errors="coerce")
     us["goals_numeric"] = pd.to_numeric(us["goals"], errors="coerce")
     us["npg_numeric"] = pd.to_numeric(us["npg"], errors="coerce")
@@ -891,7 +891,7 @@ if __name__ == "__main__":
                  "pts_goals", "pts_assists", "pts_cs", "pts_dc", "pts_appear",
                  "pts_saves", "pts_conceded", "pts_cards",
                  "n_fixtures"]
-    out_path = BASE + r"\data\predictions_2526.parquet"
+    out_path = BASE + "/data/predictions_2526.parquet"
 
     if log:
         # Open the PARENT run FIRST, so every component run nests inside it.

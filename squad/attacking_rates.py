@@ -76,7 +76,7 @@ def _k_for(stat, pos_label):
 
 
 def _load_understat():
-    us = pd.read_parquet(BASE + r"\data\history\understat_season_aggregates.parquet")
+    us = pd.read_parquet(BASE + "/data/history/understat_season_aggregates.parquet")
     for c in _NUM_COLS:
         us[c] = pd.to_numeric(us[c])      # Bug #2
     return us
@@ -251,7 +251,7 @@ def _season_sums(season):
     Cached: the walk-forward calls get_rates once per cutoff."""
     if season not in _MATCHES_CACHE:
         df = pd.read_parquet(
-            BASE + r"\data\history\understat_matches_"
+            BASE + "/data/history/understat_matches_"
             + season.replace("-", "_") + ".parquet")
         df["grp"] = df["position"].map(_grp_from_match_pos)
         _MATCHES_CACHE[season] = df

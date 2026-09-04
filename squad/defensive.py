@@ -51,12 +51,12 @@ def _mk():
 
 def _raw_rows_core():
     """The current source: core-insights matchstats, PL-only, 2025-26 only."""
-    ms = pd.read_parquet(BASE + r"\data\history\core_insights_matchstats.parquet")
+    ms = pd.read_parquet(BASE + "/data/history/core_insights_matchstats.parquet")
     ms_pl = ms[ms["match_id"].str.contains("-prem-", na=False)].copy()
     for c in ["tackles", "interceptions", "recoveries", "blocks", "clearances", "minutes_played"]:
         ms_pl[c] = pd.to_numeric(ms_pl[c], errors="coerce")
 
-    gwref = pd.read_parquet(BASE + r"\data\history\core_insights_gameweek_stats.parquet")
+    gwref = pd.read_parquet(BASE + "/data/history/core_insights_gameweek_stats.parquet")
     pos_map = gwref[["id", "position"]].drop_duplicates("id").set_index("id")["position"]
     ms_pl["position"] = ms_pl["player_id"].map(pos_map)
 
