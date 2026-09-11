@@ -149,8 +149,29 @@ def build_slice(season):
         except (TypeError, ValueError):
             df[c] = pd.to_numeric(df[c], errors="coerce").astype(want)
     assert len(df) == 380 and not df.duplicated(["Date", "HomeTeam", "AwayTeam"]).any()
+    # PRESERVE PRICES ALREADY HELD (2026-09-11). Until now every rebuild nulled the
+    # price columns and relied on fetch_live_odds to refill them -- but the provider
+    # lists only UPCOMING events, so the pre-deadline prices of every PLAYED gameweek
+    # were discarded weekly (GW1-2 lost on 2026-09-01; GW3 lost and restored from a
+    # surviving copy on 2026-09-11). Those prices are the market the deadline frame
+    # was built with; without them a played 2026-27 cutoff cannot be reproduced.
+    # Carry forward any B365 triple the existing slice holds where the fresh slice
+    # has none, keyed on (Date, HomeTeam, AwayTeam); counted in provenance.
+    n_preserved = 0
+    prev_path = HIST / f"odds_fixtures_{season.replace('-', '_')}.parquet"
+    if prev_path.exists():
+        prev = pd.read_parquet(prev_path, columns=["Date", "HomeTeam", "AwayTeam", "B365H", "B365D", "B365A"])
+        key = ["Date", "HomeTeam", "AwayTeam"]
+        prev = prev.dropna(subset=["B365H", "B365D", "B365A"]).set_index(key)
+        idx = pd.MultiIndex.from_frame(df[key])
+        have = prev.reindex(idx)
+        need = df[["B365H", "B365D", "B365A"]].isna().all(axis=1).values & have["B365H"].notna().values
+        for c in ("B365H", "B365D", "B365A"):
+            df.loc[need, c] = have[c].values[need]
+        n_preserved = int(need.sum())
     prov = dict(season=season, pulled_at=now.isoformat(), fixtures=len(df),
                 finished=int(df["FTHG"].notna().sum()),
+                prices_preserved_from_previous_slice=n_preserved,
                 provisional_scored=n_provisional,
                 club_name_map={k: v for k, v in name_map.items() if k != v} or "all identity",
                 e0_spellings_reused=sorted(v for k, v in name_map.items() if k != v),

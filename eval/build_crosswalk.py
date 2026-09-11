@@ -193,6 +193,11 @@ MANUAL = {
                        "Ipswich DEF; 10v8 min GW1; first-name-form mismatch; the "
                        "other Ouattara (Dango, Brentford, 68 min GW1) is correctly "
                        "claimed by element 95"),
+        403: ("11735", "Savio Moreira de Oliveira = Understat 'Savio' (accented single "
+                       "token); Man City GW1 -> Spurs from GW2 (window move), MID; "
+                       "60v62 min GW3; Understat 2026 lists him at Tottenham with 1 "
+                       "game / 62 min; the only element with real 2026-27 minutes left "
+                       "without an id after the GW3 rebuild (2026-09-11)"),
         119: ("14854", "Joao Pedro Loureiro da Costa = Understat 'Costinha'; "
                        "Brighton DEF; 26v21 min GW1; the ONLY unclaimed Brighton "
                        "player in the GW1 Understat roster; 'Costinha' is the "
