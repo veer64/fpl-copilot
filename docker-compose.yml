@@ -31,8 +31,13 @@ services:
     environment:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME:-fpl}
-    ports:
-      - "5432:5432"
+    # NO host port. Until 2026-09-11 this published 5432:5432, and a Docker
+    # published port BYPASSES ufw (docker-proxy binds 0.0.0.0; the DOCKER-USER
+    # chain is empty), so Postgres was reachable from the internet behind
+    # scram-sha-256 alone -- the audit connected to it from a laptop. Nothing
+    # outside the server needs it: the api and the scheduler reach it over the
+    # compose network as DB_HOST=fpl-postgres. Debug access is
+    # `docker exec fpl-postgres psql -U postgres -d fpl`.
     volumes:
       - fpl_pgdata:/var/lib/postgresql/data
     healthcheck:
