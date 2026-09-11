@@ -65,7 +65,9 @@ DC_RULE_FROM = "2025-26"      # the defensive-contribution rule exists from this
 MIN_FRAME_ROWS = 300          # an empty/withered frame is the get_minutes silent-empty symptom
 TOP_N = 30                    # decision partition for the crosswalk-coverage check
 
-# COMBINED config (props ON + horizon minutes ON -- the production arm; baseline is the shadow).
+# CONFIGS. Production = BASELINE since 2026-09-11 (config_roles.py; Logs/baseline_adoption_log.md);
+# no shadow. COMBINED (props ON + horizon minutes ON) stays buildable through --config combined and
+# the parity/as-of tests, gated off in the runner by config_roles.SHADOW_CONFIG = None.
 # GATE PLUMBING, stated plainly: the props gate is a MODULE GLOBAL -- assembly.PROPS_HOOK is set
 # to a props_feature.PropsHook and restored to None in a finally block, exactly as
 # eval/walkforward_arms.py does. There is no constructor argument or config object; a crash

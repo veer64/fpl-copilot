@@ -1,7 +1,9 @@
 # run_live_deadline.py -- the unattended per-deadline runner (first used GW3,
 # 2026-09-04). Runs the runbook's deadline-day refreshes IN ORDER, then the
-# strict build for BOTH configs, then the free-pick solve, and writes ONE
-# status file a human can read from a phone:
+# strict build for every config in config_roles.CONFIGS (production = baseline
+# since 2026-09-11, no shadow; the props and hmin refresh steps run only when a
+# props config is listed), then the free-pick solve, and writes ONE status
+# file a human can read from a phone:
 #
 #     data/live/GW{gw}_BUILD_STATUS.txt   (first line: SUCCESS or FAILED)
 #     data/live/GW{gw}_BUILD_RUN.log      (full step output, nothing swallowed)
@@ -41,6 +43,10 @@ REPO = Path(__file__).resolve().parent.parent
 PY = sys.executable
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "squad"))
+# Which configs build, solve and land in Postgres, and whether the lever inputs
+# (props pull + crosswalk + consensus, hmin refit) run at all. ONE source:
+# config_roles.py (production = baseline since 2026-09-11; no shadow).
+import config_roles as cr  # noqa: E402
 
 
 def utc_now():
@@ -154,40 +160,54 @@ def run(R, season, gw):
                    ["eval/merge_live_availability.py", "--season", season])
         odds_out = R.run_step("fetch_live_odds",
                               ["eval/fetch_live_odds.py", "--season", season])
-        R.run_step("pull_live_props",
-                   ["eval/pull_live_props.py", "--season", season, "--gw", str(gw)])
-        R.run_step("build_props_crosswalk", ["eval/build_props_crosswalk.py"])
-        R.run_step("build_props_consensus",
-                   ["eval/build_props_consensus.py", "--seasons", season])
-        R.run_step("run_horizon_minutes (skip-if-exists)",
-                   ["eval/run_horizon_minutes.py", "--season", season,
-                    "--levers", "refit", "--cutoffs", str(gw)])
+        if cr.LEVER_INPUTS_ACTIVE:
+            # The combined config's inputs only. OFF since 2026-09-11 (production =
+            # baseline, no shadow): the paid props tier, the per-gameweek name
+            # crosswalk and consensus, and the hmin delete-and-refit are not run.
+            # Kept, not deleted -- config_roles.SHADOW_CONFIG = "combined" re-enables them.
+            R.run_step("pull_live_props",
+                       ["eval/pull_live_props.py", "--season", season, "--gw", str(gw)])
+            R.run_step("build_props_crosswalk", ["eval/build_props_crosswalk.py"])
+            R.run_step("build_props_consensus",
+                       ["eval/build_props_consensus.py", "--seasons", season])
+            R.run_step("run_horizon_minutes (skip-if-exists)",
+                       ["eval/run_horizon_minutes.py", "--season", season,
+                        "--levers", "refit", "--cutoffs", str(gw)])
+        else:
+            R.log("\n===== lever inputs OFF (config_roles: production = "
+                  f"{cr.PRODUCTION_CONFIG}, shadow = {cr.SHADOW_CONFIG}): pull_live_props, "
+                  "build_props_crosswalk, build_props_consensus and run_horizon_minutes "
+                  "skipped =====")
     except RuntimeError as e:
         R.failed = str(e)
         return
 
-    # ---- 2. the named check: Jackson's props mapping ----
-    tagged = season  # csv naming uses the dashed season
-    cw = pd.read_csv(REPO / "data" / "odds_props" / f"props_crosswalk_{tagged}.csv")
-    jk = cw[(cw["gw"] == gw) & cw["key"].str.contains("jackson", na=False)]
-    if len(jk) == 0:
-        jackson = ("NOT ON THE BOARD: no 'jackson' key on any GW%d board -- his props "
-                   "cannot reach the model this gameweek (positional/model paths only). "
-                   "NOT a build blocker, but the Cherki-class risk stands." % gw)
+    # ---- 2. the named check: Jackson's props mapping (props configs only) ----
+    if cr.LEVER_INPUTS_ACTIVE:
+        tagged = season  # csv naming uses the dashed season
+        cw = pd.read_csv(REPO / "data" / "odds_props" / f"props_crosswalk_{tagged}.csv")
+        jk = cw[(cw["gw"] == gw) & cw["key"].str.contains("jackson", na=False)]
+        if len(jk) == 0:
+            jackson = ("NOT ON THE BOARD: no 'jackson' key on any GW%d board -- his props "
+                       "cannot reach the model this gameweek (positional/model paths only). "
+                       "NOT a build blocker, but the Cherki-class risk stands." % gw)
+        else:
+            r0 = jk.iloc[0]
+            ok = pd.notna(r0["element"]) and r0["match_type"] == "exact"
+            jackson = (f"key='{r0['book_name']}' fixture='{r0['fixture']}' -> element "
+                       f"{r0['element']} match_type={r0['match_type']} score={r0['score']:.0f}"
+                       + ("  [OK]" if ok else "  [** FAILED TO EXACT-MATCH -- Cherki class, "
+                                              "investigate before trusting his rows **]"))
+        R.section("JACKSON PROPS MAPPING", jackson)
     else:
-        r0 = jk.iloc[0]
-        ok = pd.notna(r0["element"]) and r0["match_type"] == "exact"
-        jackson = (f"key='{r0['book_name']}' fixture='{r0['fixture']}' -> element "
-                   f"{r0['element']} match_type={r0['match_type']} score={r0['score']:.0f}"
-                   + ("  [OK]" if ok else "  [** FAILED TO EXACT-MATCH -- Cherki class, "
-                                          "investigate before trusting his rows **]"))
-    R.section("JACKSON PROPS MAPPING", jackson)
+        R.section("JACKSON PROPS MAPPING", "not applicable -- props are not an input of the "
+                                           f"production config ({cr.PRODUCTION_CONFIG}); no shadow")
 
-    # ---- 3. strict builds, combined first; a raise STOPS the run ----
+    # ---- 3. strict builds, production first; a raise STOPS the run ----
     import live_deadline as ld
     frames = {}
     findings_by = {}
-    for config in ("combined", "baseline"):
+    for config in cr.CONFIGS:
         try:
             frame, findings = ld.build_deadline_frame(
                 season, gw, strict=True, config=config, horizon=6)
@@ -201,19 +221,20 @@ def run(R, season, gw):
                         f"not building, per the failure contract:\n{e}")
             R.section(f"STRICT BUILD {config.upper()}", f"RAISED:\n{e}")
             return
-    R.log("both strict builds passed")
+    R.log(f"strict builds passed for {list(cr.CONFIGS)}")
 
     # ---- 4. coverage + credits (parsed from this run's own step output) ----
     m = re.search(r"(\d+)/(\d+) events priced.*credits remaining (\d+)", odds_out, re.S)
     odds_line = (f"h2h events priced {m.group(1)}/{m.group(2)}, credits remaining {m.group(3)}"
                  if m else "could not parse fetch_live_odds output -- see run log")
-    priced, total = ld.props_fixture_coverage(season, gw)
-    props_out = R.step_outputs.get("pull_live_props", "")
-    mc = re.findall(r"credits", props_out)
-    R.section("COVERAGE & CREDITS",
-              f"props: {priced}/{total} GW{gw} fixtures have a consensus board\n"
-              f"odds:  {odds_line}\n"
-              f"props pull output tail: {props_out.strip()[-400:] if props_out else 'n/a'}")
+    if cr.LEVER_INPUTS_ACTIVE:
+        priced, total = ld.props_fixture_coverage(season, gw)
+        props_out = R.step_outputs.get("pull_live_props", "")
+        props_line = (f"props: {priced}/{total} GW{gw} fixtures have a consensus board\n"
+                      f"props pull output tail: {props_out.strip()[-400:] if props_out else 'n/a'}")
+    else:
+        props_line = "props: not pulled (lever inputs OFF; production = baseline)"
+    R.section("COVERAGE & CREDITS", f"{props_line}\nodds:  {odds_line}")
 
     # ---- 5. solve both configs (free pick -- no tracked squad state) ----
     import simulator as sim
@@ -253,33 +274,39 @@ def run(R, season, gw):
         team = sim.solution_to_squad(pool, sol)
         teams[config] = team
         R.section(f"SQUAD -- {config.upper()}"
-                  + (" (production)" if config == "combined" else " (shadow)"),
+                  + (" (production)" if config == cr.PRODUCTION_CONFIG else " (shadow)"),
                   team_block(team, avmap)
                   + "\nTransfers: none possible -- no tracked live squad state; this is "
                     "the free-pick fifteen (opening convention, single-gw objective).")
 
-    # ---- 6. where the configs disagree ----
-    tc, tb = teams["combined"], teams["baseline"]
-    s_c, s_b = set(tc["element"]), set(tb["element"])
-    xi_c = set(tc.loc[tc["role"] != "bench", "element"])
-    xi_b = set(tb.loc[tb["role"] != "bench", "element"])
-    cap = {k: t.loc[t["role"] == "CAPTAIN", "name"].iloc[0] for k, t in teams.items()}
-    vice = {k: t.loc[t["role"] == "VICE", "name"].iloc[0] for k, t in teams.items()}
-    name_of = dict(zip(pd.concat([tc, tb])["element"], pd.concat([tc, tb])["name"]))
-    only_c = sorted(name_of[e] for e in s_c - s_b)
-    only_b = sorted(name_of[e] for e in s_b - s_c)
-    xi_only_c = sorted(name_of[e] for e in xi_c - xi_b)
-    xi_only_b = sorted(name_of[e] for e in xi_b - xi_c)
-    R.section("CONFIG DISAGREEMENT (combined vs baseline)",
-              f"fifteen: {len(s_c & s_b)}/15 shared\n"
-              f"  only combined: {only_c or 'none'}\n"
-              f"  only baseline: {only_b or 'none'}\n"
-              f"XI: {len(xi_c & xi_b)}/11 shared\n"
-              f"  XI only combined: {xi_only_c or 'none'}\n"
-              f"  XI only baseline: {xi_only_b or 'none'}\n"
-              f"captain: combined={cap['combined']} baseline={cap['baseline']}"
-              f"{'  [SAME]' if cap['combined'] == cap['baseline'] else '  [DIFFER]'}\n"
-              f"vice: combined={vice['combined']} baseline={vice['baseline']}")
+    # ---- 6. where the configs disagree (only when a shadow is run) ----
+    tc = teams[cr.PRODUCTION_CONFIG]
+    if cr.SHADOW_CONFIG in teams:
+        tb = teams[cr.SHADOW_CONFIG]
+        pn, sn = cr.PRODUCTION_CONFIG, cr.SHADOW_CONFIG
+        s_c, s_b = set(tc["element"]), set(tb["element"])
+        xi_c = set(tc.loc[tc["role"] != "bench", "element"])
+        xi_b = set(tb.loc[tb["role"] != "bench", "element"])
+        cap = {k: t.loc[t["role"] == "CAPTAIN", "name"].iloc[0] for k, t in teams.items()}
+        vice = {k: t.loc[t["role"] == "VICE", "name"].iloc[0] for k, t in teams.items()}
+        name_of = dict(zip(pd.concat([tc, tb])["element"], pd.concat([tc, tb])["name"]))
+        only_c = sorted(name_of[e] for e in s_c - s_b)
+        only_b = sorted(name_of[e] for e in s_b - s_c)
+        xi_only_c = sorted(name_of[e] for e in xi_c - xi_b)
+        xi_only_b = sorted(name_of[e] for e in xi_b - xi_c)
+        R.section(f"CONFIG DISAGREEMENT ({pn} vs {sn})",
+                  f"fifteen: {len(s_c & s_b)}/15 shared\n"
+                  f"  only {pn}: {only_c or 'none'}\n"
+                  f"  only {sn}: {only_b or 'none'}\n"
+                  f"XI: {len(xi_c & xi_b)}/11 shared\n"
+                  f"  XI only {pn}: {xi_only_c or 'none'}\n"
+                  f"  XI only {sn}: {xi_only_b or 'none'}\n"
+                  f"captain: {pn}={cap[pn]} {sn}={cap[sn]}"
+                  f"{'  [SAME]' if cap[pn] == cap[sn] else '  [DIFFER]'}\n"
+                  f"vice: {pn}={vice[pn]} {sn}={vice[sn]}")
+    else:
+        R.section("CONFIG DISAGREEMENT", f"no shadow configuration is run (production = "
+                                         f"{cr.PRODUCTION_CONFIG}; config_roles.py, 2026-09-11)")
 
     # ---- 7. plain-terms sanity flags on the production squad ----
     flags = []

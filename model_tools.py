@@ -6,13 +6,15 @@
 # internals directly. Every answer is traceable: rows carry run_id,
 # model_version (git_sha/config) and built_at, and recovered runs say so.
 #
-# CONFIGS: 'combined' is production -- every user-facing default reads it.
-# 'baseline' is the shadow; it is reachable only where a tool takes an
-# explicit config/shadow argument, so the two cannot be confused.
+# CONFIGS: config_roles.PRODUCTION_CONFIG ('baseline' since 2026-09-11,
+# Logs/baseline_adoption_log.md) is what every user-facing default reads.
+# config_roles.SHADOW_CONFIG (None since the same date) is reachable only where
+# a tool takes an explicit shadow argument, so the two cannot be confused; with
+# no shadow configured, shadow reads return an explicit error, never production.
 #
 # The one non-DB tool is optimise(): it solves from the latest frame on the
-# model volume (data/live/_tmp_frame_combined.parquet, written by each run)
-# through squad/optimize.py -- the same MIP the pipeline uses, gapRel=0.
+# model volume (data/live/_tmp_frame_{PRODUCTION_CONFIG}.parquet, written by
+# each run) through squad/optimize.py -- the same MIP the pipeline uses, gapRel=0.
 
 import os
 import time
@@ -23,8 +25,11 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
+from config_roles import CONFIGS, PRODUCTION_CONFIG, SHADOW_CONFIG
+
 load_dotenv()
 REPO = Path(__file__).resolve().parent
+PROD_FRAME = REPO / "data" / "live" / f"_tmp_frame_{PRODUCTION_CONFIG}.parquet"
 
 
 def _conn():
@@ -63,7 +68,7 @@ def _version(run, config):
     return f"{(run.get('git_sha') or 'unknown')}/{config}"
 
 
-def _run_meta(run, config="combined"):
+def _run_meta(run, config=PRODUCTION_CONFIG):
     return {"run_id": run["run_id"], "gw": run["gw"],
             "model_version": _version(run, config),
             "built_at": str(run["finished_at"]),
@@ -119,8 +124,8 @@ def get_prediction(player_id: int, gw: int = None):
     sql = """SELECT gw, horizon_step, e_points, e_minutes, p_start, p_60plus,
                     e_goals, e_assists, p_cs, exp_bonus
              FROM model_predictions
-             WHERE run_id = %s AND config = 'combined' AND element = %s"""
-    params = [run["run_id"], player_id]
+             WHERE run_id = %s AND config = %s AND element = %s"""
+    params = [run["run_id"], PRODUCTION_CONFIG, player_id]
     if gw is not None:
         sql += " AND gw = %s"
         params.append(gw)
@@ -165,7 +170,10 @@ def get_picks(gw: int = None, shadow: bool = False):
     if run is None:
         return {"error": f"no successful pipeline run{f' for GW{gw}' if gw else ''} "
                          "in the database yet"}
-    config = "baseline" if shadow else "combined"
+    if shadow and SHADOW_CONFIG is None:
+        return {"error": "no shadow configuration is run (production = "
+                         f"{PRODUCTION_CONFIG} since 2026-09-11; config_roles.py)"}
+    config = SHADOW_CONFIG if shadow else PRODUCTION_CONFIG
     rows = _q("""SELECT element AS player_id, name, position, team, role,
                         bench_order, price_tenths, e_points
                  FROM model_picks WHERE run_id = %s AND config = %s
@@ -186,7 +194,7 @@ def get_picks(gw: int = None, shadow: bool = False):
     if shadow:
         prod = {r["player_id"] for r in _q(
             """SELECT element AS player_id FROM model_picks
-               WHERE run_id = %s AND config = 'combined'""", (run["run_id"],))}
+               WHERE run_id = %s AND config = %s""", (run["run_id"], PRODUCTION_CONFIG))}
         here = {r["player_id"] for r in rows}
         out["differs_from_production_by"] = sorted(here ^ prod)
     return out
@@ -216,7 +224,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
     import simulator as sim
     from optimize import optimize_squad as solve_mip
 
-    frame_p = REPO / "data" / "live" / "_tmp_frame_combined.parquet"
+    frame_p = PROD_FRAME
     prices_p = REPO / "data" / "live" / "_tmp_prices_2026_27.parquet"
     if not frame_p.exists() or not prices_p.exists():
         return {"error": "no frame on the model volume yet -- the pipeline has "
@@ -294,7 +302,7 @@ def health():
     model_versions = None
     if last:
         model_versions = {c: f"{last.get('git_sha') or 'unknown'}/{c}"
-                          for c in ("combined", "baseline")}
+                          for c in CONFIGS}
 
     freshness = {}
     if db_ok:
@@ -311,7 +319,7 @@ def health():
             freshness["players_live"] = {"rows": pl[0]["n"], "updated_at": str(pl[0]["u"])}
         except Exception:
             freshness["players_live"] = None
-    frame_p = REPO / "data" / "live" / "_tmp_frame_combined.parquet"
+    frame_p = PROD_FRAME
     freshness["frame_on_volume"] = (
         str(datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc))
         if frame_p.exists() else None)

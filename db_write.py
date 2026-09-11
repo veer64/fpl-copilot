@@ -11,9 +11,10 @@
 #     version is the frame's config-stamp column set plus the git SHA, so
 #     runs carry git_sha + the full stamp as JSONB and model_version is
 #     "<git_sha_short>/<config>";
-#   * both configs land per run, distinguished by the `config` column
-#     ('combined' = production, 'baseline' = shadow) -- reads for users
-#     filter config='combined' explicitly.
+#   * every config the runner built lands per run, distinguished by the
+#     `config` column; which one is production is config_roles.PRODUCTION_CONFIG
+#     ('baseline' since 2026-09-11; no shadow) -- reads for users filter on it
+#     explicitly, never on a literal.
 #
 # Predictions are KEPT (append per run), never overwritten: the season
 # accumulates a live track record keyed by run_id.
@@ -48,7 +49,7 @@ CREATE TABLE IF NOT EXISTS model_runs (
 );
 CREATE TABLE IF NOT EXISTS model_predictions (
     run_id       INT NOT NULL REFERENCES model_runs(run_id),
-    config       TEXT NOT NULL,             -- 'combined' (production) / 'baseline' (shadow)
+    config       TEXT NOT NULL,             -- the config name; production = config_roles.PRODUCTION_CONFIG
     element      INT NOT NULL,
     gw           INT NOT NULL,              -- TARGET gameweek
     cutoff       INT NOT NULL,
@@ -204,7 +205,8 @@ def write_run(season, gw, frames, teams, findings_by, started_at=None,
                          float(r["e_points"])))
 
             if availability is not None or prices is not None:
-                f = frames["combined"] if "combined" in frames else next(iter(frames.values()))
+                from config_roles import PRODUCTION_CONFIG
+                f = frames[PRODUCTION_CONFIG] if PRODUCTION_CONFIG in frames else next(iter(frames.values()))
                 ident = f[f["gw"] == gw][["element", "name", "position", "team"]]
                 now = datetime.now(timezone.utc)
                 def _int_or_none(x):

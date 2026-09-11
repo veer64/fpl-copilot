@@ -1,7 +1,7 @@
 # Tools over the MODEL's outputs (model_tools.py). Every prediction answer
 # carries model_version and built_at; picks say when they were recovered
-# post-deadline. 'combined' is the production config -- users get it by
-# default; the baseline shadow is reachable only via get_picks(shadow=true).
+# post-deadline. config_roles.PRODUCTION_CONFIG ('baseline' since 2026-09-11) is
+# what users get by default; a shadow squad exists only if config_roles.SHADOW_CONFIG is set.
 tools_schema = [
     {
         "name": "resolve_player",
@@ -56,7 +56,7 @@ tools_schema = [
             "type": "object",
             "properties": {
                 "gw": {"type": "integer", "description": "Optional gameweek (default: latest run)"},
-                "shadow": {"type": "boolean", "description": "true for the baseline shadow squad"}
+                "shadow": {"type": "boolean", "description": "true for the shadow configuration's squad (none is run since 2026-09-11; returns an explicit error)"}
             },
             "required": []
         }
