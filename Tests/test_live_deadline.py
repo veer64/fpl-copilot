@@ -24,19 +24,15 @@ SEASON = "2025-26"
 
 @contextmanager
 def _frozen_record_source():
-    """The frozen 2025-26 record files were built on the core_insights DC
-    source. Since the 2026-08-31 adoption the live default is fpl_official, so
-    every record-parity test pins the SOURCE THE RECORD WAS BUILT UNDER -- the
-    guarantee these tests keep is that the shared code path reproduces the
-    frozen artefacts bit-for-bit through the gate. Live-default behaviour is
-    a deliberate model change, quantified in the adoption log, not a parity
-    subject."""
-    prev = defensive.DC_SOURCE
-    defensive.DC_SOURCE = "core_insights"
-    try:
-        yield
-    finally:
-        defensive.DC_SOURCE = prev
+    """Until 2026-09-11 this pinned defensive.DC_SOURCE = "core_insights", the
+    source the pre-as-of 2025-26 record files were built under. The record was
+    REBUILT on 2026-09-11 (LEAKAGE.md items 6-9 closed; KNOWN_ISSUES #22) under
+    the live default, fpl_official, so parity now runs on the live default and
+    this is a no-op kept so the call sites read the same. The pre-rebuild
+    artefacts survive as *_preasof.parquet."""
+    assert defensive.DC_SOURCE == "fpl_official", (
+        "the 2026-09-11 record was built under fpl_official; parity must run on it")
+    yield
 CANON = ROOT / "data" / f"walkforward_h6_{SEASON.replace('-', '_')}.parquet"
 COMBINED = ROOT / "data" / "arms_gap0" / f"walkforward_h6_{SEASON.replace('-', '_')}_both.parquet"
 

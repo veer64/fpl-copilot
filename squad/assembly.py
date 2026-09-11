@@ -367,7 +367,7 @@ def _attach_penalty_share(v_full, cw, season):
 
 def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
                       bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean, gws=None,
-                      season="2025-26", dc_enabled=True):
+                      season="2025-26", dc_enabled=True, cutoff_gw=None):
     """The master equation at PLAYER-FIXTURE grain, with components SUPPLIED.
 
     THIS IS THE SINGLE SOURCE OF TRUTH FOR THE EQUATION. It previously existed
@@ -386,6 +386,14 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
     falling back to a position base rate, because a base rate would award points
     under a rule that was not in force. Verified against 2023-24: reconstructing
     total_points WITHOUT the DC term reconciles on 29,725 of 29,725 rows.
+
+    `cutoff_gw` (2026-09-11, LEAKAGE.md items 7-8) freezes the D1 block at the
+    cutoff: the goalkeeper saves feature, its position fallback and the team
+    penalty rate are computed from rows with gw < cutoff_gw and carried across
+    the horizon, exactly as every other component is frozen. Every walk-forward
+    writer and the live path pass it. None keeps the legacy full-season
+    construction for the static `python assembly.py` build ONLY -- that path
+    is not of record and reads post-cutoff rows by design of its era.
     """
     # KNOWN_ISSUES #3 guard: the crosswalk is about to be joined against
     # understat-keyed rates; a duplicate id claim would silently give two
@@ -554,17 +562,32 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
     v_full = v_full.rename(columns={"GW": "gw"})
     v_full["saves_per_90"] = (v_full["saves"] / (v_full["minutes"] + 1)) * 90.0
 
-    # Saves: rolling average (last 5 gameweeks, with fallback to position prior)
-    # Grouped by season and element to avoid leakage across seasons
-    v_full["saves_per_90_roll"] = (v_full.sort_values(["element", "gw"])
-                                   .groupby(["season", "element"])["saves_per_90"]
-                                   .transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()))
-    v_full["saves_per_90_roll"] = v_full["saves_per_90_roll"].fillna(0)
-    saves_prior = v_full.groupby("position")["saves_per_90"].mean()
-    saves_prior_shrunk = saves_prior * 0.3  # shrink 70% toward zero, rare events
-    v_full["saves_per_90"] = v_full.apply(
-        lambda r: r["saves_per_90_roll"] if r["saves_per_90_roll"] > 0
-                  else saves_prior_shrunk.get(r["position"], 0), axis=1)
+    if cutoff_gw is not None:
+        # AS-OF FREEZE (LEAKAGE.md item 7, closed 2026-09-11). The saves feature
+        # is the mean of the player's last <= 5 rows STRICTLY BEFORE the cutoff
+        # gameweek, carried unchanged to every target gameweek -- the value a row
+        # at the cutoff would have carried under the old shift-then-roll, without
+        # the old construction's two defects: at steps 1-5 it rolled over the
+        # full season (realised saves from after the cutoff), and in a live
+        # build the window emptied into the fallback constant by step 5. The
+        # fallback (item 8) is the position mean over the same pre-cutoff rows.
+        # Skeleton rows (minutes NaN) never enter; 0-minute rows do, as before.
+        hist_rows = v_full[v_full["minutes"].notna() & (v_full["gw"] < cutoff_gw)]
+        hs = hist_rows.sort_values(["element", "gw", "fixture"], kind="stable")
+        roll = hs.groupby("element", sort=False).tail(5).groupby("element")["saves_per_90"].mean()
+        saves_prior_shrunk = hist_rows.groupby("position")["saves_per_90"].mean() * 0.3
+        v_full["saves_per_90_roll"] = v_full["element"].map(roll).fillna(0)
+    else:
+        # LEGACY full-season construction (static `python assembly.py` only; not
+        # of record). Reads rows after the cutoff -- see the docstring.
+        v_full["saves_per_90_roll"] = (v_full.sort_values(["element", "gw"])
+                                       .groupby(["season", "element"])["saves_per_90"]
+                                       .transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()))
+        v_full["saves_per_90_roll"] = v_full["saves_per_90_roll"].fillna(0)
+        saves_prior_shrunk = v_full.groupby("position")["saves_per_90"].mean() * 0.3
+    v_full["saves_per_90"] = np.where(
+        v_full["saves_per_90_roll"] > 0, v_full["saves_per_90_roll"],
+        v_full["position"].map(saves_prior_shrunk).fillna(0.0))
 
     # Cards: position-level base rate from PRIOR SEASONS ONLY -- never derived
     # from the season being predicted. Realised cards per 90 by position, no
@@ -594,7 +617,11 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
     # live 2026-27 build with the full calendar present would divide one played
     # gameweek's pens by 38. Historical rows always carry minutes, so complete
     # seasons are bit-identical (the parity suite proves it).
+    # AS-OF (LEAKAGE.md item 8): pre-cutoff played gameweeks only when a cutoff is
+    # given; the full-season aggregate was trap #3 of that file.
     _played = v_full[v_full["minutes"].notna()]
+    if cutoff_gw is not None:
+        _played = _played[_played["gw"] < cutoff_gw]
     team_pen_rate = (_played.groupby(["season", "team"])
                      .agg(total_pens=("penalties_missed", "sum"),
                           gw_count=("gw", "nunique"))

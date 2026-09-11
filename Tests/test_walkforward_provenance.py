@@ -74,8 +74,15 @@ PREMIGRATION = REPO / "data" / "walkforward_h6_2526_prefix.parquet"
 # `_precrosswalk`. (2026-08-14 post-migration fingerprint, for the record: rows
 # 165_401, Spearman 0.745, MAE 1.109; _prebonusdel / _preleakfix lineage.)
 EXPECTED_ROWS = 165_401
-EXPECTED_SPEARMAN = 0.7466
-EXPECTED_MAE = 1.0457
+# 2026-09-11 -- REBUILT on the as-of code (LEAKAGE.md items 6-9 closed; KNOWN_ISSUES #22/#23/#24;
+# Logs/asof_rebuild_log.md): the DC term scored as of the cutoff (no longer selected on realised
+# appearance), the saves feature frozen at the cutoff, the aggregates pre-cutoff, the P(60+|start)
+# feature vector no longer selected on the realised start, and the live DC source (fpl_official).
+# Step-0 Spearman 0.7466 -> 0.7454, MAE 1.0457 -> 1.0506: the record lost information it should
+# never have had. Set deliberately from the rebuilt file; the pre-rebuild artefact is preserved as
+# walkforward_h6_2025_26_preasof.parquet.
+EXPECTED_SPEARMAN = 0.7454
+EXPECTED_MAE = 1.0506
 # Element -> Understat id pairs that only the crosswalk-fixed build carries.
 CROSSWALK_FIX_IDS = {417: 8094.0, 713: 12168.0}      # Rayan Cherki, Alex Jimenez Sanchez
 PRECROSSWALK = REPO / "data" / "walkforward_h6_2025_26_precrosswalk.parquet"

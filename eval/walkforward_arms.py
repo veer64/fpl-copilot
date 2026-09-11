@@ -87,7 +87,7 @@ def assemble_cutoff(comp, df, cw, mins, k, targets, season, dc_enabled, hook=Non
         a_k = assembly.collapse_to_gameweek(assembly.assemble_fixtures(
             df, cw, mins, comp["rates"], comp["priors"], comp["f_k"].copy(), comp["dc_k"],
             comp["bps_model"], comp["bps_to_bonus"], comp["BPS_FEATURES"], comp["bonus_mean"],
-            gws=targets, season=season, dc_enabled=dc_enabled))
+            gws=targets, season=season, dc_enabled=dc_enabled, cutoff_gw=k))
     finally:
         assembly.PROPS_HOOK = None
     a_k["cutoff"] = k; a_k["horizon_step"] = a_k["gw"] - k

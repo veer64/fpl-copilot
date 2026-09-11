@@ -91,6 +91,9 @@ SUBF = ["avg_min_last3", "avg_min_last5", "minutes_trend_3", "consec_zero_mins",
         "starts_last3", "starts_last5", "started_last_gw", "position_code", "value", "is_double_gw"]
 SUBRF = ["avg_min_last3", "avg_min_last5", "minutes_trend_3", "consec_zero_mins", "gws_since_last_start",
          "position_code", "value", "is_double_gw"]
+# The starter-history block P(60+ | start) reads; built as-of each gameweek in
+# _build_frames (see the comment there) and carried on `cs` for every row.
+STARTER_HISTORY = ["past60_rate_3", "past60_rate_5", "last_start_minutes"]
 
 
 def _build_frames(col):
@@ -107,20 +110,45 @@ def _build_frames(col):
     pm = {order[i]: order[i - 1] for i in range(1, len(order))}
     sa["season"] = sa["season"].map({v: k for k, v in pm.items()}); sa = sa.dropna(subset=["season"])
 
+    # Starter-history block (past60_rate_3 / past60_rate_5 / last_start_minutes),
+    # AS OF EACH GAMEWEEK -- LEAKAGE.md item 9, closed 2026-09-11. Until then it
+    # was computed on the starts == 1 frame and merged back by (season, element,
+    # GW), so a row carried real starter history only if the player STARTED that
+    # gameweek and 0 otherwise: the feature vector at gameweek k was selected on
+    # the realised start at k (the DC shape, KNOWN_ISSUES #22). Now every row --
+    # start, bench appearance, non-appearance, forward-skeleton row -- carries
+    # the stats of the player's starts STRICTLY BEFORE that gameweek (inclusive
+    # rolling on start rows, shifted one row and carried forward). On start rows
+    # the values are identical to the old construction, so the fitted
+    # P(60+ | start) model is unchanged; only the prediction frame moved. A live
+    # build (skeleton rows, starts NaN) previously zeroed every player's history.
+    is_start = col["starts"] == 1
+    st = col.loc[is_start, ["season", "element", "minutes_capped"]].copy()
+    st["played_60"] = (st["minutes_capped"] >= 60).astype(float)
+    gs = st.groupby(["season", "element"], sort=False)
+    st["_r3"] = gs["played_60"].transform(lambda s: s.rolling(3, min_periods=1).mean())
+    st["_r5"] = gs["played_60"].transform(lambda s: s.rolling(5, min_periods=1).mean())
+    st["_lm"] = st["minutes_capped"].astype(float)
+    g_all = col.groupby(["season", "element"], sort=False)
+    for src, dst in (("_r3", "past60_rate_3"), ("_r5", "past60_rate_5"), ("_lm", "last_start_minutes")):
+        col[dst] = np.nan
+        col.loc[st.index, dst] = st[src]
+        col[dst] = g_all[dst].transform(lambda s: s.shift(1).ffill())
+
     cs = col.copy()
     cs["has_no_history"] = cs[["started_last_gw", "avg_min_last3"]].isna().any(axis=1).astype(int)
     cs[S1] = cs[S1].fillna(0)
+    # no prior start -> 0, exactly the fill the old post-merge frame applied
+    cs[STARTER_HISTORY] = cs[STARTER_HISTORY].fillna(0)
     cs = cs.merge(sa, on=["season", "name"], how="left")
     cs["transfer_status"] = np.where(cs["prev_start_rate"].isna(), 2, 0)
     cs[["prev_start_rate", "prev_avg_minutes", "prev_games"]] = \
         cs[["prev_start_rate", "prev_avg_minutes", "prev_games"]].fillna(0)
 
-    sd = col[col["starts"] == 1].copy().sort_values(["season", "element", "GW"]).reset_index(drop=True)
+    # Training frame for P(60+ | start): start rows, starter history NaN before a
+    # first start (as before -- LightGBM handles the missing value natively).
+    sd = col[is_start].copy().sort_values(["season", "element", "GW"]).reset_index(drop=True)
     sd["played_60"] = (sd["minutes_capped"] >= 60).astype(int)
-    g2 = sd.groupby(["season", "element"])
-    sd["past60_rate_3"] = g2["played_60"].transform(lambda s: s.shift(1).rolling(3, min_periods=1).mean())
-    sd["past60_rate_5"] = g2["played_60"].transform(lambda s: s.shift(1).rolling(5, min_periods=1).mean())
-    sd["last_start_minutes"] = g2["minutes_capped"].shift(1)
 
     bd = col[col["starts"] == 0].copy()
     bd["came_on"] = (bd["minutes"] > 0).astype(int)
@@ -288,11 +316,9 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
     m_msub = lgb.LGBMRegressor(n_estimators=100, num_leaves=7, min_child_samples=100, reg_lambda=1.0,
                                learning_rate=0.05, random_state=42, verbose=-1).fit(tr5[xSUBRF], tr5["minutes_capped"])
 
-    # predict
-    sr = sd[["season", "element", "GW", "past60_rate_3", "past60_rate_5", "last_start_minutes"]]
-    csx = cs.merge(sr, on=["season", "element", "GW"], how="left")
-    csx[["past60_rate_3", "past60_rate_5", "last_start_minutes"]] = \
-        csx[["past60_rate_3", "past60_rate_5", "last_start_minutes"]].fillna(0)
+    # predict. `cs` already carries the starter-history block as of each gameweek
+    # (no merge from the starts == 1 frame -- that merge was LEAKAGE.md item 9).
+    csx = cs
     pf = csx[csx["season"] == predict_season].dropna(subset=SUBF + S1).copy()
     if predict_gws is not None:
         pf = pf[pf["GW"].isin(predict_gws)]

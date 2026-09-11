@@ -166,7 +166,7 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
             assembly.assemble_fixtures(
                 df, cw, m_k, rates, priors, f_k, dc_k,
                 bps_model, bps_to_bonus, BPS_FEATURES, bonus_mean,
-                gws=targets, season=season, dc_enabled=dc_enabled))
+                gws=targets, season=season, dc_enabled=dc_enabled, cutoff_gw=k))
         a_k["cutoff"] = k
         a_k["horizon_step"] = a_k["gw"] - k
         out.append(a_k)

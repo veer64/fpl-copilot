@@ -263,7 +263,7 @@ def walk_forward(cutoffs=None, horizon=1, verbose=True, save_path=None):
         a_k = assembly.collapse_to_gameweek(
             assembly.assemble_fixtures(df, cw, m_k, rates, priors, f_k, dc_k,
                                        bps_model, bps_to_bonus, BPS_FEATURES,
-                                       bonus_mean, gws=targets))
+                                       bonus_mean, gws=targets, cutoff_gw=k))
         a_k["cutoff"] = k
         a_k["horizon_step"] = a_k["gw"] - k
         out.append(a_k)

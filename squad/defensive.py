@@ -293,30 +293,98 @@ DC_RULE_SEASONS = {"2025-26", "2026-27"}
 _DC_HITS_CACHE = {}
 
 
+def _asof_rows(hist):
+    """One feature row per player AS OF a cutoff: the statistics a row at the
+    cutoff gameweek would carry under the shift-then-roll construction --
+    means over the player's last 3 / 5 PLAYED rows strictly before the cutoff.
+    Position is the player's most recent row. Stable sort on (player, gw[,
+    fixture]) so the window is deterministic through a double gameweek."""
+    keys = ["player_id", "gw"] + (["fixture"] if "fixture" in hist.columns else [])
+    h = hist.sort_values(keys, kind="stable")
+    g = h.groupby("player_id", sort=False)
+    last = g.tail(1)[["player_id", "position"]].set_index("player_id")
+    t3 = (g.tail(3).groupby("player_id")
+          .agg(roll_dc90_3=("dc_per90", "mean"), roll_mins_3=("minutes_played", "mean")))
+    t5 = (g.tail(5).groupby("player_id")
+          .agg(roll_dc90_5=("dc_per90", "mean"), roll_hit_5=("dc_hit", "mean")))
+    out = last.join(t3).join(t5).reset_index()
+    out["roll_dc90_3c"] = out["roll_dc90_3"].clip(upper=30)
+    out["roll_dc90_5c"] = out["roll_dc90_5"].clip(upper=30)
+    return out
+
+
+def _score_cutoff(d, cutoff_gw, recency_weight=False):
+    """P(DC hit) for EVERY player with a played row before `cutoff_gw`, scored on
+    his as-of feature row. Training is exactly _predict_gw's: per position, all
+    feature-bearing rows with gw < cutoff_gw; the < 150-row cold start and the
+    forward constant are unchanged. Only the SCORED POPULATION differs from the
+    pre-2026-09-11 path: it is no longer the rows that PLAYED the cutoff gameweek."""
+    hist = d[d["gw"] < cutoff_gw]
+    if hist.empty:
+        return None
+    feats = _asof_rows(hist)
+    out = []
+    for pos in ["Defender", "Midfielder", "Forward"]:
+        te = feats[feats["position"] == pos].copy()
+        if te.empty:
+            continue
+        if pos == "Forward":
+            te["p_dc_hit"] = FWD_BASE_RATE
+        else:
+            prior = hist[hist["position"] == pos].dropna(subset=FEATURES)
+            if len(prior) < 150:
+                te["p_dc_hit"] = prior["dc_hit"].mean() if len(prior) else 0.13
+            else:
+                m = _mk()
+                if recency_weight:
+                    m.fit(prior[FEATURES], prior["dc_hit"], sample_weight=0.9 ** (cutoff_gw - prior["gw"].values))
+                else:
+                    m.fit(prior[FEATURES], prior["dc_hit"])
+                te["p_dc_hit"] = m.predict_proba(te[FEATURES])[:, 1]
+        out.append(te)
+    if not out:
+        return None
+    return pd.concat(out, ignore_index=True)[["player_id", "position", "p_dc_hit"]]
+
+
 def get_dc_hits(season, cutoff_gw, target_gws):
     """p_dc_hit rows for one walk-forward cutoff, frozen across the horizon.
 
-    Returns DataFrame[player_id, position, p_dc_hit, gw] -- the player's own
-    gameweek-`cutoff_gw` estimate repeated for each target gameweek (form as
-    of the cutoff persists; the same freeze the other components use). Empty
-    for a cutoff gameweek the model has no features for yet (early season):
-    assembly then falls back to position base rates, the honest cold start.
+    Returns DataFrame[player_id, position, p_dc_hit, gw] -- the player's
+    estimate AS OF `cutoff_gw` repeated for each target gameweek (form as of
+    the cutoff persists; the same freeze the other components use).
 
-    Pre-rule seasons return the empty-but-typed frame; the caller also zeroes
-    the term via dc_enabled, so this is belt and braces."""
+    AS-OF SCORING (2026-09-11, KNOWN_ISSUES #22 / LEAKAGE.md item 6). Until then
+    this read `get_dc_2526()[gw == cutoff_gw]`: rows that exist only for
+    players who PLAYED the cutoff gameweek (the source keeps minutes >= 1 rows).
+    In the backtest that selected the model rows on the realised appearance;
+    live, the cutoff gameweek is unplayed and the lookup was EMPTY at every
+    deadline, so production priced every row at DC_BASE. Now every player with
+    a played row before the cutoff is scored on his as-of feature row
+    (_score_cutoff); the label never enters and no cutoff-gameweek count does.
+    THIS IS A MODEL CHANGE, NOT A REPAIR: the old backtest term was conditioned
+    on an outcome a deadline cannot know, so the fixed term will not reproduce
+    the record files built before this date. get_dc_2526 / _predict_gw remain
+    as the component-evaluation (MLflow) path and the legacy static build.
+
+    Empty for a cutoff with no played rows yet (GW1): assembly then falls back
+    to position base rates, the honest cold start. Pre-rule seasons return the
+    empty-but-typed frame; the caller also zeroes the term via dc_enabled."""
     cols = ["player_id", "position", "p_dc_hit", "gw"]
     if season not in DC_RULE_SEASONS:
         return pd.DataFrame(columns=cols)
-    # Cache keyed by (source, SEASON) -- the season-less "full" key defect
-    # flagged in #21 and both swap logs, fixed at the 2026-08-31 adoption as
-    # mandated: widening DC_RULE_SEASONS without this would have served last
-    # season's probabilities to a 2026-27 build.
-    ck = (DC_SOURCE, season)
-    if ck not in _DC_HITS_CACHE:
-        _DC_HITS_CACHE[ck] = get_dc_2526(season=season)
-    at_k = _DC_HITS_CACHE[ck]
-    at_k = at_k[at_k["gw"] == cutoff_gw][["player_id", "position", "p_dc_hit"]]
-    if len(at_k) == 0:
+    # Caches keyed by (source, season[, cutoff]) -- the season-less key defect
+    # flagged in #21 was fixed at the 2026-08-31 adoption; the cutoff key is new
+    # with as-of scoring. eval/asof_reconstruction.py clears this dict around a
+    # truncated build, so both kinds of key live in the one dict.
+    fk = ("features", DC_SOURCE, season)
+    if fk not in _DC_HITS_CACHE:
+        _DC_HITS_CACHE[fk] = _build_features(season)
+    hk = ("hits", DC_SOURCE, season, int(cutoff_gw))
+    if hk not in _DC_HITS_CACHE:
+        _DC_HITS_CACHE[hk] = _score_cutoff(_DC_HITS_CACHE[fk], int(cutoff_gw))
+    at_k = _DC_HITS_CACHE[hk]
+    if at_k is None or len(at_k) == 0:
         return pd.DataFrame(columns=cols)
     frames = [at_k.assign(gw=g) for g in target_gws]
     return pd.concat(frames, ignore_index=True)[cols]

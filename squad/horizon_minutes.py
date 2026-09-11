@@ -69,12 +69,12 @@ def _frames(availability, train_seasons, predict_season):
     if AV:
         col = avf.attach(col)
     cs, sd, bd = mm._build_frames(col)
-    sr = sd[["season", "element", "GW", "past60_rate_3", "past60_rate_5", "last_start_minutes"]]
-    csx = cs.merge(sr, on=["season", "element", "GW"], how="left")
-    csx[["past60_rate_3", "past60_rate_5", "last_start_minutes"]] = \
-        csx[["past60_rate_3", "past60_rate_5", "last_start_minutes"]].fillna(0)
+    # `cs` carries the starter-history block as of each gameweek (minutes._build_frames,
+    # LEAKAGE.md item 9): the refit's cutoff row is no longer selected on the
+    # realised start at the cutoff. Same frame code as step 0 -- fixed once.
+    csx = cs
     FP = mm.S1 + ["has_no_history", "prev_start_rate", "prev_avg_minutes", "prev_games", "transfer_status"]
-    S2 = mm.S1 + ["past60_rate_3", "past60_rate_5", "last_start_minutes"]
+    S2 = mm.S1 + mm.STARTER_HISTORY
     feats = dict(xFP=FP + AV, xS2=S2 + AV, xS1=mm.S1 + AV, xSUBF=mm.SUBF + AV, xSUBRF=mm.SUBRF + AV)
     labels = col[["season", "element", "GW", "starts", "minutes", "minutes_capped"]].copy()
     labels = labels[labels["starts"].notna()]   # forward-skeleton rows carry no label

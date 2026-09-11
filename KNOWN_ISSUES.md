@@ -1182,3 +1182,178 @@ rule, Bar-1 rank and season totals were never produced. ECE improved on both fam
 the prereg RESULT, deliberately not used to soften the verdict). The gate and its default remain;
 this issue stays open as a recorded, quantified discrepancy.
 
+
+---
+
+## #22 -- the defensive-contribution model never scores a LIVE deadline gameweek: every live row is priced at DC_BASE, while the backtest of record used the per-player model
+
+**Status:** Found 2026-09-10 by the read-only model inventory (`Logs/model_inventory_log.md` §5), VERIFIED the same
+day on the GW3 recovered frames and the 2025-26 canonical file (script: session scratchpad, read-only; numbers
+below). NOT fixed. Scope: `squad/defensive.py::_raw_rows_official` / `get_dc_2526` / `get_dc_hits`,
+`squad/assembly.py` (the `DC_BASE` fallback), `squad/live_deadline.py::postflight` (the detector that reports it
+as a note). Structural, not an early-season artefact -- it does NOT resolve as gameweeks accrue.
+
+### What was found
+
+**Live frames (2026-27 GW3, `data/live/gw3_frame_{combined,baseline}_RECOVERED.parquet`, `dc_rule_active=True`):**
+
+| | DEF | MID | FWD | GK | total |
+|---|---|---|---|---|---|
+| rows at `DC_BASE` (every step 0-5) | 207 | 278 | 73 | 71 | **3,774 / 3,774** |
+| rows with a model prediction | 0 | 0 | 0 | 0 | **0** |
+
+Identical in both configs. `p_dc_hit` takes exactly ONE value per position (0.125 / 0.136 / 0.058 / 0.0).
+
+**Backtest, for contrast (`data/walkforward_h6_2025_26.parquet`, the canonical file the record was scored on):**
+
+| cutoff | rows at base (DEF / MID / FWD / GK, step 0) | model rows (DEF / MID / FWD) | model rows, all 6 steps |
+|---|---|---|---|
+| 3 | 142 / 181 / 46 / 82 | 94 / 138 / 29 | 1,566 of 4,423 |
+| 10 | 148 / 186 / 49 / 86 | 99 / 146 / 33 | 1,668 of 4,526 |
+| 20 | 154 / 224 / 49 / 91 | 105 / 130 / 37 | 1,632 of 4,815 |
+| 30 | 170 / 244 / 59 / 94 | 96 / 126 / 33 | 1,404 of 4,555 |
+
+The backtest carried a model prediction for roughly a third of rows at every cutoff, INCLUDING cutoff 3 with two
+played gameweeks of features. So "two gameweeks is too few" is not the explanation; the live emptiness is the
+missing target-gameweek rows.
+
+### Why -- the three lines that decide it
+
+`squad/defensive.py`:
+
+    90:   return d[d["minutes_played"] >= 1].copy()                     # _raw_rows_official: PLAYED rows only
+    244:  preds = [_predict_gw(d, g, recency_weight) for g in sorted(d["gw"].unique())]   # predicts only gameweeks IN that frame
+    318:  at_k = at_k[at_k["gw"] == cutoff_gw][["player_id", "position", "p_dc_hit"]]      # get_dc_hits: looks up the CUTOFF gameweek
+    319:  if len(at_k) == 0:
+    320:      return pd.DataFrame(columns=cols)                          # -> empty -> assembly falls to DC_BASE
+
+At a live cutoff k, gameweek k is unplayed: its rows in the stack are forward-skeleton rows with `minutes` NaN
+(`season_stack.load_stack`), and `_raw_rows_official` reads `stack_path()` (the played archive) anyway. Either way
+`d["gw"].unique()` contains only played gameweeks, `_predict_gw` is never called for k, line 318 selects nothing,
+and line 320 returns empty at EVERY live cutoff for the whole season. In the backtest gameweek k IS on disk (the
+whole season is), so line 244 fits and predicts for it and line 318 finds rows.
+
+**Secondary observation, recorded here because it is the same mechanism:** the backtest's model rows exist only for
+players who PLAYED gameweek k (line 90 is a filter on the target gameweek's own minutes). The per-player DC term in
+the record files was therefore assigned conditional on the realised appearance in the gameweek being predicted --
+a selection a live build cannot reproduce even after the lookup is fixed. Features themselves are shift(1) and
+leak-free; the row universe is not.
+
+### What it costs (2025-26 canonical, step 0, all 38 cutoffs, `pts_dc` at the model vs at `DC_BASE` on the same rows)
+
+| population | n | mean pts_dc model / base | mean diff | mean \|diff\| | max \|diff\| | p95 \|diff\| |
+|---|---|---|---|---|---|---|
+| all rows | 29,338 | 0.073 / 0.064 | +0.009 | 0.048 | 1.276 | 0.227 |
+| likely starters (p_start >= .75) | 6,042 | 0.264 / 0.189 | +0.074 | 0.171 | 1.276 | 0.608 |
+| -- DEF only | 2,395 | | +0.193 | 0.245 | 1.276 | |
+| squad-relevant (top 30 by e_points per gw) | 1,140 | 0.311 / 0.187 | +0.124 | 0.220 | 1.276 | 0.806 |
+| -- DEF only | 419 | | +0.375 | 0.405 | 1.276 | |
+
+Rank effect on the same rows, Spearman(e_points, realised points): likely starters 0.2231 with the model vs 0.2145
+at base (-0.009); top-30 0.1574 vs 0.1261 (**-0.031**). Against the project's reference scales: 0.03 e_points/row
+was too small to act on; 0.26-0.50 was large enough. The per-row |diff| on the decision partitions (0.17-0.22, and
+0.25-0.40 on defenders, who are where the term lives) sits in the second band, and the top-30 rank loss is a
+component-test-sized move. Every defender in a live XI is currently priced at 0.25 DC points per full match
+regardless of who he is; the backtest priced specialists at up to ~1.5.
+
+### Why postflight does not raise
+
+`squad/live_deadline.py` lines 442-448:
+
+    # DC-hit base-rate fallback (graceful cold-start inside an enabled season; report only)
+    if season in wfs.DC_SEASONS:
+        base = f["position"].map(assembly.DC_BASE)
+        n_base = int(np.isclose(f["p_dc_hit"], base).sum())
+        if n_base > 0.9 * len(f):
+            findings.append(f"note: p_dc_hit sits at the DC_BASE position rates on {n_base}/{len(f)} "
+                            f"rows -- the defensive model's cold-start prior, correct early-season behaviour")
+
+It is `findings.append`, never `_finding(findings, strict, ...)`, so strict mode cannot raise on it, and its text
+asserts the benign reading. It fired on GW3 ("strict: both configs PASSED, zero raises", recovery provenance) and
+will fire identically at GW38. To surface as a strict finding it needs (a) a condition that distinguishes cold start
+from structural emptiness -- e.g. raise when `get_dc_hits` returns empty while the stack holds >= 2 played
+gameweeks of the season (the backtest shows the model has features by then), or a preflight assertion that
+`cutoff_gw` is in the set of gameweeks `get_dc_2526` will predict -- and (b) `_finding` instead of `append`.
+Fifth member of the silent-fallback family (#10 / #13 / #14 / #15): the parity suite cannot catch it because it
+replays historical gameweeks that are on disk.
+
+### To close (not done here)
+
+Predict the cutoff gameweek from the cutoff's ROW UNIVERSE (every player with rolling features from gameweeks < k,
+i.e. the forward rows), not from gameweek k's played rows: build features on played rows as now, then score the
+last-known feature row per player for gameweek k. That also removes the backtest's played-row selection, so the
+canonical files must be rebuilt and re-stamped, and the change measured on the decision partitions before
+adoption (the #13 discipline). Until then, every live `pts_dc` is a position constant and the 2025-26 reference
+cells overstate what production computes.
+
+### Files involved
+
+`squad/defensive.py`, `squad/assembly.py` (`DC_BASE`), `squad/live_deadline.py` (postflight),
+`data/live/gw3_frame_*_RECOVERED.parquet`, `data/walkforward_h6_2025_26.parquet`, `Logs/model_inventory_log.md` §5 / §15.
+
+**Cross-reference (2026-09-11):** the backtest-side consequence — model rows only for players who PLAYED
+gameweek k — was audited against the standing leakage definition and CONFIRMED as a leak of realised
+appearance (`LEAKAGE.md` item 6: model group appeared 1.000 vs base group 0.046 on 2025-26 step 0). The same
+audit found the D1 saves feature is not frozen at the cutoff (steps 1–5 read post-cutoff saves; `LEAKAGE.md`
+item 7) and two full-season aggregates in the D1 block (`LEAKAGE.md` item 8). Only 2025-26 cells carry #22;
+2023-24 / 2024-25 have the DC term zeroed.
+
+**CLOSED 2026-09-11.** `defensive.get_dc_hits` now scores every player with a played row before the cutoff on
+his as-of feature row (`_asof_rows` / `_score_cutoff`); the `dc_out[gw == cutoff]` lookup is gone. Model
+unchanged (training rows identical; played single-fixture values bit-identical at five cutoffs); scored
+population changed. **MODEL CHANGE, NOT A REPAIR:** the record's term was conditioned on realised appearance,
+which a deadline cannot know; the fixed term is the honest one and does not match the leaked figures. The
+guard that would have caught this -- and found a third leak (#24) -- is `eval/asof_reconstruction.py` /
+`Tests/test_asof_reconstruction.py` (LEAKAGE.md, Closure 2026-09-11). Record rebuilt: `Logs/asof_rebuild_log.md`.
+
+---
+
+## #23 -- the D1 block in assemble_fixtures had no cutoff: the goalkeeper saves feature rolled over the full season (steps 1-5 read post-cutoff saves) and two aggregates were full-season -- CLOSED 2026-09-11
+
+**Status:** Found 2026-09-11 by the leakage audit (LEAKAGE.md items 7-8), CLOSED the same day.
+Scope: `squad/assembly.py::assemble_fixtures` D1 block (`saves_per_90`, its position fallback, `team_pen_rate`).
+
+### What was found
+`saves_per_90` was `shift(1).rolling(5)` over the whole season frame, joined to target rows by (element, gw,
+fixture): identical for a player-gameweek at every cutoff, so at steps 1-5 it read realised saves from after the
+cutoff (likely-starter goalkeepers: mean |delta pts_saves| 0.22, 0.12 at step 1 to 0.31 at step 5, max 1.63,
+against a mean pts_saves of 0.50). Live, the same code emptied into the fallback constant by step 5 -- a
+backtest-vs-live gap in the same term. `team_pen_rate` and the goalkeeper fallback were full-season aggregates
+(LEAKAGE trap 3, then "not yet present"); under 0.04 points per row.
+
+### The fix
+`assemble_fixtures(..., cutoff_gw=k)`: the saves feature is the mean of the player's last <= 5 rows with gw < k,
+carried unchanged across the horizon (the value a row at the cutoff carried before, minus the two defects);
+both aggregates use rows with gw < k. Every walk-forward writer (`walkforward_season`, `walkforward_arms`,
+`walkforward`) and the live path pass the cutoff; `cutoff_gw=None` keeps the legacy construction for the static
+`python assembly.py` build only, which is not of record. Verified by the as-of guard: zero moving columns at
+cutoffs 3 / 20 / 24 / 33, both configs. Model change, not a repair (see #22).
+
+---
+
+## #24 -- P(60+ | start)'s starter-history features were merged from the starts == 1 frame, so a player carried real history at gameweek k only if he STARTED gameweek k -- CLOSED 2026-09-11
+
+**Status:** Found 2026-09-11 BY THE AS-OF GUARD on its first run (the third leak; LEAKAGE.md item 9), CLOSED the
+same day. Scope: `squad/minutes.py::_build_frames` / `get_minutes` and `squad/horizon_minutes._frames`
+(the refit's cutoff row went through the same merge, so the combined config's steps 1-5 carried it too).
+
+### What was found
+`sd = col[starts == 1]` computed `past60_rate_3 / past60_rate_5 / last_start_minutes` as shifted rolling stats
+over the player's starts, then `cs.merge(sd[...], on=[season, element, GW]).fillna(0)`: the feature vector at
+gameweek k was selected on the realised start at k -- clean shift(1) features inside, outcome selection outside
+(the #22 shape). At cutoff 20, 214 of 220 realised starters moved under truncation and zero non-starters; p60
+0.936 (record) vs 0.892 (as-of) on the moved rows, likely starters -0.029, max 0.189; dependants p_60plus,
+pts_appear, pts_cs. Live, skeleton rows have null starts, so every live player's history was zero.
+
+### The fix
+The block is built as of each gameweek on every row (inclusive rolling on start rows, shifted and carried
+forward within (season, element)); both paths read it from `cs`, the merge is gone. Start-row values are
+bit-identical to before (30,162 rows), so the fitted model is unchanged; 6,363 non-start rows in 2025-26 and
+9,102 live rows now carry history. Model change, not a repair (see #22): the record's p60 for starters was
+computed knowing they started.
+
+### Why parity never caught any of #22-#24
+Both paths read the same stack with the target gameweek on disk; the leak was in the shared input. The as-of
+guard truncates every per-season input to the deadline's information set (and, for the combined config,
+reconstructs the horizon refit in-process instead of reading it) and asserts bit-identity against the record.
+It is the standing guard from 2026-09-11; its residual coverage is listed in LEAKAGE.md.

@@ -116,6 +116,17 @@ def _minutes_ladder():
     return re.findall(r"\"(\d{4}-\d{2})\"", m.group(1)) or re.findall(r"'(\d{4}-\d{2})'", m.group(1))
 
 
+def load_hmin_refit(season):
+    """The horizon-minutes refit frame for `season` (data/horizon/hmin_{tag}_refit.parquet),
+    or None if absent. THE ONE READ of that file on the live path: preflight and the
+    combined build both come through here, so eval/asof_reconstruction.py can substitute
+    a refit RECONSTRUCTED from a truncated stack (the refit's cutoff row is built by the
+    same frame code as step 0 and is inside the leakage blast radius -- a file read from
+    disk would put steps 1-5 of the combined config outside the guard)."""
+    hp = REPO / "data" / "horizon" / f"hmin_{season.replace('-', '_')}_refit.parquet"
+    return pd.read_parquet(hp) if hp.exists() else None
+
+
 def props_fixture_coverage(season, gw):
     """(priced fixtures, total fixtures) for the gameweek, from the props consensus
     fixture file and the vaastav master. Read-only."""
@@ -164,12 +175,12 @@ def preflight(season, gw, strict=False, config="baseline", horizon=1):
         else:
             # the steps-1-5 substitution input: without it the lever is OFF in fact
             # while the frame is stamped horizon_minutes_active=True
-            hp = REPO / "data" / "horizon" / f"hmin_{tag}_refit.parquet"
-            if not hp.exists():
+            hmin = load_hmin_refit(season)
+            if hmin is None:
                 _finding(findings, strict,
-                         f"horizon-minutes refit file missing: {hp.name} -- steps 1-5 would silently "
+                         f"horizon-minutes refit file missing: hmin_{tag}_refit.parquet -- steps 1-5 would silently "
                          f"keep the stale step-0 minutes copy (the lever OFF in fact, stamped ON)")
-            elif not (pd.read_parquet(hp, columns=["cutoff"])["cutoff"].astype(int) == int(gw)).any():
+            elif not (hmin["cutoff"].astype(int) == int(gw)).any():
                 _finding(findings, strict,
                          f"hmin refit file has no rows for cutoff GW{gw} -- every steps-1-5 row would "
                          f"silently keep the stale step-0 copy")
@@ -487,8 +498,7 @@ def build_deadline_frame(season, gw, strict=False, verbose=False, config="baseli
         targets = [g for g in all_gws if k <= g < k + horizon]
         hmin = None
         if horizon > 1:
-            hp = REPO / "data" / "horizon" / f"hmin_{season.replace('-', '_')}_refit.parquet"
-            hmin = pd.read_parquet(hp) if hp.exists() else None  # absence already reported/raised by preflight
+            hmin = load_hmin_refit(season)   # absence already reported/raised by preflight
         hook = props_feature.PropsHook(season)
         comp = arms_mod.cutoff_components(season, k, targets, tr, gw_start, gw_end, all_gws)
         mins, n_refit, n_stale = arms_mod.minutes_frames(comp["m_k"], k, targets, hmin)
