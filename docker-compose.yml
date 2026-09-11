@@ -65,6 +65,11 @@ services:
   # invokes it as `docker compose run --rm fpl-scheduler ...`; the profile
   # keeps `docker compose up -d` from starting it as a long-lived service.
   # It reuses the image the app service builds (no second build).
+  # Three cron jobs use it (root crontab): the availability poller and the
+  # deadline dispatcher every 10 min, and since 2026-09-11 the WEEKLY INGEST
+  # (eval/run_weekly_ingest.py) every 6 h at :17 -- it holds the dispatcher's
+  # lock while it rewrites the volume, and its own gates refuse to start
+  # inside a deadline window.
   #
   # /app/.env bind mount: fetch_live_odds / pull_live_props read the KEY by
   # parsing the .env FILE (never printed), so the container must see the

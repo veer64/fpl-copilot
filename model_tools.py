@@ -281,6 +281,39 @@ def _next_deadline():
     return val
 
 
+def _weekly_ingest_status(reasons):
+    """First line + age of the weekly ingest's two status files (data/live on the
+    volume). Appends to `reasons` on FAILED, ACTION REQUIRED, or a dead cron."""
+    live = REPO / "data" / "live"
+    out = {}
+    now = datetime.now(timezone.utc)
+    for key, name in (("last_run", "INGEST_STATUS.txt"), ("last_tick", "INGEST_TICK.txt")):
+        p = live / name
+        if not p.exists():
+            out[key] = None
+            continue
+        try:
+            first = p.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        except (OSError, IndexError):
+            first = "?"
+        age_h = (now - datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)).total_seconds() / 3600
+        out[key] = {"first_line": first, "age_hours": round(age_h, 1)}
+    lr, lt = out.get("last_run"), out.get("last_tick")
+    if lr and lr["first_line"].startswith("FAILED"):
+        reasons.append("weekly ingest FAILED -- the next deadline would build on stale history "
+                       "(data/live/INGEST_STATUS.txt)")
+    for s in (lr, lt):
+        if s and "ACTION REQUIRED" in s["first_line"]:
+            reasons.append("weekly ingest needs a human: " + s["first_line"] +
+                           " (data/live/INGEST_STATUS.txt / INGEST_TICK.txt)")
+            break
+    if lt is None:
+        reasons.append("weekly ingest has never ticked on this volume (cron not installed?)")
+    elif lt["age_hours"] > 13.0:
+        reasons.append(f"weekly ingest cron has not ticked for {lt['age_hours']:.0f}h (every 6h expected)")
+    return out
+
+
 def health():
     """{status, git_sha, model_versions, data_freshness_by_source, db_ok,
     last_run} -- the master plan's health contract. `status` degrades when
@@ -323,6 +356,13 @@ def health():
     freshness["frame_on_volume"] = (
         str(datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc))
         if frame_p.exists() else None)
+
+    # the weekly ingest (eval/run_weekly_ingest.py, server cron every 6h): its
+    # status files on the volume. A FAILED ingest, a standing ACTION REQUIRED
+    # (an element with minutes and no Understat id -- the Cherki class) and a
+    # cron that has stopped ticking all degrade health, because otherwise the
+    # next deadline builds on stale history and nobody is told.
+    freshness["weekly_ingest"] = _weekly_ingest_status(reasons)
 
     nd = _next_deadline()
     if nd:
