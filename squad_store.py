@@ -74,6 +74,7 @@ if _SQUAD_DIR not in sys.path:
     sys.path.insert(0, _SQUAD_DIR)
 
 from optimize import FORMATION, MAX_PER_CLUB, POSITION_LIMITS, SQUAD_SIZE, XI_SIZE  # noqa: E402
+from scoring import HIT_COST  # noqa: E402  -- FPL's real charge per paid transfer (4)
 from squad_state import MAX_FREE_TRANSFERS, SquadState  # noqa: E402
 
 SCHEMA_VERSION = 1
@@ -410,6 +411,199 @@ def summary(record, prices):
         "prices_missing_for": [p["element"] for p in doc["players"] if p["element"] not in prices],
         "squad_json": doc,
     }
+
+
+# ----------------------------------------------------------------- writes
+def plan_change(active, player_ids, captain_id, vice_id, bench_order_ids, gw, live,
+                priced_from=None, created_by=None):
+    """Pure. From the ACTIVE version and the requested fifteen + roles, build
+    the NEW document and a change summary -- or raise ValueError. Nothing is
+    clamped: an unaffordable, mis-shaped or mis-roled request is refused with
+    the reason, and the active version is untouched.
+
+    The caller never supplies money. The change is the set difference between
+    the active fifteen and `player_ids`; it is applied through
+    squad_state.SquadState.make_transfers, which values every outgoing player
+    by squad_state.sell_price (purchase + half the rise rounded down, falls in
+    full), prices every incoming player at his CURRENT price, pools the money
+    across the set the way FPL settles it, and refuses if the bank would go
+    negative. Purchase prices of retained players are carried unchanged; the
+    incoming players' purchase_price is what was paid now. Free transfers are
+    consumed first; transfers beyond them are hits at HIT_COST points each,
+    reported, not deducted from total_points (no process scores the
+    hypothetical squad yet).
+
+    live: {element: {"name","position","team","price_tenths"}} from players_live
+    for EVERY element involved (old and new). A missing or unpriced element
+    is refused. gw must not be earlier than the active version's.
+
+    Two money assertions are made after the move and raise RuntimeError if
+    they fail (which would be a bug, not a bad request):
+      bank_after == bank_before + proceeds - purchases, exactly;
+      wealth (sell value at current prices + bank) is unchanged by the move.
+    """
+    old_doc = active["squad_json"]
+    if not _is_int(gw) or gw < active["gw"]:
+        raise ValueError(f"gw must be an int >= the active version's gw {active['gw']}, got {gw!r}")
+    if not isinstance(player_ids, (list, tuple)) or not all(_is_int(x) for x in player_ids):
+        raise ValueError("player_ids must be a list of ints")
+    if len(player_ids) != SQUAD_SIZE or len(set(player_ids)) != SQUAD_SIZE:
+        raise ValueError(f"player_ids must be {SQUAD_SIZE} distinct ids, got {len(player_ids)} "
+                         f"({len(set(player_ids))} distinct)")
+    new_ids = set(player_ids)
+    old_ids = {p["element"] for p in old_doc["players"]}
+    involved = sorted(old_ids | new_ids)
+    unpriced = [e for e in involved
+                if e not in live or not _is_int(live[e].get("price_tenths"))]
+    if unpriced:
+        raise ValueError(f"no current players_live row/price for element(s) {unpriced}; "
+                         "cannot value the move")
+    for e in new_ids:
+        if live[e].get("position") not in POSITION_LIMITS:
+            raise ValueError(f"element {e} has position {live[e].get('position')!r} in players_live")
+
+    # roles
+    for label, x in (("captain_id", captain_id), ("vice_id", vice_id)):
+        if not _is_int(x) or x not in new_ids:
+            raise ValueError(f"{label} {x!r} is not one of the fifteen")
+    if captain_id == vice_id:
+        raise ValueError("captain_id and vice_id must differ")
+    if (not isinstance(bench_order_ids, (list, tuple)) or len(bench_order_ids) != BENCH_SIZE
+            or len(set(bench_order_ids)) != BENCH_SIZE
+            or not all(_is_int(x) and x in new_ids for x in bench_order_ids)):
+        raise ValueError(f"bench_order_ids must be {BENCH_SIZE} distinct ids from the fifteen, "
+                         f"in bench order, got {bench_order_ids!r}")
+    if captain_id in bench_order_ids or vice_id in bench_order_ids:
+        raise ValueError("captain and vice-captain must start, not sit on the bench")
+
+    # the move
+    state = to_state(old_doc)
+    prices = {e: int(live[e]["price_tenths"]) for e in involved}
+    bank_before = state.bank
+    wealth_before = state.sell_value(prices) + bank_before
+    outs = sorted(old_ids - new_ids)
+    ins = sorted(new_ids - old_ids)
+    old_pos = {p["element"]: p["position"] for p in old_doc["players"]}
+    by_pos_out = {pos: [e for e in outs if old_pos[e] == pos] for pos in POSITION_LIMITS}
+    by_pos_in = {pos: [e for e in ins if live[e]["position"] == pos] for pos in POSITION_LIMITS}
+    mismatch = {pos: (len(by_pos_out[pos]), len(by_pos_in[pos])) for pos in POSITION_LIMITS
+                if len(by_pos_out[pos]) != len(by_pos_in[pos])}
+    if mismatch:
+        raise ValueError("the fifteen must stay 2 GK / 5 DEF / 5 MID / 3 FWD: transfers out/in "
+                         f"by position do not match {mismatch}")
+    pairs = []
+    for pos in POSITION_LIMITS:
+        pairs.extend(zip(by_pos_out[pos], by_pos_in[pos]))
+    in_rows = {e: pd.Series({"element": e, "name": live[e]["name"], "position": live[e]["position"],
+                             "team": live[e]["team"], "value": prices[e]}) for e in ins}
+    sold_for = {o: state.element_sell_price(o, prices) for o in outs}
+    state.make_transfers(pairs, in_rows, prices)         # raises if unaffordable etc.
+    proceeds = sum(sold_for.values())
+    purchases = sum(prices[i] for i in ins)
+    if state.bank != bank_before + proceeds - purchases:
+        raise RuntimeError(f"money conservation violated: bank {state.bank} != {bank_before} + "
+                           f"{proceeds} - {purchases}")
+    wealth_after = state.sell_value(prices) + state.bank
+    if wealth_after != wealth_before:
+        raise RuntimeError(f"money conservation violated: wealth {wealth_before} -> {wealth_after}")
+
+    ft_before = state.free_transfers
+    paid = state.spend_transfers(len(pairs))
+    hits = paid
+
+    # roles onto the new frame
+    frame = state.squad.copy()
+    role = {}
+    for e in new_ids:
+        role[e] = "start"
+    for i, e in enumerate(bench_order_ids, start=1):
+        role[e] = ("bench", i)
+    frame["role"] = [("bench" if isinstance(role[e], tuple) else role[e]) for e in frame["element"]]
+    frame["bench_order"] = [(role[e][1] if isinstance(role[e], tuple) else None) for e in frame["element"]]
+    frame.loc[frame["element"] == captain_id, "role"] = "CAPTAIN"
+    frame.loc[frame["element"] == vice_id, "role"] = "VICE"
+
+    transfers = [{"out": o, "out_name": old_names(old_doc)[o], "sold_for": sold_for[o],
+                  "in": i, "in_name": live[i]["name"], "bought_for": prices[i]}
+                 for o, i in pairs]
+    old_prov = old_doc.get("provenance") or {}
+    provenance = {
+        "kind": "set_my_squad",
+        "hypothetical": bool(old_prov.get("hypothetical", False)),
+        "from_version": active["version_id"],
+        "transfers": transfers,
+        "free_transfers_used": len(pairs) - paid,
+        "hits": hits, "hit_cost_points": hits * HIT_COST,
+        "priced_from": priced_from,
+        "created_by": created_by,
+    }
+    new_doc = document(frame, state.bank, state.free_transfers, old_doc["total_points"],
+                       old_doc["season"], provenance)
+    change = {
+        "from_version": active["version_id"], "gw": gw,
+        "transfers": transfers, "n_transfers": len(pairs),
+        "free_transfers_before": ft_before, "free_transfers_used": len(pairs) - paid,
+        "free_transfers_after": state.free_transfers,
+        "hits": hits, "hit_cost_points": hits * HIT_COST,
+        "bank_before": bank_before, "proceeds": proceeds, "purchases": purchases,
+        "bank_after": state.bank,
+        "wealth_before": wealth_before, "wealth_after": wealth_after,
+    }
+    return new_doc, change
+
+
+def old_names(doc):
+    return {p["element"]: p["name"] for p in doc["players"]}
+
+
+def write_version(active, new_doc, gw, note, confirm, conn=None, user_id=1):
+    """Supersede `active` with `new_doc` in ONE transaction: flip the old row's
+    is_active (the only update the trigger permits), then insert the new row
+    with supersedes = the old version_id. If the old row is no longer active
+    (superseded meanwhile) nothing is written and SquadStateError is raised.
+
+    confirm=False runs the whole thing and ROLLS BACK -- a preview that
+    exercises the real write path (trigger included) without changing state;
+    the returned row says committed=False and its version_id is provisional
+    (sequence values are consumed either way, so ids may have gaps)."""
+    validate_document(new_doc)
+    own = conn is None
+    if own:
+        conn = db_write.connect()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """UPDATE squad_versions SET is_active = FALSE
+                   WHERE version_id = %s AND user_id = %s AND is_active
+                   RETURNING version_id""",
+                (active["version_id"], user_id))
+            flipped = cur.fetchall()
+            if len(flipped) != 1:
+                raise SquadStateError(
+                    f"version {active['version_id']} is no longer the active squad for user "
+                    f"{user_id} (superseded meanwhile); re-read with get_my_squad and retry")
+            cur.execute(
+                """INSERT INTO squad_versions
+                       (user_id, season, gw, squad_json, is_active, supersedes, note)
+                   VALUES (%s, %s, %s, %s, TRUE, %s, %s)
+                   RETURNING version_id, user_id, season, gw, created_at, is_active,
+                             supersedes, note""",
+                (user_id, new_doc["season"], gw, psycopg2.extras.Json(new_doc),
+                 active["version_id"], note))
+            row = dict(cur.fetchone())
+        if confirm:
+            conn.commit()
+        else:
+            conn.rollback()
+        row["squad_json"] = new_doc
+        row["committed"] = bool(confirm)
+        return row
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if own:
+            conn.close()
 
 
 def main(argv=None):

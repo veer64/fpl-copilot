@@ -97,6 +97,23 @@ tools_schema = [
         }
     },
     {
+        "name": "set_my_squad",
+        "description": "Record a NEW version of the user's own squad: the full fifteen after any transfers, plus captain, vice-captain and the four bench players in order. Money is derived, never supplied: players sold are valued by FPL's sell rule (purchase price plus half any rise, rounded down; falls in full), players bought cost their current price, free transfers are used first and extra transfers cost 4 points each (reported as hits). Illegal or unaffordable squads are refused with the reason. ALWAYS call with confirm=false first and show the user the preview (transfers, proceeds, cost, bank after, hits); call again with confirm=true ONLY when the user explicitly says to make the change.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "player_ids": {"type": "array", "items": {"type": "integer"}, "description": "All fifteen element ids after the change (retained players included)"},
+                "captain_id": {"type": "integer"},
+                "vice_id": {"type": "integer"},
+                "bench_order_ids": {"type": "array", "items": {"type": "integer"}, "description": "Exactly four element ids, bench order first to last"},
+                "gw": {"type": "integer", "description": "Gameweek the squad is set for (default: the next deadline's)"},
+                "note": {"type": "string", "description": "Optional short reason, recorded with the version"},
+                "confirm": {"type": "boolean", "description": "false = preview only (default); true = write it"}
+            },
+            "required": ["player_ids", "captain_id", "vice_id", "bench_order_ids"]
+        }
+    },
+    {
         "name": "list_players",
         "description": "List players filtered by team and/or position (e.g. 'who plays for Chelsea', 'list all defenders'). Do NOT use resolve_player for these.",
         "input_schema": {
@@ -115,7 +132,7 @@ from dotenv import load_dotenv
 import anthropic
 from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
-                         get_best_squad, optimise, get_my_squad)
+                         get_best_squad, optimise, get_my_squad, set_my_squad)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -132,6 +149,7 @@ available_functions = {
     "optimise": optimise,
     "list_players": list_players,
     "get_my_squad": get_my_squad,
+    "set_my_squad": set_my_squad,
 }
 
 def run_agent(user_message: str, messages: list = None):

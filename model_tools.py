@@ -233,6 +233,73 @@ def get_my_squad(user_id: int = 1):
     return squad_store.summary(record, prices)
 
 
+def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_ids: list,
+                 gw: int = None, note: str = None, confirm: bool = False, user_id: int = 1):
+    """Write a NEW version of the user's squad (and supersede the active one).
+    The caller states the fifteen and the roles; the money is derived: the
+    change is the difference from the active fifteen, outgoing players are
+    valued by FPL's sell rule (squad_state.sell_price), incoming players cost
+    their current players_live price, free transfers are consumed first and
+    hits (4 points each) are reported. Illegal, unaffordable or mis-roled
+    squads are refused with the reason -- never adjusted.
+
+    confirm=False (default) is a PREVIEW: the write runs and is rolled back;
+    the response shows exactly what confirm=True would record. gw defaults
+    to the next deadline's gameweek."""
+    try:
+        active = squad_store.read_active(user_id)
+    except squad_store.SquadStateError as e:
+        return {"error": str(e)}
+    if gw is None:
+        nd = _next_deadline()
+        if nd is None:
+            return {"error": "gw not given and the next deadline could not be fetched; pass gw"}
+        gw = nd[0]
+    involved = sorted({p["element"] for p in active["squad_json"]["players"]} | set(player_ids or []))
+    rows = _q("""SELECT element, name, position, team, price_tenths, updated_at
+                 FROM players_live WHERE element = ANY(%s)""", (involved,))
+    live = {r["element"]: r for r in rows}
+    priced_from = f"players_live as of {max((r['updated_at'] for r in rows), default=None)}"
+    import db_write
+    try:
+        new_doc, change = squad_store.plan_change(
+            active, player_ids, captain_id, vice_id, bench_order_ids, gw, live,
+            priced_from=priced_from,
+            created_by=f"model_tools.set_my_squad @ {db_write.git_sha() or 'unknown'}")
+    except ValueError as e:
+        return {"error": f"refused: {e}", "refused": True, "active_version": active["version_id"]}
+    try:
+        row = squad_store.write_version(active, new_doc, gw, note, confirm, user_id=user_id)
+    except squad_store.SquadStateError as e:
+        return {"error": str(e)}
+
+    def m(t):
+        return None if t is None else round(t / 10, 1)
+
+    prices = {e: live[e]["price_tenths"] for e in involved}
+    return {
+        "committed": row["committed"],
+        "preview": not row["committed"],
+        "message": ("version written and now active" if row["committed"] else
+                    "PREVIEW ONLY -- nothing was written; call again with confirm=true "
+                    "to record this squad"),
+        "version_id": row["version_id"], "supersedes": row["supersedes"], "gw": row["gw"],
+        "change": {
+            "transfers": [{"out": t["out_name"], "out_id": t["out"], "sold_for": m(t["sold_for"]),
+                           "in": t["in_name"], "in_id": t["in"], "bought_for": m(t["bought_for"])}
+                          for t in change["transfers"]],
+            "n_transfers": change["n_transfers"],
+            "free_transfers_before": change["free_transfers_before"],
+            "free_transfers_used": change["free_transfers_used"],
+            "free_transfers_after": change["free_transfers_after"],
+            "hits": change["hits"], "hit_cost_points": change["hit_cost_points"],
+            "bank_before": m(change["bank_before"]), "proceeds": m(change["proceeds"]),
+            "purchases": m(change["purchases"]), "bank_after": m(change["bank_after"]),
+        },
+        "squad": squad_store.summary(row, prices),
+    }
+
+
 # ---------------------------------------------------------------- the solve
 def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
              budget: float = None):
