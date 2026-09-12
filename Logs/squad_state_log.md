@@ -659,3 +659,169 @@ the same path set_my_squad uses; locks and bans exposed; preview by default;
 persist every proposal (replace model_transfers, rationale logged);
 `started_at` fix in the runner; the wait described as "typically ten to
 forty seconds" per the corrected record.
+
+---
+
+## 14. Step 5c part 3 — the six-week MIP goes live (2026-09-12, commit 5262f61)
+
+Decision 3, option A only. The MIP had never run live; it ran for the real
+squad at 19:09Z on the deployed image and nothing fired the stopping rule.
+
+**What was built.**
+- `transfer_mip.build_and_solve(locked_elements, banned_elements)`: pick[i,t]
+  == 1 / == 0 at every step; clash or unknown element raises; None by
+  default and then inert (tested: identical objective and plan).
+- `simulator.decide_gameweek_mip(cutoff, locked_elements, banned_elements,
+  return_plan)`: the vantage point is a parameter (default gw, the backtest
+  case); between deadlines the live frame belongs to the LAST deadline, so a
+  plan for the next one is read from that cutoff (stale-by-one), the
+  gameweek under way dropped. `return_plan=True` appends the whole plan; the
+  default return is unchanged. Neither file is the model path; the parity
+  family (`Tests/test_live_deadline.py`, 14 tests incl. both bit-identical
+  parity tests and both live horizon-6 builds) and
+  `Tests/test_asof_reconstruction.py` (4) pass by name after the change.
+- `model_tools.propose_transfers(horizon, lock_player_ids, ban_player_ids)`:
+  squad through `squad_store.read_active`; free transfers derived to the
+  next deadline; **valuation assert on all fifteen BEFORE any solve**
+  (`squad_state.sell_price` on the MIP's step-0 input price vs on
+  players_live; a disagreement returns `bug=true`, no proposal); the moved
+  prices listed; solve through `decide_gameweek_mip` (the production
+  decision path, HOLD_PREFERENCE gate as in the backtest); **the proposal
+  applied as a dry run through `squad_store.plan_change`** — the same
+  legality + money path `set_my_squad` uses — and `bug=true` if it could not
+  be applied or if the MIP's transfer/hit count differs from the applied one;
+  every proposal persisted; players named, ids kept; `apply_with` = the
+  `set_my_squad` arguments with `proposal_id` (preview by default);
+  `wait_note`: "typically ten to forty seconds, occasionally longer".
+  `set_my_squad(proposal_id)` records the proposal in the version's
+  provenance. Registered in `agent.py` with the wait wording.
+- **Persistence.** `model_transfers` (2026-09-04 grain: run_id, config,
+  element_out, element_in, hit_cost, gain_6gw) was designed from the
+  inspected frame for a runner that would write one row per executed
+  transfer per run. The runner never ran the MIP and the table stayed empty.
+  When the MIP went live the grain could not hold what a proposal is: no
+  proposal identity (two solves in one run indistinguishable), no
+  squad_version_id (a proposal is solved FROM a squad), no horizon step
+  (only step 0 is executable), no prices (the money claim), no way to record
+  a hold. Dropped on the server 19:07Z inside a transaction that refused
+  unless empty, and recreated from the repo DDL as `model_transfer_plans`
+  (33 columns: a header per proposal — source, user, season, gw, squad
+  version, run, config, frame cutoff, stale_by, horizon/effective, decay,
+  hit bar, locks, bans, status, objective, transfers, hits, FT before/after,
+  bank before/after, captain, vice, XI points, hold, solve time, git, note)
+  + `model_transfers` (one row per step/out/in with names and prices;
+  `executable` true only at step 0; a hold = header with no rows). The
+  rationale is also the DDL comment in `db_write.py`. `write_proposal`
+  refuses loudly if the old grain is still present.
+- `eval/run_live_deadline.py`: `started_at` is the runner's real start
+  (was None). The runner, not `squad/live_deadline.py`.
+
+**The first live proposals** (image 5262f61, squad version 1, frame cutoff
+GW4 built 11:00Z, next deadline GW5, all as-of-cutoff-4 predictions,
+`path: stale-by-one`, effective horizon 5 of 6 because GW4 is dropped):
+- valuation_check: all fifteen agree; moved prices — De Cuyper 4.7→4.8
+  sells 4.7, Calafiori 5.7→5.8 sells 5.7, Gakpo 7.1→7.2 sells 7.1, Mbeumo
+  8.0→7.9 sells 7.9, Isak 9.0→9.1 sells 9.0; sell value 99.5, bank 0.4.
+- **Proposal 1** (no constraints, 10.7 s, objective 92.471): sell Calafiori
+  (5.7) and Collins (5.5), buy James Justin (4.5) and Lewis Hall (5.1); 2 FT
+  used, 0 hits, bank 0.4→2.0; captain Haaland, vice Justin; XI 49.57.
+  Indicative later steps: GW6 Kayode→Ballard, GW7 Isak→João Pedro, GW8 De
+  Cuyper→Lacroix, GW9 Leno→Horníček. Applied as a dry run: PASSED. The
+  `set_my_squad` PREVIEW of `apply_with` reproduced it exactly (2 transfers,
+  FT 2→0, bank 0.4→2.0, same sell/buy prices) and carried `proposal_id 1`
+  in provenance; rolled back.
+- **Proposal 2** (lock Isak, ban Slater, 6.4 s, objective 91.680): Slater
+  sold (forced) for Tavernier 6.0, Calafiori→Justin; Isak kept (on the
+  bench in the GW5 view); bank 0.4→0.1; 0 hits.
+- **Proposal 3** (horizon 2, 2.1 s): the same step-0 move as proposal 1.
+- Persistence: three headers, fifteen transfer rows, names present. Active
+  squad unchanged (version 1, one row).
+
+**Correction carried forward.** The MIP wait is "typically ten to forty
+seconds, occasionally longer" (10.7 / 6.4 / 2.1 s here; 22.4 s on the
+laptop; backtest worst > 180 s), and the rare long case is the one that
+looks broken — noted against Decision 3 for whenever streaming is
+revisited.
+
+**Tests.** `Tests/test_transfer_mip_locks.py` (8). Full suite 341 passed +
+this file (one assertion string of mine fixed after the full run and
+re-run), 0 skipped; parity and as-of by name, 18 passed. Model path
+untouched.
+
+**Deployed and verified.** Push 19:08Z → /health `git_sha 5262f61fb`, ok,
+zero reasons at 19:09:01Z; api container restarted; proofs ran inside the
+deployed image; clear of the 00:17Z tick and Friday's deadline.
+
+---
+
+## 15. Close-out for the week (2026-09-12 19:12Z)
+
+**Server state.** /health `ok`, `git_sha 5262f61fb`, reasons `[]`, db ok,
+serving run 5 (GW4). Laptop HEAD = origin/main = server HEAD = 5262f61 (+
+this log commit, pushed after). Nothing unpushed; working tree clean apart
+from the user's untracked docx. The deployed code IS the code written today:
+every deploy was verified by /health `git_sha` and the api container's
+restart, and every proof ran inside the deployed image.
+
+**Agent check.** `/chat "What transfers should I make for GW5? Do not apply
+anything"` → tools called: `get_my_squad`, `propose_transfers`; the answer
+named every player with sell/buy prices, the bank after, the XI, the
+indicative later moves, the stale-by-one caveat, and offered to apply
+rather than applying (proposal 4 persisted; squad unchanged).
+
+**Postgres.** Tables: model_runs, model_predictions, model_picks,
+model_transfer_plans, model_transfers, players_live, players (legacy),
+squad_versions, squad_scores. Rows: squad_versions 1 (the GW4 seed, active),
+squad_scores 0, model_transfer_plans 4, model_transfers 21. Volume live/
+markers: only `_scoring_request.json` (no ingest partial/attempts, no
+scoring_attempts). Host memory 948 MB used of 3,915.
+
+**What runs unattended between now and Friday** (root crontab, UTC):
+- poller `*/10` (availability snapshots; no lock contention);
+- deadline dispatcher `*/10` — fires the GW5 build at the first tick inside
+  T-90, i.e. **16:00Z Friday 2026-09-18** (deadline 17:30Z): merge
+  availability → fetch odds (1 credit) → strict baseline build → free-pick
+  solve → Postgres run 6 (now with `started_at` set) → /health;
+- weekly ingest `17 */6` at 00:17 / 06:17 / 12:17 / 18:17Z: NOTHING-NEW
+  until FPL flags GW4 finished + data_checked (~Tuesday 2026-09-15), then
+  `RAN gameweek(s) [4] -> SUCCESS` (possibly `ACTION REQUIRED` for a
+  debutant without an Understat id), and on EVERY tick `score_outstanding`
+  → the first real `squad_scores` row for GW4 lands on the first tick after
+  GW4 is ingested.
+
+**The one thing to check on Tuesday.** That the first score row landed and
+looks right: `/health` (status ok; `weekly_ingest.last_run` SUCCESS;
+`weekly_ingest.last_tick` not ACTION REQUIRED), then on the server
+`docker exec fpl-postgres psql -U postgres -d fpl -c "select gw, version_id,
+points_net, points_raw, hit, doubled_role, final_xi, subs_made from
+squad_scores"` — expect one GW4 row for version 1: hit 0, transfers 0 vs
+allowance 1, the armband on Haaland (or vice Foden if Haaland blanked),
+autosubs only for starters with 0 minutes; and `INGEST_STATUS.txt`'s
+`== SQUAD SCORES ==` section naming the same. `get_my_squad.total_points`
+then equals that row's points_net. Rule 1 applies to it from the first row.
+
+**Open items (on the record, not in memory).**
+1. Option B (MIP in the T-90 runner): measured, NOT wired — 12 MB / ~9 s
+   appended after the build; the two guards first (runner logs its own peak
+   RSS each deadline; re-measure if it approaches 2.5 GB). Section 12.
+2. Streaming / the wait: "typically ten to forty seconds, occasionally
+   longer" — the rare long case looks broken; agent-v2 dependency. Note
+   against Decision 3.
+3. Chips: not modelled in squad state (a wildcard version would need a
+   `chip` field so it spends nothing; a free hit needs a restoring version;
+   TC/BB need the chip in scoring). Deferred by instruction.
+4. `optimise` / `get_best_squad` still solve the frame's own step 0 (not
+   the next deadline's gameweek). Same stale-by-one treatment would apply.
+5. The unguarded ops list from Logs/server_pipeline_migration_log.md §6 still
+   stands: no alerting, no deploy smoke gate, image/build-cache accumulation
+   (25.9 GB reclaimable), .env baked into the image, unbounded /var/log
+   fpl-*.log, no volume backup schedule.
+6. Odds subscription decision before 2026-09-24 (paid pool; only h2h used).
+7. `model_tools._conn` / `db_write.connect` duplicate five lines; harmless.
+8. Deferred tonight, deliberately: nothing else. No half-finished code.
+
+**Nothing half-applied.** Schema changes on the server are complete and
+match the repo DDLs (squad_versions, squad_scores, the two proposal tables;
+the old model_transfers dropped inside a transaction that refused unless
+empty). No uncommitted local work the server depends on. No background
+poll or task left running after this log's deploy is confirmed.
