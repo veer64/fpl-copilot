@@ -324,3 +324,81 @@ window closed 13:00Z) and clear of the 18:17Z ingest tick.
 **Not done, by instruction:** 5b (free-transfer roll-forward, scoring the
 squad and deducting hits, where the six-week MIP runs and what it writes) and
 5c (wiring the MIP) wait for the conversation.
+
+---
+
+## 10. Step 5b — three decisions PROPOSED (2026-09-12 ~13:40Z), nothing implemented
+
+Options and a recommendation for each, as asked. Facts they rest on: the
+simulator already rolls free transfers (+1 per gameweek, cap
+`MAX_FREE_TRANSFERS = 5`, `SquadState.end_gameweek`) and carries the bank
+through a wildcard / free hit untouched (`simulator.py` ~821–833);
+`scoring.score_gameweek` is pure and already models autosubs (bench order,
+bench GK slot), the captain ×2 with vice fallback, Triple Captain, and
+deducts `max(0, transfers − free) × HIT_COST`; `transfer_mip` imports
+`sell_price` from `squad_state` (line 403) so its sell valuations agree by
+construction; the frame on the volume holds cutoff 4 with gws 4–9, exactly
+the six pools `decide_gameweek_mip` slices with `gw_slice(cutoff=gw)`; the
+master `fpl_api_2026_27` carries element, GW, fixture, minutes, total_points.
+
+### D1 — free transfers: recommend LAZY DERIVATION
+`ft(G) = min(5, ft_after_recorded + (G − version.gw))`, G = the next
+deadline's gameweek (bootstrap, cached; unavailable → raise). Every version
+already stores its own (gw, free_transfers_after), so no history is
+reconstructed and every transfer is attributed to a gameweek by
+construction (set_my_squad takes gw, default next deadline). Scheduled
+alternatives (ingest: wrong at the deadline if it retried late; deadline
+runner: wrong all week until T-90) own the "job that did not run" failure —
+a silently wrong count = wrong hit maths. Lazy owns "version.gw must mean
+the deadline it was set for" — tighten set_my_squad to refuse gw < the next
+deadline's gw. Wildcard: a version `chip: "wildcard"` spends 0 and leaves
+the bank intact (FPL since 2024-25; the simulator's rule). Free Hit needs a
+restoring follow-up version (snapshot/restore exist) — out of scope now.
+Latent bug this fixes: plan_change spends the STORED count, so a GW5 move
+on the GW4 seed would see 1 FT, not 2.
+
+### D2 — scoring + hits: recommend a WEEKLY-INGEST STEP writing `squad_scores`
+Where: `run_weekly_ingest.run_chain` after the master lands for gw N
+(data_checked-gated already; runs in the scheduler image with DB env;
+failure = ingest FAILED → /health degraded, the existing loud path). Which
+squad: the latest version with created_at < deadline_N and gw ≤ N. How:
+`scoring.score_gameweek(squad, actuals, transfers_made, free_transfers)` —
+the simulator's own scorer, so autosubs ARE modelled (not ignored), captain
+×2 with vice fallback, doubles pre-aggregated per element; bench order
+mapped document 1..4 → scoring 0..3. transfers_made / free from the gw-N
+versions (Decision 1's derivation); the version provenance's `hits` must
+agree — asserted. What it writes: a NEW append-only table `squad_scores`
+(user, season, gw, version_id, points_net, points_raw, hit, captain_bonus,
+doubled, doubled_role, final_xi, subs_made, bench_points, master_rows_hash,
+scored_at, git) with a unique (user, season, gw, master_rows_hash); NOT a
+new squad version (versions are decisions, scores are outcomes; flipping
+is_active for a clock event breaks the one-active meaning). Reads report
+`total_points` = Σ points_net and label the document's field as recorded.
+HITS: DEDUCT. score_gameweek does it natively; a scored squad that ignores
+−4 overstates by 4 per hit — the constant-for-a-missing-piece pattern —
+and is not worth having. Chips (TC/BB) need a `chip` field on versions:
+later. First scoreable gameweek: GW4 (~Tue 2026-09-15).
+
+### D3 — the six-week MIP: recommend SYNC NOW, precompute at T-90 next, streaming = agent v2
+A. Synchronous tool (~22 s + the model turn, silent wait): required anyway
+for locks/bans and post-T-90 squad changes; single user; no new dependency.
+B. Precompute in the deadline runner (frames already in memory; +22 s;
+own non-fatal status section) → the tool serves the stored proposal when
+the active version is unchanged, else re-solves and says so. This is where
+the track record comes from. C. Async + streaming (plan §5.2 phase 2 /
+§9.5) — an agent-v2 dependency, named, not absorbed. Between deadlines the
+volume frame is the LAST deadline's (cutoff k); a plan for k+1 must drop
+gw k from the pools and label its predictions "as of cutoff k". PERSIST
+every proposal (append-only, like predictions): header table
+`model_transfer_plans` (proposal_id, run_id, config, squad_version_id,
+user, gw, horizon, decay, hit_bar, locked, banned, source chat|deadline_run,
+objective, hits, solve_seconds, status, created_at, git) + `model_transfers`
+re-created at grain (proposal_id, horizon_step, gw, element_out,
+element_in, sold_for, bought_for) — it is empty and unreferenced, so
+replace rather than ALTER. A hold = header with no transfer rows.
+
+### Loose ends (to do inside 5c)
+- `run_live_deadline.py` passes `started_at=None`: record the runner's
+  start time and pass it (runner file, not the model path).
+- MIP vs squad_state valuations agree by construction; the 5c tool will
+  still assert equality on all fifteen and report the moved prices.
