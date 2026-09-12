@@ -1,4 +1,4 @@
-# Design — run the model several times a week (2026-09-12, DESIGN ONLY, nothing built)
+# Design — run the model several times a week (2026-09-12; sections 1–9 the approved design, section 10 the build as deployed the same day)
 
 The brief: ~5 runs per gameweek instead of one — nightly runs once FPL has
 confirmed the previous gameweek, then T-90 / T-30 / T-10 on deadline day —
