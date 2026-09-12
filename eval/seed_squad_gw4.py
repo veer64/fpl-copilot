@@ -131,6 +131,12 @@ COMMIT;
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    # The emitted SQL/JSON carries accented names (Kelleher, Guehi, Gomez) and
+    # runs on a UTF-8 Postgres; a Windows console defaults to cp1252 and the
+    # first attempt (2026-09-12) failed in psql with "invalid byte sequence
+    # for encoding UTF8". Emit UTF-8 whatever the console says.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     doc = build_document()
     if argv == ["--json"]:
         sys.stdout.write(json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
