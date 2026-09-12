@@ -180,3 +180,111 @@ deploy lands after it.
    ingests).
 3. **Dispatcher tick**: keep `*/10` (T-10 exact on :00/:30 deadlines) or
    `*/5` (exact for any deadline, one extra container start per 5 min).
+
+---
+
+## 10. BUILT (2026-09-12, commit 6bb5bf5)
+
+Design: `Logs/multi_run_schedule_design.md`, approved with three answers
+(post_ingest included; nightly at **11:00Z**, not 05:00Z — 07:00 Eastern,
+clear of the 06:17 and 12:17 ticks; dispatcher tick stays `*/10`) and two
+additions (t10 at ONE attempt is a recorded decision: a T-10 blip falls back
+to T-30's answer and a retry would land at T-0; `/health` checks the
+promised next run against what landed).
+
+**Cron lines unchanged.** The schedule is `eval/dispatch_policy.py`, a pure
+policy the dispatcher asks every 10 minutes under the dispatch lock:
+
+| kind | window / gate | attempts |
+|---|---|---|
+| t10 | lead in [4, 10] min | 1 (recorded decision) |
+| t30 | lead in (10, 30] | 2 |
+| t90 | lead in (30, 90] | 3 (the safety net) |
+| post_ingest | the season file gained a confirmed gameweek since the last successful run; previous gw ingested | 2 |
+| nightly | first tick ≥ 11:00Z, previous gw confirmed and ingested, none today, no post_ingest success in 6 h | 2 |
+
+Deadline-day windows are disjoint so each fires once; nightly/post_ingest
+are gated on the PREVIOUS gameweek being ingested (never a clock alone).
+`expected_next` is the promise; `health_reasons` (decision 5): a lone
+nightly failure is not a reason, two consecutive give-ups are, any
+deadline-day give-up is, a promised timed run that did not land within its
+grace is, a dispatcher that stopped ticking is.
+
+**What changed in code.** `eval/deadline_dispatcher.py` rewritten around
+the policy (state in `live/dispatch_state.json`; the legacy
+`dispatch_gw{N}.done` honoured as a completed t90; `--dry-run`, `--now`).
+`eval/run_live_deadline.py`: `--kind/--slot/--attempt`; a KNOWLEDGE block
+(history through gw + ingest manifest time, availability merge time, odds
+pull time, frame cutoff/gws, duration, git) written to `model_runs` and to
+`_tmp_frame_{config}.provenance.json`; per-run status archive
+`live/runs/GW{gw}_{kind}_{ts}.txt`; still a STRICT build. `db_write`:
+`model_runs` + kind/slot/attempt/knowledge (+ index), applied on the server
+(existing rows read `kind = deadline`); the backfill writes
+`kind = recovered`. `model_tools`: every run-backed answer carries `built`
+(`dispatch_policy.freshness`) and `next_run_expected`; the frame-based tools
+refuse if the frame sidecar names a different run than the database's
+latest for that gameweek; `/health` reports `schedule` (last tick, expected
+next, consecutive give-ups, last success, this gameweek's slots),
+`last_run.freshness` and `build_duration_s`, and applies the reasons above.
+`agent.py`: quote `built`, say when to check back (decision 7).
+
+**Freshness string, as rendered (test):** `built Wed 16 Sep 11:03Z (nightly,
+run 7, 44 s) -- knows results through GW4 (ingested Tue 15 Sep 12:24Z), team
+news to Wed 16 Sep 11:00Z, odds pulled Wed 16 Sep 11:02Z -- predicting GW5
+(deadline Fri 18 Sep 17:30Z) -- next run Thu 17 Sep 11:00Z (nightly)`. A
+pre-multi-run row (run 5) renders "knowledge not recorded"; a conditional
+promise renders "next run when GW4 confirmed by FPL and ingested …".
+
+**Tests.** `Tests/test_dispatch_policy.py` (17): gating, once-a-day, the
+disjoint windows, t10 = 1, t90 × 3 then give up, precedence, the consecutive
+counter and its reset, expected_next between deadlines and on deadline day,
+the broken promise (inside vs after grace, kept vs not), a dead dispatcher,
+decision 5's one-vs-two, deadline-day give-ups (only for the next gw), the
+freshness string. Suite **359 passed, 0 skipped**; parity and as-of
+families inside it. Model path untouched.
+
+**"Nothing fires tonight" — confirmed, not assumed.** A dry run of the
+dispatcher against the live bootstrap (laptop, 22:40Z): `deadline GW5 at
+2026-09-18T17:30:00Z; season file through GW3; decision: none -- GW4 not
+yet confirmed and ingested`, expected next = post_ingest, conditional. The
+pure policy walked through the week with the real events and a season file
+through GW4: nothing on Sun/Mon/Tue 11:00; **post_ingest fires at the first
+tick after GW4 is ingested** (Tue 12:30 in the walk); the same-day nightly
+is suppressed; nightly Wed 17, Thu 18 and Fri 18 at 11:00Z; **Fri t90
+16:00Z, t30 17:00Z, t10 17:20Z**; nothing after the deadline until GW5 is
+ingested.
+
+**Deployed and verified (22:45Z).** /health `git_sha 6bb5bf526`, ok, zero
+reasons; api restarted; the four columns applied to `model_runs` at 22:40Z
+(rows 3-5 read `kind = deadline`). The first real cron tick after the
+deploy (22:50:03Z) decided `none -- GW4 not yet confirmed and ingested
+(season file through GW3)` and wrote `live/dispatch_state.json` with
+`expected_next = post_ingest:GW4 (conditional)`; the dispatcher's dry run on
+the server said the same. /health now carries `schedule` (last tick,
+expected next, counters, slots) and `last_run.freshness`; `get_prediction`
+and `get_my_xi` carry `built` + `next_run_expected` (run 5 renders
+"knowledge not recorded (a pre-multi-run row)" until the first multi-run
+build lands).
+
+**What runs unattended before Friday 2026-09-18 17:30Z.** Poller every 10
+min. Dispatcher every 10 min: nothing until GW4 is ingested; then
+`post_ingest:GW4` at the first tick after that ingest (~Tue), nightly
+`11:00Z` on the days after, `t90` 16:00Z / `t30` 17:00Z / `t10` 17:20Z
+Friday. Ingest ticks 00:17/06:17/12:17/18:17Z: NOTHING-NEW until FPL flags
+GW4, then GW4 ingested + scored on the tick after. Odds: 1 credit per build.
+
+**Check on Tuesday.** (1) The first `squad_scores` row for GW4 (section 15
+of Logs/squad_state_log.md). (2) The first multi-run build: `/health` →
+`schedule.last_success.slot == "post_ingest:GW4"`, `last_run.kind ==
+"post_ingest"`, `last_run.freshness` naming "knows results through GW4",
+`build_duration_s` filled, reasons `[]`; on the volume
+`live/runs/GW5_post_ingest_*.txt` and `_tmp_frame_baseline.provenance.json`
+with the same run_id as `model_runs`' latest. Then Wednesday 11:00Z the
+first nightly, and `expected_next` becoming a timed promise.
+
+**Open.** Option B unchanged (unwired). The freshness string's "what is
+still to come" (press conferences) lands with the agent system prompt. The
+`availability_asof` field is the merge time (the poller's snapshot is ≤ 10
+min older), not the poller's own timestamp — good enough for the sentence,
+noted. `optimise` still solves the frame's own step 0. The T-10 4-minute
+guard and the :00/:30 assumption are documented, not enforced by cron.
