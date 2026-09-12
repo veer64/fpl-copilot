@@ -184,3 +184,8 @@ def test_proposal_tables_are_in_the_model_ddl_with_their_rationale():
         assert c in ddl, c
     for c in db_write.TRANSFER_COLS:
         assert c in ddl, c
+    # a NULL that could be mistaken for a bug carries its reason on the column
+    for must in ("COMMENT ON COLUMN model_transfers.sold_for", "NULL at every later step BY DESIGN",
+                 "COMMENT ON COLUMN model_transfers.bought_for", "COMMENT ON COLUMN model_transfers.executable",
+                 "COMMENT ON COLUMN model_transfer_plans.source", "proof = a maintainer"):
+        assert must in ddl, must

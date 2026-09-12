@@ -825,3 +825,59 @@ match the repo DDLs (squad_versions, squad_scores, the two proposal tables;
 the old model_transfers dropped inside a transaction that refused unless
 empty). No uncommitted local work the server depends on. No background
 poll or task left running after this log's deploy is confirmed.
+
+---
+
+## 16. Three follow-ups from reading the proposal tables (2026-09-12 ~19:30Z)
+
+**1. `sold_for` is NULL beyond step 0 — deliberate, now said on the column.**
+At step 0 it is the exact sell price under FPL's rule, computed by
+`squad_store.plan_change` from the recorded purchase price and the current
+price. At later steps the MIP does not track purchase prices inside the
+horizon: its money model (transfer_mip, the budget constraint) values owned
+players at their step-0 sell value at every step and everyone else at that
+step's market price. A later-step sell price would therefore be invented,
+not computed, so it is NULL by design. `COMMENT ON COLUMN` now carries that
+for `sold_for`, `bought_for` (step 0 = players_live; later = the frame's
+market price as seen from the cutoff, indicative) and `executable` (true only
+at step 0), and `model_transfer_plans.source` documents its three values.
+Applied to the server; pinned by the DDL test.
+
+**2. Proof runs are marked.** Proposals 1–4 were the build session's
+verification runs (three direct, one through /chat), all labelled `chat`.
+`propose_transfers` now takes `source` ('chat' | 'proof' | 'deadline_run');
+the agent's tool schema has no such argument, so a user request is always
+'chat', and maintainer runs pass 'proof'. Rows 1–4 were UPDATED on the
+server to `source = 'proof'` with the note suffixed "PROOF RUN 2026-09-12 by
+the build session, not a user request" — an UPDATE is possible because the
+proposal tables carry no append-only trigger (like the other model_* tables;
+append-only there is convention). Any track record starts from the first
+`source = 'chat'` row.
+
+**3. Recording what holding would score — how, and the cost (NOT built).**
+The MIP already supports it: `build_and_solve(..., force_hold=True)` adds
+one constraint (`used[0] == 0`) and returns the best plan with NO step-0
+transfer; `simulator.decide_gameweek_mip` already runs exactly that second
+solve when `HOLD_PREFERENCE_EPS` is set (it is None = off; the gated,
+pre-registered hold preference in Logs/hold_preference_prereg.md). To record
+it: run the hold solve unconditionally in `propose_transfers`, store
+`hold_objective` and `gain_vs_hold = objective − hold_objective` on
+`model_transfer_plans` (two REAL columns), and show "gain over holding: +X
+objective points over the horizon (decayed)" next to the verdict; a
+near-tie is then visible as a small number. Cost: one more solve of the
+same size, so the wall time roughly doubles — 2–11 s became 4–22 s in
+tonight's instances, and the rare long tail doubles too (that is the real
+price, given the wait discussion). Memory: sequential in the same process,
+no new peak. Cheaper but wrong: the step-0-only XI delta from
+`compare_roles` costs nothing but ignores the horizon, which is the point of
+the MIP. If built, read the hold-preference pre-registration first — the
+same margin is the quantity it gates on.
+
+**Observation, with a correction.** Three of the four proposals (no
+constraints at H6, H2, and the /chat run) chose the identical step-0 move,
+Calafiori→Justin and Collins→Hall. The fourth (Isak locked, Slater banned)
+kept Calafiori→Justin and replaced the second leg with the forced
+Slater→Tavernier. So the shared element across all four is Calafiori→Justin,
+and the free second leg is stable across horizons: a good sign that the
+step-0 optimum is not a near-tie artefact — but see item 3 for the number
+that would prove it.

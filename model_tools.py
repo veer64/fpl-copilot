@@ -447,7 +447,7 @@ def _load_pool(gw=None):
 
 # ------------------------------------------------------- the six-week MIP
 def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player_ids: list = None,
-                      user_id: int = 1):
+                      user_id: int = 1, source: str = "chat"):
     """The six-week transfer plan for the user's OWN squad (transfer_mip via
     simulator.decide_gameweek_mip -- the production decision path; H=6,
     decay 0.45, HIT_COST 4; a real solve, typically ten to forty seconds,
@@ -464,7 +464,14 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     set_my_squad arguments (preview first; confirm=true only on the user's
     say-so). Between deadlines the frame belongs to the last deadline: the
     plan drops the gameweek under way and labels predictions as of that
-    cutoff (path = "stale-by-one")."""
+    cutoff (path = "stale-by-one").
+
+    source: 'chat' (the agent; its tool schema has no such argument, so a
+    user request is always 'chat') or 'proof' for a maintainer's verification
+    run -- proof rows are marked so the track record never starts with
+    synthetic entries."""
+    if source not in ("chat", "proof", "deadline_run"):
+        return {"error": f"source must be chat | proof | deadline_run, got {source!r}"}
     import db_write
     import simulator as sim
     from squad_state import sell_price
@@ -592,7 +599,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     hold = bool(step.get("hold_applied"))
     xi_pts = squad_store.compare_roles(new_doc["players"], team)["optimal_xi_points"]
     header = dict(
-        source="chat", user_id=user_id, season=record["season"], gw=current,
+        source=source, user_id=user_id, season=record["season"], gw=current,
         squad_version_id=record["version_id"], run_id=(run["run_id"] if run else None),
         config=PRODUCTION_CONFIG, frame_cutoff_gw=cutoff, stale_by_gameweeks=current - cutoff,
         horizon=horizon, effective_horizon=int(eff_h), decay=float(DEFAULT_DECAY), hit_bar=float(HIT_COST),
@@ -625,7 +632,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
          for e, (r, bo) in roles.items()],
         key=lambda x: (order[x["role"]], x["bench_order"] or 0, -x["e_points"]))
     return {
-        "proposal_id": proposal_id,
+        "proposal_id": proposal_id, "source": source,
         "wait_note": "a real MIP solve: typically ten to forty seconds, occasionally longer",
         "gw": current, "path": header["note"], "predictions_as_of_cutoff_gw": cutoff,
         "stale_by_gameweeks": current - cutoff, "frame_built_at": str(built),

@@ -129,10 +129,28 @@ CREATE TABLE IF NOT EXISTS model_transfers (
     gw            INT NOT NULL,
     element_out   INT, name_out TEXT,
     element_in    INT, name_in  TEXT,
-    sold_for      INT,                          -- tenths; exact at step 0, indicative later
+    sold_for      INT,                          -- tenths; exact at step 0, NULL later (see comment)
     bought_for    INT,
     executable    BOOLEAN NOT NULL               -- true only for step 0
 );
+COMMENT ON COLUMN model_transfers.sold_for IS
+    'Tenths. At horizon_step 0 the exact sell price under FPL''s rule (purchase + half the rise '
+    'rounded down; falls in full), computed by squad_store.plan_change from the recorded purchase '
+    'price and the current price. NULL at every later step BY DESIGN, not by omission: the MIP does '
+    'not track purchase prices inside the horizon (its money model values owned players at their '
+    'step-0 sell value at every step and everyone else at that step''s market price), so a later-step '
+    'sell price would be invented, not computed. Only step 0 is executable.';
+COMMENT ON COLUMN model_transfers.bought_for IS
+    'Tenths. At step 0 the current players_live price (what set_my_squad would charge). At later '
+    'steps the market price the frame carried for that gameweek AS SEEN FROM the frame''s cutoff -- '
+    'indicative, like everything beyond step 0.';
+COMMENT ON COLUMN model_transfers.executable IS
+    'TRUE only for horizon_step 0: the one move a rolling-horizon plan actually proposes. Later '
+    'steps are what the solver expects to want next, re-solved from fresh data each deadline.';
+COMMENT ON COLUMN model_transfer_plans.source IS
+    'chat = a user request through the agent; deadline_run = the T-90 runner (option B, NOT wired '
+    'as of 2026-09-12); proof = a maintainer''s build/verification run, not a user request -- '
+    'exclude from any track record.';
 CREATE TABLE IF NOT EXISTS players_live (
     element      INT PRIMARY KEY,
     name         TEXT, position TEXT, team TEXT,
