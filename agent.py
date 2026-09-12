@@ -1,6 +1,10 @@
 # Tools over the MODEL's outputs (model_tools.py). Every prediction answer
 # carries model_version and built_at; picks say when they were recovered
-# post-deadline. config_roles.PRODUCTION_CONFIG ('baseline' since 2026-09-11) is
+# post-deadline. Since 2026-09-12 the model runs several times a week and
+# every answer also carries `built` (when it was built and what it knew) and
+# `next_run_expected`: QUOTE the built line and tell the user when to check
+# back ("as of Wednesday 11:00Z ...; check back after Friday 16:00Z when the
+# deadline run lands"). config_roles.PRODUCTION_CONFIG ('baseline' since 2026-09-11) is
 # what users get by default; a shadow squad exists only if config_roles.SHADOW_CONFIG is set.
 tools_schema = [
     {
@@ -27,7 +31,7 @@ tools_schema = [
     },
     {
         "name": "get_prediction",
-        "description": "The production model's predicted points for a player: one target gameweek if gw is given, else the whole six-gameweek horizon of the latest run. Includes e_points, expected minutes, start probability, and the model_version/built_at provenance.",
+        "description": "The production model's predicted points for a player: one target gameweek if gw is given, else the whole six-gameweek horizon of the latest run. Includes e_points, expected minutes, start probability, and the provenance: `built` says when the run was built and what it knew, `next_run_expected` when the next run lands -- quote both and tell the user when to check back.",
         "input_schema": {
             "type": "object",
             "properties": {

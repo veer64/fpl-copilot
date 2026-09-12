@@ -47,6 +47,13 @@ CREATE TABLE IF NOT EXISTS model_runs (
     credits_remaining INT,
     note         TEXT
 );
+-- multi-run schedule (2026-09-12, Logs/multi_run_schedule_design.md): which
+-- slot a run served and what it knew. Existing rows read kind = 'deadline'.
+ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS kind      TEXT NOT NULL DEFAULT 'deadline';
+ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS slot      TEXT;
+ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS attempt   INT;
+ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS knowledge JSONB;
+CREATE INDEX IF NOT EXISTS ix_runs_latest ON model_runs (gw, status, finished_at DESC);
 CREATE TABLE IF NOT EXISTS model_predictions (
     run_id       INT NOT NULL REFERENCES model_runs(run_id),
     config       TEXT NOT NULL,             -- the config name; production = config_roles.PRODUCTION_CONFIG
@@ -248,7 +255,7 @@ def write_proposal(header, rows):
         conn.close()
 
 
-def write_failed_run(season, gw, note):
+def write_failed_run(season, gw, note, kind="deadline", slot=None, attempt=None):
     """Best-effort FAILED marker so /health can surface a failed run even
     when the status file goes unread. Never raises -- a DB outage here must
     not mask the original failure."""
@@ -259,10 +266,10 @@ def write_failed_run(season, gw, note):
             with conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO model_runs (season, gw, finished_at, status,
-                           git_sha, note)
-                       VALUES (%s,%s,%s,'FAILED',%s,%s)""",
+                           git_sha, note, kind, slot, attempt)
+                       VALUES (%s,%s,%s,'FAILED',%s,%s,%s,%s,%s)""",
                     (season, gw, datetime.now(timezone.utc), git_sha(),
-                     (note or "")[:2000]))
+                     (note or "")[:2000], kind, slot, attempt))
             conn.commit()
         finally:
             conn.close()
@@ -273,13 +280,15 @@ def write_failed_run(season, gw, note):
 
 def write_run(season, gw, frames, teams, findings_by, started_at=None,
               recovered=False, credits_remaining=None, note=None,
-              availability=None, prices=None, git=None):
+              availability=None, prices=None, git=None,
+              kind="deadline", slot=None, attempt=None, knowledge=None):
     """One pipeline execution -> one model_runs row + per-config children.
 
     frames: {config: DataFrame}; teams: {config: solved-team DataFrame with
     role (+ bench order = frame order of bench rows)}; findings_by:
     {config: [str]}; availability: {element: (status, chance, news)};
-    prices: {element: price_tenths}. Returns run_id."""
+    prices: {element: price_tenths}; kind/slot/attempt/knowledge: the
+    multi-run schedule's provenance (what this run knew). Returns run_id."""
     conn = connect()
     try:
         ensure_schema(conn)
@@ -292,12 +301,14 @@ def write_run(season, gw, frames, teams, findings_by, started_at=None,
             cur.execute(
                 """INSERT INTO model_runs (season, gw, started_at, finished_at,
                        status, recovered, git_sha, model_stamp, strict_findings,
-                       credits_remaining, note)
-                   VALUES (%s,%s,%s,%s,'SUCCESS',%s,%s,%s,%s,%s,%s)
+                       credits_remaining, note, kind, slot, attempt, knowledge)
+                   VALUES (%s,%s,%s,%s,'SUCCESS',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    RETURNING run_id""",
                 (season, gw, started_at, datetime.now(timezone.utc), recovered,
                  git or git_sha(), json.dumps(stamp, default=str),
-                 json.dumps(findings_by, default=str), credits_remaining, note))
+                 json.dumps(findings_by, default=str), credits_remaining, note,
+                 kind, slot, attempt,
+                 (None if knowledge is None else json.dumps(knowledge, default=str))))
             run_id = cur.fetchone()[0]
 
             for config, f in frames.items():

@@ -83,7 +83,8 @@ def main():
                          price_df[price_df["round"] == gw]["value"].astype(int)))
     run_id = db_write.write_run(season, gw, frames, teams, findings_by, started_at=None,
                                 recovered=True, credits_remaining=None, note=a.note,
-                                availability=avmap, prices=price_map)
+                                availability=avmap, prices=price_map,
+                                kind="recovered", slot=f"recovered:GW{gw}", attempt=1)
     print(f"Postgres run_id {run_id} written (recovered=True; configs {list(frames)})")
 
 

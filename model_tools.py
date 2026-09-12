@@ -69,10 +69,49 @@ def _version(run, config):
     return f"{(run.get('git_sha') or 'unknown')}/{config}"
 
 
+def _dispatch_state():
+    """The scheduler's state file on the volume (eval/deadline_dispatcher.py);
+    {} if it has never ticked here."""
+    p = REPO / "data" / "live" / "dispatch_state.json"
+    try:
+        import json
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _dp():
+    import sys
+    if str(REPO / "eval") not in sys.path:
+        sys.path.insert(0, str(REPO / "eval"))
+    import dispatch_policy
+    return dispatch_policy
+
+
+def _freshness(run):
+    """The sentence every answer carries (dispatch_policy.freshness): when the
+    run was built, what it knew, what it predicts, and the next run the
+    schedule promises."""
+    k = run.get("knowledge")
+    if isinstance(k, str):
+        import json
+        try:
+            k = json.loads(k)
+        except ValueError:
+            k = None
+    r = dict(run)
+    r["knowledge"] = k
+    return _dp().freshness(r, (_dispatch_state() or {}).get("expected_next"))
+
+
 def _run_meta(run, config=PRODUCTION_CONFIG):
+    exp = (_dispatch_state() or {}).get("expected_next")
     return {"run_id": run["run_id"], "gw": run["gw"],
             "model_version": _version(run, config),
             "built_at": str(run["finished_at"]),
+            "kind": run.get("kind") or "deadline", "slot": run.get("slot"),
+            "built": _freshness(run),
+            "next_run_expected": exp,
             "recovered_post_deadline": run["recovered"]}
 
 
@@ -273,7 +312,7 @@ def get_my_xi(user_id: int = 1):
         return {"error": str(e)}
     try:
         pool, cutoff, built = _load_pool(gw=target)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, RuntimeError) as e:
         return {"error": str(e)}
     except ValueError as e:
         return {"error": f"the frame on the volume has no predictions for GW{target}: {e}"}
@@ -303,7 +342,7 @@ def get_my_xi(user_id: int = 1):
     nd = _next_deadline()
     out = {
         "gw": target, "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
-        "frame_built_at": str(built),
+        "frame_built_at": str(built), **_frame_built(cutoff),
         "run_id": run["run_id"] if run else None,
         "model_version": _version(run, PRODUCTION_CONFIG) if run else None,
         "squad_version_id": record["version_id"],
@@ -429,7 +468,34 @@ def _load_frame():
                          horizon_aware=True, season=os.getenv("FPL_SEASON", "2026-27"))
     cutoff = int(df["cutoff"].min())
     built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
+    # the sidecar ties the file to a run; it must be the database's latest
+    # successful run for that gameweek or the two have drifted (a failed
+    # build that half-wrote, a restored volume) -- refuse rather than answer
+    side_p = frame_p.with_suffix(".provenance.json")
+    if side_p.exists():
+        import json
+        try:
+            side = json.loads(side_p.read_text(encoding="utf-8"))
+        except ValueError:
+            side = {}
+        latest = _latest_run(gw=cutoff)
+        if side.get("run_id") is not None and latest and int(latest["run_id"]) != int(side["run_id"]):
+            raise RuntimeError(
+                f"the frame on the volume belongs to run {side['run_id']} but the database's latest "
+                f"successful run for GW{cutoff} is {latest['run_id']} -- frame and database disagree; "
+                "not answering from a frame of unknown provenance")
     return df, cutoff, built
+
+
+def _frame_built(cutoff):
+    """{built, next_run_expected} for the frame-based tools, from the run the
+    sidecar names (falls back to the latest run for the cutoff)."""
+    run = _latest_run(gw=cutoff)
+    if not run:
+        return {"built": None, "next_run_expected": (_dispatch_state() or {}).get("expected_next")}
+    m = _run_meta(run)
+    return {"built": m["built"], "next_run_expected": m["next_run_expected"], "run_id": m["run_id"],
+            "model_version": m["model_version"]}
 
 
 def _load_pool(gw=None):
@@ -488,7 +554,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         return {"error": str(e)}
     try:
         df, cutoff, built = _load_frame()
-    except FileNotFoundError as e:
+    except (FileNotFoundError, RuntimeError) as e:
         return {"error": str(e)}
     all_gws = sorted(int(g) for g in df["gw"].unique())
     if current not in all_gws:
@@ -635,7 +701,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "proposal_id": proposal_id, "source": source,
         "wait_note": "a real MIP solve: typically ten to forty seconds, occasionally longer",
         "gw": current, "path": header["note"], "predictions_as_of_cutoff_gw": cutoff,
-        "stale_by_gameweeks": current - cutoff, "frame_built_at": str(built),
+        "stale_by_gameweeks": current - cutoff, "frame_built_at": str(built), **_frame_built(cutoff),
         "run_id": header["run_id"], "model_version": (_version(run, PRODUCTION_CONFIG) if run else None),
         "squad_version_id": record["version_id"],
         "horizon": horizon, "effective_horizon": int(eff_h), "decay": float(DEFAULT_DECAY),
@@ -677,7 +743,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
     t0 = time.time()
     try:
         pool, cutoff, frame_mtime = _load_pool()
-    except FileNotFoundError as e:
+    except (FileNotFoundError, RuntimeError) as e:
         return {"error": str(e)}
     prob, sol = solve_mip(pool,
                           locked_elements=list(lock_player_ids or []),
@@ -688,7 +754,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
                          "constraints may be infeasible (e.g. budget too low)"}
     team = sim.solution_to_squad(pool, sol)
     return {"gw": cutoff, "solve_seconds": round(time.time() - t0, 1),
-            "frame_built_at": str(frame_mtime),
+            "frame_built_at": str(frame_mtime), **_frame_built(cutoff),
             "constraints": {"locked": lock_player_ids or [], "banned": ban_player_ids or [],
                             "budget": budget or 100.0},
             "captain": team.loc[team["role"] == "CAPTAIN", "name"].iloc[0],
@@ -820,14 +886,58 @@ def health():
     else:
         freshness["next_deadline"] = None
 
+    # multi-run schedule (decision 5 + the promise check): the dispatcher's
+    # state file says what was promised and what landed. A lone nightly
+    # failure is visible but not a reason; two consecutive give-ups, any
+    # deadline-day give-up, a promised run that did not land, or a dispatcher
+    # that stopped ticking all degrade.
+    state = _dispatch_state()
+    now = datetime.now(timezone.utc)
+    if state:
+        reasons.extend(_dp().health_reasons(now, state, next_gw=nd[0] if nd else None))
+        cur_gw = nd[0] if nd else None
+        freshness["schedule"] = {
+            "last_tick": state.get("last_tick"),
+            "expected_next": state.get("expected_next"),
+            "consecutive_nightly_failures": state.get("consecutive_nightly_failures"),
+            "last_success": state.get("last_success"),
+            "slots_this_gameweek": {sid: {k: v for k, v in s.items() if k in ("kind", "status", "attempts", "run_id", "finished_at")}
+                                    for sid, s in (state.get("slots") or {}).items()
+                                    if cur_gw is None or int(s.get("gw") or 0) == cur_gw},
+        }
+    else:
+        freshness["schedule"] = None
+
     if last_any and last_any["status"] != "SUCCESS":
-        reasons.append(f"most recent run FAILED (GW{last_any['gw']}, "
-                       f"{last_any['finished_at']}): {last_any.get('note') or 'see status file'}")
+        lk = last_any.get("kind") or "deadline"
+        if lk in ("nightly", "post_ingest"):
+            # decision 5: a single nightly failure logs, does not degrade; the
+            # state file's consecutive counter is what degrades
+            freshness.setdefault("last_attempt", {})
+            freshness["last_attempt"] = {"run_id": last_any["run_id"], "kind": lk, "slot": last_any.get("slot"),
+                                         "status": "FAILED", "finished_at": str(last_any["finished_at"])}
+        else:
+            reasons.append(f"most recent run FAILED (GW{last_any['gw']}, {lk}, "
+                           f"{last_any['finished_at']}): {last_any.get('note') or 'see status file'}")
+
+    last_block = None
+    if last:
+        k = last.get("knowledge")
+        if isinstance(k, str):
+            import json
+            try:
+                k = json.loads(k)
+            except ValueError:
+                k = None
+        last_block = dict(run_id=last["run_id"], gw=last["gw"], status=last["status"],
+                          recovered=last["recovered"], finished_at=str(last["finished_at"]),
+                          kind=last.get("kind") or "deadline", slot=last.get("slot"),
+                          build_duration_s=(k or {}).get("duration_s"),
+                          freshness=_freshness(last),
+                          next_run_expected=(state or {}).get("expected_next"))
 
     return {"status": "ok" if db_ok and not reasons else "degraded",
             "git_sha": sha, "model_versions": model_versions,
             "data_freshness_by_source": freshness, "db_ok": db_ok,
-            "last_run": (dict(run_id=last["run_id"], gw=last["gw"],
-                              status=last["status"], recovered=last["recovered"],
-                              finished_at=str(last["finished_at"])) if last else None),
+            "last_run": last_block,
             "reasons": reasons}

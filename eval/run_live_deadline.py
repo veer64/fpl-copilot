@@ -32,6 +32,7 @@
 
 import argparse
 import io
+import json
 import re
 import subprocess
 import sys
@@ -131,9 +132,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", required=True)
     ap.add_argument("--gw", type=int, required=True)
+    # multi-run schedule (2026-09-12): which slot this build serves. The
+    # dispatcher passes them; a hand run defaults to a plain 'deadline' build.
+    ap.add_argument("--kind", default="deadline",
+                    choices=["deadline", "t90", "t30", "t10", "nightly", "post_ingest"])
+    ap.add_argument("--slot", default=None)
+    ap.add_argument("--attempt", type=int, default=1)
     a = ap.parse_args()
     started_at = datetime.now(timezone.utc)      # recorded on the run row (was None until 2026-09-12)
+    slot = a.slot or f"{a.kind}:GW{a.gw}"
     R = Runner(a.season, a.gw)
+    R.kind, R.slot, R.attempt = a.kind, slot, a.attempt
     try:
         run(R, a.season, a.gw, started_at=started_at)
     except Exception:
@@ -141,15 +150,75 @@ def main():
             R.failed = traceback.format_exc()[-3000:]
     finally:
         R.write_status()
+        archive_status(R, a.kind, started_at)
         if R.failed:
             # best-effort FAILED row so /health surfaces the failure even if
             # nobody reads the status file; never masks the original error
             try:
                 import db_write
-                db_write.write_failed_run(a.season, a.gw, R.failed)
+                db_write.write_failed_run(a.season, a.gw, R.failed, kind=a.kind, slot=slot,
+                                          attempt=a.attempt)
             except Exception:
                 pass
     sys.exit(1 if R.failed else 0)
+
+
+def archive_status(R, kind, started_at):
+    """Keep every run's status file (the named one stays 'the latest')."""
+    try:
+        d = REPO / "data" / "live" / "runs"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"GW{R.gw}_{kind}_{started_at:%Y%m%dT%H%MZ}.txt").write_text(
+            R.status_path.read_text(encoding="utf-8"), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _read_json(p):
+    try:
+        return json.loads(Path(p).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def knowledge_block(season, gw, frames, started_at, finished_at, kind, slot, attempt, credits):
+    """WHAT THIS RUN KNEW, from artefacts the steps already write (design
+    section 5): the season file's max gameweek + when the ingest wrote it, the
+    availability merge's time (the poller's snapshot is <= 10 min older), the
+    odds pull time, the frame's cutoff and gameweeks."""
+    import pandas as pd
+    tag = season.replace("-", "_")
+    short = season[2:4] + season[5:7]
+    live = REPO / "data" / "live"
+    try:
+        hist_gw = int(pd.read_parquet(REPO / "data" / "history" / f"fpl_api_{tag}.parquet",
+                                      columns=["GW"])["GW"].max())
+    except Exception:
+        hist_gw = None
+    man = _read_json(live / "ingest_manifest_latest.json")
+    avp = _read_json(REPO / "data" / f"availability_{short}.provenance.json")
+    odp = _read_json(REPO / "data" / "history" / f"odds_live_pull_{tag}.provenance.json")
+    f = next(iter(frames.values())) if frames else None
+    import config_roles as cr
+    dl_at = None
+    try:
+        import requests
+        ev = requests.get("https://fantasy.premierleague.com/api/bootstrap-static/", timeout=10).json()["events"]
+        dl_at = next((e["deadline_time"] for e in ev if int(e["id"]) == gw), None)
+    except Exception:
+        pass
+    return {
+        "kind": kind, "slot": slot, "attempt": attempt,
+        "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
+        "duration_s": round((finished_at - started_at).total_seconds(), 1),
+        "history_through_gw": hist_gw, "history_ingested_at": man.get("written"),
+        "availability_asof": avp.get("built_at"),
+        "odds_pulled_at": odp.get("pulled_at"), "credits_remaining": credits,
+        "calendar_snapshot_at": started_at.isoformat(),      # the strict re-pull is in-build
+        "frame_cutoff_gw": (int(f["cutoff"].min()) if f is not None and "cutoff" in f.columns else gw),
+        "frame_gws": (sorted(int(g) for g in f["gw"].unique()) if f is not None else None),
+        "deadline_at": dl_at, "config": cr.PRODUCTION_CONFIG,
+    }
 
 
 def run(R, season, gw, started_at=None):
@@ -333,14 +402,33 @@ def run(R, season, gw, started_at=None):
         price_df = pd.read_parquet(tmp_hist)
         price_map = dict(zip(price_df[price_df["round"] == gw]["element"].astype(int),
                              price_df[price_df["round"] == gw]["value"].astype(int)))
+        kind = getattr(R, "kind", "deadline")
+        slot = getattr(R, "slot", f"deadline:GW{gw}")
+        attempt = getattr(R, "attempt", 1)
+        finished_at = datetime.now(timezone.utc)
+        credits = int(m.group(3)) if m else None
+        knowledge = knowledge_block(season, gw, frames, started_at or finished_at, finished_at,
+                                    kind, slot, attempt, credits)
         run_id = db_write.write_run(
             season, gw, frames, teams, findings_by,
             started_at=started_at, recovered=False,
-            credits_remaining=int(m.group(3)) if m else None,
-            note="unattended deadline build",
-            availability=avmap, prices=price_map)
+            credits_remaining=credits,
+            note=f"unattended {kind} build ({slot}, attempt {attempt})",
+            availability=avmap, prices=price_map,
+            kind=kind, slot=slot, attempt=attempt, knowledge=knowledge)
+        # the frame sidecar: which run the file on the volume belongs to, and
+        # what it knew -- the file-based tools quote it and check it against
+        # the database's latest run
+        for config in frames:
+            (tmp_dir / f"_tmp_frame_{config}.provenance.json").write_text(
+                json.dumps(dict(run_id=run_id, config=config, gw=gw, kind=kind, slot=slot,
+                                built_at=finished_at.isoformat(), knowledge=knowledge), indent=1),
+                encoding="utf-8")
         R.section("POSTGRES", f"run_id {run_id} written (predictions x{sum(len(f) for f in frames.values())}, "
-                              f"picks x{sum(len(t) for t in teams.values())}, players_live refreshed)")
+                              f"picks x{sum(len(t) for t in teams.values())}, players_live refreshed); "
+                              f"kind {kind}, slot {slot}, attempt {attempt}, duration {knowledge['duration_s']} s")
+        R.section("KNOWLEDGE (what this run knew)",
+                  "\n".join(f"  {k}: {v}" for k, v in knowledge.items()))
     except Exception as e:
         R.failed = (f"DB WRITE FAILED after a successful build -- the frame exists on "
                     f"the volume but Postgres is STALE for GW{gw}. /health will show "
