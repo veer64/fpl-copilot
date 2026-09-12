@@ -245,8 +245,10 @@ def get_my_squad(user_id: int = 1):
         current, current_err = _current_gw(), None
     except RuntimeError as e:
         current, current_err = None, str(e)
+    scores = _q(squad_store.SCORES_LATEST_SQL, (user_id, record["season"]))
     return squad_store.summary(record, prices, latest_run=_latest_run(),
-                               current_gw=current, current_gw_error=current_err)
+                               current_gw=current, current_gw_error=current_err,
+                               scores=scores)
 
 
 def get_my_xi(user_id: int = 1):

@@ -88,8 +88,10 @@ class FakeSteps:
     """Fake step executor: records the commands, writes the files a real step would,
     and can be told to fail one step or to corrupt the price carry-forward."""
 
-    def __init__(self, h, fail_at=None, drop_prices=False, collide=False, new_gw=4):
+    def __init__(self, h, fail_at=None, drop_prices=False, collide=False, new_gw=4, fail_scoring_gw=None):
         self.h, self.fail_at, self.drop_prices, self.collide, self.new_gw = h, fail_at, drop_prices, collide, new_gw
+        self.fail_scoring_gw = fail_scoring_gw
+        self.requested = None
         self.calls = []
 
     def __call__(self, args, timeout):
@@ -128,6 +130,16 @@ class FakeSteps:
             out = "-> slice: 20/20 events priced (thin-panel unpriced: 0); credits remaining 19300"
         if name == "build_crosswalk":
             out = "  matched 3\n  pct_minutes_covered 100.0\n  audit_hard_disagreements 0"
+        if name == "score_squads":
+            req = json.loads(Path(args[args.index("--request") + 1]).read_text())
+            self.requested = sorted(int(g) for g in req["deadlines"])
+            if self.fail_scoring_gw is not None:
+                return 1, (f"GW{self.fail_scoring_gw}: FAILED [inconsistent_versions] versions record 0 "
+                           "paid transfer(s) but 3 transfers against an allowance of 2 implies 1")
+            out = ("GW1: no squad at deadline 2026-08-15T17:30:00Z (first version 2026-09-12) -- nothing to score\n"
+                   f"GW{self.new_gw}: scored 61 pts (raw 65, hit 4; armband captain Erling Haaland (411) +9; "
+                   "autosubs none; bench 6) for version 1, transfers 2 vs allowance 1 -> score_id 1\n"
+                   "score_squads: 1 row(s) written")
         return 0, out
 
 
@@ -191,9 +203,13 @@ def test_success_runs_the_runbook_order_and_writes_status(tmp_path):
     assert steps.calls == ["fetch_fpl_history", "fetch_fpl_history_combine", "understat_matches",
                            "build_understat_aggregates", "build_understat_aggregates_combine",
                            "build_crosswalk", "fetch_fixtures", "fetch_fixtures_combine",
-                           "fetch_live_odds", "build_forward_skeleton"]
+                           "fetch_live_odds", "build_forward_skeleton", "score_squads"]
     txt = (tmp_path / "live" / "INGEST_STATUS.txt").read_text()
     assert txt.splitlines()[0] == "SUCCESS"
+    assert "SQUAD SCORES (hypothetical squad; operational evidence only -- rule 1)" in txt
+    assert "GW4: scored 61 pts" in txt
+    assert steps.requested == [1, 2, 3, 4]                  # every ingested gw, with its deadline
+    assert not (tmp_path / "live" / "scoring_attempts.json").exists()
     assert "PRICES (preserved across the rebuild)" in txt
     assert "played fixtures priced before 1 / after 1, all 1 identical" in txt
     assert "credits remaining 19300" in txt

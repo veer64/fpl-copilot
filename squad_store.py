@@ -54,10 +54,36 @@
 # path -- the seed and set_my_squad -- goes through it. An illegal document
 # raises with every problem listed; nothing is coerced or silently dropped.
 #
+# SCORING -- squad_scores (Decision 2, 2026-09-12). Once a gameweek is
+# ingested (finished + data_checked), the squad that was ACTIVE AT THAT
+# DEADLINE is scored against the master's realised minutes and points with
+# scoring.score_gameweek -- the simulator's own pure scorer: autosubs by bench
+# order (bench GK slot), the captain doubled with vice fallback, doubles
+# pre-aggregated per element, and HITS DEDUCTED at HIT_COST per transfer
+# beyond the allowance (transfers and allowance reconstructed from the
+# gameweek's versions; the versions' own recorded hits must agree, asserted).
+# One append-only row per (user, season, gw, master_rows_hash); an FPL
+# correction after data_checked arrives as a NEW row, never a mutation.
+# Versions are decisions, scores are outcomes: scoring never writes a version.
+#
+# *** RULE 1 -- READ BEFORE USING squad_scores FOR ANYTHING ***
+# squad_scores is evidence about OPERATION: did the pipeline run, was the
+# advice followed, did the mechanics (autosubs, armband, hits) work. It is
+# NEVER evidence about configuration choice. A sum of points_net over a
+# season is a SEASON TOTAL, and this project's rule 1 forbids adoption
+# decisions that cite season totals: the paired-path sd is ~85 points, one
+# near-tie flip has moved a season by +/-90, and the standing illustration is
+# horizon minutes -- +109 / +49 / -84 on season totals across three seasons
+# while measurably WORSE where decisions are made. Configuration is judged on
+# the sliced rank endpoint: likely starters at p_start >= 0.75 and the
+# squad-relevant top 30 by e_points, within gameweek. The same text is on the
+# table as a COMMENT so a reader of the database meets it too.
+#
 # The DDL below is the schema of record. It is applied to the server database
 # by piping exactly this string through psql (`python squad_store.py
-# --print-ddl`) or by ensure_schema(conn); the laptop has no Postgres, so only
-# the pure-Python helpers are exercised locally (Tests/test_squad_store.py).
+# --print-ddl` / `--print-scores-ddl`) or by ensure_schema(conn); the laptop
+# has no Postgres, so only the pure-Python helpers are exercised locally
+# (Tests/test_squad_store*.py, Tests/test_squad_scores.py).
 
 import json
 import re
@@ -135,12 +161,71 @@ CREATE TRIGGER trg_squad_versions_append_only
 """
 
 
+RULE_1_COMMENT = (
+    "OPERATIONAL evidence only: did the pipeline run, was the advice followed, did the "
+    "mechanics (autosubs, armband, hits) work. NEVER evidence about configuration choice. "
+    "A sum of points_net over a season is a season total, and rule 1 forbids adoption "
+    "decisions that cite season totals: paired-path sd ~85 points, one near-tie flip has "
+    "moved a season by +/-90, and the standing illustration is horizon minutes (+109/+49/-84 "
+    "on season totals while measurably worse where decisions are made). Configuration is "
+    "judged on the sliced rank endpoint: likely starters at p_start >= 0.75 and the "
+    "squad-relevant top 30 by e_points within gameweek. Rows are append-only; an FPL "
+    "correction after data_checked lands as a new row (new master_rows_hash), never an update."
+)
+
+SCORES_DDL = """
+CREATE TABLE IF NOT EXISTS squad_scores (
+    score_id         SERIAL PRIMARY KEY,
+    user_id          INT         NOT NULL DEFAULT 1,
+    season           TEXT        NOT NULL,
+    gw               INT         NOT NULL,
+    version_id       INT         NOT NULL REFERENCES squad_versions(version_id),
+    points_net       INT         NOT NULL,      -- points_raw - hit: what FPL would credit
+    points_raw       INT         NOT NULL,      -- XI after autosubs + captain bonus
+    hit              INT         NOT NULL,      -- HIT_COST x paid transfers
+    captain_bonus    INT         NOT NULL,
+    doubled          INT,                       -- element doubled; NULL if nobody played
+    doubled_role     TEXT        NOT NULL,      -- captain | vice | none
+    transfers_made   INT         NOT NULL,
+    free_transfers   INT         NOT NULL,      -- the allowance that applied
+    final_xi         JSONB       NOT NULL,
+    subs_made        JSONB       NOT NULL,      -- [[out, in], ...] in the order applied
+    bench_points     INT         NOT NULL,      -- diagnostic, not scored
+    master_rows_hash TEXT        NOT NULL,      -- digest of the master rows scored
+    scored_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    git_sha          TEXT,
+    note             TEXT
+);
+
+-- one row per distinct scoring input; a corrected master hashes differently
+CREATE UNIQUE INDEX IF NOT EXISTS ux_squad_scores_inputs
+    ON squad_scores (user_id, season, gw, master_rows_hash);
+
+COMMENT ON TABLE squad_scores IS '""" + RULE_1_COMMENT.replace("'", "''") + """';
+
+-- append-only, enforced: no UPDATE, no DELETE, ever
+CREATE OR REPLACE FUNCTION squad_scores_append_only() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'squad_scores is append-only: UPDATE and DELETE are refused'
+        USING DETAIL = TG_OP || ' on score_id ' || OLD.score_id;
+END
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_squad_scores_append_only ON squad_scores;
+CREATE TRIGGER trg_squad_scores_append_only
+    BEFORE UPDATE OR DELETE ON squad_scores
+    FOR EACH ROW EXECUTE FUNCTION squad_scores_append_only();
+"""
+
+
 def ensure_schema(conn):
-    """Create squad_versions, its one-active index and its append-only trigger
-    if they do not exist. Idempotent. Call with NO query parameters (the DDL
-    contains no psycopg2 placeholders and must not be interpolated)."""
+    """Create squad_versions and squad_scores, their indexes and their
+    append-only triggers if they do not exist. Idempotent. Call with NO query
+    parameters (the DDL contains no psycopg2 placeholders and must not be
+    interpolated)."""
     with conn.cursor() as cur:
         cur.execute(DDL)
+        cur.execute(SCORES_DDL)
     conn.commit()
 
 
@@ -436,7 +521,8 @@ def roles_status(record, latest_run):
     return out
 
 
-def summary(record, prices, latest_run=None, current_gw=None, current_gw_error=None):
+def summary(record, prices, latest_run=None, current_gw=None, current_gw_error=None,
+            scores=None):
     """What get_my_squad returns: the version's identity, the fifteen with
     purchase price, current price and SELL price, the totals, the RECORDED
     roles labelled as such (roles_status), and free transfers both as
@@ -452,13 +538,24 @@ def summary(record, prices, latest_run=None, current_gw=None, current_gw_error=N
 
     current_gw None: the derived count is reported as None with
     `free_transfers_error` = current_gw_error (e.g. bootstrap unreachable)
-    -- unavailable and said so, never guessed."""
+    -- unavailable and said so, never guessed.
+
+    scores: the latest squad_scores row per gameweek (read_scores) -> the
+    total_points that count are their sum; the document's own total_points is
+    reported as total_points_recorded (a snapshot, superseded by the table).
+    scores None -> total_points None (not fetched)."""
     doc = record["squad_json"]
     state = to_state(doc)
     if current_gw is not None:
         ft_now, ft_err = free_transfers_at(record, current_gw), None
     else:
         ft_now, ft_err = None, (current_gw_error or "current gameweek unknown")
+    if scores is None:
+        total, scored = None, None
+    else:
+        total = int(sum(int(s["points_net"]) for s in scores))
+        scored = [{"gw": int(s["gw"]), "points_net": int(s["points_net"]), "hit": int(s["hit"]),
+                   "version_id": int(s["version_id"])} for s in sorted(scores, key=lambda s: s["gw"])]
 
     def m(tenths):
         return None if tenths is None else round(tenths / 10, 1)
@@ -498,10 +595,187 @@ def summary(record, prices, latest_run=None, current_gw=None, current_gw_error=N
         "free_transfers_now": ft_now,
         "free_transfers_now_as_of_gw": current_gw,
         "free_transfers_error": ft_err,
-        "total_points": doc["total_points"],
+        "total_points": total,
+        "scored_gameweeks": scored,
+        "total_points_recorded": doc["total_points"],
+        "total_points_meaning": ("total_points = sum of squad_scores.points_net (hits deducted); "
+                                 "total_points_recorded is the version document's snapshot. "
+                                 "Operational evidence only -- never a configuration argument (rule 1)."),
         "prices_missing_for": [p["element"] for p in doc["players"] if p["element"] not in prices],
         "squad_json": doc,
     }
+
+
+# ----------------------------------------------------------------- scoring
+def scoring_frame(doc):
+    """The document's fifteen in scoring.score_gameweek's shape: element,
+    position, role, bench_order in the SCORING convention (0 = bench GK,
+    1..3 outfield; NaN for starters)."""
+    rows = []
+    for p in doc["players"]:
+        rows.append({"element": int(p["element"]), "position": p["position"], "role": p["role"],
+                     "bench_order": (int(p["bench_order"]) - 1) if p["role"] == "bench" else float("nan")})
+    return pd.DataFrame(rows)
+
+
+def actuals_from_master(master, gw):
+    """One row per element for gameweek `gw` from the FPL master (columns
+    element, GW, fixture, minutes, total_points): minutes and points summed
+    over fixtures, so a double gameweek is one row -- what score_gameweek
+    expects."""
+    rows = master[master["GW"] == gw]
+    if len(rows) == 0:
+        raise ValueError(f"the master has no rows for GW{gw}")
+    agg = rows.groupby("element", as_index=False).agg(minutes=("minutes", "sum"),
+                                                      total_points=("total_points", "sum"))
+    agg["element"] = agg["element"].astype(int)
+    agg["minutes"] = agg["minutes"].astype(int)
+    agg["total_points"] = agg["total_points"].astype(int)
+    return agg
+
+
+def master_rows_hash(master, gw):
+    """sha256 of the rows scored for `gw` (element, fixture, minutes,
+    total_points, sorted) -- the identity of the scoring INPUT. A later FPL
+    correction changes it and lands as a new score row."""
+    import hashlib
+    rows = master[master["GW"] == gw][["element", "fixture", "minutes", "total_points"]]
+    rows = rows.sort_values(["element", "fixture"]).astype(int)
+    return hashlib.sha256(rows.to_csv(index=False).encode("utf-8")).hexdigest()
+
+
+def version_at_deadline(versions, gw, deadline):
+    """The version that was the user's squad when gameweek `gw`'s deadline
+    passed: the latest (by created_at, then version_id) with gw <= `gw` and
+    created_at < deadline. None if the squad did not exist yet -- earlier
+    gameweeks are not backfilled, by instruction."""
+    dl = _dt(deadline)
+    cands = [v for v in versions if int(v["gw"]) <= int(gw) and _dt(v["created_at"]) < dl]
+    if not cands:
+        return None
+    return max(cands, key=lambda v: (_dt(v["created_at"]), int(v["version_id"])))
+
+
+def transfer_accounting(versions, gw, deadline):
+    """transfers_made and the free-transfer allowance for gameweek `gw`,
+    reconstructed from the versions written for it before its deadline.
+
+    allowance = free_transfers_at(base, gw) where base is the squad carried
+    INTO the gameweek (the latest version with gw < `gw` before the deadline);
+    if the squad was seeded AT this gameweek, the seed's recorded count.
+    transfers_made = the sum of transfers over the gameweek's set_my_squad
+    versions. The versions' own recorded hits must equal
+    max(0, transfers_made - allowance) -- both are the same arithmetic, and a
+    disagreement means a hand-written row or a bug, so it raises."""
+    dl = _dt(deadline)
+    before = [v for v in versions if _dt(v["created_at"]) < dl]
+    in_gw = sorted((v for v in before if int(v["gw"]) == int(gw)),
+                   key=lambda v: (_dt(v["created_at"]), int(v["version_id"])))
+    base = [v for v in before if int(v["gw"]) < int(gw)]
+    if base:
+        b = max(base, key=lambda v: (_dt(v["created_at"]), int(v["version_id"])))
+        allowance = free_transfers_at(b, gw)
+    elif in_gw:
+        # seeded AT this gameweek: the allowance is what the first version
+        # carried before its own move -- its recorded count plus the free
+        # transfers it used (transfers minus paid); a seed used none.
+        first = in_gw[0]["squad_json"]
+        prov0 = first.get("provenance") or {}
+        n0 = len(prov0.get("transfers") or [])
+        allowance = int(first["free_transfers"]) + n0 - int(prov0.get("hits") or 0)
+    else:
+        return None
+    made = hits_recorded = 0
+    for v in in_gw:
+        prov = v["squad_json"].get("provenance") or {}
+        if prov.get("kind") == "set_my_squad":
+            made += len(prov.get("transfers") or [])
+            hits_recorded += int(prov.get("hits") or 0)
+    expected_paid = max(0, made - allowance)
+    if hits_recorded != expected_paid:
+        raise RuntimeError(f"GW{gw}: versions record {hits_recorded} paid transfer(s) but "
+                           f"{made} transfers against an allowance of {allowance} implies "
+                           f"{expected_paid}; refusing to score an inconsistent gameweek")
+    return {"transfers_made": made, "free_transfers": allowance, "paid": expected_paid}
+
+
+def score_gameweek_for(versions, gw, deadline, actuals):
+    """Score gameweek `gw` for the squad that was active at its deadline, or
+    None if no squad existed then. Pure: versions in, a row-shaped dict out.
+    The scorer is scoring.score_gameweek (autosubs, armband with vice
+    fallback, HITS DEDUCTED); nothing here re-implements a rule."""
+    from scoring import score_gameweek
+    v = version_at_deadline(versions, gw, deadline)
+    if v is None:
+        return None
+    acc = transfer_accounting(versions, gw, deadline)
+    res = score_gameweek(scoring_frame(v["squad_json"]), actuals,
+                         transfers_made=acc["transfers_made"], free_transfers=acc["free_transfers"])
+    return {
+        "gw": int(gw), "version_id": int(v["version_id"]),
+        "points_net": int(res["points"]), "points_raw": int(res["raw_points"]), "hit": int(res["hit"]),
+        "captain_bonus": int(res["captain_bonus"]),
+        "doubled": (None if res["doubled"] is None else int(res["doubled"])),
+        "doubled_role": res["doubled_role"],
+        "transfers_made": int(acc["transfers_made"]), "free_transfers": int(acc["free_transfers"]),
+        "final_xi": [int(e) for e in res["final_xi"]],
+        "subs_made": [[int(o), int(i)] for o, i in res["subs_made"]],
+        "bench_points": int(res["bench_points"]),
+    }
+
+
+VERSIONS_SQL = """SELECT version_id, user_id, season, gw, created_at, is_active, supersedes, note,
+                         squad_json FROM squad_versions WHERE user_id = %s AND season = %s
+                  ORDER BY version_id"""
+SCORES_LATEST_SQL = """SELECT DISTINCT ON (gw) score_id, user_id, season, gw, version_id, points_net,
+                              points_raw, hit, captain_bonus, doubled, doubled_role, transfers_made,
+                              free_transfers, final_xi, subs_made, bench_points, master_rows_hash,
+                              scored_at, git_sha, note
+                       FROM squad_scores WHERE user_id = %s AND season = %s
+                       ORDER BY gw, score_id DESC"""
+SCORE_HASHES_SQL = """SELECT gw, master_rows_hash, score_id, points_net FROM squad_scores
+                      WHERE user_id = %s AND season = %s ORDER BY gw, score_id"""
+
+
+def read_versions(conn, user_id, season):
+    """Every version of the user's squad this season, parsed and validated,
+    oldest first (the input version_at_deadline and transfer_accounting need)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(VERSIONS_SQL, (user_id, season))
+        rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        doc = r["squad_json"]
+        if isinstance(doc, (str, bytes)):
+            doc = json.loads(doc)
+        validate_document(doc)
+        r["squad_json"] = doc
+    return rows
+
+
+def write_score(conn, user_id, season, row, master_hash, git=None, note=None, confirm=True):
+    """Insert one squad_scores row (append-only). Returns the new score_id, or
+    None if a row with the same (user, season, gw, master_rows_hash) already
+    exists -- identical inputs are never scored twice. confirm=False rolls
+    back (a dry run through the real statement)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO squad_scores (user_id, season, gw, version_id, points_net, points_raw,
+                   hit, captain_bonus, doubled, doubled_role, transfers_made, free_transfers,
+                   final_xi, subs_made, bench_points, master_rows_hash, git_sha, note)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (user_id, season, gw, master_rows_hash) DO NOTHING
+               RETURNING score_id""",
+            (user_id, season, row["gw"], row["version_id"], row["points_net"], row["points_raw"],
+             row["hit"], row["captain_bonus"], row["doubled"], row["doubled_role"],
+             row["transfers_made"], row["free_transfers"],
+             psycopg2.extras.Json(row["final_xi"]), psycopg2.extras.Json(row["subs_made"]),
+             row["bench_points"], master_hash, git, note))
+        got = cur.fetchone()
+    if confirm:
+        conn.commit()
+    else:
+        conn.rollback()
+    return None if got is None else int(got[0])
 
 
 # ------------------------------------------------------- the live XI solve
@@ -814,6 +1088,11 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv == ["--print-ddl"]:
         sys.stdout.write(DDL)
+        return 0
+    if argv == ["--print-scores-ddl"]:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        sys.stdout.write(SCORES_DDL)
         return 0
     if argv == ["--init"]:
         conn = db_write.connect()

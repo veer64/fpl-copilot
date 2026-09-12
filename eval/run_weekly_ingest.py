@@ -65,6 +65,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -81,6 +82,34 @@ from _replace_retry import replace_with_retry  # noqa: E402
 
 API = "https://fantasy.premierleague.com/api"
 MAX_ATTEMPTS = 8            # 6-hourly cron -> two days of retries, then a standing FAILED
+MAX_SCORING_ATTEMPTS = 8    # same shape for squad scoring: then a standing, actionable line
+
+
+def scoring_instruction(last_error, gw):
+    """What a human should DO when scoring has given up -- keyed on the failure
+    class the scorer puts in square brackets (the Cherki mechanism: name the
+    fix, not just the failure). Every branch ends with how to re-arm."""
+    rearm = (f"  re-arm: delete the '{gw if gw is not None else 'global'}' entry from "
+             "data/live/scoring_attempts.json (or the file) and the next tick retries.")
+    e = last_error or ""
+    if "[inconsistent_versions]" in e:
+        return (f"  the versions written for GW{gw} disagree with their own hit arithmetic (transfers vs "
+                "allowance vs recorded hits). Inspect them:\n"
+                f"    SELECT version_id, gw, created_at, squad_json->'provenance' FROM squad_versions "
+                f"WHERE gw = {gw} ORDER BY version_id;\n"
+                "  fix by writing a corrected version through set_my_squad (a NEW row; rows are never "
+                "edited), then\n" + rearm)
+    if "[master_missing]" in e:
+        return (f"  GW{gw} is in the season file but the master has no rows for it. Re-ingest it outside "
+                f"a deadline window:\n    docker compose run --rm fpl-scheduler uv run python "
+                f"eval/run_weekly_ingest.py --season 2026-27 --force-gw {gw}\n" + rearm)
+    if "[db_unreachable]" in e or "[master_unreadable]" in e:
+        return ("  the scorer could not reach its inputs: check `docker ps` (fpl-postgres healthy?), the "
+                "DB_* values in /root/fpl-copilot/.env, and that data/history/fpl_api_2026_27.parquet "
+                "reads; try\n    docker compose run --rm --no-deps fpl-scheduler uv run python -c "
+                "\"import db_write; db_write.connect(); print('db ok')\"\n" + rearm)
+    return ("  unclassified failure: read the traceback in data/live/INGEST_RUN.log (the "
+            "'===== score_squads' block), fix the cause, then\n" + rearm)
 WINDOW_BEFORE_H = 3.0       # refuse to start inside deadline-3h ..
 WINDOW_AFTER_H = 1.0        # .. deadline+1h (the build and its Postgres write are done by then)
 STEP_TIMEOUT = 1800         # fetch_fpl_history: ~630 element-summary calls at 0.4s
@@ -506,6 +535,7 @@ class Runner:
         now = now or utc_now()
         events = self.fetch_json("/bootstrap-static/")["events"]
         fixtures = self.fetch_json("/fixtures/")
+        self.events = events
         self.decision, self.todo, self.detail = plan(
             events, fixtures, self.have_gws(), self.partial_gws(), now, force_gw)
         return self.decision
@@ -518,6 +548,99 @@ class Runner:
             self.action("crosswalk -- elements with minutes and no Understat id",
                         format_unmatched(items))
         return items
+
+    # ------------------------------------------------ squad scoring (tick-level)
+    def _scoring_attempts(self):
+        p = self.live / "scoring_attempts.json"
+        try:
+            return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _save_scoring_attempts(self, d):
+        p = self.live / "scoring_attempts.json"
+        if d:
+            _atomic_write_text(p, json.dumps(d, indent=1))
+        elif p.exists():
+            p.unlink()
+
+    def score_outstanding(self):
+        """Score every ingested gameweek that has no squad_scores row yet
+        (eval/score_squads.py; Decision 2, 2026-09-12). Runs on EVERY tick --
+        after a successful chain and on NOTHING-NEW ticks -- so a scoring
+        failure (Postgres down, inconsistent versions) is retried six hours
+        later without anyone remembering to. It never fails the ingest: a
+        non-zero exit becomes an ACTION REQUIRED line (so /health degrades)
+        and the chain's markers are untouched. Gameweeks whose deadline came
+        before the squad existed are reported and skipped, never backfilled.
+
+        Retries are BOUNDED, like the ingest's own: after MAX_SCORING_ATTEMPTS
+        failures for one gameweek (or for the scorer as a whole) that gameweek
+        is left out of the request and a STANDING line names what a human
+        should do and how to re-arm -- an alarm that can never clear is closed
+        by being ignored. Success clears the counter."""
+        events = getattr(self, "events", None)
+        if not events:
+            return None
+        have = sorted(self.have_gws())
+        att = self._scoring_attempts()
+        gave_up = sorted(g for g in have if att.get(str(g), {}).get("attempts", 0) >= MAX_SCORING_ATTEMPTS)
+        for g in gave_up:
+            e = att[str(g)]
+            self.action(f"squad scoring for GW{g} GAVE UP after {e['attempts']} attempts -- human needed",
+                        f"  last failure {e.get('last_failed')}: {e.get('last_error')}\n"
+                        + scoring_instruction(e.get("last_error") or "", g))
+        if att.get("global", {}).get("attempts", 0) >= MAX_SCORING_ATTEMPTS:
+            e = att["global"]
+            self.action(f"squad scoring GAVE UP after {e['attempts']} whole-run failures -- human needed",
+                        f"  last failure {e.get('last_failed')}: {e.get('last_error')}\n"
+                        + scoring_instruction(e.get("last_error") or "", None))
+            return None
+        deadlines = {str(e["id"]): e["deadline_time"] for e in events
+                     if int(e["id"]) in have and int(e["id"]) not in gave_up}
+        title = "SQUAD SCORES (hypothetical squad; operational evidence only -- rule 1)"
+        if not deadlines:
+            self.section(title, "nothing to request (no ingested gameweek eligible)")
+            return 0
+        req = self.live / "_scoring_request.json"
+        _atomic_write_text(req, json.dumps(dict(season=self.season, deadlines=deadlines)))
+        args = ["eval/score_squads.py", "--season", self.season, "--request", str(req)]
+        self.log(f"\n===== score_squads @ {stamp()} =====\n$ python {' '.join(args)}")
+        try:
+            code, out = self.run_cmd(args, 600)
+        except Exception as e:                       # timeout / spawn failure
+            code, out = 1, f"score_squads could not run: {e!r}"
+        self.log(out)
+        self.log(f"===== score_squads exit code {code} =====")
+        text = (out or "").strip()
+        failed_gws = {}
+        ok_gws = set()
+        for line in text.splitlines():
+            m = re.match(r"^GW(\d+): (scored|DRY RUN would write|already scored|no squad|FAILED)", line)
+            if not m:
+                continue
+            if m.group(2) == "FAILED":
+                failed_gws[m.group(1)] = line
+            else:
+                ok_gws.add(m.group(1))
+        for g in ok_gws:
+            att.pop(g, None)
+        for g, line in failed_gws.items():
+            prev = att.get(g, {}).get("attempts", 0)
+            att[g] = dict(attempts=prev + 1, last_failed=stamp(), last_error=line[:600])
+        if code != 0 and not failed_gws:
+            prev = att.get("global", {}).get("attempts", 0)
+            att["global"] = dict(attempts=prev + 1, last_failed=stamp(), last_error=text[-600:])
+        elif code == 0:
+            att.pop("global", None)
+        self._save_scoring_attempts(att)
+        self.section(title, text[-2500:] or "(no output)")
+        if code != 0:
+            counts = {g: att[g]["attempts"] for g in failed_gws} or {"run": att.get("global", {}).get("attempts")}
+            self.action(f"squad scoring FAILED (attempt(s) {counts} of {MAX_SCORING_ATTEMPTS}; retried on the "
+                        "next tick; the ingest itself is unaffected)",
+                        text[-2500:] or "(no output)")
+        return code
 
     def run_chain(self):
         h = self.data_dir / "history"
@@ -687,6 +810,9 @@ class Runner:
                 if p.exists():
                     p.unlink()
 
+        # then score what is now scoreable (never fails the chain)
+        self.score_outstanding()
+
     def _host(self):
         import socket
         try:
@@ -742,11 +868,15 @@ def main(argv=None):
             f"ingested (season file): {d['have_gws']}; partial (chain broke mid-way): {d['partial_gws']}\n"
             f"next un-final: {d['next_unfinal']}\nnext deadline: {d['next_deadline']}\n")
     if decision != "RUN":
+        scores = ""
+        if decision == "NOTHING-NEW":                # not DEFERRED: the deadline window stays quiet
+            R.score_outstanding()
+            scores = "".join(f"\n== {t} ==\n{x}\n" for t, x in R.sections if t.startswith("SQUAD SCORES"))
         items = R.outstanding_actions()
-        first = decision + (f" -- ACTION REQUIRED ({len(items)} unmatched with minutes)" if items else "")
+        first = decision + (f" -- ACTION REQUIRED ({len(R.actions)} item(s), see below)" if R.actions else "")
         extra = (f"\nDEFERRED: {d.get('reason')}\npending gameweek(s): {R.todo}\n" if decision == "DEFERRED" else "")
         act = "".join(f"\n== ACTION REQUIRED: {t} ==\n{x}\n" for t, x in R.actions)
-        R.write_tick(first, body + extra + act)
+        R.write_tick(first, body + extra + act + scores)
         return 0
     R.write_tick(f"RUNNING gameweek(s) {R.todo} -- see {R.status_path.name}", body)
     first = R.execute()
