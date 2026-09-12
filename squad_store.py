@@ -369,6 +369,33 @@ ROLES_MEANING = ("the roles recorded WITH this version (captain, vice, XI, bench
                  "gameweek; get_my_xi computes that from the current model run")
 
 
+# ------------------------------------------------- free transfers (lazy)
+def free_transfers_at(record, gw):
+    """Free transfers available at gameweek `gw`, DERIVED, never stored.
+
+    FPL grants one free transfer per gameweek and banks them up to
+    MAX_FREE_TRANSFERS (squad_state.end_gameweek is the same rule). A version
+    stores `free_transfers` = the count remaining AFTER its own transfers, as
+    of its own gw (the deadline it was set for). So at a later gameweek G:
+
+        ft(G) = min(MAX_FREE_TRANSFERS, stored + (G - version.gw))
+
+    Decision 1 of 2026-09-12 (Logs/squad_state_log.md section 10): a lazy
+    derivation cannot go stale because nothing has to run; the one thing it
+    depends on is that version.gw means the deadline the version was set for,
+    which write paths enforce (set_my_squad refuses any other gw). Chips are
+    not modelled yet (a wildcard week would spend nothing).
+
+    Raises ValueError for a gw earlier than the version's -- there is no
+    "count at a gameweek before the squad existed" to return.
+    """
+    k = int(record["gw"])
+    if not _is_int(gw) or gw < k:
+        raise ValueError(f"free transfers are defined from the version's gw {k} onward, got gw {gw!r}")
+    stored = int(record["squad_json"]["free_transfers"])
+    return min(MAX_FREE_TRANSFERS, stored + (gw - k))
+
+
 def _dt(x):
     """A tz-aware datetime from a psycopg2 datetime or a Postgres-style string."""
     if isinstance(x, datetime):
@@ -409,19 +436,29 @@ def roles_status(record, latest_run):
     return out
 
 
-def summary(record, prices, latest_run=None):
+def summary(record, prices, latest_run=None, current_gw=None, current_gw_error=None):
     """What get_my_squad returns: the version's identity, the fifteen with
-    purchase price, current price and SELL price, the totals, and the
-    RECORDED roles labelled as such (roles_status). Money is presented in
-    millions (one decimal); the document inside stays in tenths.
+    purchase price, current price and SELL price, the totals, the RECORDED
+    roles labelled as such (roles_status), and free transfers both as
+    recorded (as of the version's gw) and as DERIVED for `current_gw` (the
+    next deadline's gameweek). Money is presented in millions (one decimal);
+    the document inside stays in tenths.
 
     prices: {element: current price_tenths} from players_live. The sell price
     is squad_state.sell_price via SquadState -- the one implementation of
     FPL's rule -- and a player with no current price is valued at what was
     paid (SquadState's rule: assuming a rise would invent money); such
-    players are listed in prices_missing_for so the gap is visible."""
+    players are listed in prices_missing_for so the gap is visible.
+
+    current_gw None: the derived count is reported as None with
+    `free_transfers_error` = current_gw_error (e.g. bootstrap unreachable)
+    -- unavailable and said so, never guessed."""
     doc = record["squad_json"]
     state = to_state(doc)
+    if current_gw is not None:
+        ft_now, ft_err = free_transfers_at(record, current_gw), None
+    else:
+        ft_now, ft_err = None, (current_gw_error or "current gameweek unknown")
 
     def m(tenths):
         return None if tenths is None else round(tenths / 10, 1)
@@ -456,7 +493,11 @@ def summary(record, prices, latest_run=None):
         "bank": m(doc["bank"]),
         "sell_value": m(sell_value),
         "budget_if_all_sold": m(sell_value + doc["bank"]),
-        "free_transfers": doc["free_transfers"],
+        "free_transfers_recorded": doc["free_transfers"],
+        "free_transfers_recorded_as_of_gw": record["gw"],
+        "free_transfers_now": ft_now,
+        "free_transfers_now_as_of_gw": current_gw,
+        "free_transfers_error": ft_err,
         "total_points": doc["total_points"],
         "prices_missing_for": [p["element"] for p in doc["players"] if p["element"] not in prices],
         "squad_json": doc,
@@ -556,11 +597,19 @@ def _role_label(role, bench_order):
 
 # ----------------------------------------------------------------- writes
 def plan_change(active, player_ids, captain_id, vice_id, bench_order_ids, gw, live,
-                priced_from=None, created_by=None):
+                priced_from=None, created_by=None, next_deadline_gw=None):
     """Pure. From the ACTIVE version and the requested fifteen + roles, build
     the NEW document and a change summary -- or raise ValueError. Nothing is
     clamped: an unaffordable, mis-shaped or mis-roled request is refused with
     the reason, and the active version is untouched.
+
+    gw is the deadline the new version is set for and MUST equal
+    next_deadline_gw (the next FPL deadline's gameweek): earlier is a deadline
+    already passed, later would attribute transfers to a gameweek whose free
+    transfer has not been granted. Free transfers available for the move are
+    DERIVED by free_transfers_at(active, gw) -- the stored count rolled
+    forward one per gameweek, capped -- never the stored count itself (the
+    latent bug of 2026-09-12: a GW5 move on the GW4 seed saw 1, not 2).
 
     The caller never supplies money. The change is the set difference between
     the active fifteen and `player_ids`; it is applied through
@@ -586,6 +635,15 @@ def plan_change(active, player_ids, captain_id, vice_id, bench_order_ids, gw, li
     old_doc = active["squad_json"]
     if not _is_int(gw) or gw < active["gw"]:
         raise ValueError(f"gw must be an int >= the active version's gw {active['gw']}, got {gw!r}")
+    if not _is_int(next_deadline_gw):
+        raise ValueError("next_deadline_gw is required (the next FPL deadline's gameweek); "
+                         "refusing to attribute transfers to a gameweek by guesswork")
+    if gw != next_deadline_gw:
+        if gw < next_deadline_gw:
+            raise ValueError(f"GW{gw}'s deadline has passed; a squad can only be set for the "
+                             f"next deadline, GW{next_deadline_gw}")
+        raise ValueError(f"GW{gw} is beyond the next deadline (GW{next_deadline_gw}); a squad is "
+                         "set one deadline at a time so free transfers stay attributable")
     if not isinstance(player_ids, (list, tuple)) or not all(_is_int(x) for x in player_ids):
         raise ValueError("player_ids must be a list of ints")
     if len(player_ids) != SQUAD_SIZE or len(set(player_ids)) != SQUAD_SIZE:
@@ -619,6 +677,8 @@ def plan_change(active, player_ids, captain_id, vice_id, bench_order_ids, gw, li
 
     # the move
     state = to_state(old_doc)
+    ft_recorded = state.free_transfers
+    state.free_transfers = free_transfers_at(active, gw)      # rolled forward, not stored
     prices = {e: int(live[e]["price_tenths"]) for e in involved}
     bank_before = state.bank
     wealth_before = state.sell_value(prices) + bank_before
@@ -683,6 +743,9 @@ def plan_change(active, player_ids, captain_id, vice_id, bench_order_ids, gw, li
     change = {
         "from_version": active["version_id"], "gw": gw,
         "transfers": transfers, "n_transfers": len(pairs),
+        "free_transfers_recorded": ft_recorded,
+        "free_transfers_recorded_as_of_gw": active["gw"],
+        "gameweeks_rolled_forward": gw - active["gw"],
         "free_transfers_before": ft_before, "free_transfers_used": len(pairs) - paid,
         "free_transfers_after": state.free_transfers,
         "hits": hits, "hit_cost_points": hits * HIT_COST,

@@ -211,6 +211,17 @@ def get_best_squad(budget: float = None):
 
 
 # -------------------------------------------------------------- my squad
+def _current_gw():
+    """The next FPL deadline's gameweek -- what "now" means for squad state:
+    free transfers are derived to it and a version can only be set for it.
+    Raises RuntimeError if the bootstrap is unreachable; never guessed."""
+    nd = _next_deadline()
+    if nd is None:
+        raise RuntimeError("cannot determine the current gameweek: the FPL bootstrap is "
+                           "unreachable (result cached 10 min); retry shortly")
+    return int(nd[0])
+
+
 def get_my_squad(user_id: int = 1):
     """The user's OWN squad -- the active row of squad_versions (master plan
     1.4 / 5.4), NOT the model's free-pick solve. The fifteen with role,
@@ -230,7 +241,12 @@ def get_my_squad(user_id: int = 1):
     prices = {r["element"]: r["price_tenths"] for r in _q(
         "SELECT element, price_tenths FROM players_live "
         "WHERE element = ANY(%s) AND price_tenths IS NOT NULL", (elements,))}
-    return squad_store.summary(record, prices, latest_run=_latest_run())
+    try:
+        current, current_err = _current_gw(), None
+    except RuntimeError as e:
+        current, current_err = None, str(e)
+    return squad_store.summary(record, prices, latest_run=_latest_run(),
+                               current_gw=current, current_gw_error=current_err)
 
 
 def get_my_xi(user_id: int = 1):
@@ -250,9 +266,15 @@ def get_my_xi(user_id: int = 1):
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
     try:
-        pool, cutoff, built = _load_pool()
+        target = _current_gw()
+    except RuntimeError as e:
+        return {"error": str(e)}
+    try:
+        pool, cutoff, built = _load_pool(gw=target)
     except FileNotFoundError as e:
         return {"error": str(e)}
+    except ValueError as e:
+        return {"error": f"the frame on the volume has no predictions for GW{target}: {e}"}
     doc = record["squad_json"]
     state = squad_store.to_state(doc)
     elements = [p["element"] for p in doc["players"]]
@@ -278,7 +300,8 @@ def get_my_xi(user_id: int = 1):
     bench = [r for r in rows if r["role"] == "bench"]
     nd = _next_deadline()
     out = {
-        "gw": cutoff, "frame_built_at": str(built),
+        "gw": target, "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
+        "frame_built_at": str(built),
         "run_id": run["run_id"] if run else None,
         "model_version": _version(run, PRODUCTION_CONFIG) if run else None,
         "squad_version_id": record["version_id"],
@@ -294,15 +317,18 @@ def get_my_xi(user_id: int = 1):
                        "captain_id": next(r["player_id"] for r in xi if r["role"] == "CAPTAIN"),
                        "vice_id": next(r["player_id"] for r in xi if r["role"] == "VICE"),
                        "bench_order_ids": [r["player_id"] for r in bench],
-                       "gw": cutoff, "confirm": True},
+                       "gw": target, "confirm": True},
     }
     if missing:
-        out["note_missing"] = (f"{len(missing)} owned player(s) have no row in the GW{cutoff} frame "
-                               "(blank gameweek or absent at this cutoff) and were solved at 0 "
-                               "expected points, per the production blank-week rule")
-    if nd and nd[0] != cutoff:
-        out["note_deadline"] = (f"this frame is for GW{cutoff}; the next deadline is GW{nd[0]} at "
-                                f"{nd[1]} and its frame lands when the pipeline runs at T-90")
+        out["note_missing"] = (f"{len(missing)} owned player(s) have no row for GW{target} in the "
+                               f"frame (blank gameweek or absent at cutoff GW{cutoff}) and were "
+                               "solved at 0 expected points, per the production blank-week rule")
+    if target != cutoff:
+        out["note_stale"] = (f"the frame on the volume is GW{cutoff}'s (built {built:%Y-%m-%d %H:%M}Z); "
+                             f"GW{target}'s predictions here are as seen from cutoff GW{cutoff}, "
+                             f"{target - cutoff} gameweek(s) stale. A fresh frame lands when the "
+                             f"pipeline runs at T-90 before the GW{target} deadline"
+                             + (f" ({nd[1]})" if nd else ""))
     return out
 
 
@@ -323,11 +349,12 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
         active = squad_store.read_active(user_id)
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
+    try:
+        current = _current_gw()
+    except RuntimeError as e:
+        return {"error": f"{e} -- refusing to write a squad version without knowing the gameweek"}
     if gw is None:
-        nd = _next_deadline()
-        if nd is None:
-            return {"error": "gw not given and the next deadline could not be fetched; pass gw"}
-        gw = nd[0]
+        gw = current
     involved = sorted({p["element"] for p in active["squad_json"]["players"]} | set(player_ids or []))
     rows = _q("""SELECT element, name, position, team, price_tenths, updated_at
                  FROM players_live WHERE element = ANY(%s)""", (involved,))
@@ -338,7 +365,8 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
         new_doc, change = squad_store.plan_change(
             active, player_ids, captain_id, vice_id, bench_order_ids, gw, live,
             priced_from=priced_from,
-            created_by=f"model_tools.set_my_squad @ {db_write.git_sha() or 'unknown'}")
+            created_by=f"model_tools.set_my_squad @ {db_write.git_sha() or 'unknown'}",
+            next_deadline_gw=current)
     except ValueError as e:
         return {"error": f"refused: {e}", "refused": True, "active_version": active["version_id"]}
     try:
@@ -363,6 +391,9 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
                            "in": t["in_name"], "in_id": t["in"], "bought_for": m(t["bought_for"])}
                           for t in change["transfers"]],
             "n_transfers": change["n_transfers"],
+            "free_transfers_recorded": change["free_transfers_recorded"],
+            "free_transfers_recorded_as_of_gw": change["free_transfers_recorded_as_of_gw"],
+            "gameweeks_rolled_forward": change["gameweeks_rolled_forward"],
             "free_transfers_before": change["free_transfers_before"],
             "free_transfers_used": change["free_transfers_used"],
             "free_transfers_after": change["free_transfers_after"],
@@ -370,16 +401,19 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
             "bank_before": m(change["bank_before"]), "proceeds": m(change["proceeds"]),
             "purchases": m(change["purchases"]), "bank_after": m(change["bank_after"]),
         },
-        "squad": squad_store.summary(row, prices, latest_run=latest),
+        "squad": squad_store.summary(row, prices, latest_run=latest, current_gw=current),
     }
 
 
 # ---------------------------------------------------------------- the solve
-def _load_pool():
-    """The production frame on the model volume, sliced to its deadline
-    gameweek in optimize's shape -> (pool, cutoff_gw, frame_built_at).
-    Shared by optimise() and get_my_xi(). Raises FileNotFoundError when the
-    pipeline has not produced a build on this volume."""
+def _load_pool(gw=None):
+    """The production frame on the model volume, sliced to one gameweek in
+    optimize's shape -> (pool, cutoff_gw, frame_built_at). gw None = the
+    frame's own deadline gameweek (its cutoff); a later gw inside the horizon
+    gives that gameweek AS SEEN FROM the cutoff (the stale-by-one case between
+    deadlines) -- gw_slice raises ValueError beyond the horizon. Shared by
+    optimise() and get_my_xi(). Raises FileNotFoundError when the pipeline has
+    not produced a build on this volume."""
     import sys
     for p in (str(REPO), str(REPO / "squad")):
         if p not in sys.path:
@@ -394,7 +428,7 @@ def _load_pool():
     df = sim.load_season(walkforward_path=str(frame_p), history_path=str(prices_p),
                          horizon_aware=True, season=os.getenv("FPL_SEASON", "2026-27"))
     cutoff = int(df["cutoff"].min())
-    pool = sim.gw_slice(df, cutoff, cutoff=cutoff)
+    pool = sim.gw_slice(df, cutoff if gw is None else int(gw), cutoff=cutoff)
     built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
     return pool, cutoff, built
 

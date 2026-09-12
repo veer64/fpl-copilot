@@ -87,7 +87,7 @@ tools_schema = [
     },
     {
         "name": "get_my_squad",
-        "description": "The user's OWN fifteen -- the versioned squad state (a hypothetical entry seeded at GW4), NOT the model's free-pick solve. Returns the fifteen with purchase price, current price and what each would SELL for under FPL's rule, plus bank, free transfers, total points and the version id. The roles it carries (recorded_captain, recorded_vice, recorded_xi, recorded_bench_in_order) are what was RECORDED when that version was written -- a record, NOT this week's advice; the `roles` block says whether they are STALE relative to the latest model run, and if so you must say so. Use for 'what is my team', 'what would X sell for', 'how much money do I have'. For 'who should I start / captain / bench this week' call get_my_xi instead. If it returns an error, no squad state is recorded: say exactly that and do NOT answer with get_picks instead.",
+        "description": "The user's OWN fifteen -- the versioned squad state (a hypothetical entry seeded at GW4), NOT the model's free-pick solve. Returns the fifteen with purchase price, current price and what each would SELL for under FPL's rule, plus bank, total points and the version id. Free transfers: free_transfers_now is the count available for the next deadline (derived: one banked per gameweek, capped at 5); free_transfers_recorded is the stale count as of the version's own gameweek -- quote free_transfers_now. The roles it carries (recorded_captain, recorded_vice, recorded_xi, recorded_bench_in_order) are what was RECORDED when that version was written -- a record, NOT this week's advice; the `roles` block says whether they are STALE relative to the latest model run, and if so you must say so. Use for 'what is my team', 'what would X sell for', 'how much money do I have'. For 'who should I start / captain / bench this week' call get_my_xi instead. If it returns an error, no squad state is recorded: say exactly that and do NOT answer with get_picks instead.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -98,7 +98,7 @@ tools_schema = [
     },
     {
         "name": "get_my_xi",
-        "description": "THIS WEEK's best starting XI, captain, vice-captain and bench order over the fifteen the user owns, solved by the production optimiser from the current model run's predictions (a real solve, about a second). Use for 'who should I start', 'who should I captain', 'what is my best XI', 'should X or Y start'. It also reports how the recorded roles differ and the expected points they leave on the table (recorded_roles.expected_gain_vs_recorded). Nothing is written: to record this XI, pass adopt_with to set_my_squad (preview first, then confirm=true when the user says so).",
+        "description": "The NEXT DEADLINE's best starting XI, captain, vice-captain and bench order over the fifteen the user owns, solved by the production optimiser from the current model run's predictions (a real solve, about a second). Between deadlines the frame belongs to the previous deadline, so the predictions are labelled as of that cutoff (note_stale, stale_by_gameweeks) -- say so when present. Use for 'who should I start', 'who should I captain', 'what is my best XI', 'should X or Y start'. It also reports how the recorded roles differ and the expected points they leave on the table (recorded_roles.expected_gain_vs_recorded). Nothing is written: to record this XI, pass adopt_with to set_my_squad (preview first, then confirm=true when the user says so).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -117,7 +117,7 @@ tools_schema = [
                 "captain_id": {"type": "integer"},
                 "vice_id": {"type": "integer"},
                 "bench_order_ids": {"type": "array", "items": {"type": "integer"}, "description": "Exactly four element ids, bench order first to last"},
-                "gw": {"type": "integer", "description": "Gameweek the squad is set for (default: the next deadline's)"},
+                "gw": {"type": "integer", "description": "Gameweek the squad is set for. Defaults to, and must equal, the next deadline's gameweek; any other is refused"},
                 "note": {"type": "string", "description": "Optional short reason, recorded with the version"},
                 "confirm": {"type": "boolean", "description": "false = preview only (default); true = write it"}
             },

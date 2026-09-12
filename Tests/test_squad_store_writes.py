@@ -70,9 +70,10 @@ IDS = list(range(1, 16))
 CAP, VICE, BENCH = 13, 9, [2, 7, 11, 12]     # as legal_players() assigns them
 
 
-def _plan(active, ids, live, captain=CAP, vice=VICE, bench=BENCH, gw=4):
+def _plan(active, ids, live, captain=CAP, vice=VICE, bench=BENCH, gw=4, next_deadline_gw=None):
     return squad_store.plan_change(active, ids, captain, vice, bench, gw, live,
-                                   priced_from="test", created_by="test")
+                                   priced_from="test", created_by="test",
+                                   next_deadline_gw=gw if next_deadline_gw is None else next_deadline_gw)
 
 
 # ------------------------------------------------------------- the money
@@ -306,3 +307,62 @@ def test_ddl_is_stable():
                  "trg_squad_versions_append_only", "BEFORE UPDATE OR DELETE",
                  "supersedes  INT         REFERENCES squad_versions(version_id)"):
         assert must in squad_store.DDL, must
+
+
+# ------------------------------------------- free transfers (Decision 1)
+from squad_state import MAX_FREE_TRANSFERS                 # noqa: E402
+
+
+def test_free_transfers_roll_forward_one_per_gameweek_and_cap():
+    rec = _active(ft=1, gw=4)                                # 1 left after GW4's moves
+    assert squad_store.free_transfers_at(rec, 4) == 1        # same gameweek: as stored
+    assert squad_store.free_transfers_at(rec, 5) == 2
+    assert squad_store.free_transfers_at(rec, 8) == 5
+    assert squad_store.free_transfers_at(rec, 30) == MAX_FREE_TRANSFERS
+    assert squad_store.free_transfers_at(_active(ft=0, gw=4), 5) == 1
+
+
+def test_free_transfers_before_the_version_existed_is_an_error():
+    with pytest.raises(ValueError):
+        squad_store.free_transfers_at(_active(gw=4), 3)
+
+
+def test_gw5_move_on_a_gw4_version_sees_two_free_transfers_not_one():
+    """The latent bug: plan_change spent the STORED count. Two transfers at
+    GW5 on a GW4 version with 1 recorded must cost no hit."""
+    ids = [i for i in IDS if i not in (3, 4)] + [99, 95]
+    doc, change = _plan(_active(bank=7, ft=1, gw=4), ids, _live(), gw=5)
+    assert change["free_transfers_recorded"] == 1 and change["gameweeks_rolled_forward"] == 1
+    assert change["free_transfers_before"] == 2
+    assert change["hits"] == 0 and change["free_transfers_after"] == 0 == doc["free_transfers"]
+    ids3 = [i for i in IDS if i not in (3, 4, 8)] + [99, 95, 98]
+    doc3, change3 = _plan(_active(bank=40, ft=1, gw=4), ids3, _live(), gw=5)
+    assert change3["free_transfers_before"] == 2 and change3["hits"] == 1
+
+
+def test_a_version_can_only_be_set_for_the_next_deadline():
+    with pytest.raises(ValueError) as ei:
+        _plan(_active(gw=4), IDS, _live(), gw=4, next_deadline_gw=5)   # GW4 deadline passed
+    assert "deadline has passed" in str(ei.value)
+    with pytest.raises(ValueError) as ei:
+        _plan(_active(gw=4), IDS, _live(), gw=6, next_deadline_gw=5)   # beyond the next
+    assert "beyond the next deadline" in str(ei.value)
+    with pytest.raises(ValueError) as ei:
+        squad_store.plan_change(_active(gw=4), IDS, CAP, VICE, BENCH, 5, _live())
+    assert "next_deadline_gw is required" in str(ei.value)
+
+
+def test_no_change_version_at_a_later_gw_carries_the_rolled_count():
+    doc, change = _plan(_active(ft=1, gw=4), IDS, _live(), gw=5)
+    assert change["n_transfers"] == 0 and change["free_transfers_before"] == 2
+    assert doc["free_transfers"] == 2                        # recorded as of GW5 now
+
+
+def test_summary_reports_recorded_and_derived_free_transfers():
+    rec = _active(ft=1, gw=4)
+    out = squad_store.summary(rec, {}, current_gw=5)
+    assert out["free_transfers_recorded"] == 1 and out["free_transfers_recorded_as_of_gw"] == 4
+    assert out["free_transfers_now"] == 2 and out["free_transfers_now_as_of_gw"] == 5
+    assert out["free_transfers_error"] is None and "free_transfers" not in out
+    out = squad_store.summary(rec, {}, current_gw=None, current_gw_error="bootstrap unreachable")
+    assert out["free_transfers_now"] is None and out["free_transfers_error"] == "bootstrap unreachable"
