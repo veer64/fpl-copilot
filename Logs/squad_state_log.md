@@ -475,3 +475,75 @@ regardless.
 
 **Deferred, unchanged:** chips (a wildcard week would need a `chip` field
 so the version spends nothing; a free hit needs a restoring version).
+
+---
+
+## 12. Option B memory measurement — build + six-week MIP in one process (2026-09-12 18:17Z)
+
+**Why measured, not wired.** Option B (the MIP inside the T-90 runner) would
+share a process with a build that peaks ~1.59 GB on a 3.9 GB droplet with NO
+swap; an overrun is an OOM kill. Nobody had measured them together. This is
+the number; nothing was wired.
+
+**Method.** Inside the scheduler image on the server (`docker compose run
+--rm --no-deps`, no memory limit; the api at 149 MB and Postgres at 44 MB
+running alongside; host 800 MB used, 3,115 MB available before), one
+process reproduced today's T-90 build for GW4 exactly as the runner does —
+`live_deadline.build_deadline_frame("2026-27", 4, strict=True,
+config="baseline", horizon=6)` → stage prices and frame (to /tmp, never the
+volume) → `load_season` → `gw_slice` → free-pick `optimize_squad` — then
+appended the six-week MIP for the ACTIVE squad via
+`simulator.decide_gameweek_mip` (H=6, decay 0.45, HiGHS in-process) in the
+SAME process. A second, fresh process ran the MIP alone from the volume
+frame. Checkpoints read `ru_maxrss` (process anonymous high-water mark) and
+the container cgroup's `memory.current` / `memory.peak` / `memory.stat anon`
+(every process in the container; current/peak include page cache). Run at
+18:17:40–18:18:56Z, right after the 18:17Z ingest tick (NOTHING-NEW) and
+five days clear of the GW5 deadline.
+
+**Build + MIP, one process** (t, ru_maxrss, cgroup current / peak / anon, MB):
+
+| checkpoint | t s | ru_maxrss | cg current | cg peak | cg anon |
+|---|---|---|---|---|---|
+| interpreter | 0.0 | 29 | 15 | 15 | 14 |
+| imports done | 8.6 | 210 | 198 | 198 | 141 |
+| strict build done (3,936 rows) | 47.2 | **1,569** | 1,056 | **1,511** | 1,020 |
+| prices + frame staged, load_season | 47.4 | 1,569 | 751 | 1,511 | 714 |
+| free-pick XI solve | 49.0 | 1,569 | 751 | 1,511 | 714 |
+| six-week MIP done (8.7 s, 1 transfer, H=6) | 57.7 | 1,569 | 762 | 1,511 | **726** |
+
+**MIP alone, fresh process:** imports 128 → frame loaded 154 → MIP done
+`ru_maxrss` **330 MB** (8.8 s), cgroup peak 287, anon 230. (The 416 MB
+reference was a different measurement; 330 here with HiGHS.)
+
+**Reading.** The peak is the BUILD's: 1,569 MB process high-water mark (1,511
+cgroup), reached inside `build_deadline_frame`. By the time the frame is
+returned the working set has dropped to ~714 MB anon, and the MIP appended
+there adds **+12 MB anon** (714 → 726) and does not move the high-water mark
+at all. The MIP's own peak (330 MB alone) is not additive to the build's
+because the two never coincide in time — the build's intermediates are
+released before the solve starts.
+
+**Margin.** Host 3,915 MB total; ~800 MB used by everything else (host ~600,
+api 149, Postgres 44). Build peak 1,569 → total ≈ 2.4 GB → **≈ 1.5 GB
+headroom**. Even the impossible worst case (MIP peak coinciding with the
+build peak) is 1,569 + 330 ≈ 1.9 GB → ≈ 1.2 GB headroom.
+
+**Recommendation.** On this evidence memory does NOT block option B: appended
+after the build, the MIP costs ~12 MB and ~9 s. I would put it in the T-90
+runner — LATER, as its own non-fatal status section, after the frame is
+written and the free-pick solve done (never in parallel with the build) —
+with two guards first: (1) the runner should log its own `ru_maxrss` in the
+status file every deadline, because the 2026-27 stack grows a gameweek a
+week and the 1,569 figure is one run on one day; (2) re-measure if the
+build's peak ever crosses ~2.5 GB or the droplet takes on any other
+resident service. Not wired in this pass, per the instruction.
+
+**Bonus observation (not acted on).** Both processes proposed the same step-0
+move for the active squad from the GW4 frame: sell Isak (379), buy element
+165, 0 hits, objective 100.491 — identical objectives, so the solve is
+deterministic across processes. Part 3 will surface this through the tool.
+
+**Side effects.** None on the volume or the database: temp files under
+/tmp inside the containers, removed; two helper scripts copied to /root and
+removed. The build re-pulled the FPL calendar (no odds credits).
