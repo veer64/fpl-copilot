@@ -59,11 +59,13 @@
 # --print-ddl`) or by ensure_schema(conn); the laptop has no Postgres, so only
 # the pure-Python helpers are exercised locally (Tests/test_squad_store.py).
 
+import json
 import sys
 from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+import psycopg2.extras
 
 import db_write
 
@@ -297,6 +299,117 @@ def document(players, bank, free_transfers, total_points, season, provenance):
     }
     validate_document(doc)
     return doc
+
+
+# ------------------------------------------------------------------ reads
+class SquadStateError(RuntimeError):
+    """No usable squad state: no active version for the user, more than one,
+    or a stored document that fails validate_document. Callers surface it --
+    the tool returns it as an explicit error, the MIP path lets it raise --
+    and NOTHING falls back to a free pick."""
+
+
+ACTIVE_SQL = """SELECT version_id, user_id, season, gw, created_at, is_active,
+                       supersedes, note, squad_json
+                FROM squad_versions
+                WHERE user_id = %s AND is_active
+                ORDER BY version_id"""
+
+
+def active_from_rows(rows, user_id):
+    """The active version record from the rows ACTIVE_SQL returned. Pure, so
+    the three failure modes are testable without a database. Returns a dict
+    with the row's columns and squad_json parsed + validated."""
+    if len(rows) == 0:
+        raise SquadStateError(
+            f"no active squad version for user {user_id}: squad_versions has no "
+            "is_active row. Seed one (eval/seed_squad_gw4.py); nothing falls back "
+            "to a free pick.")
+    if len(rows) > 1:
+        ids = [r["version_id"] for r in rows]
+        raise SquadStateError(
+            f"{len(rows)} active squad versions for user {user_id} (version_ids "
+            f"{ids}); the one-active index should make this impossible -- refusing "
+            "to guess between them.")
+    rec = dict(rows[0])
+    doc = rec["squad_json"]
+    if isinstance(doc, (str, bytes)):
+        doc = json.loads(doc)
+    try:
+        validate_document(doc)
+    except ValueError as e:
+        raise SquadStateError(
+            f"active squad version {rec['version_id']} holds an illegal document: {e}"
+        ) from e
+    rec["squad_json"] = doc
+    return rec
+
+
+def read_active(user_id=1, conn=None):
+    """The user's active squad version, or SquadStateError. A missing table
+    raises psycopg2's UndefinedTable -- also loud, also not a fallback."""
+    own = conn is None
+    if own:
+        conn = db_write.connect()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(ACTIVE_SQL, (user_id,))
+            rows = cur.fetchall()
+    finally:
+        if own:
+            conn.close()
+    return active_from_rows(rows, user_id)
+
+
+def summary(record, prices):
+    """What get_my_squad returns: the version's identity, the fifteen with
+    purchase price, current price and SELL price, and the totals. Money is
+    presented in millions (one decimal); the document inside stays in tenths.
+
+    prices: {element: current price_tenths} from players_live. The sell price
+    is squad_state.sell_price via SquadState -- the one implementation of
+    FPL's rule -- and a player with no current price is valued at what was
+    paid (SquadState's rule: assuming a rise would invent money); such
+    players are listed in prices_missing_for so the gap is visible."""
+    doc = record["squad_json"]
+    state = to_state(doc)
+
+    def m(tenths):
+        return None if tenths is None else round(tenths / 10, 1)
+
+    order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
+    players = []
+    for p in doc["players"]:
+        e = p["element"]
+        players.append({
+            "player_id": e, "name": p["name"], "position": p["position"],
+            "team": p["team"], "role": p["role"], "bench_order": p["bench_order"],
+            "purchase_price": m(p["purchase_price"]),
+            "current_price": m(prices.get(e)),
+            "sell_price": m(state.element_sell_price(e, prices)),
+        })
+    players.sort(key=lambda r: (order[r["role"]], r["bench_order"] or 0, -r["purchase_price"]))
+    sell_value = state.sell_value(prices)
+    purchase_cost = sum(p["purchase_price"] for p in doc["players"])
+    return {
+        "version_id": record["version_id"], "user_id": record["user_id"],
+        "season": record["season"], "gw": record["gw"],
+        "created_at": str(record["created_at"]), "supersedes": record["supersedes"],
+        "note": record["note"],
+        "hypothetical": bool((doc.get("provenance") or {}).get("hypothetical", False)),
+        "captain": next((r["name"] for r in players if r["role"] == "CAPTAIN"), None),
+        "vice": next((r["name"] for r in players if r["role"] == "VICE"), None),
+        "xi": [r for r in players if r["role"] != "bench"],
+        "bench_in_order": [r for r in players if r["role"] == "bench"],
+        "purchase_cost": m(purchase_cost),
+        "bank": m(doc["bank"]),
+        "sell_value": m(sell_value),
+        "budget_if_all_sold": m(sell_value + doc["bank"]),
+        "free_transfers": doc["free_transfers"],
+        "total_points": doc["total_points"],
+        "prices_missing_for": [p["element"] for p in doc["players"] if p["element"] not in prices],
+        "squad_json": doc,
+    }
 
 
 def main(argv=None):

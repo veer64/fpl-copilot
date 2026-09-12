@@ -224,3 +224,114 @@ def test_seed_document_round_trips_through_state():
     back = squad_store.document(state.squad, state.bank, state.free_transfers,
                                 state.total_points, doc["season"], doc["provenance"])
     assert back == doc
+
+
+# ------------------------------------------------------- reads (step 3)
+def _row(doc, version_id=1, **over):
+    r = {"version_id": version_id, "user_id": 1, "season": "2026-27", "gw": 4,
+         "created_at": "2026-09-12 05:24:53+00", "is_active": True,
+         "supersedes": None, "note": "t", "squad_json": doc}
+    r.update(over)
+    return r
+
+
+def test_no_active_row_raises_not_falls_back():
+    with pytest.raises(squad_store.SquadStateError) as ei:
+        squad_store.active_from_rows([], user_id=1)
+    assert "no active squad version for user 1" in str(ei.value)
+
+
+def test_two_active_rows_raise_rather_than_guess():
+    rows = [_row(legal_doc(), 1), _row(legal_doc(), 2)]
+    with pytest.raises(squad_store.SquadStateError) as ei:
+        squad_store.active_from_rows(rows, user_id=1)
+    assert "2 active squad versions" in str(ei.value) and "[1, 2]" in str(ei.value)
+
+
+def test_illegal_stored_document_raises():
+    d = legal_doc()
+    d["players"][0]["role"] = "CAPTAIN"                # two captains in the DB
+    with pytest.raises(squad_store.SquadStateError) as ei:
+        squad_store.active_from_rows([_row(d)], user_id=1)
+    assert "illegal document" in str(ei.value) and "2 captains" in str(ei.value)
+
+
+def test_active_row_parses_json_text_and_returns_the_document():
+    d = legal_doc()
+    rec = squad_store.active_from_rows([_row(json.dumps(d))], user_id=1)
+    assert rec["squad_json"] == d and rec["version_id"] == 1
+
+
+class _FakeCursor:
+    def __init__(self, rows):
+        self.rows, self.executed = rows, []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql, params):
+        self.executed.append((sql, params))
+
+    def fetchall(self):
+        return self.rows
+
+
+class _FakeConn:
+    def __init__(self, rows):
+        self.cur, self.closed = _FakeCursor(rows), False
+
+    def cursor(self, cursor_factory=None):
+        return self.cur
+
+    def close(self):
+        self.closed = True
+
+
+def test_read_active_queries_the_users_active_rows_only():
+    conn = _FakeConn([_row(legal_doc())])
+    rec = squad_store.read_active(user_id=7, conn=conn)
+    (sql, params), = conn.cur.executed
+    assert "is_active" in sql and "user_id = %s" in sql and params == (7,)
+    assert rec["squad_json"] == legal_doc()
+    assert conn.closed is False                        # a passed-in connection is the caller's
+
+
+def test_read_active_with_no_rows_raises_through_the_connection():
+    with pytest.raises(squad_store.SquadStateError):
+        squad_store.read_active(user_id=1, conn=_FakeConn([]))
+
+
+def test_summary_sell_prices_follow_the_rule_and_missing_prices_are_visible():
+    d = legal_doc()                                    # element i bought at 40+i
+    prices = {i: 40 + i for i in range(1, 16)}
+    prices[1] = 45                                     # bought 41, rose 4 -> sells 43
+    prices[2] = 38                                     # bought 42, fell   -> sells 38
+    del prices[3]                                      # no current price   -> valued at 43
+    out = squad_store.summary(_row(d), prices)
+    by_id = {r["player_id"]: r for r in out["xi"] + out["bench_in_order"]}
+    assert by_id[1]["purchase_price"] == 4.1 and by_id[1]["current_price"] == 4.5
+    assert by_id[1]["sell_price"] == 4.3 == sell_price(41, 45) / 10
+    assert by_id[2]["sell_price"] == 3.8
+    assert by_id[3]["current_price"] is None and by_id[3]["sell_price"] == 4.3
+    assert out["prices_missing_for"] == [3]
+    expected_sell = sum(prices.get(i, 40 + i) if prices.get(i, 40 + i) <= 40 + i
+                        else (40 + i) + (prices[i] - (40 + i)) // 2 for i in range(1, 16))
+    assert out["sell_value"] == round(expected_sell / 10, 1)
+    assert out["budget_if_all_sold"] == round((expected_sell + 7) / 10, 1)
+    assert out["purchase_cost"] == round(sum(40 + i for i in range(1, 16)) / 10, 1)
+    assert out["captain"] == "P13" and out["vice"] == "P9"
+    assert len(out["xi"]) == 11 and [r["bench_order"] for r in out["bench_in_order"]] == [1, 2, 3, 4]
+    assert out["squad_json"] == d                      # the document comes back untouched
+    json.dumps(out)
+
+
+def test_summary_of_the_seed_reads_99_6_and_0_4_at_seed_prices():
+    doc = seed_squad_gw4.build_document()
+    prices = {p["element"]: p["purchase_price"] for p in doc["players"]}
+    out = squad_store.summary(_row(doc), prices)
+    assert (out["purchase_cost"], out["bank"], out["sell_value"], out["budget_if_all_sold"]) == (99.6, 0.4, 99.6, 100.0)
+    assert out["captain"] == "Erling Haaland" and out["vice"] == "Phil Foden"
+    assert out["hypothetical"] is True and out["prices_missing_for"] == []

@@ -26,6 +26,7 @@ import psycopg2.extras
 from dotenv import load_dotenv
 
 from config_roles import CONFIGS, PRODUCTION_CONFIG, SHADOW_CONFIG
+import squad_store
 
 load_dotenv()
 REPO = Path(__file__).resolve().parent
@@ -207,6 +208,29 @@ def get_best_squad(budget: float = None):
     if budget is None or abs(budget - 100.0) < 1e-9:
         return get_picks()
     return optimise(budget=budget)
+
+
+# -------------------------------------------------------------- my squad
+def get_my_squad(user_id: int = 1):
+    """The user's OWN squad -- the active row of squad_versions (master plan
+    1.4 / 5.4), NOT the model's free-pick solve. The fifteen with role,
+    purchase price, current price and sell price (squad_state's rule), bank,
+    free transfers, points, and the version id.
+
+    If there is no active version (or more than one, or the stored document
+    is illegal) this returns {"error": ...} naming the condition -- the
+    convention the other tools use so the model reports it -- and never a
+    substitute squad. squad_store.read_active is the raising form for code
+    paths (the transfer MIP) that must not proceed without state."""
+    try:
+        record = squad_store.read_active(user_id)
+    except squad_store.SquadStateError as e:
+        return {"error": str(e)}
+    elements = [p["element"] for p in record["squad_json"]["players"]]
+    prices = {r["element"]: r["price_tenths"] for r in _q(
+        "SELECT element, price_tenths FROM players_live "
+        "WHERE element = ANY(%s) AND price_tenths IS NOT NULL", (elements,))}
+    return squad_store.summary(record, prices)
 
 
 # ---------------------------------------------------------------- the solve

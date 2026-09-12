@@ -86,6 +86,17 @@ tools_schema = [
         }
     },
     {
+        "name": "get_my_squad",
+        "description": "The user's OWN squad -- the versioned squad state (a hypothetical entry seeded at GW4), NOT the model's free-pick solve. Returns the fifteen with role (CAPTAIN/VICE/start/bench order), purchase price, current price and what each would SELL for under FPL's rule, plus bank, free transfers, total points and the version id. Use for 'what is my team', 'who is my captain', 'what would X sell for', 'how much money do I have'. If it returns an error, no squad state is recorded: say exactly that and do NOT answer with get_picks instead.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "integer", "description": "Defaults to 1, the only user"}
+            },
+            "required": []
+        }
+    },
+    {
         "name": "list_players",
         "description": "List players filtered by team and/or position (e.g. 'who plays for Chelsea', 'list all defenders'). Do NOT use resolve_player for these.",
         "input_schema": {
@@ -104,7 +115,7 @@ from dotenv import load_dotenv
 import anthropic
 from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
-                         get_best_squad, optimise)
+                         get_best_squad, optimise, get_my_squad)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -119,7 +130,8 @@ available_functions = {
     "get_picks": get_picks,
     "get_best_squad": get_best_squad,
     "optimise": optimise,
-    "list_players": list_players
+    "list_players": list_players,
+    "get_my_squad": get_my_squad,
 }
 
 def run_agent(user_message: str, messages: list = None):
