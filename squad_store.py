@@ -870,8 +870,25 @@ def _role_label(role, bench_order):
 
 
 # ----------------------------------------------------------------- writes
+def proposal_to_request(team):
+    """From the MIP's role-tagged team frame for the executed step (plan_to_team +
+    assign_bench_order): the set_my_squad request -- player_ids, captain_id,
+    vice_id and bench_order_ids in the DOCUMENT convention (bench GK first).
+    This is how a proposal is applied: through the same path as any other
+    change, never by hand."""
+    roles = roles_from_team(team)
+    bench = sorted((e for e, (r, _) in roles.items() if r == "bench"), key=lambda e: roles[e][1])
+    return {
+        "player_ids": sorted(roles),
+        "captain_id": next(e for e, (r, _) in roles.items() if r == "CAPTAIN"),
+        "vice_id": next(e for e, (r, _) in roles.items() if r == "VICE"),
+        "bench_order_ids": bench,
+    }
+
+
 def plan_change(active, player_ids, captain_id, vice_id, bench_order_ids, gw, live,
-                priced_from=None, created_by=None, next_deadline_gw=None):
+                priced_from=None, created_by=None, next_deadline_gw=None,
+                extra_provenance=None):
     """Pure. From the ACTIVE version and the requested fifteen + roles, build
     the NEW document and a change summary -- or raise ValueError. Nothing is
     clamped: an unaffordable, mis-shaped or mis-roled request is refused with
@@ -1012,6 +1029,8 @@ def plan_change(active, player_ids, captain_id, vice_id, bench_order_ids, gw, li
         "priced_from": priced_from,
         "created_by": created_by,
     }
+    if extra_provenance:
+        provenance.update(extra_provenance)
     new_doc = document(frame, state.bank, state.free_transfers, old_doc["total_points"],
                        old_doc["season"], provenance)
     change = {

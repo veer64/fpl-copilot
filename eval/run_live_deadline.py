@@ -132,9 +132,10 @@ def main():
     ap.add_argument("--season", required=True)
     ap.add_argument("--gw", type=int, required=True)
     a = ap.parse_args()
+    started_at = datetime.now(timezone.utc)      # recorded on the run row (was None until 2026-09-12)
     R = Runner(a.season, a.gw)
     try:
-        run(R, a.season, a.gw)
+        run(R, a.season, a.gw, started_at=started_at)
     except Exception:
         if R.failed is None:
             R.failed = traceback.format_exc()[-3000:]
@@ -151,7 +152,7 @@ def main():
     sys.exit(1 if R.failed else 0)
 
 
-def run(R, season, gw):
+def run(R, season, gw, started_at=None):
     import pandas as pd
 
     # ---- 1. deadline-day refreshes, runbook order (no ingest, no skeleton) ----
@@ -334,7 +335,7 @@ def run(R, season, gw):
                              price_df[price_df["round"] == gw]["value"].astype(int)))
         run_id = db_write.write_run(
             season, gw, frames, teams, findings_by,
-            started_at=None, recovered=False,
+            started_at=started_at, recovered=False,
             credits_remaining=int(m.group(3)) if m else None,
             note="unattended deadline build",
             availability=avmap, prices=price_map)

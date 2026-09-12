@@ -192,6 +192,8 @@ def build_and_solve(
     hit_bar=None,
     bench_boost_step=None,
     force_hold=False,
+    locked_elements=None,
+    banned_elements=None,
 ):
     """Solve the multi-gameweek transfer plan.
 
@@ -216,6 +218,13 @@ def build_and_solve(
                        transfer; steps 1+ plan freely). Used ONLY by the gated hold
                        preference (simulator.HOLD_PREFERENCE_EPS; Logs/hold_preference_prereg.md)
                        to price the best HOLD plan against the best plan. Off by default.
+
+    locked_elements   : elements that must be IN the squad at every step -- kept if
+                        owned, bought at step 0 if not. banned_elements: elements
+                        that must NOT be in the squad at any step -- sold at step 0
+                        if owned, never bought. Both default to none and are then
+                        inert (no constraint emitted), so every existing solve is
+                        unchanged. Added 2026-09-12 for the propose_transfers tool.
 
     Returns (status, plan) where plan is a list of per-gameweek dicts; plan[0] also
     carries `objective` (the solved objective value) so callers can compare plans.
@@ -390,6 +399,22 @@ def build_and_solve(
             # Buying and selling the same player in one gameweek is never useful
             # and would let the solver inflate the transfer count for free.
             prob += buy[(i, t)] + sell[(i, t)] <= 1
+
+    # ---- locks and bans (inert unless given) ----------------------------
+    locked = sorted(set(locked_elements or []))
+    banned = sorted(set(banned_elements or []))
+    clash = set(locked) & set(banned)
+    if clash:
+        raise ValueError(f"elements both locked and banned: {sorted(clash)}")
+    unknown = [i for i in locked + banned if i not in attrs]
+    if unknown:
+        raise ValueError(f"locked/banned element(s) not in any pool of the horizon: {unknown}")
+    for i in locked:
+        for t in range(T):
+            prob += pick[(i, t)] == 1, f"lock_{i}_{t}"
+    for i in banned:
+        for t in range(T):
+            prob += pick[(i, t)] == 0, f"ban_{i}_{t}"
 
     # ---- money ----------------------------------------------------------
     # Owned players enter at their SELL value (they are not being re-bought);

@@ -72,11 +72,66 @@ CREATE TABLE IF NOT EXISTS model_picks (
     e_points     REAL,
     PRIMARY KEY (run_id, config, element)
 );
+-- model_transfer_plans + model_transfers: every six-week transfer-MIP PROPOSAL,
+-- append-only like model_predictions (Decision 3, 2026-09-12). These REPLACED
+-- the original model_transfers(run_id, config, element_out, element_in,
+-- hit_cost, gain_6gw), designed 2026-09-04 from the inspected frame for a runner
+-- that would write one row per executed transfer per run. The runner never ran
+-- the MIP, the table stayed empty, and when the MIP went live (2026-09-12) the
+-- grain could not hold what a proposal IS: no proposal identity (two solves in
+-- one run were indistinguishable), no squad_version_id (a proposal is solved
+-- FROM a squad), no horizon step (the plan is six gameweeks, only step 0 is
+-- executable), no prices (sold_for / bought_for are the money claim), and no
+-- way to record a HOLD (zero transfers = zero rows = indistinguishable from
+-- "never solved"). Empty and unreferenced, it was DROPPED on the server on
+-- 2026-09-12 and recreated at this grain rather than migrated. A header row per
+-- proposal; one transfers row per (step, out, in); a hold is a header with no
+-- transfer rows. squad_version_id is a plain INT (squad_versions lives in
+-- squad_store's DDL, which need not exist on a fresh database when this runs).
+CREATE TABLE IF NOT EXISTS model_transfer_plans (
+    proposal_id       SERIAL PRIMARY KEY,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source            TEXT NOT NULL,            -- chat | deadline_run
+    user_id           INT  NOT NULL DEFAULT 1,
+    season            TEXT NOT NULL,
+    gw                INT  NOT NULL,            -- the deadline step 0 is for
+    squad_version_id  INT  NOT NULL,            -- solved FROM this squad_versions row
+    run_id            INT REFERENCES model_runs(run_id),   -- the run whose frame was solved
+    config            TEXT NOT NULL,
+    frame_cutoff_gw   INT  NOT NULL,
+    stale_by_gameweeks INT NOT NULL,            -- gw - frame_cutoff_gw (0 = fresh frame)
+    horizon           INT  NOT NULL,
+    effective_horizon INT  NOT NULL,
+    decay             REAL NOT NULL,
+    hit_bar           REAL NOT NULL,
+    locked            JSONB NOT NULL,
+    banned            JSONB NOT NULL,
+    status            TEXT NOT NULL,            -- solver status
+    objective         REAL,
+    n_transfers       INT  NOT NULL,            -- step 0
+    hits              INT  NOT NULL,
+    hit_cost_points   INT  NOT NULL,
+    free_transfers_before INT NOT NULL,
+    free_transfers_after  INT NOT NULL,
+    bank_before       INT  NOT NULL,            -- tenths
+    bank_after        INT  NOT NULL,
+    captain           INT, vice INT,
+    predicted_xi_points REAL,
+    hold_applied      BOOLEAN,
+    solve_seconds     REAL,
+    git_sha           TEXT,
+    note              TEXT
+);
 CREATE TABLE IF NOT EXISTS model_transfers (
-    run_id       INT NOT NULL REFERENCES model_runs(run_id),
-    config       TEXT NOT NULL,
-    element_out  INT, element_in INT,
-    hit_cost     INT, gain_6gw REAL
+    transfer_id   SERIAL PRIMARY KEY,
+    proposal_id   INT NOT NULL REFERENCES model_transfer_plans(proposal_id),
+    horizon_step  INT NOT NULL,
+    gw            INT NOT NULL,
+    element_out   INT, name_out TEXT,
+    element_in    INT, name_in  TEXT,
+    sold_for      INT,                          -- tenths; exact at step 0, indicative later
+    bought_for    INT,
+    executable    BOOLEAN NOT NULL               -- true only for step 0
 );
 CREATE TABLE IF NOT EXISTS players_live (
     element      INT PRIMARY KEY,
@@ -125,6 +180,54 @@ def ensure_schema(conn):
     with conn.cursor() as cur:
         cur.execute(DDL)
     conn.commit()
+
+
+PLAN_COLS = ["source", "user_id", "season", "gw", "squad_version_id", "run_id", "config",
+             "frame_cutoff_gw", "stale_by_gameweeks", "horizon", "effective_horizon", "decay",
+             "hit_bar", "locked", "banned", "status", "objective", "n_transfers", "hits",
+             "hit_cost_points", "free_transfers_before", "free_transfers_after", "bank_before",
+             "bank_after", "captain", "vice", "predicted_xi_points", "hold_applied",
+             "solve_seconds", "git_sha", "note"]
+TRANSFER_COLS = ["horizon_step", "gw", "element_out", "name_out", "element_in", "name_in",
+                 "sold_for", "bought_for", "executable"]
+
+
+def write_proposal(header, rows):
+    """One MIP proposal -> one model_transfer_plans row + its model_transfers
+    rows (append-only). header: dict with PLAN_COLS (locked/banned as lists);
+    rows: list of dicts with TRANSFER_COLS. Returns proposal_id.
+
+    Refuses loudly if model_transfers is still at the ORIGINAL 2026-09-04 grain
+    (no proposal_id column): the server table must be dropped and recreated
+    (see the DDL comment) -- an insert into the wrong grain would be a silent
+    lie about what was recorded."""
+    conn = connect()
+    try:
+        ensure_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute("""SELECT 1 FROM information_schema.columns
+                           WHERE table_name = 'model_transfers' AND column_name = 'proposal_id'""")
+            if cur.fetchone() is None:
+                raise RuntimeError(
+                    "model_transfers is at the original (2026-09-04) grain with no proposal_id; "
+                    "drop it and let ensure_schema recreate it (see the DDL comment in db_write.py)")
+            vals = [header.get(c) for c in PLAN_COLS]
+            for i, c in enumerate(PLAN_COLS):
+                if c in ("locked", "banned"):
+                    vals[i] = json.dumps(list(vals[i] or []))
+            cur.execute(
+                f"INSERT INTO model_transfer_plans ({', '.join(PLAN_COLS)}) VALUES "
+                f"({', '.join(['%s'] * len(PLAN_COLS))}) RETURNING proposal_id", vals)
+            pid = cur.fetchone()[0]
+            if rows:
+                cur.executemany(
+                    f"INSERT INTO model_transfers (proposal_id, {', '.join(TRANSFER_COLS)}) VALUES "
+                    f"({', '.join(['%s'] * (len(TRANSFER_COLS) + 1))})",
+                    [(pid,) + tuple(r.get(c) for c in TRANSFER_COLS) for r in rows])
+        conn.commit()
+        return pid
+    finally:
+        conn.close()
 
 
 def write_failed_run(season, gw, note):

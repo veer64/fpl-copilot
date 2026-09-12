@@ -335,7 +335,8 @@ def get_my_xi(user_id: int = 1):
 
 
 def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_ids: list,
-                 gw: int = None, note: str = None, confirm: bool = False, user_id: int = 1):
+                 gw: int = None, note: str = None, confirm: bool = False, user_id: int = 1,
+                 proposal_id: int = None):
     """Write a NEW version of the user's squad (and supersede the active one).
     The caller states the fifteen and the roles; the money is derived: the
     change is the difference from the active fifteen, outgoing players are
@@ -368,7 +369,8 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
             active, player_ids, captain_id, vice_id, bench_order_ids, gw, live,
             priced_from=priced_from,
             created_by=f"model_tools.set_my_squad @ {db_write.git_sha() or 'unknown'}",
-            next_deadline_gw=current)
+            next_deadline_gw=current,
+            extra_provenance=({"proposal_id": int(proposal_id)} if proposal_id is not None else None))
     except ValueError as e:
         return {"error": f"refused: {e}", "refused": True, "active_version": active["version_id"]}
     try:
@@ -408,14 +410,10 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
 
 
 # ---------------------------------------------------------------- the solve
-def _load_pool(gw=None):
-    """The production frame on the model volume, sliced to one gameweek in
-    optimize's shape -> (pool, cutoff_gw, frame_built_at). gw None = the
-    frame's own deadline gameweek (its cutoff); a later gw inside the horizon
-    gives that gameweek AS SEEN FROM the cutoff (the stale-by-one case between
-    deadlines) -- gw_slice raises ValueError beyond the horizon. Shared by
-    optimise() and get_my_xi(). Raises FileNotFoundError when the pipeline has
-    not produced a build on this volume."""
+def _load_frame():
+    """The production frame on the model volume as the simulator's season
+    frame -> (df, cutoff_gw, frame_built_at). Raises FileNotFoundError when the
+    pipeline has not produced a build on this volume."""
     import sys
     for p in (str(REPO), str(REPO / "squad")):
         if p not in sys.path:
@@ -430,9 +428,234 @@ def _load_pool(gw=None):
     df = sim.load_season(walkforward_path=str(frame_p), history_path=str(prices_p),
                          horizon_aware=True, season=os.getenv("FPL_SEASON", "2026-27"))
     cutoff = int(df["cutoff"].min())
-    pool = sim.gw_slice(df, cutoff if gw is None else int(gw), cutoff=cutoff)
     built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
+    return df, cutoff, built
+
+
+def _load_pool(gw=None):
+    """The production frame on the model volume, sliced to one gameweek in
+    optimize's shape -> (pool, cutoff_gw, frame_built_at). gw None = the
+    frame's own deadline gameweek (its cutoff); a later gw inside the horizon
+    gives that gameweek AS SEEN FROM the cutoff (the stale-by-one case between
+    deadlines) -- gw_slice raises ValueError beyond the horizon. Shared by
+    optimise() and get_my_xi()."""
+    import simulator as sim
+    df, cutoff, built = _load_frame()
+    pool = sim.gw_slice(df, cutoff if gw is None else int(gw), cutoff=cutoff)
     return pool, cutoff, built
+
+
+# ------------------------------------------------------- the six-week MIP
+def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player_ids: list = None,
+                      user_id: int = 1):
+    """The six-week transfer plan for the user's OWN squad (transfer_mip via
+    simulator.decide_gameweek_mip -- the production decision path; H=6,
+    decay 0.45, HIT_COST 4; a real solve, typically ten to forty seconds,
+    occasionally longer). Read through get_my_squad's store, never the table.
+
+    Before any proposal: every one of the fifteen is valued by
+    squad_state.sell_price two ways (the MIP's input price vs players_live)
+    and the two must agree -- a mismatch is reported as a BUG, and the moved
+    prices are listed. The proposal is then APPLIED through
+    squad_store.plan_change (the same legality + money path set_my_squad
+    uses) as a dry run; a proposal that could not be applied is reported as a
+    BUG, not a suggestion. Every proposal is persisted (model_transfer_plans +
+    model_transfers). Nothing is written to the squad: apply_with carries the
+    set_my_squad arguments (preview first; confirm=true only on the user's
+    say-so). Between deadlines the frame belongs to the last deadline: the
+    plan drops the gameweek under way and labels predictions as of that
+    cutoff (path = "stale-by-one")."""
+    import db_write
+    import simulator as sim
+    from squad_state import sell_price
+    from transfer_mip import DEFAULT_DECAY, HIT_COST
+
+    t0 = time.time()
+    try:
+        record = squad_store.read_active(user_id)
+    except squad_store.SquadStateError as e:
+        return {"error": str(e)}
+    try:
+        current = _current_gw()
+    except RuntimeError as e:
+        return {"error": str(e)}
+    try:
+        df, cutoff, built = _load_frame()
+    except FileNotFoundError as e:
+        return {"error": str(e)}
+    all_gws = sorted(int(g) for g in df["gw"].unique())
+    if current not in all_gws:
+        return {"error": f"the frame on the volume (cutoff GW{cutoff}, gws {all_gws}) has no "
+                         f"predictions for the next deadline GW{current}"}
+    horizon = int(horizon or 6)
+    if not (1 <= horizon <= 6):
+        return {"error": f"horizon must be 1..6, got {horizon}"}
+    lock = sorted({int(x) for x in (lock_player_ids or [])})
+    ban = sorted({int(x) for x in (ban_player_ids or [])})
+
+    doc = record["squad_json"]
+    state = squad_store.to_state(doc)
+    ft_before = squad_store.free_transfers_at(record, current)
+    state.free_transfers = ft_before
+    owned = [p["element"] for p in doc["players"]]
+    live_rows = _q("""SELECT element, name, position, team, price_tenths, updated_at
+                      FROM players_live WHERE element = ANY(%s)""", (owned + lock + ban,))
+    live = {r["element"]: r for r in live_rows}
+    unpriced = [e for e in owned if e not in live or live[e]["price_tenths"] is None]
+    if unpriced:
+        return {"error": f"owned element(s) {unpriced} have no current players_live price; "
+                         "refusing to value the squad"}
+    prices_live = {e: int(live[e]["price_tenths"]) for e in owned}
+    names = {e: live[e]["name"] for e in live}
+    names.update({p["element"]: p["name"] for p in doc["players"]})
+
+    # ---- valuation assert on all fifteen, and the moved prices, BEFORE any solve
+    pool0 = sim.gw_slice(df, current, cutoff=cutoff)
+    pool_val = dict(zip(pool0["element"].astype(int), pool0["value"].astype(int)))
+    moved, disagree = [], []
+    for p in doc["players"]:
+        e, bought = p["element"], int(p["purchase_price"])
+        mip_in = pool_val.get(e, prices_live[e])          # the MIP's step-0 price (injected owned rows use players_live)
+        mip_sell = sell_price(bought, int(mip_in))
+        tool_sell = state.element_sell_price(e, prices_live)
+        if mip_sell != tool_sell or int(mip_in) != prices_live[e]:
+            disagree.append({"player_id": e, "name": p["name"], "purchase": bought,
+                             "frame_price": int(mip_in), "players_live_price": prices_live[e],
+                             "mip_sell": mip_sell, "tool_sell": tool_sell})
+        if prices_live[e] != bought:
+            moved.append({"player_id": e, "name": p["name"], "bought": round(bought / 10, 1),
+                          "now": round(prices_live[e] / 10, 1), "sells_for": round(tool_sell / 10, 1)})
+    if disagree:
+        return {"error": "VALUATION MISMATCH -- a bug, not a suggestion: the MIP's input price and "
+                         "players_live disagree for owned player(s); no proposal made",
+                "bug": True, "details": disagree}
+
+    # ---- the solve (production decision path)
+    t1 = time.time()
+    try:
+        team, transfers, step, eff_h, plan = sim.decide_gameweek_mip(
+            df, current, state, pool0, prices_live, all_gws, mode="balanced", horizon=horizon,
+            decay=DEFAULT_DECAY, cutoff=cutoff, locked_elements=lock or None,
+            banned_elements=ban or None, return_plan=True)
+    except (RuntimeError, ValueError) as e:
+        return {"error": f"the transfer MIP could not produce a plan: {e} (locks/bans infeasible or "
+                         "unaffordable?)", "locked": lock, "banned": ban}
+    solve_s = round(time.time() - t1, 1)
+
+    # ---- apply through the SAME path set_my_squad uses (dry run, nothing written)
+    req = squad_store.proposal_to_request(team)
+    involved = sorted(set(owned) | set(req["player_ids"]))
+    live2 = {r["element"]: r for r in _q(
+        """SELECT element, name, position, team, price_tenths, updated_at
+           FROM players_live WHERE element = ANY(%s)""", (involved,))}
+    names.update({e: r["name"] for e, r in live2.items()})
+    try:
+        new_doc, change = squad_store.plan_change(
+            record, req["player_ids"], req["captain_id"], req["vice_id"], req["bench_order_ids"],
+            current, live2, priced_from=f"players_live as of {max(r['updated_at'] for r in live2.values())}",
+            created_by="model_tools.propose_transfers (dry run)", next_deadline_gw=current)
+    except ValueError as e:
+        return {"error": f"PROPOSAL NOT APPLICABLE -- a bug, not a suggestion: {e}", "bug": True,
+                "proposal": {"sells": [names.get(o, o) for o, _ in transfers],
+                             "buys": [names.get(i, i) for _, i in transfers]}}
+    if change["hits"] != int(step["hits"]) or change["n_transfers"] != int(step["transfers_made"]):
+        return {"error": "PROPOSAL ACCOUNTING MISMATCH -- a bug, not a suggestion: the MIP counted "
+                         f"{step['transfers_made']} transfer(s) / {step['hits']} hit(s), applying it "
+                         f"gives {change['n_transfers']} / {change['hits']}", "bug": True}
+
+    # ---- later steps (indicative: predictions as of the same cutoff, market prices)
+    later = []
+    for st in plan[1:]:
+        g = int(st["gw"])
+        pool_g = sim.gw_slice(df, g, cutoff=cutoff)
+        pos_g = dict(zip(pool_g["element"].astype(int), pool_g["position"]))
+        val_g = dict(zip(pool_g["element"].astype(int), pool_g["value"].astype(int)))
+        nm_g = dict(zip(pool_g["element"].astype(int), pool_g["name"]))
+        names.update(nm_g)
+        buys = list(int(b) for b in st["buys"])
+        pairs = []
+        for o in (int(s) for s in st["sells"]):
+            m = next((b for b in buys if pos_g.get(b) == pos_g.get(o)), None)
+            if m is not None:
+                buys.remove(m)
+            pairs.append((o, m))
+        later.append({"horizon_step": int(st["horizon_step"]), "gw": g, "hits": int(st["hits"]),
+                      "free_transfers": int(st["free_transfers"]),
+                      "transfers": [{"out": names.get(o, str(o)), "out_id": o,
+                                     "in": names.get(i, str(i)) if i is not None else None, "in_id": i,
+                                     "bought_for": (round(val_g[i] / 10, 1) if i in val_g else None)}
+                                    for o, i in pairs],
+                      "captain": names.get(int(st["captain"]), st["captain"]) if st["captain"] is not None else None})
+
+    # ---- persist the proposal (append-only)
+    run = _latest_run(gw=cutoff)
+    hold = bool(step.get("hold_applied"))
+    xi_pts = squad_store.compare_roles(new_doc["players"], team)["optimal_xi_points"]
+    header = dict(
+        source="chat", user_id=user_id, season=record["season"], gw=current,
+        squad_version_id=record["version_id"], run_id=(run["run_id"] if run else None),
+        config=PRODUCTION_CONFIG, frame_cutoff_gw=cutoff, stale_by_gameweeks=current - cutoff,
+        horizon=horizon, effective_horizon=int(eff_h), decay=float(DEFAULT_DECAY), hit_bar=float(HIT_COST),
+        locked=lock, banned=ban, status="Optimal", objective=float(step["objective"]),
+        n_transfers=change["n_transfers"], hits=change["hits"], hit_cost_points=change["hit_cost_points"],
+        free_transfers_before=change["free_transfers_before"], free_transfers_after=change["free_transfers_after"],
+        bank_before=change["bank_before"], bank_after=change["bank_after"],
+        captain=req["captain_id"], vice=req["vice_id"], predicted_xi_points=float(xi_pts),
+        hold_applied=hold, solve_seconds=solve_s, git_sha=db_write.git_sha(),
+        note=("stale-by-one: frame cutoff GW%d, plan from GW%d" % (cutoff, current)) if current != cutoff else "fresh frame")
+    rows = [dict(horizon_step=0, gw=current, element_out=t["out"], name_out=t["out_name"],
+                 element_in=t["in"], name_in=t["in_name"], sold_for=t["sold_for"],
+                 bought_for=t["bought_for"], executable=True) for t in change["transfers"]]
+    for st in later:
+        for t in st["transfers"]:
+            rows.append(dict(horizon_step=st["horizon_step"], gw=st["gw"], element_out=t["out_id"],
+                             name_out=t["out"], element_in=t["in_id"], name_in=t["in"], sold_for=None,
+                             bought_for=(None if t["bought_for"] is None else int(round(t["bought_for"] * 10))),
+                             executable=False))
+    proposal_id = db_write.write_proposal(header, rows)
+
+    def m(t):
+        return None if t is None else round(t / 10, 1)
+
+    roles = squad_store.roles_from_team(team)
+    order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
+    squad_rows = sorted(
+        [{"player_id": e, "name": names.get(e, str(e)), "role": r, "bench_order": bo,
+          "e_points": round(float(team.loc[team["element"] == e, "e_points"].iloc[0]), 2)}
+         for e, (r, bo) in roles.items()],
+        key=lambda x: (order[x["role"]], x["bench_order"] or 0, -x["e_points"]))
+    return {
+        "proposal_id": proposal_id,
+        "wait_note": "a real MIP solve: typically ten to forty seconds, occasionally longer",
+        "gw": current, "path": header["note"], "predictions_as_of_cutoff_gw": cutoff,
+        "stale_by_gameweeks": current - cutoff, "frame_built_at": str(built),
+        "run_id": header["run_id"], "model_version": (_version(run, PRODUCTION_CONFIG) if run else None),
+        "squad_version_id": record["version_id"],
+        "horizon": horizon, "effective_horizon": int(eff_h), "decay": float(DEFAULT_DECAY),
+        "locked": [names.get(e, str(e)) for e in lock], "banned": [names.get(e, str(e)) for e in ban],
+        "solve_seconds": solve_s, "total_seconds": round(time.time() - t0, 1),
+        "objective": round(float(step["objective"]), 3), "hold_applied": hold,
+        "valuation_check": {"all_fifteen_agree": True, "moved_prices": moved,
+                            "sell_value": m(state.sell_value(prices_live)), "bank": m(state.bank)},
+        "this_deadline": {
+            "verdict": ("HOLD -- no transfer" if change["n_transfers"] == 0 else
+                        f"{change['n_transfers']} transfer(s), {change['hits']} hit(s)"),
+            "transfers": [{"out": t["out_name"], "out_id": t["out"], "sold_for": m(t["sold_for"]),
+                           "in": t["in_name"], "in_id": t["in"], "bought_for": m(t["bought_for"])}
+                          for t in change["transfers"]],
+            "hits": change["hits"], "hit_cost_points": change["hit_cost_points"],
+            "free_transfers_before": change["free_transfers_before"],
+            "free_transfers_after": change["free_transfers_after"],
+            "bank_before": m(change["bank_before"]), "bank_after": m(change["bank_after"]),
+            "captain": names.get(req["captain_id"]), "vice": names.get(req["vice_id"]),
+            "xi": [r for r in squad_rows if r["role"] != "bench"],
+            "bench_in_order": [r for r in squad_rows if r["role"] == "bench"],
+            "predicted_xi_points": round(float(xi_pts), 2),
+        },
+        "later_steps_indicative": later,
+        "applied_check": "passed squad_store.plan_change (legality + money conservation) as a dry run",
+        "apply_with": {**req, "gw": current, "proposal_id": proposal_id, "confirm": True},
+    }
 
 
 def optimise(lock_player_ids: list = None, ban_player_ids: list = None,

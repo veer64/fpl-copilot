@@ -108,6 +108,19 @@ tools_schema = [
         }
     },
     {
+        "name": "propose_transfers",
+        "description": "The six-week transfer plan for the user's OWN squad from the production model: what to sell and buy for the next deadline (with sell prices under FPL's rule, purchase prices, hits, bank after, and the XI/captain after the move), plus the following gameweeks' indicative moves. A real optimiser solve: it typically takes ten to forty seconds and occasionally longer, so tell the user it will take a moment before calling it. Optional lock_player_ids (must be in the squad: kept if owned, bought if not) and ban_player_ids (must not be: sold if owned, never bought) answer 'best plan given I am keeping X and refusing Y'. Every proposal is checked through the same legality and money rules as set_my_squad and saved with a proposal_id. It is a PROPOSAL, not an application: to make it, pass apply_with to set_my_squad (confirm=false to preview, confirm=true only when the user explicitly says so). If the response carries bug=true, say so plainly and do not present the proposal as advice.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "horizon": {"type": "integer", "description": "Gameweeks to plan over, 1 to 6 (default 6)"},
+                "lock_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that must be in the squad"},
+                "ban_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that must not be in the squad"}
+            },
+            "required": []
+        }
+    },
+    {
         "name": "set_my_squad",
         "description": "Record a NEW version of the user's own squad: the full fifteen after any transfers, plus captain, vice-captain and the four bench players in order. Money is derived, never supplied: players sold are valued by FPL's sell rule (purchase price plus half any rise, rounded down; falls in full), players bought cost their current price, free transfers are used first and extra transfers cost 4 points each (reported as hits). Illegal or unaffordable squads are refused with the reason. ALWAYS call with confirm=false first and show the user the preview (transfers, proceeds, cost, bank after, hits); call again with confirm=true ONLY when the user explicitly says to make the change.",
         "input_schema": {
@@ -119,7 +132,8 @@ tools_schema = [
                 "bench_order_ids": {"type": "array", "items": {"type": "integer"}, "description": "Exactly four element ids, bench order first to last"},
                 "gw": {"type": "integer", "description": "Gameweek the squad is set for. Defaults to, and must equal, the next deadline's gameweek; any other is refused"},
                 "note": {"type": "string", "description": "Optional short reason, recorded with the version"},
-                "confirm": {"type": "boolean", "description": "false = preview only (default); true = write it"}
+                "confirm": {"type": "boolean", "description": "false = preview only (default); true = write it"},
+                "proposal_id": {"type": "integer", "description": "When applying a propose_transfers result, its proposal_id (recorded in the version's provenance)"}
             },
             "required": ["player_ids", "captain_id", "vice_id", "bench_order_ids"]
         }
@@ -144,7 +158,7 @@ import anthropic
 from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
-                         get_my_xi)
+                         get_my_xi, propose_transfers)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -163,6 +177,7 @@ available_functions = {
     "get_my_squad": get_my_squad,
     "set_my_squad": set_my_squad,
     "get_my_xi": get_my_xi,
+    "propose_transfers": propose_transfers,
 }
 
 def run_agent(user_message: str, messages: list = None):
