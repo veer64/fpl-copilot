@@ -230,7 +230,80 @@ def get_my_squad(user_id: int = 1):
     prices = {r["element"]: r["price_tenths"] for r in _q(
         "SELECT element, price_tenths FROM players_live "
         "WHERE element = ANY(%s) AND price_tenths IS NOT NULL", (elements,))}
-    return squad_store.summary(record, prices)
+    return squad_store.summary(record, prices, latest_run=_latest_run())
+
+
+def get_my_xi(user_id: int = 1):
+    """THIS WEEK's best XI, captain, vice and bench order over the fifteen the
+    user owns, solved from the current production frame on the model volume
+    (the frame the latest deadline run wrote) -- the same single-gameweek MIP
+    as optimise(), gapRel=0, restricted to the owned fifteen. Contrast with
+    get_my_squad, whose roles are what was RECORDED with the version.
+
+    Also compares against the recorded roles: which roles differ and how many
+    expected points the recorded XI leaves on the table. Owned players absent
+    from the frame are injected at e_points 0 (the production blank-week
+    rule) and listed. Nothing is written: to adopt the XI, call set_my_squad
+    with adopt_with and confirm=true."""
+    try:
+        record = squad_store.read_active(user_id)
+    except squad_store.SquadStateError as e:
+        return {"error": str(e)}
+    try:
+        pool, cutoff, built = _load_pool()
+    except FileNotFoundError as e:
+        return {"error": str(e)}
+    doc = record["squad_json"]
+    state = squad_store.to_state(doc)
+    elements = [p["element"] for p in doc["players"]]
+    prices = {r["element"]: r["price_tenths"] for r in _q(
+        "SELECT element, price_tenths FROM players_live "
+        "WHERE element = ANY(%s) AND price_tenths IS NOT NULL", (elements,))}
+    t0 = time.time()
+    team, missing = squad_store.xi_over_fifteen(pool, state, prices)
+    roles = squad_store.roles_from_team(team)
+    run = _latest_run(gw=cutoff)
+    comparison = squad_store.compare_roles(doc["players"], team)
+    rows = []
+    for r in team.itertuples(index=False):
+        role, bo = roles[int(r.element)]
+        rows.append({"player_id": int(r.element), "name": r.name, "position": r.position,
+                     "team": str(r.team), "role": role, "bench_order": bo,
+                     "e_points": round(float(r.e_points), 2),
+                     "p_play_any": (round(float(r.p_play_any), 2)
+                                    if hasattr(r, "p_play_any") and r.p_play_any == r.p_play_any else None)})
+    order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
+    rows.sort(key=lambda r: (order[r["role"]], r["bench_order"] or 0, -r["e_points"]))
+    xi = [r for r in rows if r["role"] != "bench"]
+    bench = [r for r in rows if r["role"] == "bench"]
+    nd = _next_deadline()
+    out = {
+        "gw": cutoff, "frame_built_at": str(built),
+        "run_id": run["run_id"] if run else None,
+        "model_version": _version(run, PRODUCTION_CONFIG) if run else None,
+        "squad_version_id": record["version_id"],
+        "solve_seconds": round(time.time() - t0, 1),
+        "captain": next(r["name"] for r in xi if r["role"] == "CAPTAIN"),
+        "vice": next(r["name"] for r in xi if r["role"] == "VICE"),
+        "xi": xi, "bench_in_order": bench,
+        "predicted_xi_points": comparison["optimal_xi_points"],
+        "missing_from_frame": missing,
+        "recorded_roles": {"as_of_gw": record["gw"], "recorded_at": str(record["created_at"]),
+                           **comparison},
+        "adopt_with": {"player_ids": sorted(elements),
+                       "captain_id": next(r["player_id"] for r in xi if r["role"] == "CAPTAIN"),
+                       "vice_id": next(r["player_id"] for r in xi if r["role"] == "VICE"),
+                       "bench_order_ids": [r["player_id"] for r in bench],
+                       "gw": cutoff, "confirm": True},
+    }
+    if missing:
+        out["note_missing"] = (f"{len(missing)} owned player(s) have no row in the GW{cutoff} frame "
+                               "(blank gameweek or absent at this cutoff) and were solved at 0 "
+                               "expected points, per the production blank-week rule")
+    if nd and nd[0] != cutoff:
+        out["note_deadline"] = (f"this frame is for GW{cutoff}; the next deadline is GW{nd[0]} at "
+                                f"{nd[1]} and its frame lands when the pipeline runs at T-90")
+    return out
 
 
 def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_ids: list,
@@ -277,6 +350,7 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
         return None if t is None else round(t / 10, 1)
 
     prices = {e: live[e]["price_tenths"] for e in involved}
+    latest = _latest_run()
     return {
         "committed": row["committed"],
         "preview": not row["committed"],
@@ -296,35 +370,49 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
             "bank_before": m(change["bank_before"]), "proceeds": m(change["proceeds"]),
             "purchases": m(change["purchases"]), "bank_after": m(change["bank_after"]),
         },
-        "squad": squad_store.summary(row, prices),
+        "squad": squad_store.summary(row, prices, latest_run=latest),
     }
 
 
 # ---------------------------------------------------------------- the solve
+def _load_pool():
+    """The production frame on the model volume, sliced to its deadline
+    gameweek in optimize's shape -> (pool, cutoff_gw, frame_built_at).
+    Shared by optimise() and get_my_xi(). Raises FileNotFoundError when the
+    pipeline has not produced a build on this volume."""
+    import sys
+    for p in (str(REPO), str(REPO / "squad")):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    import simulator as sim
+
+    frame_p = PROD_FRAME
+    prices_p = REPO / "data" / "live" / "_tmp_prices_2026_27.parquet"
+    if not frame_p.exists() or not prices_p.exists():
+        raise FileNotFoundError("no frame on the model volume yet -- the pipeline has "
+                                "not produced a build here")
+    df = sim.load_season(walkforward_path=str(frame_p), history_path=str(prices_p),
+                         horizon_aware=True, season=os.getenv("FPL_SEASON", "2026-27"))
+    cutoff = int(df["cutoff"].min())
+    pool = sim.gw_slice(df, cutoff, cutoff=cutoff)
+    built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
+    return pool, cutoff, built
+
+
 def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
              budget: float = None):
     """Run the production MIP (gapRel=0) on the latest frame from the model
     volume, with constraints. Returns the fifteen + XI + captain + vice.
     This is a real solve: it takes seconds and blocks this chat turn."""
-    import sys
-    for p in (str(REPO), str(REPO / "squad")):
-        if p not in sys.path:
-            sys.path.insert(0, p)
-    import pandas as pd
     import pulp
     import simulator as sim
     from optimize import optimize_squad as solve_mip
 
-    frame_p = PROD_FRAME
-    prices_p = REPO / "data" / "live" / "_tmp_prices_2026_27.parquet"
-    if not frame_p.exists() or not prices_p.exists():
-        return {"error": "no frame on the model volume yet -- the pipeline has "
-                         "not produced a build here"}
     t0 = time.time()
-    df = sim.load_season(walkforward_path=str(frame_p), history_path=str(prices_p),
-                         horizon_aware=True, season=os.getenv("FPL_SEASON", "2026-27"))
-    cutoff = int(df["cutoff"].min())
-    pool = sim.gw_slice(df, cutoff, cutoff=cutoff)
+    try:
+        pool, cutoff, frame_mtime = _load_pool()
+    except FileNotFoundError as e:
+        return {"error": str(e)}
     prob, sol = solve_mip(pool,
                           locked_elements=list(lock_player_ids or []),
                           banned_elements=list(ban_player_ids or []),
@@ -333,7 +421,6 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
         return {"error": f"solve status {pulp.LpStatus[prob.status]} -- the "
                          "constraints may be infeasible (e.g. budget too low)"}
     team = sim.solution_to_squad(pool, sol)
-    frame_mtime = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
     return {"gw": cutoff, "solve_seconds": round(time.time() - t0, 1),
             "frame_built_at": str(frame_mtime),
             "constraints": {"locked": lock_player_ids or [], "banned": ban_player_ids or [],

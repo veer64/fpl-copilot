@@ -60,8 +60,10 @@
 # the pure-Python helpers are exercised locally (Tests/test_squad_store.py).
 
 import json
+import re
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -362,10 +364,56 @@ def read_active(user_id=1, conn=None):
     return active_from_rows(rows, user_id)
 
 
-def summary(record, prices):
+ROLES_MEANING = ("the roles recorded WITH this version (captain, vice, XI, bench order) -- a record "
+                 "of what was set when it was written, NOT a recommendation for the current "
+                 "gameweek; get_my_xi computes that from the current model run")
+
+
+def _dt(x):
+    """A tz-aware datetime from a psycopg2 datetime or a Postgres-style string."""
+    if isinstance(x, datetime):
+        return x if x.tzinfo else x.replace(tzinfo=timezone.utc)
+    s = str(x).strip().replace(" ", "T")
+    if re.search(r"[+-]\d\d$", s):
+        s += ":00"
+    d = datetime.fromisoformat(s)
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def roles_status(record, latest_run):
+    """Can the roles recorded with `record` stand for the current gameweek?
+    They cannot if a model run has landed SINCE they were recorded, or the
+    latest run is for a later gameweek. This is the bug of 2026-09-12 GW4:
+    the seed's roles (copied from the GW3 solve, written 05:24Z) were read
+    next to run 5's GW4 predictions (11:01Z) and presented as advice.
+
+    latest_run: {run_id, gw, finished_at} of the latest SUCCESS run, or None."""
+    out = {"as_of_gw": record["gw"], "recorded_at": str(record["created_at"]),
+           "meaning": ROLES_MEANING}
+    if not latest_run:
+        out["status"] = "UNKNOWN"
+        out["warning"] = "no successful model run to compare these roles against"
+        return out
+    out["latest_run"] = {"run_id": latest_run["run_id"], "gw": latest_run["gw"],
+                         "built_at": str(latest_run["finished_at"])}
+    if latest_run["gw"] > record["gw"] or _dt(latest_run["finished_at"]) > _dt(record["created_at"]):
+        out["status"] = "STALE"
+        out["warning"] = (
+            f"these roles were recorded at {record['created_at']} for GW{record['gw']}; "
+            f"model run {latest_run['run_id']} for GW{latest_run['gw']} was built at "
+            f"{latest_run['finished_at']}, AFTER that. They are a record of what was set, "
+            f"not a recommendation for GW{latest_run['gw']} -- call get_my_xi for that.")
+    else:
+        out["status"] = "current"
+        out["warning"] = None
+    return out
+
+
+def summary(record, prices, latest_run=None):
     """What get_my_squad returns: the version's identity, the fifteen with
-    purchase price, current price and SELL price, and the totals. Money is
-    presented in millions (one decimal); the document inside stays in tenths.
+    purchase price, current price and SELL price, the totals, and the
+    RECORDED roles labelled as such (roles_status). Money is presented in
+    millions (one decimal); the document inside stays in tenths.
 
     prices: {element: current price_tenths} from players_live. The sell price
     is squad_state.sell_price via SquadState -- the one implementation of
@@ -384,12 +432,13 @@ def summary(record, prices):
         e = p["element"]
         players.append({
             "player_id": e, "name": p["name"], "position": p["position"],
-            "team": p["team"], "role": p["role"], "bench_order": p["bench_order"],
+            "team": p["team"], "recorded_role": p["role"], "recorded_bench_order": p["bench_order"],
             "purchase_price": m(p["purchase_price"]),
             "current_price": m(prices.get(e)),
             "sell_price": m(state.element_sell_price(e, prices)),
         })
-    players.sort(key=lambda r: (order[r["role"]], r["bench_order"] or 0, -r["purchase_price"]))
+    players.sort(key=lambda r: (order[r["recorded_role"]], r["recorded_bench_order"] or 0,
+                                -r["purchase_price"]))
     sell_value = state.sell_value(prices)
     purchase_cost = sum(p["purchase_price"] for p in doc["players"])
     return {
@@ -398,10 +447,11 @@ def summary(record, prices):
         "created_at": str(record["created_at"]), "supersedes": record["supersedes"],
         "note": record["note"],
         "hypothetical": bool((doc.get("provenance") or {}).get("hypothetical", False)),
-        "captain": next((r["name"] for r in players if r["role"] == "CAPTAIN"), None),
-        "vice": next((r["name"] for r in players if r["role"] == "VICE"), None),
-        "xi": [r for r in players if r["role"] != "bench"],
-        "bench_in_order": [r for r in players if r["role"] == "bench"],
+        "roles": roles_status(record, latest_run),
+        "recorded_captain": next((r["name"] for r in players if r["recorded_role"] == "CAPTAIN"), None),
+        "recorded_vice": next((r["name"] for r in players if r["recorded_role"] == "VICE"), None),
+        "recorded_xi": [r for r in players if r["recorded_role"] != "bench"],
+        "recorded_bench_in_order": [r for r in players if r["recorded_role"] == "bench"],
         "purchase_cost": m(purchase_cost),
         "bank": m(doc["bank"]),
         "sell_value": m(sell_value),
@@ -411,6 +461,97 @@ def summary(record, prices):
         "prices_missing_for": [p["element"] for p in doc["players"] if p["element"] not in prices],
         "squad_json": doc,
     }
+
+
+# ------------------------------------------------------- the live XI solve
+def xi_over_fifteen(pool, state, prices):
+    """Best legal XI, captain, vice and bench order over the fifteen the user
+    OWNS, from one gameweek's pool (optimize's shape: element, name, position,
+    team, value, e_points [, p_play_any, p_60plus]). The same single-gameweek
+    MIP the pipeline runs (gapRel=0), restricted to the owned fifteen by
+    locking them and giving it only their rows. Owned players with no row in
+    the pool (blank gameweek, or absent from the frame) are injected with
+    e_points 0 by simulator._adjusted_pool -- the production rule -- and
+    returned in `missing` so the gap is visible, never silent.
+
+    Returns (team, missing): team is the 15-row frame with role and
+    bench_order in the SCORING convention (0 = bench GK, 1..3 outfield)."""
+    import pulp
+    import simulator as sim
+    from optimize import optimize_squad
+
+    mine = set(state.elements)
+    missing = sorted(mine - set(pool["element"]))
+    adjusted = sim._adjusted_pool(pool, state, prices)
+    p15 = adjusted[adjusted["element"].isin(mine)].reset_index(drop=True)
+    if len(p15) != SQUAD_SIZE:
+        raise RuntimeError(f"expected {SQUAD_SIZE} owned rows in the pool, got {len(p15)}")
+    prob, sol = optimize_squad(p15, locked_elements=sorted(mine),
+                               budget=int(p15["value"].sum()))
+    status = pulp.LpStatus[prob.status]
+    if status != "Optimal":
+        raise RuntimeError(f"XI solve over the owned fifteen returned {status}")
+    team = sim.solution_to_squad(p15, sol)
+    return team, missing
+
+
+def doc_bench_order(scoring_bench_order):
+    """Scoring convention (0 = bench GK, 1..3 outfield) -> document / model_picks
+    convention (1 = bench GK, 2..4 outfield)."""
+    if scoring_bench_order is None or scoring_bench_order != scoring_bench_order:
+        return None
+    return int(scoring_bench_order) + 1
+
+
+def roles_from_team(team):
+    """{element: (role, bench_order in the DOCUMENT convention)} from a solved
+    team frame."""
+    out = {}
+    for r in team.itertuples(index=False):
+        bo = getattr(r, "bench_order", None)
+        try:
+            bo = None if pd.isna(bo) else bo
+        except (TypeError, ValueError):
+            pass
+        out[int(r.element)] = (r.role, doc_bench_order(bo) if r.role == "bench" else None)
+    return out
+
+
+def _xi_points(roles, points):
+    """XI e_points + the captain's again: the objective the weekly decision is
+    ranked on (simulator.predicted_score), computed from a role map."""
+    total = 0.0
+    for e, (role, _) in roles.items():
+        if role != "bench":
+            total += points.get(e, 0.0)
+        if role == "CAPTAIN":
+            total += points.get(e, 0.0)
+    return total
+
+
+def compare_roles(doc_players, team):
+    """The RECORDED roles against the roles the XI solve chose, on the same
+    e_points: every changed role, the two predicted XI scores and the gain.
+    Positive gain = the recorded roles were leaving points on the table."""
+    recorded = {p["element"]: (p["role"], p["bench_order"]) for p in doc_players}
+    optimal = roles_from_team(team)
+    points = {int(r.element): float(r.e_points) for r in team.itertuples(index=False)}
+    names = {p["element"]: p["name"] for p in doc_players}
+    changes = []
+    for e in sorted(recorded, key=lambda e: -points.get(e, 0.0)):
+        if recorded[e] != optimal.get(e):
+            changes.append({"player_id": e, "name": names[e], "e_points": round(points.get(e, 0.0), 2),
+                            "recorded": _role_label(*recorded[e]),
+                            "optimal": _role_label(*optimal[e])})
+    rec_pts = _xi_points(recorded, points)
+    opt_pts = _xi_points(optimal, points)
+    return {"differ": bool(changes), "changes": changes,
+            "recorded_xi_points": round(rec_pts, 2), "optimal_xi_points": round(opt_pts, 2),
+            "expected_gain_vs_recorded": round(opt_pts - rec_pts, 2)}
+
+
+def _role_label(role, bench_order):
+    return f"bench {bench_order}" if role == "bench" else role
 
 
 # ----------------------------------------------------------------- writes

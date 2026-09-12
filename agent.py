@@ -87,7 +87,18 @@ tools_schema = [
     },
     {
         "name": "get_my_squad",
-        "description": "The user's OWN squad -- the versioned squad state (a hypothetical entry seeded at GW4), NOT the model's free-pick solve. Returns the fifteen with role (CAPTAIN/VICE/start/bench order), purchase price, current price and what each would SELL for under FPL's rule, plus bank, free transfers, total points and the version id. Use for 'what is my team', 'who is my captain', 'what would X sell for', 'how much money do I have'. If it returns an error, no squad state is recorded: say exactly that and do NOT answer with get_picks instead.",
+        "description": "The user's OWN fifteen -- the versioned squad state (a hypothetical entry seeded at GW4), NOT the model's free-pick solve. Returns the fifteen with purchase price, current price and what each would SELL for under FPL's rule, plus bank, free transfers, total points and the version id. The roles it carries (recorded_captain, recorded_vice, recorded_xi, recorded_bench_in_order) are what was RECORDED when that version was written -- a record, NOT this week's advice; the `roles` block says whether they are STALE relative to the latest model run, and if so you must say so. Use for 'what is my team', 'what would X sell for', 'how much money do I have'. For 'who should I start / captain / bench this week' call get_my_xi instead. If it returns an error, no squad state is recorded: say exactly that and do NOT answer with get_picks instead.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "integer", "description": "Defaults to 1, the only user"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_my_xi",
+        "description": "THIS WEEK's best starting XI, captain, vice-captain and bench order over the fifteen the user owns, solved by the production optimiser from the current model run's predictions (a real solve, about a second). Use for 'who should I start', 'who should I captain', 'what is my best XI', 'should X or Y start'. It also reports how the recorded roles differ and the expected points they leave on the table (recorded_roles.expected_gain_vs_recorded). Nothing is written: to record this XI, pass adopt_with to set_my_squad (preview first, then confirm=true when the user says so).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -132,7 +143,8 @@ from dotenv import load_dotenv
 import anthropic
 from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
-                         get_best_squad, optimise, get_my_squad, set_my_squad)
+                         get_best_squad, optimise, get_my_squad, set_my_squad,
+                         get_my_xi)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -150,6 +162,7 @@ available_functions = {
     "list_players": list_players,
     "get_my_squad": get_my_squad,
     "set_my_squad": set_my_squad,
+    "get_my_xi": get_my_xi,
 }
 
 def run_agent(user_message: str, messages: list = None):

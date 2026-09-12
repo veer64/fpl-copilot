@@ -311,7 +311,7 @@ def test_summary_sell_prices_follow_the_rule_and_missing_prices_are_visible():
     prices[2] = 38                                     # bought 42, fell   -> sells 38
     del prices[3]                                      # no current price   -> valued at 43
     out = squad_store.summary(_row(d), prices)
-    by_id = {r["player_id"]: r for r in out["xi"] + out["bench_in_order"]}
+    by_id = {r["player_id"]: r for r in out["recorded_xi"] + out["recorded_bench_in_order"]}
     assert by_id[1]["purchase_price"] == 4.1 and by_id[1]["current_price"] == 4.5
     assert by_id[1]["sell_price"] == 4.3 == sell_price(41, 45) / 10
     assert by_id[2]["sell_price"] == 3.8
@@ -322,8 +322,9 @@ def test_summary_sell_prices_follow_the_rule_and_missing_prices_are_visible():
     assert out["sell_value"] == round(expected_sell / 10, 1)
     assert out["budget_if_all_sold"] == round((expected_sell + 7) / 10, 1)
     assert out["purchase_cost"] == round(sum(40 + i for i in range(1, 16)) / 10, 1)
-    assert out["captain"] == "P13" and out["vice"] == "P9"
-    assert len(out["xi"]) == 11 and [r["bench_order"] for r in out["bench_in_order"]] == [1, 2, 3, 4]
+    assert out["recorded_captain"] == "P13" and out["recorded_vice"] == "P9"
+    assert len(out["recorded_xi"]) == 11 and [r["recorded_bench_order"] for r in out["recorded_bench_in_order"]] == [1, 2, 3, 4]
+    assert out["roles"]["status"] == "UNKNOWN"                 # no latest_run passed
     assert out["squad_json"] == d                      # the document comes back untouched
     json.dumps(out)
 
@@ -333,5 +334,5 @@ def test_summary_of_the_seed_reads_99_6_and_0_4_at_seed_prices():
     prices = {p["element"]: p["purchase_price"] for p in doc["players"]}
     out = squad_store.summary(_row(doc), prices)
     assert (out["purchase_cost"], out["bank"], out["sell_value"], out["budget_if_all_sold"]) == (99.6, 0.4, 99.6, 100.0)
-    assert out["captain"] == "Erling Haaland" and out["vice"] == "Phil Foden"
+    assert out["recorded_captain"] == "Erling Haaland" and out["recorded_vice"] == "Phil Foden"
     assert out["hypothetical"] is True and out["prices_missing_for"] == []
