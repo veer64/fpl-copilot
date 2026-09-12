@@ -225,3 +225,102 @@ exercised on the server (§1, §4) and is recorded here.
 - Windows console encoding bit once (§2); every emitter now writes UTF-8.
 - Long heredocs fail in the Bash tool; files were written with the Write tool
   and piped over ssh as stdin.
+
+---
+
+## 9. Step 5a — the roles contract (2026-09-12, commit 27d3e7f)
+
+**The milestone first.** Run 5, GW4, built unattended 2026-09-12 11:01:01Z on
+deployed code 48e7303 against the server-ingested volume; strict build
+PASSED, 3,936 rows; /health ok. First solo run on baseline. (`started_at` is
+NULL for run 5 because `eval/run_live_deadline.py` passes `started_at=None`
+on its success path — a pre-existing runner gap, not a GW4 anomaly; the
+2026-09-11 handoff's "started_at filled" check could never pass.)
+
+**The bug, confirmed from the api log.** The GW4 squad question produced ONE
+`get_my_squad` call and FIFTEEN `get_prediction(gw=4)` calls. The roles came
+from version 1 (written 05:24:53Z, copied from run 4's GW3 solve); every
+prediction came from run 5 (11:01Z). Joined on the seed's roles at run 5's
+numbers: Collins (DEF) starting at 2.46, Gómez (MID) on the bench at 4.04,
+four defenders in the XI, and the recorded vice Foden (3.77) over Gakpo
+(4.65). Both halves were correct; the join was wrong, and it was shown as
+advice. The user's estimate of ~1.6 points left on the table is exactly right
+(1.58, below).
+
+**The contract.** The roles stored with a version are the roles AS OF that
+version's creation, and nothing more — a record, not a recommendation.
+
+1. *Labelled wherever they surface.* `squad_store.roles_status(record,
+   latest_run)` → `STALE` if a SUCCESS model run finished after the version
+   was recorded or the latest run is for a later gw (either alone suffices);
+   `current` otherwise; `UNKNOWN` with no run. `summary()` now returns
+   `recorded_captain / recorded_vice / recorded_xi / recorded_bench_in_order`
+   and a `roles` block (`as_of_gw`, `recorded_at`, `latest_run`, `status`,
+   `warning` naming both timestamps, `meaning`). The unlabelled `captain /
+   vice / xi / bench_in_order` keys no longer exist on get_my_squad, so a GW3
+   role cannot be read as GW4 advice by accident. The tool description tells
+   the model the roles are a record and to say so when STALE.
+2. *Computed, not read.* `squad_store.xi_over_fifteen(pool, state, prices)`:
+   the same single-gameweek MIP as `optimise()` (gapRel=0), locked to and
+   restricted to the owned fifteen; owned players absent from the frame are
+   injected at e_points 0 through `simulator._adjusted_pool` (the production
+   blank-week rule) and returned as `missing` so the gap is visible.
+   `compare_roles` lists every role that differs from the recorded ones and
+   the expected XI points of each (XI + captain again, the objective the
+   weekly decision is ranked on).
+
+**Own tool, not a mode.** `get_my_xi` is separate from `get_my_squad` because
+they answer different questions from different sources with different failure
+modes: one is a DB read of state (fails when no version is active), the other
+a solve over the model frame on the volume (fails when no frame exists) with
+run/frame provenance. A mode flag would blur which one the model is asking
+and which failure it got. `get_my_xi` returns XI, captain, vice, bench order,
+`predicted_xi_points`, the comparison against the recorded roles, and
+`adopt_with` — the exact `set_my_squad` arguments to record the XI (still
+preview-first; nothing is written by get_my_xi). `_load_pool()` is shared
+with `optimise()`.
+
+**What a stale-gameweek response looks like** (server, 13:25Z, image
+27d3e7f, run 5 / version 1):
+
+```
+get_my_squad.roles = {as_of_gw: 4, recorded_at: 2026-09-12 05:24:53Z,
+  latest_run: {run_id: 5, gw: 4, built_at: 2026-09-12 11:01:01Z},
+  status: "STALE",
+  warning: "these roles were recorded at 05:24:53Z for GW4; model run 5 for
+    GW4 was built at 11:01:01Z, AFTER that. They are a record of what was
+    set, not a recommendation for GW4 -- call get_my_xi for that."}
+get_my_xi = {gw: 4, run_id: 5, model_version: 48e7303c6/baseline,
+  solve_seconds: 0.5, captain: Haaland, vice: Gakpo,
+  XI: Haaland(C) 5.89, Gakpo(V) 4.65, Mbeumo 4.61, Isak 4.46, De Cuyper 4.43,
+      Havertz 4.33, Calafiori 4.26, Guéhi 4.20, Gómez 4.04, Foden 3.77,
+      Kelleher 3.39  (3 DEF),
+  bench: 1 Leno, 2 Kayode, 3 Collins, 4 Slater,
+  recorded_roles: {differ: true, changes: [Gakpo start→VICE, Gómez bench 3→
+      start, Foden VICE→start, Collins start→bench 3],
+      recorded_xi_points: 52.35, optimal_xi_points: 53.92,
+      expected_gain_vs_recorded: 1.58},
+  note_deadline: "this frame is for GW4; the next deadline is GW5 at
+      2026-09-18 17:30Z and its frame lands when the pipeline runs at T-90"}
+```
+
+The deadline note is the other real condition surfaced: after 12:30Z the
+frame on the volume is GW4's until the GW5 run at T-90, so "this week's XI"
+between deadlines is the XI for a gameweek already under way.
+
+**Tests.** `Tests/test_squad_store_xi.py` (11): roles STALE by time and by gw,
+current, UNKNOWN, Postgres-style strings; summary carries no unlabelled role
+keys; a real solve on a synthetic fifteen with the GW4 shape benches the
+fourth defender for the better midfielder with gain 1.58 and the bench GK at
+slot 1; adopted roles compare as identical; a missing player is injected at
+0 and reported; the bench-order convention mapping (scoring 0..3 → document
+1..4). Suite **307 passed, 0 skipped**. Model path untouched.
+
+**Deployed and verified.** Push 13:24Z → /health `git_sha 27d3e7fa7`, ok,
+zero reasons at 13:24:57Z; api container restarted; the proofs above ran
+inside the deployed image. Outside the deadline window (deadline 12:30Z,
+window closed 13:00Z) and clear of the 18:17Z ingest tick.
+
+**Not done, by instruction:** 5b (free-transfer roll-forward, scoring the
+squad and deducting hits, where the six-week MIP runs and what it writes) and
+5c (wiring the MIP) wait for the conversation.
