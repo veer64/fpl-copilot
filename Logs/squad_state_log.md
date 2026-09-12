@@ -513,8 +513,22 @@ five days clear of the GW5 deadline.
 | six-week MIP done (8.7 s, 1 transfer, H=6) | 57.7 | 1,569 | 762 | 1,511 | **726** |
 
 **MIP alone, fresh process:** imports 128 → frame loaded 154 → MIP done
-`ru_maxrss` **330 MB** (8.8 s), cgroup peak 287, anon 230. (The 416 MB
-reference was a different measurement; 330 here with HiGHS.)
+`ru_maxrss` **330 MB** (8.8 s), cgroup peak 287, anon 230.
+
+**CORRECTION (2026-09-12 18:40Z) to "the 22-second figure was from somewhere
+else".** It was not from somewhere else. `Logs/live_deadline_cost_measurement_log.md`
+records `decide_gameweek_mip GW3, horizon 6, gapRel=0: 22.4 s, peak RSS
+416 MB` — the SAME function, the same problem class (six-week transfer MIP
+over the full 629-player pool; the owned fifteen only seed the initial
+squad, never restrict the pool), HiGHS in-process — measured on the LAPTOP
+(Windows, multi-core) at GW3 with a synthetic opening state. The 8.7 s here
+is the same MIP on the droplet at GW4 with the real squad. So the 2.5×
+difference is instance + machine, not pool size: MIP instances vary widely
+(that log's backtest reference: 33–41 s median per deadline on the laptop,
+worst > 180 s). Neither record is wrong; my sentence was. Consequences:
+the T-90 precompute cost and the user-facing wait are "typically ten to
+forty seconds, occasionally longer", not a single figure, and Decision 3's
+premise (a synchronous wait of that order) stands.
 
 **Reading.** The peak is the BUILD's: 1,569 MB process high-water mark (1,511
 cgroup), reached inside `build_deadline_frame`. By the time the frame is
@@ -547,3 +561,101 @@ deterministic across processes. Part 3 will surface this through the tool.
 **Side effects.** None on the volume or the database: temp files under
 /tmp inside the containers, removed; two helper scripts copied to /root and
 removed. The build re-pulled the FPL calendar (no odds credits).
+
+---
+
+## 13. Step 5c part 2 — scoring the hypothetical squad (2026-09-12, commit 2322a1a)
+
+Decision 2 implemented, with the three additions from the 18:20Z brief:
+bounded retries with an actionable standing line, the 22-second record
+corrected (section 12), and players named wherever a human reads them.
+
+**The table.** `squad_scores` (schema of record `squad_store.SCORES_DDL`,
+sha256 `1858ff8d…` of the emitted text, pinned by
+`Tests/test_squad_scores.py::test_scores_ddl_is_stable_and_carries_rule_1`):
+score_id, user_id, season, gw, version_id → squad_versions, points_net,
+points_raw, hit, captain_bonus, doubled, doubled_role, transfers_made,
+free_transfers, final_xi, subs_made, bench_points, master_rows_hash,
+scored_at, git_sha, note. Append-only by trigger (UPDATE and DELETE refused);
+unique (user, season, gw, master_rows_hash) so an FPL correction after
+data_checked lands as a NEW row. **The RULE 1 text is the table's COMMENT and
+the module header**: operational evidence only, never a configuration
+argument; a sum of points_net is a season total and rule 1 forbids adoption
+decisions that cite one (paired-path sd ~85, one near-tie flip ±90, horizon
++109/+49/−84 while worse where decisions are made); configuration is judged
+on the sliced rank endpoint. Applied to the server 18:31Z; probe inside a
+rolled-back transaction: update refused, delete refused, duplicate inputs
+refused, zero rows after.
+
+**The scorer.** `scoring.score_gameweek` — the simulator's own, pure — does
+the scoring; nothing here re-implements a rule. Around it:
+`scoring_frame` (document bench 1..4 → scorer 0..3), `actuals_from_master`
+(minutes and points summed per element, so a double gameweek is one row),
+`master_rows_hash` (sha256 of the sorted element/fixture/minutes/points rows
+scored), `version_at_deadline` (latest version with gw ≤ N created before
+deadline N), `transfer_accounting` (transfers over the gameweek's versions;
+allowance = the rolled count of the squad carried in, or the seed's recorded
+count when seeded at that gameweek; RAISES if the versions' own recorded
+hits disagree with max(0, transfers − allowance)), `score_gameweek_for`.
+Autosubs ARE modelled (bench order, bench-GK slot, formation legality); the
+captain doubles with vice fallback; **hits are deducted** (points_net =
+points_raw − HIT_COST × paid). Not a new squad version.
+
+**Where it runs — a tick-level action, not a chain step** (design change
+approved 18:20Z). `Runner.score_outstanding()` runs after a successful
+chain and on every NOTHING-NEW tick (not DEFERRED); it writes
+`live/_scoring_request.json` = every ingested gameweek with its bootstrap
+deadline and runs `eval/score_squads.py --request …`. The scorer prints one
+outcome line per gameweek (`scored | already scored | no squad | FAILED
+[class]`), never backfills a gameweek whose deadline preceded the first
+version, and names players (id kept): `armband captain Erling Haaland (411)
++9; autosubs Nathan Collins (84) -> Michael Kayode (88)`. A non-zero exit
+never fails the ingest: it becomes an ACTION REQUIRED line (/health
+degrades) and the next tick retries.
+
+**Bounded, like the ingest's own.** `MAX_SCORING_ATTEMPTS = 8` per gameweek
+(and per whole-run failure such as Postgres unreachable), tracked in
+`live/scoring_attempts.json`; success clears the entry. At the bound the
+gameweek leaves the request and a STANDING line names what to do —
+`scoring_instruction()` keyed on the failure class: `[inconsistent_versions]`
+→ the inspection query on squad_versions, "write a corrected version through
+set_my_squad (a new row)", re-arm; `[master_missing]` → the exact
+`--force-gw N` command; `[db_unreachable]`/`[master_unreadable]` → docker ps,
+.env DB_*, a one-line connect check; unclassified → the run-log block. Every
+branch ends with the re-arm (delete the entry from scoring_attempts.json).
+No traceback in the standing line.
+
+**Reads.** `get_my_squad.total_points` = Σ points_net of the latest row per
+gameweek; `scored_gameweeks` lists them; the document's own field is
+`total_points_recorded`, with `total_points_meaning` carrying the rule-1
+sentence.
+
+**Proof on the server** (image 2322a1a, 18:39Z; deploy at 18:38Z, api
+restarted, health ok, zero reasons):
+- the real tick path (`Runner.decide` → `score_outstanding`): decision
+  NOTHING-NEW, request = GWs 1–3 with their deadlines (GW4 not ingested yet),
+  every line `no squad at deadline … (first version 2026-09-12 05:24:53Z) --
+  nothing to score`, `0 row(s) written`, exit 0, no attempts sidecar, no
+  action. **The correct proof for today**: nothing is scoreable until FPL
+  flags GW4 (~Tuesday); the 00:17Z cron tick runs this path unattended.
+- mechanics demo against GW3's REAL rows (`--demo-gw 3`, never written): all
+  fifteen played, no autosubs, captain Haaland 9 doubled (+9), raw 76, hit 0,
+  net 76, bench 7 — labelled DEMO, NOT a result.
+- `get_my_squad`: total_points 0, scored_gameweeks [], recorded 0.
+
+**Tests.** `Tests/test_squad_scores.py` (17) and
+`Tests/test_weekly_ingest_scoring.py` (7); the runbook-order test now ends
+with `score_squads` and checks the request covers every ingested gameweek.
+One assertion of mine was wrong and the scorer right: a captain who plays
+zero minutes is autosubbed out like any starter (the vice takes the
+armband). Suite **334 passed, 0 skipped**, parity and as-of families
+included. Model path untouched.
+
+**Also pushed:** 702ff1f (pyc untracked), e858f27 (measurement log).
+
+**Next: part 3, the MIP** — option A only; stale-by-one; fifteen-player
+valuation assert with the moved prices named; legality and money through
+the same path set_my_squad uses; locks and bans exposed; preview by default;
+persist every proposal (replace model_transfers, rationale logged);
+`started_at` fix in the runner; the wait described as "typically ten to
+forty seconds" per the corrected record.
