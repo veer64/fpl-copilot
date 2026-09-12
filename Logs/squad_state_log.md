@@ -402,3 +402,76 @@ replace rather than ALTER. A hold = header with no transfer rows.
   start time and pass it (runner file, not the model path).
 - MIP vs squad_state valuations agree by construction; the 5c tool will
   still assert equality on all fifteen and report the moved prices.
+
+---
+
+## 11. Step 5c part 1 — free transfers derived lazily (2026-09-12, commit d5b24d9)
+
+Decision 1 accepted as Option B and implemented. Order of work as instructed:
+this first (smallest; `plan_change` was wrong until it landed), scoring next,
+the MIP last.
+
+**The rule, in code.** `squad_store.free_transfers_at(record, gw) =
+min(MAX_FREE_TRANSFERS, recorded + (gw − version.gw))`. A version's recorded
+count is the count left AFTER its own transfers as of the deadline it was set
+for; FPL banks one per gameweek to five (`squad_state.end_gameweek`'s rule).
+Nothing is scheduled and nothing is stored beyond what versions already hold.
+Raises for a gw earlier than the version's.
+
+**"Now".** `model_tools._current_gw()` = the next deadline's gameweek from
+the bootstrap (cached 10 min). Unreachable → `get_my_squad` reports
+`free_transfers_now: null` with `free_transfers_error` naming the cause, and
+`set_my_squad` refuses. Never a guess. `summary()` returns
+`free_transfers_recorded` (+ `_as_of_gw`) and `free_transfers_now` (+
+`_as_of_gw`); the bare `free_transfers` key is gone so nothing quotes the
+stale count.
+
+**The write is tightened.** `plan_change` requires `next_deadline_gw` and
+refuses any other gw: earlier ("deadline has passed"), later ("beyond the
+next deadline … so free transfers stay attributable"). It spends the DERIVED
+count and reports recorded / as-of / rolled-forward / before / used / after.
+The latent bug is closed: a GW5 move on the GW4 seed now sees 2, not 1.
+
+**`get_my_xi` follows the stale-by-one rule.** Between deadlines it solves
+the NEXT deadline's gameweek from the frame's cutoff, labels it
+(`predictions_as_of_cutoff_gw`, `stale_by_gameweeks`, `note_stale`) and its
+`adopt_with.gw` is the next deadline's, so it stays writable under the
+tightened rule. `_load_pool(gw)` slices any gameweek inside the horizon at
+the frame's cutoff; `optimise()` / `get_best_squad` still solve the frame's
+own step 0 (unchanged; noted as a follow-up).
+
+**Proof on the server** (image d5b24d9, 13:52Z, all previews rolled back):
+- current gw 5 (deadline 2026-09-18 17:30Z). `get_my_squad`:
+  `free_transfers_recorded 1 (as of GW4)`, `free_transfers_now 2 (as of
+  GW5)`, no bare key.
+- Preview GW5, two transfers (Slater→Ömür, Gómez→Tóth): recorded 1, rolled
+  forward 1, before **2**, used 2, after 0, **hits 0**, bank 0.4→0.0.
+- Preview GW5, one transfer: before 2, after 1, hits 0.
+- gw=4 → `refused: GW4's deadline has passed; a squad can only be set for
+  the next deadline, GW5`. gw=6 → `refused: GW6 is beyond the next deadline
+  (GW5) …`.
+- `get_my_xi`: gw 5, predictions as of cutoff 4, stale by 1, note_stale
+  names the frame's build time and the GW5 deadline; adopt_with.gw 5.
+  (The GW5 view from cutoff 4 benches Isak at 3.0 and starts Leno over
+  Kelleher, 4.04 vs 3.93 — the model's view, labelled as one gameweek stale.)
+- Active version 1 unchanged; one row in the table; sequence at 5.
+
+**Tests.** 6 new in `Tests/test_squad_store_writes.py` (rolls one per gw
+and caps at 5; before-the-version is an error; the GW5-on-GW4 case sees 2
+and three transfers cost one hit; only the next deadline's gw is accepted;
+a no-change version at a later gw carries the rolled count; summary reports
+both counts and the unavailable case). Suite **313 passed, 0 skipped**,
+parity family and `test_asof_reconstruction` included.
+
+**Deployed and verified.** Push 13:51Z → /health `git_sha d5b24d9a4`, ok,
+zero reasons at 13:51:54Z; api container restarted; proofs ran inside the
+deployed image. Clear of the 18:17Z ingest tick; GW5 deadline is Friday.
+
+**Correction to the 5c brief, for the record.** The hard-coded
+`started_at=None` is in `eval/run_live_deadline.py` (the runner), not
+`squad/live_deadline.py` (the parity-gated entry point). Fixing it will not
+edit the entry point; the parity and as-of families run on every push
+regardless.
+
+**Deferred, unchanged:** chips (a wildcard week would need a `chip` field
+so the version spends nothing; a free hit needs a restoring version).
