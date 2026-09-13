@@ -302,5 +302,25 @@ the as-of rebuild against the record files at cutoffs 20 and 24 (24 spans the GW
 6. **Same-gameweek double-fixture windows inside training rows:** the DC training feature for the second fixture
    of a double still includes the first fixture of the same gameweek (both pre-cutoff, so not a leak at
    prediction; a construction quirk the guard does not see).
+7. **The date boundary — CONFIRMED BLIND SPOT (2026-09-13), with a confirmed small leak behind it.** The guard
+   truncates the odds archive with `date_parsed >= cutoff_date` (`eval/asof_reconstruction.py` line 147), where
+   `cutoff_date` is the cutoff gameweek's FIRST KICKOFF with its time of day and `date_parsed` is the archive's
+   DAY-stamped match date. Every match on the cutoff day therefore keeps its result in the as-of world — exactly as
+   the record's own filter (`dixon_coles.get_fixtures`: `train_m = matches[date_parsed < cutoff]`) admitted it. Both
+   sides share the boundary, so bit-identity is guaranteed there and proves nothing: the guard reconstructs what the
+   record's filter would see, not what was knowable at the cutoff instant. Behind it, a leak of the class of items
+   6–9: the Dixon-Coles fit at cutoff k was trained on the cutoff day's RESULTS, none of which had finished at the
+   cutoff (the cutoff is that day's first kickoff). 2025-26: 159 such matches across the 38 cutoffs (mean 4.2 per
+   cutoff, 1 on a Friday-night cutoff, 8 on a full Saturday, 10 at GW38). Size, measured by rebuilding the reference
+   at cutoffs 3, 4, 7, 17, 24, 31, 38 with the cutoff day excluded from the fit (Logs/dc_degenerate_fit_finding_
+   2026-09-13.md §8): step 0 negligible (market-priced lambdas; only the 0.2 DC share of p_cs moves: top-30 mean
+   |Δe_points| ≤ 0.022, Spearman ≥ 0.992); steps 1–5 small (pure DC): top-30 mean |Δ| 0.02–0.08 and max up to ~0.5
+   at the early-season cutoffs 3–4 (6–8 matches admitted into a fit with few current-season rows; max |Δ attack|
+   0.23), top-30 membership changing by 0–3 of 30, Spearman 0.90–0.99; ≤ 0.013 everywhere at cutoffs admitting one
+   match. The same boundary is what makes the LIVE fit degenerate (the cutoff day's fixtures are unplayed there,
+   NaN goals abort the optimiser at iteration 0 — the finding above); the guard cannot see that either, because its
+   truncation keeps those rows' goals exactly as the record does. Closing both: truncate and train on matches
+   FINISHED before the cutoff instant (day granularity, or played-only), and make the guard's truncation use the
+   same rule, so the two sides can disagree when one of them reads the cutoff day.
 
-*Last updated: 2026-09-11 — items 6–9 closed, guard built and wired (`Tests/test_asof_reconstruction.py`), residual list above.*
+*Last updated: 2026-09-13 — item 7 (date-boundary blind spot + cutoff-day DC leak) recorded, NOT yet closed; 2026-09-11 — items 6–9 closed, guard built and wired (`Tests/test_asof_reconstruction.py`).*

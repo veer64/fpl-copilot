@@ -112,3 +112,42 @@ Did not edit `dixon_coles.py`, `assembly.py`, `walkforward_arms.py` or the
 postflight. Did not push. Did not re-run any build that writes. The
 explain_prediction design (Logs/explain_prediction_design.md) now carries a
 detector for exactly this pattern, because that is what the feature is for.
+
+## 8. Why the as-of guard missed it, and the leak's size (step 1 of the fix plan, 2026-09-13 ~08:50Z)
+
+**Why the guard missed it.** `asof_reconstruction.asof_world` (line 147)
+nulls goals where `date_parsed >= cutoff_date`; `cutoff_date` is the cutoff
+gameweek's first kickoff WITH time of day, `date_parsed` is day-stamped. A
+cutoff-day match (00:00 < 11:30) keeps its goals in the as-of world -- the
+same rows, with the same results, that the record's `train_m =
+matches[date_parsed < cutoff]` admitted. Both sides share the boundary, so
+the guard's bit-identity there is structural, not evidence. Recorded as
+LEAKAGE.md residual item 7. Had the guard used day granularity, the as-of
+fit would have hit the same NaN-goal abort the live build hits, and the
+diff would have been enormous -- it would have caught the live bug in
+September as well as the leak.
+
+**Size on the decision partitions.** Counterfactual = the reference rebuilt
+in-process with the fit trained on matches dated strictly before the cutoff
+DAY (exact: the cutoff is that day's first kickoff, so none of its matches
+had finished), compared with the 2025-26 record. Seven cutoffs, ~20 s each.
+
+| cutoff | matches admitted by the timed cutoff | max abs delta attack | step 0: top-30 mean / max abs delta e_points, rho | steps 1-5: top-30 mean abs delta (range), max, top-30 overlap of 30, rho range |
+|---|---|---|---|---|
+| 3 | 6 | 0.128 | 0.006 / 0.021, 0.999 | 0.037-0.057, 0.457, 28-29, 0.966-0.991 |
+| 4 | 8 | 0.226 | 0.022 / 0.088, 0.992 | 0.051-0.076, 0.511, 27-30, 0.898-0.987 |
+| 7 | 1 | 0.023 | 0.000 / 0.002, 1.000 | 0.005-0.013, 0.071, 29-30, 0.997-1.000 |
+| 17 | 8 | 0.087 | 0.008 / 0.039, 0.998 | 0.025-0.052, 0.245, 28-29, 0.983-0.994 |
+| 24 | 5 | 0.023 | 0.003 / 0.013, 0.999 | 0.027-0.055, 0.166, 29-30, 0.985-0.994 |
+| 31 | 1 | 0.007 | 0.000 / 0.004, 1.000 | 0.002-0.008, 0.023, 29-30, 0.997-1.000 |
+| 38 | 10 | 0.028 | 0.003 / 0.013, 0.999 | (no later steps at GW38) |
+
+Likely starters (p_start >= .75) move by the same order as the top 30
+(mean abs delta 0.02-0.05 at steps 1-5 of cutoffs 3, 4, 17; <= 0.007 at 7
+and 31). Reading: at step 0 the market prices the lambdas and only the 0.2
+DC share of p_cs moves -- negligible; at steps 1-5 the leak is small and
+largest early in the season, when a few current-season results weigh most
+in a fit that has little else from that season. A rebuild with the fix will
+move the record by these amounts at steps >= 1 -- expected, and the sign of
+hindsight removal, not a regression. The seven-cutoff table is a sample;
+the rebuild will show all 38.
