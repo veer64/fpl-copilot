@@ -223,3 +223,16 @@ def test_freshness_degrades_gracefully_for_a_pre_multi_run_row_and_a_conditional
     run = {"run_id": 5, "gw": 4, "kind": "deadline", "finished_at": "2026-09-12T11:01:01+00:00", "knowledge": None}
     s = dp.freshness(run, {"kind": "post_ingest", "at": None, "condition": "GW4 confirmed by FPL and ingested"})
     assert "knowledge not recorded" in s and "next run when GW4 confirmed" in s
+
+
+# ------------------------------------------------------- a tick never outlives its work
+def test_tick_entrypoints_exit_without_interpreter_finalisation():
+    """2026-09-13 03:20Z: a dispatcher tick saved its state, logged its decision and then
+    hung 13 hours at interpreter shutdown; its host flock silently blocked the dispatcher
+    AND the weekly ingest. Both cron entrypoints must end in os._exit after flushing."""
+    for name in ("deadline_dispatcher.py", "run_weekly_ingest.py"):
+        src = (REPO / "eval" / name).read_text(encoding="utf-8")
+        tail = src[src.index('if __name__ == "__main__":'):]
+        assert "os._exit(" in tail or ("_hard_exit(" in tail and "os._exit(" in src), \
+            f"{name}: the __main__ block no longer hard-exits"
+        assert "sys.stdout.flush()" in src, f"{name}: stdout is not flushed before the hard exit"

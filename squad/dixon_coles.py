@@ -86,7 +86,48 @@ def _load_matches(predict_season=None):
     return m
 
 
+def knowable_before(matches, cutoff):
+    """RULE R (Logs/dc_fix_prereg_2026-09-13.md): a match RESULT is knowable at
+    `cutoff` iff the match FINISHED before the cutoff DAY began -- dated
+    strictly before that day, with both goals present.
+
+    This is the ONE definition of the as-of boundary for match results. It
+    is used in exactly two places, deliberately: the training filter in
+    get_fixtures (selects the rows it admits) and the as-of guard's
+    truncation in eval/asof_reconstruction.py (nulls the rows it excludes).
+    Before 2026-09-13 the two were aligned by accident -- both compared the
+    archive's DAY-stamped dates against a cutoff WITH time of day, so every
+    match on the cutoff day counted as "before the cutoff" on both sides:
+    the record's fit trained on that day's results (a leak) and the live fit
+    trained on that day's UNPLAYED fixtures (NaN goals -> the optimiser
+    returned its starting point, silently). Day granularity is exact here:
+    the cutoff is the gameweek's first kickoff, so no match of that day has
+    finished at it. The goals clause excludes a postponed fixture still
+    carrying its original date. Sharing this function is what lets the two
+    sides DISAGREE: loosen either and the guard fails.
+    """
+    day = pd.Timestamp(cutoff).normalize()
+    return ((matches["date_parsed"] < day)
+            & matches["home_goals"].notna() & matches["away_goals"].notna())
+
+
+LAST_FIT = {}   # summary of the most recent fit, for the runner's KNOWLEDGE block / provenance
+
+
 def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days):
+    # The assertion behind the rule: a NaN goal in the training set turns the
+    # likelihood NaN and L-BFGS-B returns its INITIAL parameters without any
+    # error (observed live on every 2026-27 build until 2026-09-13). Under
+    # knowable_before this cannot fire; it exists so that any path that
+    # bypasses the rule fails loudly instead of returning the starting point.
+    n_nan = int(train_matches[["home_goals", "away_goals"]].isna().any(axis=1).sum())
+    if n_nan:
+        raise ValueError(
+            f"Dixon-Coles training set contains {n_nan} match(es) without a result (NaN goals) -- "
+            "refusing to fit: the optimiser would silently return its starting point. Filter the "
+            "training rows with dixon_coles.knowable_before(matches, cutoff).")
+    if len(train_matches) == 0:
+        raise ValueError("Dixon-Coles training set is empty -- refusing to fit")
     idx = {t: i for i, t in enumerate(all_teams)}
     nt = len(all_teams)
     h = train_matches["home"].map(idx).values
@@ -112,6 +153,12 @@ def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days):
 
     x0 = np.zeros(2 * nt + 2); x0[-2] = 0.25
     res = minimize(nll, x0, method="L-BFGS-B")
+    LAST_FIT.clear()
+    LAST_FIT.update(n_train=int(len(train_matches)), n_teams=int(nt), iterations=int(res.nit),
+                    converged=bool(res.success), max_abs_attack=float(np.abs(res.x[:nt]).max()),
+                    max_abs_defence=float(np.abs(res.x[nt:2 * nt]).max()),
+                    home_adv=float(res.x[-2]), rho=float(res.x[-1]),
+                    ref_date=str(pd.Timestamp(ref_date)))
     return res.x, idx, nt
 
 
@@ -275,7 +322,13 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
         ref = matches[matches["season"] == predict_season]["date_parsed"].min()
     else:
         cutoff = pd.to_datetime(cutoff_date)
-        train_m = matches[matches["date_parsed"] < cutoff].copy()
+        # RULE R: results knowable at the cutoff = finished before the cutoff
+        # DAY (see knowable_before). Was `date_parsed < cutoff` -- a timed
+        # cutoff against day-stamped dates admitted the cutoff day's matches:
+        # their results in the backtest (LEAKAGE.md item 7), their unplayed
+        # NaN goals live (the degenerate fit, Logs/dc_degenerate_fit_finding
+        # _2026-09-13.md). Fixed 2026-09-13; the record was rebuilt.
+        train_m = matches[knowable_before(matches, cutoff)].copy()
         ref = cutoff
 
     params, idx, nt = _fit_dc_decay(train_m, teams, ref, HALF_LIFE_DAYS)

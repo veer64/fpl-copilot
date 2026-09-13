@@ -1357,3 +1357,55 @@ Both paths read the same stack with the target gameweek on disk; the leak was in
 guard truncates every per-season input to the deadline's information set (and, for the combined config,
 reconstructs the horizon refit in-process instead of reading it) and asserts bit-identity against the record.
 It is the standing guard from 2026-09-11; its residual coverage is listed in LEAKAGE.md.
+
+## #25 -- the Dixon-Coles fit's cutoff boundary: the record trained on the cutoff day's RESULTS, the live build trained on the cutoff day's UNPLAYED fixtures and silently returned its starting point -- CLOSED 2026-09-13
+
+**Status:** Found 2026-09-13 while designing `explain_prediction` (the frame showed two `team_lambda` values across
+the league at every step >= 1 of every 2026-27 build); the backtest half found the same day by asking why the as-of
+guard had not seen it (LEAKAGE.md item 7). Pre-registered (`Logs/dc_fix_prereg_2026-09-13.md`), fixed, record
+rebuilt, both gates green (`Logs/dc_fix_log_2026-09-13.md`). Scope: `squad/dixon_coles.py::get_fixtures` /
+`_fit_dc_decay`, `eval/asof_reconstruction.py::asof_world`, `squad/live_deadline.postflight`.
+
+### What was found
+`get_fixtures(cutoff_date=...)` trained on `matches[date_parsed < cutoff]`: a cutoff WITH time of day (the
+gameweek's first kickoff) compared against the odds archive's DAY-stamped match dates, so every match dated on the
+cutoff day counted as "before the cutoff". Two consequences from one comparison:
+- **Backtest (a leak):** the fit at cutoff k trained on the cutoff day's results, none of which had finished at
+  the cutoff. 2025-26: 159 such matches over 38 cutoffs (mean 4.2; 8 on a full Saturday, 10 at GW38). Size on the
+  decision partitions (finding log section 8, counterfactual at seven cutoffs): step 0 negligible (market-priced
+  lambdas; only the 0.2 DC share of p_cs), steps 1-5 top-30 mean |delta e_points| 0.02-0.08, max ~0.5 at the
+  early cutoffs, Spearman 0.90-0.99.
+- **Live (a degenerate model):** on the server the cutoff day's fixtures are UNPLAYED, so the training set carried
+  NaN goals, the likelihood was NaN, and L-BFGS-B returned its initial parameters (attack = defence = 0, home
+  advantage 0.25) at iteration zero without an error. Every 2026-27 build's steps >= 1 priced every fixture at
+  home e^0.25 / away 1.0 -- fixture difficulty reduced to home/away. Step 0 was market-priced (LAM_BLEND_W = 0)
+  except its p_cs DC share. Reproduced read-only in the image (finding log section 2).
+
+### Why the as-of guard missed it
+The guard's truncation nulled goals where `date_parsed >= cutoff_date` -- the SAME timed-vs-day comparison as the
+record's filter, written independently. Cutoff-day results survived on both sides, so bit-identity at the
+boundary was structural, not evidence: the guard proves the reconstruction matches the record's filter, not
+that the record's filter was knowable. Parity has the same limit (it proves the code does not diverge, not that
+the inputs were knowable). Both halves are now in the handoff's rule 4.
+
+### The fix (a pre-registered model-path change)
+One rule, defined once, used by both sides so that they can DISAGREE: `dixon_coles.knowable_before(matches,
+cutoff)` := dated strictly before the cutoff DAY and both goals present. The training filter selects by it; the
+guard's truncation nulls its complement. `_fit_dc_decay` raises on any NaN goal or an empty set (the assertion
+behind the rule -- it cannot fire under it, it exists so a bypass fails loudly). A permanent strict detector in
+`live_deadline.postflight` raises when a step's team lambdas sit at the starting point or collapse to <= 2 values.
+The fit summary (`dixon_coles.LAST_FIT`) rides in every run's KNOWLEDGE block. The pre-registered first test --
+the new guard against the OLD record at cutoff 4 -- FAILED as required (14 columns moving at steps >= 1, p_cs at
+step 0), proving the sides can now disagree. Then the record was rebuilt (canonicals, gap0 arm frames, record
+armlogs; pre-fix artefacts preserved as `*_pre_dcfix`), the guard re-run at all 38 cutoffs of 2025-26 for both
+configs plus 2023-24 / 2024-25 samples, and the rank endpoint checked against the pre-registered bounds -- the
+figures are in `Logs/dc_fix_log_2026-09-13.md` sections 4-7, and the season totals there are regenerated and
+labelled, never cited.
+
+### Exposed by the closure, NOT fixed (open; a model-path decision)
+The fit has no prior or shrinkage on team strengths. A promoted club with no archive history and one
+scoreless match is priced at ZERO attack (lambda 0.001) at every horizon step until it scores -- in the record
+at 2024-25 cutoff 2 (Ipswich), where the leaked cutoff-day match had happened to anchor it. Live-relevant at
+the start of every season. The strict degenerate-fit detector does not fire on it (one club, not the league).
+Options: a weak Gaussian prior on attack/defence parameters, or a floor on the current-season sample with
+prior-season / league-average fallback; either is a model change with its own pre-registration.

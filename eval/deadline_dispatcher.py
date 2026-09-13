@@ -153,5 +153,26 @@ def main():
         sys.exit(1)
 
 
+def _hard_exit(code):
+    """Exit WITHOUT interpreter finalisation. 2026-09-13 03:20Z the tick saved its
+    state, logged its decision and then hung for 13 hours at interpreter shutdown
+    (every thread in futex wait, no sockets, nothing left to write -- the
+    pyarrow/jemalloc worker threads that the parquet read starts are the suspect).
+    Its container stayed up, the host-side `flock -n` on /tmp/fpl-dispatch.lock
+    stayed held, and BOTH the dispatcher and the weekly ingest (which takes the
+    same lock) were silently skipped until it was killed by hand. Every artefact
+    this process writes is written atomically before main returns, so skipping
+    finalisation loses nothing; a tick must never outlive its work."""
+    import os
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        _code = 0
+    except SystemExit as e:                      # sys.exit(1) on a failed build; argparse's 2
+        _code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    _hard_exit(_code)

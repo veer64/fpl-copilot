@@ -885,4 +885,15 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Exit WITHOUT interpreter finalisation (same reason as eval/deadline_dispatcher.py's
+    # _hard_exit): on 2026-09-13 a dispatcher tick hung for 13 hours at interpreter
+    # shutdown after all its work was done, and its host lock silently blocked this
+    # tick too. Everything here is written atomically before main returns.
+    try:
+        _code = int(main() or 0)
+    except SystemExit as e:
+        _code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    import os
+    os._exit(_code)

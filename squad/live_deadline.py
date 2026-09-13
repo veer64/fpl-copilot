@@ -411,6 +411,28 @@ def postflight(frame, season, gw, strict=False, horizon=1):
             _finding(findings, strict,
                      f"horizon-{horizon} frame carries steps {steps}, expected {want} -- the horizon "
                      f"was silently truncated (missing master/fixture rows for the dropped gameweeks)")
+    # Dixon-Coles strengths degenerate (2026-09-13, permanent): a fit that
+    # aborted at its starting point prices every fixture at home e^0.25 /
+    # away 1.0, so a step's team lambdas collapse to two values across the
+    # league. Mechanically detectable, and it RAISES under strict through
+    # _finding -- not a plain append with a benign reading (the failure shape
+    # of the DC_BASE note below, KNOWN_ISSUES #22). Stays after the fix: a
+    # detector that only exists while the bug exists teaches nothing.
+    X0_HOME, X0_AWAY = float(np.exp(0.25)), 1.0
+    for step, s in frame.groupby("horizon_step" if "horizon_step" in frame.columns else "gw"):
+        lam = s.groupby("team")["team_lambda"].first().dropna()
+        if len(lam) < 10:
+            continue
+        distinct = int(lam.round(6).nunique())
+        at_x0 = bool(np.isclose(lam, X0_HOME, atol=1e-6).all() | np.isclose(lam, X0_AWAY, atol=1e-6).all()
+                     | (np.isclose(lam, X0_HOME, atol=1e-6) | np.isclose(lam, X0_AWAY, atol=1e-6)).all())
+        if at_x0 or distinct <= 2:
+            _finding(findings, strict,
+                     f"Dixon-Coles strengths DEGENERATE at horizon step {step}: {distinct} distinct "
+                     f"team_lambda value(s) across {len(lam)} clubs"
+                     + (" -- exactly the fit's starting point (home e^0.25 / away 1.0)" if at_x0 else "")
+                     + "; the fit aborted or trained on nothing (Logs/dc_degenerate_fit_finding_2026-09-13.md)")
+
     f = frame[frame["gw"] == gw]
 
     if len(f) < MIN_FRAME_ROWS:

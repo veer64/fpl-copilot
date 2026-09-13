@@ -144,7 +144,15 @@ def asof_world(season, k, tmpdir, record_source=False, reconstruct_refit=False, 
         def load_matches_trunc(predict_season=None):
             m = _lm(predict_season)
             this = m["season"] == season
-            m.loc[this & (m["date_parsed"] >= cutoff_date), ["home_goals", "away_goals"]] = np.nan
+            # RULE R, from the SAME function the fit's training filter uses
+            # (dixon_coles.knowable_before): every result the rule says is not
+            # knowable at the cutoff is nulled here. Before 2026-09-13 this line
+            # compared day-stamped dates against the timed cutoff, exactly as
+            # the record's filter did, so cutoff-day results survived on both
+            # sides and bit-identity there was structural (LEAKAGE.md item 7).
+            # Now the two sides can disagree: a filter loosened to admit the
+            # cutoff day trains on rows this truncation has nulled.
+            m.loc[this & ~dixon_coles.knowable_before(m, cutoff_date), ["home_goals", "away_goals"]] = np.nan
             m.loc[this & (m["date_parsed"] > odds_until), ["b365h", "b365d", "b365a"]] = np.nan
             return m
         dixon_coles._load_matches = load_matches_trunc

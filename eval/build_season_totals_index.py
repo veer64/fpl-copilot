@@ -148,7 +148,8 @@ STAMPS = ["minutes_availability", "odds_horizon_gws", "dgw_handling",
 STALE_SUFFIXES = ["prefix", "dcbase", "prerateblend", "preunify", "presynth",
                   "synth", "baseline", "d1cards", "av", "odds2", "dgwonly",
                   "precrosswalk",      # 2025-26 canonical / arm frames before the crosswalk fix (a758541)
-                  "preasof"]           # every canonical / arm frame before the 2026-09-11 as-of rebuild (LEAKAGE.md items 6-9)
+                  "preasof",           # every canonical / arm frame before the 2026-09-11 as-of rebuild (LEAKAGE.md items 6-9)
+                  "pre_dcfix"]         # every canonical / arm frame before the 2026-09-13 Dixon-Coles cutoff-day rebuild (LEAKAGE.md item 7; KNOWN_ISSUES #25)
 STALE_RE = re.compile(r"_(" + "|".join(STALE_SUFFIXES) + r")\.parquet")
 
 # Known-of-record figures the recompute chain must reproduce exactly.
@@ -164,6 +165,11 @@ TC2_DROP_REASON = "collision with BB2 -- one chip per gameweek"
 # ARMS family (data/arms/armlog_*): props / horizon-minutes / both, all CLOSED
 # non-adoptions (2026-08-26). Drift check against the measure script of record
 # (eval/measure_arms_full_system.py; Logs/props_season_log.md).
+# The gap0-family cells of the 2026-09-13 Dixon-Coles cutoff-day rebuild, pinned from the armlogs (drift check only).
+# Were 2390 / 2285 / 2249 (gap0_tc2), 2302 / 2275 / 2227 (hmin_gap0), 2335 / 2074 (both_gap0) on the 2026-09-11 frames.
+GAP0_TC2_2324, GAP0_TC2_2425, GAP0_TC2_2526 = 2387, 2325, 2279
+HMIN_GAP0_2324, HMIN_GAP0_2425, HMIN_GAP0_2526 = 2271, 2292, 2227
+BOTH_GAP0_2425, BOTH_GAP0_2526 = 2422, 2222
 EXPECT_ARMS_CHIP = {("2023-24", "hmin"): 2405, ("2024-25", "baseline8"): 2294,
                     ("2024-25", "props"): 2243, ("2024-25", "hmin"): 2339,
                     ("2024-25", "both"): 2257, ("2025-26", "props"): 2099,
@@ -179,21 +185,27 @@ EXPECT_ARMS_CHIP = {("2023-24", "hmin"): 2405, ("2024-25", "baseline8"): 2294,
                     # Arms that ran TC2 zero carry a TC2-equivalent captain multiple at the rule week (GW25/24/26).
                     # 2026-09-11 AS-OF REBUILD (Logs/asof_rebuild_log.md section 9): the gap0 family re-run on the
                     # leak-fixed frames. The pre-rebuild armlogs are preserved as *_preasof and indexed as SUPERSEDED.
-                    ("2023-24", "gap0_tc2"): 2390, ("2024-25", "gap0_tc2"): 2285, ("2025-26", "gap0_tc2"): 2249,
+                    # 2026-09-13 DC CUTOFF-DAY REBUILD (Logs/dc_fix_log_2026-09-13.md; LEAKAGE.md item 7; KNOWN_ISSUES #25): the gap0 family
+                    # re-run on frames whose Dixon-Coles fit no longer trains on the cutoff day's results. The 2026-09-11 armlogs are
+                    # preserved as *_pre_dcfix and indexed as SUPERSEDED. Regenerated and labelled; they decide nothing (prereg section 5.7).
+                    ("2023-24", "gap0_tc2"): GAP0_TC2_2324, ("2024-25", "gap0_tc2"): GAP0_TC2_2425, ("2025-26", "gap0_tc2"): GAP0_TC2_2526,
+                    ("2023-24", "gap0_tc2_pre_dcfix"): 2390, ("2024-25", "gap0_tc2_pre_dcfix"): 2285, ("2025-26", "gap0_tc2_pre_dcfix"): 2249,
                     ("2023-24", "gap0_tc2_preasof"): 2343, ("2024-25", "gap0_tc2_preasof"): 2306, ("2025-26", "gap0_tc2_preasof"): 2216,
                     ("2025-26", "gap0_tc2_precrosswalk"): 2190,
-                    ("2023-24", "hmin_gap0"): 2302, ("2024-25", "hmin_gap0"): 2275, ("2025-26", "hmin_gap0_tc2"): 2227,
+                    ("2023-24", "hmin_gap0"): HMIN_GAP0_2324, ("2024-25", "hmin_gap0"): HMIN_GAP0_2425, ("2025-26", "hmin_gap0_tc2"): HMIN_GAP0_2526,
+                    ("2023-24", "hmin_gap0_pre_dcfix"): 2302, ("2024-25", "hmin_gap0_pre_dcfix"): 2275, ("2025-26", "hmin_gap0_tc2_pre_dcfix"): 2227,
                     ("2023-24", "hmin_gap0_preasof"): 2425, ("2024-25", "hmin_gap0_preasof"): 2335, ("2025-26", "hmin_gap0_tc2_preasof"): 2266,
                     ("2025-26", "hmin_gap0_tc2_precrosswalk"): 2266,
                     # props_gap0 armlogs were NOT re-run on the as-of frames (exploratory, never evidence): still the pre-fix figures
                     ("2024-25", "props_gap0"): 2328, ("2025-26", "props_gap0_tc2"): 2221, ("2025-26", "props_gap0_tc2_precrosswalk"): 2212,
-                    ("2024-25", "both_gap0"): 2335, ("2025-26", "both_gap0_tc2"): 2074,
+                    ("2024-25", "both_gap0"): BOTH_GAP0_2425, ("2025-26", "both_gap0_tc2"): BOTH_GAP0_2526,
+                    ("2024-25", "both_gap0_pre_dcfix"): 2335, ("2025-26", "both_gap0_tc2_pre_dcfix"): 2074,
                     ("2024-25", "both_gap0_preasof"): 2459, ("2025-26", "both_gap0_tc2_preasof"): 2264,
                     ("2025-26", "both_gap0_tc2_precrosswalk"): 2283}
 # THE REFERENCE CELLS OF RECORD (2026-09-11): BASELINE on the gap0 convention, on the as-of-rebuilt frames.
 # Was 2425/2335/2266 (hmin_gap0, 2026-08-28, with the objection) and 2251/2306/2268 (bonusdel_tc2, 2026-08-26).
 # NOT adopted on these figures -- see the module docstring, the index HEADER and Logs/baseline_adoption_log.md.
-EXPECT_REFERENCE_CHIP = {"2023-24": 2390, "2024-25": 2285, "2025-26": 2249}
+EXPECT_REFERENCE_CHIP = {"2023-24": GAP0_TC2_2324, "2024-25": GAP0_TC2_2425, "2025-26": GAP0_TC2_2526}
 REFERENCE_ARM = {"2023-24": "gap0_tc2", "2024-25": "gap0_tc2", "2025-26": "gap0_tc2"}
 GAP0_FAMILY = ("gap0", "props_gap0", "hmin_gap0", "both_gap0", "hold_gap0")
 TC2_RULE_WEEK = {"2023-24": 25, "2024-25": 24, "2025-26": 26}      # p4 log 12c (ii)
@@ -206,13 +218,16 @@ ARM_LABEL = {"baseline8": "baseline re-run", "props": "arm=props",
              "bonusdel_tc2": "bonus_delete + TC2 in-sim (SUPERSEDED reference cell 2026-08-26, pre-leak-fix canonical)",
              "leakfix": "arm=leak-fixed canonical (bonus_delete; TC2 scored zero)",
              "leakfix_tc2": "leak-fixed canonical + bonus_delete + TC2 in-sim (SUPERSEDED reference cell 2026-08-27; MIP gap 1e-4)",
-             "gap0_tc2": "PRODUCTION = REFERENCE CELL OF RECORD (2026-09-11): baseline gap0 on the as-of-rebuilt frames (leak fix + solver gap 0 + fixed crosswalk; bonus_delete; TC2 in-sim)",
+             "gap0_tc2": "PRODUCTION = REFERENCE CELL OF RECORD (2026-09-11; frames rebuilt 2026-09-13 for the DC cutoff-day fix): baseline gap0 on the as-of-rebuilt frames (leak fix + solver gap 0 + fixed crosswalk; bonus_delete; TC2 in-sim)",
+             "gap0_tc2_pre_dcfix": "baseline gap0 on the PRE-DC-FIX as-of frames (SUPERSEDED 2026-09-13; was PRODUCTION = REFERENCE CELL OF RECORD 2026-09-11)",
              "gap0_tc2_preasof": "baseline gap0 on the PRE-AS-OF frames (SUPERSEDED 2026-09-11; was the SHADOW row 2026-08-28)",
              "gap0_tc2_precrosswalk": "baseline gap0 on the PRE-CROSSWALK 2025-26 canonical (SUPERSEDED candidate 2026-08-27)",
              "hmin_gap0": "arm=horizon_minutes on gap0, as-of frames (SUPERSEDED reference cell 2026-09-11; lever UNSETTLED; TC2 zero; TC2-equivalent read at the rule week)",
              "hmin_gap0_tc2": "arm=horizon_minutes on gap0 + TC2 in-sim, as-of frames (SUPERSEDED reference cell 2026-09-11; lever UNSETTLED)",
              "hmin_gap0_preasof": "arm=horizon_minutes on gap0, PRE-AS-OF frames (SUPERSEDED reference cell 2026-09-11; was REFERENCE CELL OF RECORD 2026-08-28)",
              "hmin_gap0_tc2_preasof": "arm=horizon_minutes on gap0 + TC2 in-sim, PRE-AS-OF frames (SUPERSEDED reference cell 2026-09-11; was REFERENCE CELL OF RECORD 2026-08-28)",
+             "hmin_gap0_pre_dcfix": "arm=horizon_minutes on gap0, PRE-DC-FIX as-of frames (SUPERSEDED 2026-09-13; was the superseded reference cell of 2026-09-11)",
+             "hmin_gap0_tc2_pre_dcfix": "arm=horizon_minutes on gap0 + TC2 in-sim, PRE-DC-FIX as-of frames (SUPERSEDED 2026-09-13; was the superseded reference cell of 2026-09-11)",
              "hmin_gap0_tc2_precrosswalk": "arm=horizon_minutes on gap0, PRE-CROSSWALK 2025-26 frame (SUPERSEDED)",
              "props_gap0": "arm=props on gap0 (EXPLORATORY; armlog NOT re-run on the as-of frames -- SUPERSEDED 2026-09-11; TC2 zero; TC2-equivalent read at the rule week)",
              "props_gap0_tc2": "arm=props on gap0 + TC2 in-sim (EXPLORATORY; armlog NOT re-run on the as-of frames -- SUPERSEDED 2026-09-11)",
@@ -221,6 +236,8 @@ ARM_LABEL = {"baseline8": "baseline re-run", "props": "arm=props",
              "both_gap0_tc2": "arm=props+horizon_minutes on gap0 + TC2 in-sim, as-of frames (SUPERSEDED production intent 2026-09-11; levers UNSETTLED)",
              "both_gap0_preasof": "arm=props+horizon_minutes on gap0, PRE-AS-OF frames (SUPERSEDED 2026-09-11; was PRODUCTION INTENT 2026-08-28)",
              "both_gap0_tc2_preasof": "arm=props+horizon_minutes on gap0 + TC2 in-sim, PRE-AS-OF frames (SUPERSEDED 2026-09-11; was PRODUCTION INTENT 2026-08-28)",
+             "both_gap0_pre_dcfix": "arm=props+horizon_minutes on gap0, PRE-DC-FIX as-of frames (SUPERSEDED 2026-09-13; was the superseded production-intent row of 2026-09-11)",
+             "both_gap0_tc2_pre_dcfix": "arm=props+horizon_minutes on gap0 + TC2 in-sim, PRE-DC-FIX as-of frames (SUPERSEDED 2026-09-13; was the superseded production-intent row of 2026-09-11)",
              "both_gap0_tc2_precrosswalk": "arm=props+horizon_minutes on gap0, PRE-CROSSWALK 2025-26 frame (SUPERSEDED)"}
 # arms whose walk-forward frame lives in data/ (not data/arms/); bonusdel_tc2 shares bonusdel's frame
 ARM_WF_IN_DATA = {"penfix": "penfix", "cal": "cal", "cal_penfix": "cal_penfix", "bonusow": "bonusow",
@@ -589,27 +606,29 @@ def cap_pred_arm(season, arm):
     return cap_pred(season)
 
 
-def _gap0_frames(season, base_arm, precrosswalk, preasof=False):
+def _gap0_frames(season, base_arm, precrosswalk, preserved=""):
     """(canonical frame name, arm frame name or None) for a gap0-family arm, as the
     strings the index uses for wf provenance (relative to data/). 2025-26 rows built
     before the crosswalk fix point at the preserved _precrosswalk files; rows built
     before the 2026-09-11 as-of rebuild point at the preserved _preasof files (every
     season). props_gap0 armlogs were NOT re-run on the as-of frames, so their rows
-    are read against the _preasof frames they were actually built on."""
+    are read against the _preasof frames they were actually built on. Rows built before the
+    2026-09-13 Dixon-Coles cutoff-day rebuild point at the preserved _pre_dcfix files.
+    `preserved` is that suffix ("" for the current frames)."""
     tag = season.replace("-", "_")
-    suf = "_precrosswalk" if (precrosswalk and season == "2025-26") else ("_preasof" if preasof else "")
+    suf = "_precrosswalk" if (precrosswalk and season == "2025-26") else preserved
     canon = f"walkforward_h6_{tag}{suf}.parquet"
     a = base_arm.replace("_gap0", "")
     arm_wf = None if base_arm in ("gap0", "hold_gap0") else f"arms_gap0/walkforward_h6_{tag}_{a}{suf}.parquet"
     return canon, arm_wf
 
 
-def cap_pred_gap0(season, base_arm, precrosswalk, preasof=False):
+def cap_pred_gap0(season, base_arm, precrosswalk, preserved=""):
     """TC1 captain predictions for the gap0 family, mirroring data/leakfix_logs/arms_table.py
     exactly: the canonical's own-cutoff e_points, overridden by the arm frame's where the arm
     touches step 0 (props / both). hmin leaves step 0 untouched."""
-    canon, arm_wf = _gap0_frames(season, base_arm, precrosswalk, preasof)
-    key = ("gap0cp", season, base_arm, precrosswalk, preasof)
+    canon, arm_wf = _gap0_frames(season, base_arm, precrosswalk, preserved)
+    key = ("gap0cp", season, base_arm, precrosswalk, preserved)
     if key in _cap_cache:
         return _cap_cache[key]
     wf = pd.read_parquet(REPO / "data" / canon, columns=["cutoff", "gw", "name", "e_points"])
@@ -623,7 +642,7 @@ def cap_pred_gap0(season, base_arm, precrosswalk, preasof=False):
     return cp
 
 
-def _prefix_log(resume_from, tag, preasof=False):
+def _prefix_log(resume_from, tag, preserved=""):
     """Log whose GW1..k rows are stitched in front of an arm that starts at GW k+1.
     Pre-gap0 arms resumed from the fslog reference; gap0 arms resume from armlog_*_gap0_tc2
     (the runner stamps `resume_from`). A pre-as-of arm (or the props_gap0 arm, which was not
@@ -632,8 +651,8 @@ def _prefix_log(resume_from, tag, preasof=False):
     arm actually continued from (asserted below by final_total == stitched points.sum())."""
     name = str(resume_from).split("@")[0] if resume_from not in (None, "none", "") else ""
     if name.startswith("armlog_"):
-        if preasof and not name.endswith("_preasof.parquet"):
-            name = name.replace(".parquet", "_preasof.parquet")
+        if preserved and not name.endswith(f"{preserved}.parquet"):
+            name = name.replace(".parquet", f"{preserved}.parquet")
         return pd.read_parquet(ARMS / name)
     if name.startswith("fslog_"):
         return pd.read_parquet(P1 / name)
@@ -655,9 +674,11 @@ def rows_arms():
         season, base_arm = d["season"].iloc[0], d["arm"].iloc[0]
         precrosswalk = p.stem.endswith("_precrosswalk")
         preasof = p.stem.endswith("_preasof")          # pre-2026-09-11 armlogs, preserved and SUPERSEDED
+        pre_dcfix = p.stem.endswith("_pre_dcfix")      # 2026-09-11 armlogs before the 2026-09-13 DC cutoff-day rebuild, preserved and SUPERSEDED
         # props_gap0 armlogs were not re-run on the as-of frames: read them against the frames they
         # were built on (the preserved _preasof ones) so their TC1 read reproduces their figure of record.
-        frames_preasof = preasof or (base_arm == "props_gap0")
+        # Likewise every preserved armlog is read against the frames of ITS lineage.
+        frames_preserved = "_preasof" if (preasof or base_arm == "props_gap0") else ("_pre_dcfix" if pre_dcfix else "")
         arm = base_arm
         if "tc2_gw" in d.columns and int(d["tc2_gw"].iloc[0]) > 0:
             arm = f"{arm}_tc2"          # in-sim TC2 variant (armlog_*_tc2.parquet; the log's arm column is the base arm)
@@ -665,11 +686,13 @@ def rows_arms():
             arm = f"{arm}_precrosswalk"
         if preasof:
             arm = f"{arm}_preasof"
+        if pre_dcfix:
+            arm = f"{arm}_pre_dcfix"
         gap0 = base_arm in GAP0_FAMILY
         tag = season.replace("-", "_")
         start_gw = int(d["start_gw"].iloc[0])
         ref = _prefix_log(d["resume_from"].iloc[0] if "resume_from" in d.columns else None, tag,
-                          preasof=frames_preasof)
+                          preserved=frames_preserved)
         full = (pd.concat([ref[ref["gw"] < start_gw], d], ignore_index=True)
                 if start_gw > 1 else d)
         assert int(d["final_total"].iloc[0]) == int(full["points"].sum()), \
@@ -682,8 +705,8 @@ def rows_arms():
         assert (tc_in == [] or arm.endswith("_tc2") or "_tc2_" in arm or arm in ("bonusdel_tc2", "leakfix_tc2")), \
             f"{p.name}: in-sim TC on a non-TC2 arm"
         if gap0:
-            canon_wf, arm_wf = _gap0_frames(season, base_arm, precrosswalk, frames_preasof)
-            cp = cap_pred_gap0(season, base_arm, precrosswalk, frames_preasof)
+            canon_wf, arm_wf = _gap0_frames(season, base_arm, precrosswalk, frames_preserved)
+            cp = cap_pred_gap0(season, base_arm, precrosswalk, frames_preserved)
             reads = [("bench", bb1, int(full.loc[bb1, "bench_points"])),
                      ("bench", bb2, int(full.loc[bb2, "bench_points"]))]
             tc1_gw, tc1 = tc1_read(full, {2, bb1}, cp)
@@ -724,10 +747,20 @@ def rows_arms():
         elif arm == REFERENCE_ARM.get(season) and gap0:
             flags = ("PRODUCTION AND REFERENCE CELL OF RECORD (2026-09-11): baseline on the gap0 convention (leak fix e04fb72, "
                      "solver gap 0 37ad782, fixed crosswalk a758541, BONUS_MODE=delete, TC2 in-sim) on the AS-OF-REBUILT frames "
-                     "(LEAKAGE.md items 6-9 closed; KNOWN_ISSUES #22/#23/#24). Adopted 2026-09-11 as a JUDGEMENT CALL after the leak "
+                     "(LEAKAGE.md items 6-9 closed; KNOWN_ISSUES #22/#23/#24), REBUILT AGAIN 2026-09-13 with the Dixon-Coles fit no "
+                     "longer training on the cutoff day's results (LEAKAGE.md item 7; KNOWN_ISSUES #25; the 2026-09-11 cell is the "
+                     "_pre_dcfix row). Adopted 2026-09-11 as a JUDGEMENT CALL after the leak "
                      "fix invalidated the comparison the 2026-08-28 horizon choice rested on -- NOT on season totals "
                      "(Logs/baseline_adoption_log.md; the index header). Baseline is the only configuration whose adoption never "
                      "needed an objection recorded")
+        elif pre_dcfix:
+            flags = ("SUPERSEDED (2026-09-13): built on the 2026-09-11 as-of frames, whose Dixon-Coles fit still trained on the cutoff "
+                     "day's RESULTS (LEAKAGE.md item 7 -- the date-boundary blind spot shared by the record's filter and the guard; "
+                     "KNOWN_ISSUES #25); preserved as *_pre_dcfix, never deleted. Its figure of record " + (
+                     "was PRODUCTION AND THE REFERENCE CELL OF RECORD (2026-09-11)" if base_arm == "gap0" else
+                     "was the superseded reference cell (2026-09-11, horizon; lever UNSETTLED)" if base_arm == "hmin_gap0" else
+                     "was the superseded production-intent row (2026-09-11, combined; levers UNSETTLED)" if base_arm == "both_gap0" else "was exploratory")
+                     + f"; the cell of record is arms/armlog_{tag}_{REFERENCE_ARM[season]} ({EXPECT_REFERENCE_CHIP[season]})")
         elif preasof:
             flags = ("SUPERSEDED (2026-09-11): built on frames carrying the three outcome-selection leaks (DC conditioned on realised "
                      "appearance, saves unfrozen at the cutoff, p60 conditioned on the realised start -- LEAKAGE.md items 6-9); "
@@ -742,7 +775,7 @@ def rows_arms():
         elif base_arm in ("hmin_gap0", "both_gap0"):
             flags = ("SUPERSEDED " + ("reference cell" if base_arm == "hmin_gap0" else "production intent") + " (2026-09-11): the "
                      + ("horizon-minutes" if base_arm == "hmin_gap0" else "combined props + horizon-minutes") + " arm re-run on the "
-                     "as-of-rebuilt frames. The lever" + ("" if base_arm == "hmin_gap0" else "s") + " are UNSETTLED, not settled: the "
+                     "as-of-rebuilt frames (rebuilt again 2026-09-13, DC cutoff-day fix). The lever" + ("" if base_arm == "hmin_gap0" else "s") + " are UNSETTLED, not settled: the "
                      "pre-registered verdict(s) were reached on leaked frames; any re-measurement is a NEW pre-registration on clean "
                      "frames (none run). Season figure only, never evidence"
                      + ("; no 2023-24 cell (anytime-scorer market began autumn 2024)" if base_arm == "both_gap0" else ""))
@@ -863,7 +896,11 @@ SECTIONS = [
      "gap0_tc2 (**PRODUCTION AND THE REFERENCE CELLS OF RECORD, 2390 / 2285 / 2249**), "
      "hmin_gap0 (superseded reference cell; lever UNSETTLED), both_gap0 (superseded production "
      "intent; levers UNSETTLED). props_gap0 was NOT re-run. Every pre-rebuild armlog is kept as "
-     "*_preasof and listed here as SUPERSEDED, read against the _preasof frames it was built on."),
+     "*_preasof and listed here as SUPERSEDED, read against the _preasof frames it was built on. "
+     "RE-RUN AGAIN 2026-09-13 on frames whose Dixon-Coles fit no longer trains on the cutoff day's "
+     "results (LEAKAGE.md item 7; KNOWN_ISSUES #25; Logs/dc_fix_log_2026-09-13.md): gap0_tc2 stays "
+     "PRODUCTION AND THE REFERENCE CELLS OF RECORD on the rebuilt frames; the 2026-09-11 armlogs are kept "
+     "as *_pre_dcfix and listed as SUPERSEDED, read against the _pre_dcfix frames they were built on."),
     ("references", "REFERENCES -- pre-canonical lineage figures",
      "Retained for lineage only."),
 ]
@@ -938,7 +975,10 @@ pre-leak-fix, 2026-08-28 -> superseded 2026-09-11); 2343 / 2306 / 2216 (baseline
 pre-leak-fix, the former shadow); 2459 / 2264 (combined, pre-leak-fix); 2302 / 2275 /
 2227 (horizon, post-fix); 2335 / 2074 (combined, post-fix); 2328 / 2221 (props; armlogs
 NOT re-run on the as-of frames, read against the preserved _preasof frames). Every
-pre-rebuild artefact is preserved as `*_preasof` and indexed as SUPERSEDED.
+pre-rebuild artefact is preserved as `*_preasof` and indexed as SUPERSEDED. 2026-09-13: the
+gap0 family re-run once more after the Dixon-Coles cutoff-day fix (LEAKAGE.md item 7,
+KNOWN_ISSUES #25); the 2026-09-11 cells 2390 / 2285 / 2249, 2302 / 2275 / 2227 and 2335 / 2074
+are preserved as `*_pre_dcfix` and indexed as SUPERSEDED; the regenerated cells decide nothing.
 
 **REFERENCE CELLS OF RECORD (moved 2026-08-28; SUPERSEDED 2026-09-11, kept for lineage) -- and the objection, on the record.**
 The reference cells were then the **horizon-minutes arm on the gap0 convention**:
@@ -1119,7 +1159,8 @@ FOOTER = """
    hmin_gap0 and both_gap0 (as-of) are superseded reference / production-intent rows
    with UNSETTLED levers; the _preasof rows are the pre-leak-fix lineage (superseded);
    props_gap0 was not re-run. The bonusdel_tc2 / leakfix_tc2 / _precrosswalk rows are
-   superseded lineage. A _preasof row may be compared ONLY to another _preasof row.
+   superseded lineage. A _preasof row may be compared ONLY to another _preasof row, and a
+   _pre_dcfix row (the 2026-09-11 lineage, before the DC cutoff-day rebuild) ONLY to another _pre_dcfix row.
 11. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
    REFERENCE row: NOT comparable.
 

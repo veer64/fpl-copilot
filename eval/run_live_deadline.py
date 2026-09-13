@@ -218,7 +218,19 @@ def knowledge_block(season, gw, frames, started_at, finished_at, kind, slot, att
         "frame_cutoff_gw": (int(f["cutoff"].min()) if f is not None and "cutoff" in f.columns else gw),
         "frame_gws": (sorted(int(g) for g in f["gw"].unique()) if f is not None else None),
         "deadline_at": dl_at, "config": cr.PRODUCTION_CONFIG,
+        # the Dixon-Coles fit this build used (dixon_coles.LAST_FIT): visible in
+        # /health and every `built` line, so a degenerate fit is seen, not
+        # only raised on
+        "dc_fit": _dc_fit_summary(),
     }
+
+
+def _dc_fit_summary():
+    try:
+        import dixon_coles
+        return dict(dixon_coles.LAST_FIT) or None
+    except Exception:
+        return None
 
 
 def run(R, season, gw, started_at=None):

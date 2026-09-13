@@ -322,5 +322,18 @@ the as-of rebuild against the record files at cutoffs 20 and 24 (24 spans the GW
    truncation keeps those rows' goals exactly as the record does. Closing both: truncate and train on matches
    FINISHED before the cutoff instant (day granularity, or played-only), and make the guard's truncation use the
    same rule, so the two sides can disagree when one of them reads the cutoff day.
+   **CLOSED 2026-09-13** (pre-registered: `Logs/dc_fix_prereg_2026-09-13.md`; executed: `Logs/dc_fix_log_2026-09-13.md`;
+   KNOWN_ISSUES #25). One rule, `dixon_coles.knowable_before(matches, cutoff)` (dated strictly before the cutoff
+   DAY, both goals present), is now the training filter's selection AND the guard's truncation, so the two sides
+   can disagree — and were shown to: the new guard FAILED against the old 2025-26 record at cutoff 4 (14 columns
+   moving at steps ≥ 1, `p_cs` at step 0) before the record was rebuilt, and is bit-identical at all 38 cutoffs of
+   2025-26 in both configs (plus 2023-24 / 2024-25 samples) after. `_fit_dc_decay` raises on a NaN goal (the live
+   degenerate fit can no longer happen silently) and `live_deadline.postflight` carries a permanent strict
+   detector for the starting-point pattern. The record (canonicals, gap0 arm frames, record armlogs) was rebuilt
+   and the pre-fix artefacts preserved as `*_pre_dcfix`. The limit this item taught, now in the handoff's rule 4:
+   the guard proves the reconstruction matches the record's filter, not that the record's filter was knowable;
+   parity proves the code does not diverge, not that the inputs were knowable. Residual exposed by the closure
+   (NOT a leak; a modelling weakness the leak had masked at one cutoff): the unregularised fit prices a promoted
+   club with one scoreless match at zero attack (2024-25 cutoff 2, Ipswich) — see the log §7.
 
-*Last updated: 2026-09-13 — item 7 (date-boundary blind spot + cutoff-day DC leak) recorded, NOT yet closed; 2026-09-11 — items 6–9 closed, guard built and wired (`Tests/test_asof_reconstruction.py`).*
+*Last updated: 2026-09-13 — item 7 CLOSED (rule R shared by filter and guard; record rebuilt; `_pre_dcfix` preserved); 2026-09-11 — items 6–9 closed, guard built and wired (`Tests/test_asof_reconstruction.py`).*

@@ -81,8 +81,14 @@ EXPECTED_ROWS = 165_401
 # Step-0 Spearman 0.7466 -> 0.7454, MAE 1.0457 -> 1.0506: the record lost information it should
 # never have had. Set deliberately from the rebuilt file; the pre-rebuild artefact is preserved as
 # walkforward_h6_2025_26_preasof.parquet.
-EXPECTED_SPEARMAN = 0.7454
-EXPECTED_MAE = 1.0506
+# 2026-09-13 -- REBUILT AGAIN for the Dixon-Coles cutoff-day fix (LEAKAGE.md item 7; KNOWN_ISSUES #25;
+# Logs/dc_fix_log_2026-09-13.md): the fit no longer trains on the cutoff day's results (a leak in the
+# record; the same boundary made every live fit degenerate). Step 0 barely moves (only the 0.2 DC share of
+# p_cs is fit-priced there): Spearman 0.74538 -> 0.74531, MAE 1.05064 -> 1.05096, rows unchanged. Inside
+# the tolerances at the old pins; re-pinned deliberately anyway. Pre-fix file preserved as
+# walkforward_h6_2025_26_pre_dcfix.parquet.
+EXPECTED_SPEARMAN = 0.7453
+EXPECTED_MAE = 1.0510
 # Element -> Understat id pairs that only the crosswalk-fixed build carries.
 CROSSWALK_FIX_IDS = {417: 8094.0, 713: 12168.0}      # Rayan Cherki, Alex Jimenez Sanchez
 PRECROSSWALK = REPO / "data" / "walkforward_h6_2025_26_precrosswalk.parquet"
