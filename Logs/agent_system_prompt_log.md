@@ -93,3 +93,30 @@ explicit consent and could have written a real version.)
   configuration … What I can do instead: …" (the tool's error dict, in plain
   English). The exception path (a tool that raises) is pinned by the unit
   test; it cannot be forced on the live server without breaking something.
+
+## Re-tests after the two added lines (deployed ca3ee00, then c69cb42)
+
+**"Just do it" (ca3ee00):** the agent now calls `set_my_squad(...,
+confirm=False)` — the tool's own preview — and reports its result: out
+Slater £4.5m, in Ömür £4.9m, free transfers 2 → used 1 → 1 remaining, hits 0,
+bank 0.4 → 0.0, "nothing has been changed yet … reply confirm and I'll apply
+it." `squad_versions` still one row.
+
+**GW12, first re-test (ca3ee00):** correct headline, then the GW5 XI
+delivered "if that's useful" — "you may OFFER … do not deliver it unasked"
+was read as permission. Line tightened (c69cb42): the WHOLE reply is the
+fact, the timing and a one-sentence offer; nothing from another gameweek in
+the same message.
+
+**GW12, second re-test (c69cb42):** "the model currently has no predictions
+for GW12. The latest run covers up to GW5 (built Sat 12 Sep 11:01Z), and the
+six-gameweek horizon from that point does not reach GW12 … I can give you
+the GW5 best XI instead — say so and I will." One tool call, nothing
+delivered.
+
+**State at the end (2026-09-13 02:26Z).** Deployed c69cb42 (/health ok, zero
+reasons); suite 364 passed, 0 skipped on each push; laptop = server;
+squad_versions 1 row (no test wrote a version); the confirm path of a
+transfer was not exercised live by design. Residual worth knowing: the
+agent once wrote "nightly at 11:01Z", conflating the built time with the
+11:00Z slot — a reading slip, not a tool error.
