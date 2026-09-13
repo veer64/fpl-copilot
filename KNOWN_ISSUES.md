@@ -1407,5 +1407,12 @@ The fit has no prior or shrinkage on team strengths. A promoted club with no arc
 scoreless match is priced at ZERO attack (lambda 0.001) at every horizon step until it scores -- in the record
 at 2024-25 cutoff 2 (Ipswich), where the leaked cutoff-day match had happened to anchor it. Live-relevant at
 the start of every season. The strict degenerate-fit detector does not fire on it (one club, not the league).
+**LIVE on the deployed image at the GW5 cutoff (2026-09-13, log section 8):** Coventry City (0 goals in 3, no
+history) attack -> -inf, lambda ~0.002 in every GW6-10 fixture; Hull City (0 conceded in 3, no history under
+that name) defence -> -inf, every opponent's lambda ~0.0005; `LAST_FIT.converged` False, max |attack| 6.3,
+max |defence| 8.0. A second cause compounds it: the live pull's club names differ from the archive's
+('Hull City' vs 'Hull', 'Ipswich Town' vs 'Ipswich'), so a returning club's history is not joined.
 Options: a weak Gaussian prior on attack/defence parameters, or a floor on the current-season sample with
-prior-season / league-average fallback; either is a model change with its own pre-registration.
+prior-season / league-average fallback, plus an alias map for the live names; each is a model / data change
+with its own pre-registration. Until then the six-week MIP over-prices clean sheets against those two clubs
+and under-prices attackers facing Hull at steps >= 1 (step 0 is market-priced).
