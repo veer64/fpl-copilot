@@ -167,6 +167,29 @@ from model_tools import (list_players, resolve_player, get_player_card,
 load_dotenv()
 client = anthropic.Anthropic()
 
+# The system prompt (master plan 5.5): a reviewed, diffable file, not a
+# string in code. Loaded once at import; a missing file is a startup error,
+# not a silent run without grounding rules.
+from pathlib import Path
+PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_prompt.md"
+SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def call_tool(tool_name, tool_input):
+    """One tool call under the failure contract: an unknown tool or an
+    exception inside a tool becomes an {"error": ...} result naming the tool
+    and the condition, so the model reports it (system prompt section 8)
+    instead of the chat request dying with a 500. Tools' own {"error": ...}
+    dicts pass through untouched."""
+    fn = available_functions.get(tool_name)
+    if fn is None:
+        return {"error": f"tool {tool_name} is not available"}
+    try:
+        return fn(**(tool_input or {}))
+    except Exception as e:  # noqa: BLE001 -- the contract: surface, never 500
+        return {"error": f"tool {tool_name} failed: {type(e).__name__}: {str(e)[:600]}",
+                "tool": tool_name, "input": tool_input}
+
 # A lookup so we can call the right Python function by name,
 # once Claude tells us which tool it wants
 available_functions = {
@@ -194,6 +217,7 @@ def run_agent(user_message: str, messages: list = None):
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
+            system=SYSTEM_PROMPT,
             tools=tools_schema,
             messages=messages
         )
@@ -214,8 +238,9 @@ def run_agent(user_message: str, messages: list = None):
 
                 print(f"  [calling tool: {tool_name}({tool_input})]")
 
-                function_to_call = available_functions[tool_name]
-                result = function_to_call(**tool_input)
+                result = call_tool(tool_name, tool_input)
+                if isinstance(result, dict) and "error" in result:
+                    print(f"  [tool error: {tool_name}: {str(result['error'])[:200]}]")
 
                 tool_results.append({
                     "type": "tool_result",
