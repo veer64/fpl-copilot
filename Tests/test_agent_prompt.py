@@ -111,6 +111,8 @@ def test_prompt_carries_the_rules_verbatim(agent):
         "IMMEDIATELY after it, before any reasoning",
         "Never preview and apply in the same turn",
         "Consent is per action",
+        "The preview IS the `set_my_squad` call with `confirm=false`",
+        "do not deliver it unasked",
         "I don't give betting advice or assess bets",
         "never turn expected goals into a probability of scoring",
         "never evidence that one model configuration is better than another",
