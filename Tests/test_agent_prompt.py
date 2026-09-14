@@ -127,7 +127,9 @@ def test_prompt_carries_the_rules_verbatim(agent):
         "# 10. How much of a breakdown to show",
         "Hide zero and near-zero lines",
         "One freshness line per answer",
-        "No tables and no `rendered` block unless the user asks",
+        "No tables and no `rendered` block in any comparison or breakdown unless the user asks",
+        "\"This week\" means the next deadline's gameweek",
+        "never \"check back for the schedule\"",
     ):
         assert must in p, must
     assert "combined" not in p.lower()        # no stale configuration names in the agent's voice

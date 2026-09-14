@@ -191,14 +191,30 @@ def compare_players(player_id_a: int, player_id_b: int):
 
     def brief(p):
         first = p["predictions"][0]
+        # The first row is the RUN's own gameweek -- between deadlines that is the one just
+        # played, not "next". The gameweek travels with the number (2026-09-14: an answer
+        # called GW4's figures "next gameweek" while GW5 was the next deadline).
         return {"player_id": p["player_id"], "name": names.get(p["player_id"]),
-                "next_gw_e_points": first["e_points"],
-                "next_gw_p_start": first["p_start"],
-                "horizon_e_points_sum": p["horizon_e_points_sum"]}
-    return {"model_version": a["model_version"], "built_at": a["built_at"],
-            "recovered_post_deadline": a["recovered_post_deadline"],
-            "a": brief(a), "b": brief(b),
-            "verdict": "a" if a["horizon_e_points_sum"] >= b["horizon_e_points_sum"] else "b"}
+                "first_gw": first["gw"],
+                "first_gw_e_points": first["e_points"],
+                "first_gw_p_start": first["p_start"],
+                "horizon_e_points_sum": p["horizon_e_points_sum"],
+                "horizon_gws": [r["gw"] for r in p["predictions"]]}
+    out = {"model_version": a["model_version"], "built_at": a["built_at"], "built": a.get("built"),
+           "next_run_expected": a.get("next_run_expected"),
+           "recovered_post_deadline": a["recovered_post_deadline"],
+           "a": brief(a), "b": brief(b),
+           "verdict": "a" if a["horizon_e_points_sum"] >= b["horizon_e_points_sum"] else "b",
+           "verdict_basis": "horizon_e_points_sum"}
+    try:
+        nxt = _current_gw()
+    except RuntimeError:
+        nxt = None
+    if nxt is not None and out["a"]["first_gw"] < nxt:
+        out["note_stale"] = (f"the first-gameweek figures are for GW{out['a']['first_gw']}, the run's own gameweek, "
+                             f"which has been played; the next deadline is GW{nxt} -- for this week use "
+                             f"compare_predictions / get_prediction with gw={nxt} (as seen from the GW{out['a']['first_gw']} cutoff)")
+    return out
 
 
 # -------------------------------------------------------------------- picks

@@ -43,7 +43,7 @@ tools_schema = [
     },
     {
         "name": "compare_players",
-        "description": "Compare two players under the production model: next-gameweek expected points, start probability, and the six-gameweek horizon sum, with a verdict.",
+        "description": "Compare two players under the production model over the latest run's six-gameweek horizon: the horizon sum (the verdict's basis) and the figures for the run's FIRST gameweek (first_gw -- between deadlines that is the gameweek just played, not the next one; note_stale says so). For 'X or Y this week' prefer compare_predictions, which defaults to the next deadline's gameweek and names the terms behind the gap. Whatever you quote, name its gameweek.",
         "input_schema": {
             "type": "object",
             "properties": {
