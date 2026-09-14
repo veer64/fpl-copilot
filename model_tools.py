@@ -532,7 +532,62 @@ def _stale_note(target, cutoff, built):
             + (f" ({nd[1]})" if nd else ""))
 
 
-def explain_prediction(player_id: int, gw: int = None):
+def _run_by_id(run_id):
+    rows = _q("SELECT * FROM model_runs WHERE run_id = %s", (int(run_id),))
+    return rows[0] if rows else None
+
+
+def _rows_from_db(run, config, gw):
+    """The gameweek slice of a STORED run as a frame-shaped DataFrame: every column
+    explain.breakdown reads -- the terms and inputs from model_predictions (recorded
+    from 2026-09-14), name / position / team from players_live, and the per-run frame
+    stamps (bonus_mode, penalty_fix_active, ...) from model_runs.model_stamp. Raises
+    ValueError when the run predates the term columns (they are NULL, never backfilled)."""
+    import pandas as pd
+    rows = _q("""SELECT p.*, l.name, l.position, l.team
+                 FROM model_predictions p LEFT JOIN players_live l ON l.element = p.element
+                 WHERE p.run_id = %s AND p.config = %s AND p.gw = %s""",
+              (int(run["run_id"]), config, int(gw)))
+    if not rows:
+        return None
+    df = pd.DataFrame(rows)
+    if df["pts_goals"].isna().all():
+        raise ValueError(f"run {run['run_id']} has no recorded terms (built {run['finished_at']}, before the term "
+                         "columns of 2026-09-14; they are never backfilled) -- only its totals can be read")
+    stamp = run.get("model_stamp") or {}
+    if isinstance(stamp, str):
+        import json
+        try:
+            stamp = json.loads(stamp)
+        except ValueError:
+            stamp = {}
+    for k, v in (stamp.get(config) or {}).items():
+        df[k] = v
+    df["understat_id"] = df["understat_id"].where(df["understat_id"].notna(), None)
+    return df
+
+
+def _explain_from_run(run_id, player_id, gw):
+    """(breakdown, run, cutoff) for a stored run, or an error dict."""
+    import explain
+    run = _run_by_id(run_id)
+    if run is None:
+        return None, None, {"error": f"no run {run_id} in the database"}
+    if run.get("status") != "SUCCESS":
+        return None, None, {"error": f"run {run_id} is {run.get('status')}: it wrote no predictions"}
+    try:
+        step = _rows_from_db(run, PRODUCTION_CONFIG, gw)
+    except ValueError as e:
+        return None, None, {"error": str(e)}
+    if step is None:
+        return None, None, {"error": f"run {run_id} (GW{run['gw']}) has no rows for GW{gw}: outside its six-week horizon"}
+    row = step[step["element"] == int(player_id)]
+    if row.empty:
+        return None, None, {"error": f"no row for player {player_id} in GW{gw} of run {run_id}"}
+    return explain.breakdown(row.iloc[0], step), run, int(row.iloc[0]["cutoff"])
+
+
+def explain_prediction(player_id: int, gw: int = None, run_id: int = None):
     """LEVEL 1 (Logs/explain_prediction_design.md): the breakdown of one player's
     expected points for one gameweek into the nine lines the master equation
     sums -- appearance, goals (with the penalties sub-line), assists, clean
@@ -542,9 +597,20 @@ def explain_prediction(player_id: int, gw: int = None):
     in for a model the project has not built or has switched off), rule (FPL's
     scoring rule applied to a model output). Plus the fixture line, the two
     identities re-asserted on the row (a failure is a FINDING, not an answer),
-    and one summary sentence. Read-only, from the production frame on the
-    volume; gw defaults to the next deadline's (stale-by-one labelled)."""
+    and one summary sentence. Read-only. run_id None = the production frame on
+    the volume (the latest run); a run_id reads that run's STORED terms from the
+    database (recorded from 2026-09-14; earlier runs answer with an error)."""
     import explain
+    if run_id is not None:
+        if gw is None:
+            return {"error": "gw is required with run_id"}
+        bd, run, cutoff = _explain_from_run(run_id, player_id, int(gw))
+        if bd is None:
+            return cutoff                      # the error dict
+        m = _run_meta(run)
+        return {**bd, "run_id": run["run_id"], "predictions_as_of_cutoff_gw": cutoff,
+                "stale_by_gameweeks": int(gw) - cutoff, "built": m["built"], "model_version": m["model_version"],
+                "source": "database (stored terms of that run)"}
     try:
         target = int(gw) if gw is not None else _current_gw()
     except RuntimeError as e:
@@ -563,6 +629,30 @@ def explain_prediction(player_id: int, gw: int = None):
     if note:
         out["note_stale"] = note
     return out
+
+
+def compare_runs(player_id: int, gw: int, run_id_a: int, run_id_b: int):
+    """WHY one player's expected points for one gameweek moved between two runs
+    ("Tuesday said 8.5, Friday says 6.2"): both stored breakdowns (the terms
+    recorded with each run), the per-term difference a - b ranked by size, the
+    terms accounting for >= 80% of the gap, the constant-vs-model flags, and
+    what each run knew (its `built` line). Runs before 2026-09-14 have no stored
+    terms and answer with an error."""
+    import explain
+    a, run_a, cut_a = _explain_from_run(run_id_a, player_id, int(gw))
+    if a is None:
+        return cut_a
+    b, run_b, cut_b = _explain_from_run(run_id_b, player_id, int(gw))
+    if b is None:
+        return cut_b
+    c = explain.compare(a, b, label_a=f"run {run_a['run_id']}", label_b=f"run {run_b['run_id']}")
+    ma, mb = _run_meta(run_a), _run_meta(run_b)
+    return {**c, "player_id": int(player_id), "name": a["name"], "gw": int(gw),
+            "run_a": {"run_id": run_a["run_id"], "kind": ma["kind"], "slot": ma["slot"], "built": ma["built"],
+                      "predictions_as_of_cutoff_gw": cut_a, "total_e_points": a["total_e_points"]},
+            "run_b": {"run_id": run_b["run_id"], "kind": mb["kind"], "slot": mb["slot"], "built": mb["built"],
+                      "predictions_as_of_cutoff_gw": cut_b, "total_e_points": b["total_e_points"]},
+            "breakdown_a": a, "breakdown_b": b, "source": "database (stored terms of both runs)"}
 
 
 def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):

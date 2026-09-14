@@ -275,12 +275,16 @@ def render(bd):
     return "\n".join(rows)
 
 
-def compare(a, b):
+def compare(a, b, label_a=None, label_b=None):
     """Level 2: two breakdowns on the same gameweek. Per-term difference a - b, ranked by
     |difference|; the terms accounting for >= 80% of the absolute gap; a flag where a
-    term is a constant on one side and a model value on the other."""
+    term is a constant on one side and a model value on the other. label_a / label_b
+    name the sides in the rendering (default: the players' names; a run-to-run comparison
+    of ONE player passes "run 7" / "run 9")."""
     if a["gw"] != b["gw"]:
         raise ValueError(f"compare needs the same gameweek: GW{a['gw']} vs GW{b['gw']}")
+    name_a, name_b = label_a or a["name"], label_b or b["name"]
+    a = dict(a, name=name_a); b = dict(b, name=name_b)
     la = {l["term"]: l for l in a["lines"]}; lb = {l["term"]: l for l in b["lines"]}
     terms = []
     for t, _ in TERMS:

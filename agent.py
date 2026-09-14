@@ -118,9 +118,24 @@ tools_schema = [
             "type": "object",
             "properties": {
                 "player_id": {"type": "integer", "description": "The player's element id (from resolve_player)"},
-                "gw": {"type": "integer", "description": "Gameweek; defaults to the next deadline's"}
+                "gw": {"type": "integer", "description": "Gameweek; defaults to the next deadline's"},
+                "run_id": {"type": "integer", "description": "Explain a STORED run's prediction instead of the current frame (terms are recorded for runs from 2026-09-14; earlier runs answer with an error). gw is then required."}
             },
             "required": ["player_id"]
+        }
+    },
+    {
+        "name": "compare_runs",
+        "description": "WHY one player's expected points for a gameweek MOVED between two runs ('Tuesday said 8.5, Friday says 6.2'): both stored breakdowns, the per-term difference (run a minus run b) ranked by size, one sentence naming the terms that account for at least 80% of the move, the constant-vs-model flags, and what each run knew (run_a.built / run_b.built -- quote both). The `rendered` block is quotable verbatim. Run ids come from get_prediction / health (the latest) or the user. Runs before 2026-09-14 have no stored terms and answer with an error: say so.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "player_id": {"type": "integer", "description": "The player's element id"},
+                "gw": {"type": "integer", "description": "The target gameweek both runs predicted"},
+                "run_id_a": {"type": "integer", "description": "The earlier (or first) run"},
+                "run_id_b": {"type": "integer", "description": "The later (or second) run"}
+            },
+            "required": ["player_id", "gw", "run_id_a", "run_id_b"]
         }
     },
     {
@@ -188,7 +203,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
                          get_my_xi, propose_transfers, explain_prediction,
-                         compare_predictions)
+                         compare_predictions, compare_runs)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -233,6 +248,7 @@ available_functions = {
     "propose_transfers": propose_transfers,
     "explain_prediction": explain_prediction,
     "compare_predictions": compare_predictions,
+    "compare_runs": compare_runs,
 }
 
 def run_agent(user_message: str, messages: list = None):

@@ -120,3 +120,25 @@ scheduler image against the real volume and database (`docker compose run --rm -
 Both tools will show the fixture line as `model` at every step once a post-fix run lands (post_ingest:GW4 when
 FPL confirms GW4), and the "parameter ran off" flag on Coventry's and Hull's fixtures at steps ≥ 1 until the
 KNOWN_ISSUES #25 remedy exists.
+
+## 4. The stored-terms path: `explain_prediction(run_id=…)` and `compare_runs` (2026-09-14, afternoon)
+
+Now that every run records its terms (`Logs/model_predictions_terms_log.md`), the same pure `explain.breakdown`
+/ `compare` run over a row built from the database:
+
+- `model_tools._rows_from_db(run, config, gw)`: the gameweek slice of a stored run as a frame-shaped DataFrame —
+  the terms and inputs from `model_predictions`, `name` / `position` / `team` from `players_live`, the per-run
+  frame stamps (`bonus_mode`, `penalty_fix_active`, `fixture_scale_gamma`, `topend_cal_active`,
+  `odds_horizon_gws`) from `model_runs.model_stamp`. A run whose terms are NULL (every run up to 5) raises, and
+  the tools answer with that error — "no recorded terms … never backfilled — only its totals can be read".
+- `explain_prediction(player_id, gw, run_id=…)`: the stored breakdown with that run's provenance (`built`,
+  `predictions_as_of_cutoff_gw`, `stale_by_gameweeks`, `source: database`). `gw` is required with `run_id`.
+- `compare_runs(player_id, gw, run_id_a, run_id_b)`: both stored breakdowns, the per-term difference a − b
+  ranked, the ≥ 80 % sentence, the constant-vs-model flags, and what each run knew (`run_a.built`,
+  `run_b.built`, each run's cutoff) — the "Tuesday said 8.5, Friday says 6.2" answer. `explain.compare` gained
+  `label_a` / `label_b` so the rendering says "run 7 vs run 9" for one player.
+- Agent: `run_id` on the explain schema, the `compare_runs` schema and dispatch, the prompt clause extended.
+- Tests: `Tests/test_explain_runs.py` (4) over a stubbed database: a breakdown from the database equals the
+  breakdown from the same row in a frame, term for term; NULL terms → the error; unknown / FAILED run, a
+  gameweek outside the horizon, a missing player, `gw` missing; `compare_runs` ranks the move, labels the sides,
+  carries both `built` lines and both cutoffs.
