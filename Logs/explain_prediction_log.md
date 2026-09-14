@@ -142,3 +142,11 @@ Now that every run records its terms (`Logs/model_predictions_terms_log.md`), th
   breakdown from the same row in a frame, term for term; NULL terms → the error; unknown / FAILED run, a
   gameweek outside the horizon, a missing player, `gw` missing; `compare_runs` ranks the move, labels the sides,
   carries both `built` lines and both cutoffs.
+
+Deployed 3cf11b1 at 13:53Z (suite 412 passed, 1 skipped; no slot running; the 18:17Z tick 4 h away). In the
+image against the real database: `explain_prediction(411, gw=5, run_id=5)` → "run 5 has no recorded terms
+(built 2026-09-12 11:01:01, before the term columns of 2026-09-14; they are never backfilled) -- only its totals
+can be read"; `compare_runs(411, 5, 5, 5)` → the same; run 999 → "no run 999 in the database"; the frame path
+still answers (5.0959, run 5). The first positive proof — a breakdown and a run-to-run comparison from stored
+terms — needs two runs after the change: post_ingest:GW4 and the nightly after it. That is a Tuesday/Wednesday
+check: `compare_runs(411, 5, <post_ingest run>, <nightly run>)`.
