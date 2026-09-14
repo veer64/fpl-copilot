@@ -1416,3 +1416,8 @@ Options: a weak Gaussian prior on attack/defence parameters, or a floor on the c
 prior-season / league-average fallback, plus an alias map for the live names; each is a model / data change
 with its own pre-registration. Until then the six-week MIP over-prices clean sheets against those two clubs
 and under-prices attackers facing Hull at steps >= 1 (step 0 is market-priced).
+**2026-09-14:** the Gaussian prior at k = 4 (`Logs/dc_shrinkage_prereg_2026-09-13.md`) was tried and
+FALSIFIED on its pre-registered endpoint (steps-1-5 top-30 sliced Spearman -0.0052 / -0.0065 in 2023-24 /
+2024-25 against a bar of -0.005; `Logs/dc_shrinkage_log_2026-09-13.md`). Prior OFF in the code (`SHRINK_K =
+0`, objective bit-identical to before). The alias map + name guard (change B) and the strict extreme-strength
+detector are in the tree; the detector would fail today's live build, so nothing is deployed. STILL OPEN.

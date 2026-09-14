@@ -94,7 +94,7 @@ def test_the_guard_truncates_with_the_same_function_the_fit_filters_with():
     src_guard = inspect.getsource(ar.asof_world)
     src_fit = inspect.getsource(dc.get_fixtures)
     assert "dixon_coles.knowable_before(" in src_guard
-    assert "knowable_before(matches, cutoff)" in src_fit
+    assert "knowable_before(mc, cutoff)" in src_fit                     # mc = the fit's canonical-name view of matches
     assert "date_parsed\"] >= cutoff_date" not in src_guard            # the old timed comparison is gone
     assert "date_parsed\"] < cutoff]" not in src_fit
 

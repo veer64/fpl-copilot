@@ -50,6 +50,78 @@ import synthetic_lambda
 BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 PREDICT_SEASON = "2025-26"
 HALF_LIFE_DAYS = 365
+
+# --- Shrinkage on team strengths (pre-registered: Logs/dc_shrinkage_prereg_2026-09-13.md,
+# change A). A Gaussian prior centred at 0 (= the league-average multiplier, the
+# parameterisation's own centre and the unmatched-fixture fill's neutral point) on every
+# attack and defence parameter, applied as 0.5 * SHRINK_TAU * sum(theta^2) on the weighted
+# NLL -- the MAP estimate of the same model. Without it the likelihood of a club with no
+# archive history and a one-sided record (no goals scored, or none conceded) is monotone
+# in that parameter and L-BFGS-B stops at -6..-8 with `converged` False: the club's
+# fixtures are priced at lambda ~0.001 (live 2026-27 GW5: Coventry City attack, Hull City
+# defence; record: 2024-25 cutoff 2, Ipswich). The strength is stated in league-average
+# pseudo-matches: per match the Fisher information of an attack/defence parameter is
+# ~lambda ~1.40, so tau = 1.40 * k is worth k such matches and the posterior mode shrinks
+# the MLE by n_eff / (n_eff + k), n_eff = the club's decay-weighted match count. k = 4 was
+# fixed BEFORE any measurement and is not tuned on the endpoint: a scoreless promoted club
+# after three matches sits at ~0.61x league attack instead of 0; a club with 20 effective
+# matches keeps 83% of its MLE; an established club (n_eff ~60-70 at the 365-day half-life)
+# keeps >= 94%. The prior releases as evidence accrues and never re-tightens.
+#
+# OUTCOME 2026-09-14 (Logs/dc_shrinkage_log_2026-09-13.md section 3): k = 4 was FALSIFIED on
+# its pre-registered endpoint -- the steps-1-5 top-30 sliced Spearman fell by 0.0052 (2023-24)
+# and 0.0065 (2024-25) against the bar of -0.005 -- so the prior is OFF: SHRINK_K = 0 makes the
+# penalty term exactly 0.0 and the objective bit-identical to the pre-shrinkage fit (parity
+# and the as-of guard verified on that). The machinery stays so the next pre-registration
+# (a different k or form is a NEW prereg, never a tuning of this one) is one constant away.
+# The runaway-parameter defect it was meant to bound (KNOWN_ISSUES #25, "exposed") is
+# therefore still OPEN.
+SHRINK_K = 0
+SHRINK_TAU = 1.40 * SHRINK_K          # 1.40 = LEAGUE_AVG_LAMBDA, the neutral fill's lambda
+
+# --- Live club names vs the archive (prereg change B). The football-data archive names
+# a returning club 'Hull' / 'Ipswich'; the live pull (and FPL) name it 'Hull City' /
+# 'Ipswich Town'. Unmapped, a returning club has NO history in the fit. The alias is applied
+# INSIDE the fit only (which rows belong to which club); fixture OUTPUT names are untouched,
+# so assembly's TEAM_MAP join to the FPL-named frame is unchanged. Checked 2026-09-13
+# (Logs/dc_fix_log_2026-09-13.md section 10): 17 of 20 live clubs join every archive season
+# under their exact name; only the promoted three do not.
+ARCHIVE_NAME_ALIAS = {"Hull City": "Hull", "Ipswich Town": "Ipswich"}
+# Clubs of a predict season with ZERO prior-season rows in the archive under ANY name --
+# genuinely new to the archive, declared per season so the guard below can tell a new
+# promotion from an unmapped alias. Both directions are checked: an undeclared club with no
+# history refuses the build (probably an alias nobody mapped), and a declared club that DOES
+# have history refuses it too (a stale declaration). 2025-26's promoted three (Leeds,
+# Burnley, Sunderland) all have archive rows, hence no entry.
+NEW_TO_ARCHIVE = {"2023-24": {"Luton"}, "2024-25": {"Ipswich"}, "2026-27": {"Coventry City"}}
+
+
+def canon_club(name):
+    """Archive-canonical club name for the fit (see ARCHIVE_NAME_ALIAS)."""
+    return ARCHIVE_NAME_ALIAS.get(name, name)
+
+
+def check_new_clubs(matches_canon, predict_season):
+    """The name guard (prereg change B): every club in the predict season's fixtures must
+    have prior-season rows in the archive (under its canonical name) OR be declared in
+    NEW_TO_ARCHIVE for that season -- and the declaration must be exact. Raises ValueError;
+    a build must never quietly run a returning club as a stranger."""
+    cur = matches_canon[matches_canon["season"] == predict_season]
+    hist = matches_canon[matches_canon["season"] < predict_season]
+    seen = set(hist["home"]) | set(hist["away"])
+    clubs = set(cur["home"]) | set(cur["away"])
+    declared = set(NEW_TO_ARCHIVE.get(predict_season, set()))
+    no_history = {t for t in clubs if t not in seen}
+    undeclared = sorted(no_history - declared)
+    stale = sorted((declared & clubs) - no_history)
+    if undeclared or stale:
+        raise ValueError(
+            f"Dixon-Coles club-name guard for {predict_season}: "
+            + (f"clubs with NO prior-season archive rows and not declared new: {undeclared} "
+               f"(an unmapped alias? see ARCHIVE_NAME_ALIAS / NEW_TO_ARCHIVE); " if undeclared else "")
+            + (f"declared new but they DO have history: {stale}; " if stale else "")
+            + "refusing to fit.")
+    return no_history
 LAM_BLEND_W = 0.0     # goal expectations: pure market (best WDL)
 CS_BLEND_W = 0.2      # clean sheets: 0.2*DC + 0.8*market (best CS Brier)
 
@@ -149,16 +221,23 @@ def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days):
         tau[(hg == 1) & (ag == 0)] = (1 + lam_a * rho)[(hg == 1) & (ag == 0)]
         tau[(hg == 1) & (ag == 1)] = (1 - rho)
         log_p = log_p + np.log(np.clip(tau, 1e-10, None))
-        return -(w * log_p).sum()
+        # the Gaussian prior at 0 on team strengths (SHRINK_TAU; home_adv and rho free)
+        return -(w * log_p).sum() + 0.5 * SHRINK_TAU * (np.sum(atk ** 2) + np.sum(dfc ** 2))
 
     x0 = np.zeros(2 * nt + 2); x0[-2] = 0.25
     res = minimize(nll, x0, method="L-BFGS-B")
+    # decay-weighted match count per club: the evidence the prior is weighed against
+    n_eff = np.zeros(nt)
+    np.add.at(n_eff, h, w); np.add.at(n_eff, a, w)
+    i_min = int(np.argmin(n_eff))
     LAST_FIT.clear()
     LAST_FIT.update(n_train=int(len(train_matches)), n_teams=int(nt), iterations=int(res.nit),
                     converged=bool(res.success), max_abs_attack=float(np.abs(res.x[:nt]).max()),
                     max_abs_defence=float(np.abs(res.x[nt:2 * nt]).max()),
                     home_adv=float(res.x[-2]), rho=float(res.x[-1]),
-                    ref_date=str(pd.Timestamp(ref_date)))
+                    ref_date=str(pd.Timestamp(ref_date)),
+                    shrink_k=int(SHRINK_K), shrink_tau=float(SHRINK_TAU),
+                    n_eff_min=float(n_eff[i_min]), n_eff_min_club=str(all_teams[i_min]))
     return res.x, idx, nt
 
 
@@ -315,11 +394,16 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
     lam_* use pure market (best WDL); p_*_cs use the 0.2 DC blend (best CS Brier)."""
     predict_season = PREDICT_SEASON if predict_season is None else predict_season
     matches = _load_matches(predict_season)
-    teams = sorted(set(matches["home"]) | set(matches["away"]))
+    # Club identity for the FIT is the archive-canonical name (prereg change B); the
+    # fixture rows keep their own names for the output. `matches` (names as loaded) is
+    # what the output is built from; `mc` is what the fit is trained on.
+    mc = matches.assign(home=matches["home"].map(canon_club), away=matches["away"].map(canon_club))
+    check_new_clubs(mc, predict_season)
+    teams = sorted(set(mc["home"]) | set(mc["away"]))
 
     if cutoff_date is None:
-        train_m = matches[matches["season"] < predict_season].copy()
-        ref = matches[matches["season"] == predict_season]["date_parsed"].min()
+        train_m = mc[mc["season"] < predict_season].copy()
+        ref = mc[mc["season"] == predict_season]["date_parsed"].min()
     else:
         cutoff = pd.to_datetime(cutoff_date)
         # RULE R: results knowable at the cutoff = finished before the cutoff
@@ -328,14 +412,14 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
         # their results in the backtest (LEAKAGE.md item 7), their unplayed
         # NaN goals live (the degenerate fit, Logs/dc_degenerate_fit_finding
         # _2026-09-13.md). Fixed 2026-09-13; the record was rebuilt.
-        train_m = matches[knowable_before(matches, cutoff)].copy()
+        train_m = mc[knowable_before(mc, cutoff)].copy()
         ref = cutoff
 
     params, idx, nt = _fit_dc_decay(train_m, teams, ref, HALF_LIFE_DAYS)
     atk, dfc, hadv, rho = params[:nt], params[nt:2 * nt], params[-2], params[-1]
 
     df = matches[matches["season"] == predict_season].copy()
-    df = df[df["home"].isin(idx) & df["away"].isin(idx)].copy()
+    df = df[df["home"].map(canon_club).isin(idx) & df["away"].map(canon_club).isin(idx)].copy()
     if predict_dates is not None:
         want = set(pd.to_datetime(list(predict_dates)).date)
         df = df[df["date_parsed"].dt.date.isin(want)].copy()
@@ -346,7 +430,7 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
 
     # Dixon-Coles goal expectations: always computable, no odds required. This is
     # the fallback for any fixture the market has not priced.
-    hi = df["home"].map(idx).values; ai = df["away"].map(idx).values
+    hi = df["home"].map(canon_club).map(idx).values; ai = df["away"].map(canon_club).map(idx).values
     df["dc_lam_h"] = np.exp(atk[hi] + dfc[ai] + hadv)
     df["dc_lam_a"] = np.exp(atk[ai] + dfc[hi])
 
