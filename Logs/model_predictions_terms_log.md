@@ -65,3 +65,14 @@ populated run to prove, which is the post-ingest run for GW4.
   the INSERT names its columns with matching placeholders; rows carry the terms and NaN / absent become NULL;
   the stored set covers everything `explain.breakdown` reads; the production frame carries every term column
   and builds rows with no NULL term.
+
+## 3. Deployed and proven on the live database (2026-09-14 02:58Z)
+
+Suite 408 passed, 1 skipped; pushed c097603 at 02:57Z (no slot running, 3 h 20 min before the 06:17Z ingest
+tick); `/health` `git_sha` c097603c0, `ok`, at 02:57:58Z. In the scheduler image, `ensure_schema` — the same
+idempotent statement the next `write_run` executes — was run once against the live database and the catalogue
+read back: `model_predictions` has 40 columns, the 24 term columns present, all `nullable=YES default=None`,
+none missing; 15,418 existing rows, 0 with `pts_goals` recorded (max run_id 5 — every existing row predates
+the change and stays NULL, as designed); the table comment is set. The first populated rows come with the
+first run after this deploy: post_ingest:GW4 when FPL confirms GW4 (a Tuesday check: `SELECT COUNT(pts_goals)
+FROM model_predictions WHERE run_id = <that run>` = 3,936-class, not 0).
