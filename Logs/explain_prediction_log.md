@@ -94,3 +94,29 @@ GW12 → "the frame on the volume has no predictions for GW12: it covers GW4-GW9
 One departure from the design's sample text, resolved toward consistency: the design's table labels cards as
 `constant: position rates` but its sample summary counted "2 of 9"; the tool counts cards as the constant line
 it is ("3 of 9") and mentions the sub-chance note once.
+
+## 3. Deployed and proven in the image (2026-09-14 02:30Z)
+
+Pushed ccb82ce (with e090ccb, the prior-off / alias commit, verified by the same suite); "Deploy to Server"
+landed and `/health` reported `git_sha` ccb82ce39, status `ok`, at 02:30:27Z — no build slot was running
+(dispatch state: no slots; last tick 02:20Z), 3 h 47 min before the 06:17Z ingest tick. Then, inside the
+scheduler image against the real volume and database (`docker compose run --rm --no-deps -T`, read-only):
+
+- `explain_prediction(411, gw=5)` → the Haaland breakdown of §2 byte-for-byte, with real provenance: `run_id`
+  5, `stale_by_gameweeks` 1, `built` "built Sat 12 Sep 11:01Z (deadline, run 5) -- knowledge not recorded (a
+  pre-multi-run row) -- predicting GW4 -- next run when GW4 confirmed by FPL and ingested …", `note_stale`
+  "the frame on the volume is GW4's (built 2026-09-12 11:00Z); GW5's predictions here are as seen from cutoff
+  GW4, 1 gameweek(s) stale …".
+- `explain_prediction(82, gw=5)` → the Kelleher breakdown of §2, same provenance.
+- `explain_prediction(411, gw=4)` (step 0, the deadline gameweek) → 5.89 expected points; goals +3.48 on
+  fixture 1.14; **fixture line `team lambda 1.5953 / opp lambda 1.2393 -- model`** (market-priced at step 0),
+  summary with no fixture caveat, `stale_by_gameweeks` 0. The same player one step apart shows the step-0 /
+  step-1 difference the finding described.
+- `compare_predictions(411, 379, gw=5)` → the table of §2 (goals 73 %, assists 15 %; both fixtures at the
+  starting point).
+- GW12 → the covered-range error; an unknown element → the no-row error. No exceptions; every result
+  reconciled at residual +0.0000.
+
+Both tools will show the fixture line as `model` at every step once a post-fix run lands (post_ingest:GW4 when
+FPL confirms GW4), and the "parameter ran off" flag on Coventry's and Hull's fixtures at steps ≥ 1 until the
+KNOWN_ISSUES #25 remedy exists.
