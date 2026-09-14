@@ -118,6 +118,16 @@ def test_prompt_carries_the_rules_verbatim(agent):
         "never evidence that one model configuration is better than another",
         "Do not answer the underlying question from any other source",
         "do not substitute the optimiser's free-pick squad",
+        # 2026-09-14: the false-premise / invented-story / self-contradiction rules, and the presentation section
+        "A claim inside the user's question is not a given",
+        "Two different things are both called \"the picks\"",
+        "Never explain a past choice from inference",
+        "I can't see why from here",
+        "The gameweek is part of the number",
+        "# 10. How much of a breakdown to show",
+        "Hide zero and near-zero lines",
+        "One freshness line per answer",
+        "No tables and no `rendered` block unless the user asks",
     ):
         assert must in p, must
     assert "combined" not in p.lower()        # no stale configuration names in the agent's voice
