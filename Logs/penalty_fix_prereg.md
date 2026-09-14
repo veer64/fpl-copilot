@@ -208,3 +208,23 @@ Mean Δ chip-inclusive +14 over three single draws spanning −67 to +114 — in
 these identify the configuration and adjudicate nothing; the verdict above rests on the component read alone.
 Artefacts: `data/arms/armlog_{season}_penfix.parquet`; the WC1@2 anchor is +0 in two seasons because the opening
 squads coincide until the wildcard.
+
+## Addendum 2026-09-14 (nothing reopened; recorded for the next pre-registration)
+
+Read again while checking an `explain_prediction` breakdown (Haaland GW5: penalty sub-line 0.000):
+
+1. The defect is definitional, not a magnitude: `team_pen_rate` measures penalties MISSED. Per row the
+   incumbent term is mostly exactly zero (the rate is 0 for every club without a missed penalty that season --
+   17/20 clubs at cutoff 5 of 2025-26, 19/20 on the live 2026-27 GW5 frame); Haaland's largest contribution
+   across 36 cutoffs of 2025-26 was 0.03 points. "~50x too small" describes the league-wide aggregate only.
+2. The coupling: the 0.05/game `penalty_share` fallback (28.9% of rows) is ~40-90x the realised rate of the
+   rows it covers (estimate; verify) and is hidden only because the undersized rate multiplies it to ~0.
+   Fixing `team_pen_rate` alone would put 0.1-0.2 points a game on fringe players. The two move together --
+   as section 2 of this document already does (fallback footprint with the gate on: 48-51% of rows at 0).
+3. The 2026-08-26 verdict stands as recorded (condition 3, Brier +0.0024 / +0.0013 against +0.001; condition
+   5 in 2023-24). It was a level cap sized for an inert term, applied to a replacement that necessarily moves
+   the level (predicted penalty goals 1 -> 45-67 a season against 69-96 realised). The next pre-registration
+   should state its level check against the realised penalty-goal totals the term is meant to reproduce.
+
+Nothing above changes the gate (`PENALTY_FIX_ACTIVE` rests False). KNOWN_ISSUES #19 carries the same
+correction.

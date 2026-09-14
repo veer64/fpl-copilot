@@ -269,3 +269,12 @@ one and the two gameweeks going unlabelled; the gameweek rule now covers it.
 
 Deployed: 6191e00 (16:09Z) and 8f6ffc2 (16:17Z), container SHA confirmed each time, no slot running, the
 18:17Z ingest tick untouched.
+
+**Two lines added 2026-09-14 evening (approved as written):** section 10 -- the model does not calculate bonus
+points; that changes the level, not comparisons (real scores run higher by ~0.3 a week for a regular starter,
+~0.4 for the top predicted players -- measured on 2023-24 to 2025-26: mean realised bonus 0.29 per player-gw
+at 60+ minutes, 0.39 for the top 30 by e_points); said once per conversation the first time an absolute
+figure is given, never as a zero line. Section 9 -- round a figure the same way every time it appears in a
+conversation (the 98.8% / 99% pair was one 0.9875 rounded two ways, not two figures). The penalty check that
+prompted this pass is recorded in KNOWN_ISSUES #19 (correction of the reading) and the penalty prereg's
+addendum; the term is not reopened.

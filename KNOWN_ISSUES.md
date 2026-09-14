@@ -977,6 +977,35 @@ untouched until adoption. **Seventh member of the silent-fallback family** (#10,
 near-miss): a term that entered the equation, was reported as "moved nothing (<= 0.001)" and accepted as inert,
 when it was a product of three defects that multiplied to ~0.
 
+### Correction of the reading, 2026-09-14 (nothing reopened; the gate stays False)
+
+The heading above and the "~50x too small" figure read as a MAGNITUDE problem. It is a DEFINITIONAL one:
+`team_pen_rate` measures penalties MISSED per gameweek, not penalties awarded, and its aggregate merely happens
+to be small. Someone reading "50x too small" would try to scale it up, which is wrong -- penalties missed cannot
+be scaled into penalties awarded; the quantity has to be replaced, which is what the gated fix does. Per row
+the term is not "small", it is mostly ZERO: the rate is 0 for every club that has not missed a penalty so far
+that season (17 of 20 clubs at cutoff 5 of 2025-26, 10 of 20 at cutoff 38; 19 of 20 on the live 2026-27 frame
+at GW5, 630 of 656 rows), and where it is nonzero the contribution averages 0.003 points. **Erling Haaland,
+Man City's penalty taker, had a nonzero term at 26 of his 36 step-0 cutoffs in 2025-26 and his LARGEST
+contribution across all 36 was 0.03 points**; on the live GW5 frame it is exactly 0.000.
+
+**The coupling, for whoever reopens this (it belongs in that pre-registration, not discovered afterward):**
+the `penalty_share` fallback of 0.05 per game sits on the rows with no Understat record (28.9% of 2025-26
+step-0 rows) and is roughly 40-90x above the realised penalty-goal rate of the rows it covers (an estimate;
+verify in the prereg). Today the undersized `team_pen_rate` multiplies it to ~0 and hides it. If
+`team_pen_rate` is ever fixed ALONE, those rows jump to 0.1-0.2 points a game and the overstatement goes live
+on fringe players. The two must move together, as the 2026-08-26 fix did (its fallback footprint: 48-51% of
+rows at exactly 0, 0.65-1.1% above 0.1/game).
+
+**The 2026-08-26 gate, read again:** it failed on condition 3 -- Brier on P(goal >= 1) worsened by +0.0024
+(2024-25) and +0.0013 (2025-26) on the squad-relevant partition against a cap of +0.001 (and condition 5 in
+2023-24: two takers in the top-ten movers against a rule of three) -- while every rank endpoint rose
+(+0.0040 likely starters, +0.0104 squad-relevant, three-season means). The bar was held correctly. But it was
+a level bar applied to a fix of the wrong quantity's replacement: a term that goes from ~0 to ~45-67 predicted
+penalty goals a season must move the level, and the +0.001 cap was set for a "small" term. Not re-argued
+here; noted so the next pre-registration sets its level check against the realised penalty-goal totals it is
+meant to match, not against the old term's inertness.
+
 ### What was wrong (`squad/assembly.py`, D1 feature build and `_finish_equation`)
 
 1. `penalty_share = (goals - npg) / (games + 1)` from the Understat season aggregate is the player's penalty

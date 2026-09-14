@@ -130,6 +130,9 @@ def test_prompt_carries_the_rules_verbatim(agent):
         "No tables and no `rendered` block in any comparison or breakdown unless the user asks",
         "\"This week\" means the next deadline's gameweek",
         "never \"check back for the schedule\"",
+        "The model does not calculate bonus points",
+        "Say this once per conversation",
+        "Round a figure the same way every time it appears in a conversation",
     ):
         assert must in p, must
     assert "combined" not in p.lower()        # no stale configuration names in the agent's voice
