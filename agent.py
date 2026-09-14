@@ -112,6 +112,31 @@ tools_schema = [
         }
     },
     {
+        "name": "explain_prediction",
+        "description": "WHY the model gives a player its expected points for a gameweek: the nine lines the model actually sums (appearance, goals with a penalties sub-line, assists, clean sheet, defensive contribution, saves, goals conceded, cards, bonus), each with the inputs it was made from and one of three source words -- model (a fitted model for this player/fixture), constant (a fixed value standing in for a model the project has not built or has switched off), rule (FPL's scoring rule applied to a model output) -- plus the fixture line and one summary sentence. Quote the `summary` and the labelled lines as the tool gives them (the `rendered` block is quotable verbatim); the three words are the tool's, do not editorialise about the constants. If `reconciles` is false the result carries a `finding`: report the finding, do not present the breakdown. Between deadlines the frame is one gameweek stale (note_stale, stale_by_gameweeks) -- say so. Use for 'why is X predicted N', 'what is behind X's score', 'is that a model or a guess'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "player_id": {"type": "integer", "description": "The player's element id (from resolve_player)"},
+                "gw": {"type": "integer", "description": "Gameweek; defaults to the next deadline's"}
+            },
+            "required": ["player_id"]
+        }
+    },
+    {
+        "name": "compare_predictions",
+        "description": "WHY two players' expected points differ for a gameweek: both breakdowns (see explain_prediction) on the same gameweek at the same cutoff, the per-term difference a minus b ranked by size, one sentence naming the terms that account for at least 80% of the gap, and flags where a term is a constant on one side against a model value on the other (say those out loud). The `rendered` block is quotable verbatim. Same stale-by-one labelling and identity checks. Use for 'why is X above Y', 'what separates X and Y', 'X or Y and why'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "player_id_a": {"type": "integer", "description": "First player's element id"},
+                "player_id_b": {"type": "integer", "description": "Second player's element id"},
+                "gw": {"type": "integer", "description": "Gameweek; defaults to the next deadline's"}
+            },
+            "required": ["player_id_a", "player_id_b"]
+        }
+    },
+    {
         "name": "propose_transfers",
         "description": "The six-week transfer plan for the user's OWN squad from the production model: what to sell and buy for the next deadline (with sell prices under FPL's rule, purchase prices, hits, bank after, and the XI/captain after the move), plus the following gameweeks' indicative moves. A real optimiser solve: it typically takes ten to forty seconds and occasionally longer, so tell the user it will take a moment before calling it. Optional lock_player_ids (must be in the squad: kept if owned, bought if not) and ban_player_ids (must not be: sold if owned, never bought) answer 'best plan given I am keeping X and refusing Y'. Every proposal is checked through the same legality and money rules as set_my_squad and saved with a proposal_id. It is a PROPOSAL, not an application: to make it, pass apply_with to set_my_squad (confirm=false to preview, confirm=true only when the user explicitly says so). If the response carries bug=true, say so plainly and do not present the proposal as advice.",
         "input_schema": {
@@ -162,7 +187,8 @@ import anthropic
 from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
-                         get_my_xi, propose_transfers)
+                         get_my_xi, propose_transfers, explain_prediction,
+                         compare_predictions)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -205,6 +231,8 @@ available_functions = {
     "set_my_squad": set_my_squad,
     "get_my_xi": get_my_xi,
     "propose_transfers": propose_transfers,
+    "explain_prediction": explain_prediction,
+    "compare_predictions": compare_predictions,
 }
 
 def run_agent(user_message: str, messages: list = None):

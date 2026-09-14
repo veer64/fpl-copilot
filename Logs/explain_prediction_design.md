@@ -1,5 +1,10 @@
 # Design — `explain_prediction`, levels 1 and 2 (2026-09-13; DESIGN ONLY, nothing built)
 
+> **BUILT 2026-09-14** as designed, after the DC cutoff-day fix (§8's decision): `explain.py`,
+> `model_tools.explain_prediction` / `compare_predictions`, the agent schemas, the prompt clause, the tests —
+> `Logs/explain_prediction_log.md` has the code inventory and the proofs (the KNOWN_ISSUES #25 runaway-strength
+> flag was added to the fixture line since this design).
+
 Master plan §5.4's "demo": the breakdown of a prediction into the terms the
 master equation actually sums, and the term-by-term comparison of two
 players. Level 3 (attribution inside a component) is deliberately not here.

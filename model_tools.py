@@ -468,9 +468,14 @@ def _load_frame():
                          horizon_aware=True, season=os.getenv("FPL_SEASON", "2026-27"))
     cutoff = int(df["cutoff"].min())
     built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
-    # the sidecar ties the file to a run; it must be the database's latest
-    # successful run for that gameweek or the two have drifted (a failed
-    # build that half-wrote, a restored volume) -- refuse rather than answer
+    _check_sidecar(frame_p, cutoff)
+    return df, cutoff, built
+
+
+def _check_sidecar(frame_p, cutoff):
+    """The sidecar ties the file to a run; it must be the database's latest
+    successful run for that gameweek or the two have drifted (a failed build
+    that half-wrote, a restored volume) -- refuse rather than answer."""
     side_p = frame_p.with_suffix(".provenance.json")
     if side_p.exists():
         import json
@@ -484,7 +489,112 @@ def _load_frame():
                 f"the frame on the volume belongs to run {side['run_id']} but the database's latest "
                 f"successful run for GW{cutoff} is {latest['run_id']} -- frame and database disagree; "
                 "not answering from a frame of unknown provenance")
+
+
+def _frame_raw():
+    """The production frame on the model volume with EVERY column it was written
+    with (the eight pts_* terms and their inputs), for the explain tools ->
+    (df, cutoff_gw, frame_built_at). Same file, same sidecar check as _load_frame;
+    not the simulator's shape (which drops the terms)."""
+    import pandas as pd
+    frame_p = PROD_FRAME
+    if not frame_p.exists():
+        raise FileNotFoundError("no frame on the model volume yet -- the pipeline has "
+                                "not produced a build here")
+    df = pd.read_parquet(frame_p)
+    cutoff = int(df["cutoff"].min())
+    built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
+    _check_sidecar(frame_p, cutoff)
     return df, cutoff, built
+
+
+def _explain_row(df, cutoff, player_id, target):
+    """One (element, gw) row of the raw frame and its gameweek slice, or an error dict."""
+    step = df[df["gw"] == int(target)]
+    if step.empty:
+        lo, hi = int(df["gw"].min()), int(df["gw"].max())
+        return None, None, {"error": f"the frame on the volume has no predictions for GW{target}: it covers "
+                                     f"GW{lo}-GW{hi} as seen from cutoff GW{cutoff}"}
+    row = step[step["element"] == int(player_id)]
+    if row.empty:
+        return None, None, {"error": f"no row for player {player_id} in GW{target}: a blank gameweek for the "
+                                     f"club, or the player was not in the frame at cutoff GW{cutoff}"}
+    return row.iloc[0], step, None
+
+
+def _stale_note(target, cutoff, built):
+    if target == cutoff:
+        return None
+    nd = _next_deadline()
+    return (f"the frame on the volume is GW{cutoff}'s (built {built:%Y-%m-%d %H:%M}Z); GW{target}'s "
+            f"predictions here are as seen from cutoff GW{cutoff}, {target - cutoff} gameweek(s) stale. "
+            f"A fresh frame lands when the pipeline runs at T-90 before the GW{target} deadline"
+            + (f" ({nd[1]})" if nd else ""))
+
+
+def explain_prediction(player_id: int, gw: int = None):
+    """LEVEL 1 (Logs/explain_prediction_design.md): the breakdown of one player's
+    expected points for one gameweek into the nine lines the master equation
+    sums -- appearance, goals (with the penalties sub-line), assists, clean
+    sheet, defensive contribution, saves, goals conceded, cards, bonus -- each
+    with the inputs it was made from and ONE of three source words: model
+    (a fitted model for this player/fixture), constant (a fixed value standing
+    in for a model the project has not built or has switched off), rule (FPL's
+    scoring rule applied to a model output). Plus the fixture line, the two
+    identities re-asserted on the row (a failure is a FINDING, not an answer),
+    and one summary sentence. Read-only, from the production frame on the
+    volume; gw defaults to the next deadline's (stale-by-one labelled)."""
+    import explain
+    try:
+        target = int(gw) if gw is not None else _current_gw()
+    except RuntimeError as e:
+        return {"error": str(e)}
+    try:
+        df, cutoff, built = _frame_raw()
+    except (FileNotFoundError, RuntimeError) as e:
+        return {"error": str(e)}
+    row, step, err = _explain_row(df, cutoff, player_id, target)
+    if err:
+        return err
+    bd = explain.breakdown(row, step)
+    out = {**bd, "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
+           "frame_built_at": str(built), **_frame_built(cutoff)}
+    note = _stale_note(target, cutoff, built)
+    if note:
+        out["note_stale"] = note
+    return out
+
+
+def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
+    """LEVEL 2: both breakdowns on the same gameweek at the same cutoff, the
+    per-term difference (a - b) ranked by size, the terms that account for
+    >= 80% of the gap, and a flag wherever a term is a constant on one side
+    against a model value on the other. Same provenance and identity checks."""
+    import explain
+    try:
+        target = int(gw) if gw is not None else _current_gw()
+    except RuntimeError as e:
+        return {"error": str(e)}
+    try:
+        df, cutoff, built = _frame_raw()
+    except (FileNotFoundError, RuntimeError) as e:
+        return {"error": str(e)}
+    ra, step, err = _explain_row(df, cutoff, player_id_a, target)
+    if err:
+        return err
+    rb, _, err = _explain_row(df, cutoff, player_id_b, target)
+    if err:
+        return err
+    a, b = explain.breakdown(ra, step), explain.breakdown(rb, step)
+    out = {**explain.compare(a, b), "breakdown_a": a, "breakdown_b": b,
+           "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
+           "frame_built_at": str(built), **_frame_built(cutoff)}
+    if not out["reconciles"]:
+        out["finding"] = "at least one of the two rows does not reconcile -- see the breakdowns' `finding`; do not present the comparison as sound"
+    note = _stale_note(target, cutoff, built)
+    if note:
+        out["note_stale"] = note
+    return out
 
 
 def _frame_built(cutoff):
