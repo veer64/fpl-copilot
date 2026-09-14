@@ -68,6 +68,40 @@ CREATE TABLE IF NOT EXISTS model_predictions (
 );
 CREATE INDEX IF NOT EXISTS ix_pred_lookup
     ON model_predictions (config, gw, element, run_id);
+-- The TERMS of the prediction (2026-09-14; Logs/model_predictions_terms_log.md): the eight
+-- additive lines the master equation sums, the penalties sub-line and the inputs each line
+-- is made from -- exactly what explain.breakdown reads -- so any run's e_points can be
+-- explained later, not only the frame on the volume. Nullable, no default: a
+-- catalogue-only change that rewrites no row (append-only undisturbed). NULL on rows
+-- written before this change = "terms not recorded for that run"; never backfilled.
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_appear        REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_goals         REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_assists       REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_cs            REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_dc            REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_saves         REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_conceded      REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_cards         REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS e_pen_goals       REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS penalty_share     REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS team_pen_rate     REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS p60               REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS minutes_frac      REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS p_dc_hit          REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS team_lambda       REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS opp_lambda        REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS fixture_scale_cal REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS npxg90            REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS xa90              REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS saves_per_90      REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS yellow_per_90     REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS red_per_90        REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS understat_id      TEXT;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS n_fixtures        INT;
+COMMENT ON TABLE model_predictions IS
+  'One row per (run, config, element, target gw); append-only by the write path (insert, never update). '
+  'Columns pts_* .. n_fixtures (added 2026-09-14) are the terms and inputs explain.breakdown reads; '
+  'NULL there means the run predates the change -- terms were not recorded, never backfilled.';
 CREATE TABLE IF NOT EXISTS model_picks (
     run_id       INT NOT NULL REFERENCES model_runs(run_id),
     config       TEXT NOT NULL,
@@ -177,6 +211,58 @@ STAMP_COLS = [
 
 PRED_COLS = ["e_points", "e_points_core", "exp_bonus", "e_minutes", "p_start",
              "p_60plus", "p_play_any", "e_goals", "e_assists", "p_cs"]
+# The terms and inputs of the prediction (2026-09-14; the DDL above adds them): REAL columns
+# in this order, then understat_id (TEXT) and n_fixtures (INT). A frame column that is
+# absent or NaN is stored NULL -- and Tests/test_db_write_terms.py asserts the production
+# frame carries every one of them, so a NULL on a new run is a defect, not a convention.
+TERM_REAL_COLS = ["pts_appear", "pts_goals", "pts_assists", "pts_cs", "pts_dc", "pts_saves",
+                  "pts_conceded", "pts_cards", "e_pen_goals", "penalty_share", "team_pen_rate",
+                  "p60", "minutes_frac", "p_dc_hit", "team_lambda", "opp_lambda", "fixture_scale_cal",
+                  "npxg90", "xa90", "saves_per_90", "yellow_per_90", "red_per_90"]
+TERM_COLS = TERM_REAL_COLS + ["understat_id", "n_fixtures"]
+PRED_INSERT_COLS = (["run_id", "config", "element", "gw", "cutoff", "horizon_step"]
+                    + PRED_COLS + TERM_COLS)
+
+
+def _real(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if x != x else x
+
+
+def _understat(v):
+    if v is None:
+        return None
+    s = str(v).strip()
+    if s in ("", "nan", "None"):
+        return None
+    try:
+        return str(int(float(s)))
+    except ValueError:
+        return s
+
+
+def prediction_rows(run_id, config, f):
+    """(columns, rows) for the model_predictions INSERT, named-column form: the key,
+    PRED_COLS, then TERM_COLS (NULL where the frame has no such column or NaN)."""
+    have = set(f.columns)
+    rows = []
+    for _, r in f.iterrows():
+        base = (run_id, config, int(r["element"]), int(r["gw"]), int(r["cutoff"]),
+                int(r["gw"]) - int(r["cutoff"]))
+        pred = tuple(None if r[c] != r[c] else float(r[c]) for c in PRED_COLS)
+        terms = tuple(_real(r[c]) if c in have else None for c in TERM_REAL_COLS)
+        us = _understat(r["understat_id"]) if "understat_id" in have else None
+        nf = (int(r["n_fixtures"]) if "n_fixtures" in have and r["n_fixtures"] == r["n_fixtures"] else None)
+        rows.append(base + pred + terms + (us, nf))
+    return PRED_INSERT_COLS, rows
+
+
+def prediction_insert_sql(columns):
+    return (f"INSERT INTO model_predictions ({', '.join(columns)}) VALUES "
+            f"({', '.join(['%s'] * len(columns))})")
 
 
 def connect():
@@ -312,15 +398,8 @@ def write_run(season, gw, frames, teams, findings_by, started_at=None,
             run_id = cur.fetchone()[0]
 
             for config, f in frames.items():
-                rows = []
-                for _, r in f.iterrows():
-                    rows.append((run_id, config, int(r["element"]), int(r["gw"]),
-                                 int(r["cutoff"]), int(r["gw"]) - int(r["cutoff"]))
-                                + tuple(None if r[c] != r[c] else float(r[c])
-                                        for c in PRED_COLS))
-                cur.executemany(
-                    """INSERT INTO model_predictions VALUES
-                       (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", rows)
+                cols, rows = prediction_rows(run_id, config, f)
+                cur.executemany(prediction_insert_sql(cols), rows)
 
             for config, team in teams.items():
                 bench_order = 0
