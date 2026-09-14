@@ -1,4 +1,4 @@
-# Alerting design — how the user finds out without visiting (2026-09-13). DESIGN ONLY, not built.
+# Alerting design — how the user finds out without visiting (2026-09-13). BUILT 2026-09-14 (see §6).
 
 ## 0. The problem, stated from the incident
 
@@ -76,3 +76,41 @@ Coventry / Hull artefact would have built with notes only — the strict detecto
 and they raise, which becomes a FAILED run, which this pushes). It does not replace `/health`; it consumes
 it. And it adds one more thing that must itself be alive — which is why the heartbeat is part of the design
 and not an option.
+
+## 6. Built (2026-09-14) — `eval/health_alert.py`, and the three things only the user can do
+
+**What is in the repo.** `eval/health_alert.py`: standard-library Python 3 (the host has 3.12.3), no repo
+imports, no docker, no shared lock. `plan(now, health, state)` is the pure state machine of §2 — debounce
+(two consecutive probes for DEGRADED and for unreachable), the reasons verbatim, `changed`, `RECOVERED` with
+the duration, one push per (event key) per 6 h and a "still degraded" re-push at that cadence, run outcomes
+once per slot from `/health`'s `schedule.slots_this_gameweek` (SUCCESS priority 3 with the run's `built`
+line; FAILED / GAVE_UP priority 5), ACTION REQUIRED once per distinct tick line per day, the daily 11:05Z
+heartbeat with the `built` line and `expected_next`, and a failed push that does not consume the rate limit.
+State is written atomically; `--dry-run` prints and writes nothing; exit 0 always except a missing topic
+(2) or an unwritable state file (3), both printed on the log line. Tests: `Tests/test_health_alert.py`
+(12, the state machine and the shell). Proof: dry run from the laptop against the live URL with the system
+Python → `health=ok reasons=0 events=none (dry-run)`.
+
+**Install on the droplet (three steps; the classifier blocks remote writes from the assistant, so these are
+the user's):**
+
+1. Pick a topic name nobody would guess (it is the only secret) and subscribe to it in the ntfy app on the
+   phone (Android / iOS, free; or a browser at `https://ntfy.sh/<topic>`). Put it on the host:
+   ```
+   printf 'NTFY_TOPIC=<topic>\nHEALTH_URL=http://127.0.0.1:8000/health\n' > /root/fpl-alert.env && chmod 600 /root/fpl-alert.env
+   ```
+2. Add the cron line (host crontab, next to the three fpl lines; its OWN lock, never the dispatcher's):
+   ```
+   */10 * * * * flock -n /tmp/fpl-alert.lock /usr/bin/python3 /root/fpl-copilot/eval/health_alert.py >> /var/log/fpl-alert.log 2>&1
+   ```
+   First run by hand to see the log line and receive nothing (health is ok):
+   `python3 /root/fpl-copilot/eval/health_alert.py` — then, to prove the phone end, a one-off manual message:
+   `curl -d "fpl alert channel test" https://ntfy.sh/<topic>`. The first heartbeat arrives at 11:05Z the next
+   day; if it does not, the channel is broken and that absence is the alarm.
+3. Layer A, the external monitor: UptimeRobot (or Better Stack) free plan, HTTP(s) monitor on
+   `http://68.183.131.154:8000/health`, interval 5 min, plus a keyword monitor on the same URL with keyword
+   `degraded` (alert when found). Their app or email is the channel. This is what covers "the host is gone",
+   which no probe on the host can report.
+
+**The file reaches the host with every deploy** (`/root/fpl-copilot` is the checkout the deploy updates),
+so cron always runs the committed version; an edit to the probe is a push, not a copy.
