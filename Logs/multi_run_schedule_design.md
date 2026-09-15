@@ -322,3 +322,22 @@ through GW4 and far better than none; strict stays on for every run.
   — all three slots fire in order with the season file at GW3 AND with it unreadable, each reason naming the
   gap; between deadlines nothing but the promise moves; a missed safety net degrades health under the stall;
   the freshness wording. 21 policy tests.
+
+**Deployed and proven (c975e26, 01:26Z 2026-09-15; suite 417 passed, 1 skipped; no slot running; the 06:17Z
+tick untouched).** In the scheduler image, against the REAL inputs — FPL's bootstrap as served at that minute
+(GW4 `finished=False data_checked=False`: the stalled case is live), the real season file (through GW3), the
+real dispatch state (no slots) — with a fake clock, nothing saved, nothing run:
+
+```
+2026-09-17T12:00Z: action=None  reason=GW5 deadline in 29.5 h; GW4 not yet confirmed and ingested (season file
+                   through GW3) -- no nightly or post-ingest run until it is; the deadline-day runs fire regardless
+                   expected_next: post_ingest (conditional) + certain_kind t90, certain_at 2026-09-18T16:00:00Z
+2026-09-18T16:01Z: action=t90  t90:GW5  "T-89 -- t90 window (GW4 not yet confirmed and ingested when this was built: history stops at GW3)"
+2026-09-18T17:01Z: action=t30  t30:GW5  (same gap named)
+2026-09-18T17:21Z: action=t10  t10:GW5  (same gap named)
+freshness a T-90 build would carry: built Fri 18 Sep 16:01Z (t90, run 999, 50 s) -- knows results through GW3
+  (ingested Tue 08 Sep 00:17Z), team news to Fri 18 Sep 15:50Z, odds pulled Fri 18 Sep 16:00Z -- GW4 not yet
+  confirmed and ingested when this was built: history stops at GW3 -- predicting GW5 -- next run when GW4
+  confirmed by FPL and ingested (…), then nightly at 11:00Z (post_ingest); in any case Fri 18 Sep 16:00Z (t90),
+  whatever FPL confirms
+```
