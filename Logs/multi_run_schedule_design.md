@@ -341,3 +341,43 @@ freshness a T-90 build would carry: built Fri 18 Sep 16:01Z (t90, run 999, 50 s)
   confirmed by FPL and ingested (…), then nightly at 11:00Z (post_ingest); in any case Fri 18 Sep 16:00Z (t90),
   whatever FPL confirms
 ```
+
+## 12. Incident 2026-09-15 18:30-19:01Z — the first live multi-run builds: four identical SUCCESS runs, and /health said ok
+
+**What happened.** FPL confirmed GW4 in time for the 18:17Z ingest tick (`RAN gameweek(s) [4] -> SUCCESS`, the
+first `squad_scores` row written: GW4 49 points, captain Haaland). The 18:30Z dispatcher tick fired
+post_ingest:GW4 — the first build the multi-run dispatcher had ever run live. The build SUCCEEDED (run 6,
+3,954 prediction rows WITH the term columns, the frame on the volume, `/health` ok) and then the dispatcher
+crashed: `run_build` did `import config_roles` after the subprocess returned, and the repo root was not on the
+dispatcher's `sys.path` (only `eval/` was). The crash came AFTER the build and BEFORE `record_outcome`, so the
+slot stayed `RUNNING` with its attempt counted; the 18:40Z tick fired attempt 2 (run 7, identical), crashed
+the same way; attempts exhausted, the 18:50Z and 19:00Z ticks fired the nightly twice (runs 8 and 9). Four
+bit-identical builds in 31 minutes; `last_success` never set; `/health` `ok` throughout, because no FAILED
+status was ever recorded and each tick overwrote the promise before dying. The Tuesday-checks watcher was
+what noticed (four runs where one was expected).
+
+**Why it was latent.** The dispatcher's tests exercised the POLICY (`dispatch_policy`) and the tick with the
+build mocked at the policy level; nothing imported the dispatcher module and ran its post-build path. The
+GW4 deadline build on 12 Sep ran under the single-run dispatcher. Same family as the unread status file: a
+success followed by a silent crash is indistinguishable from a success.
+
+**Fixes (commit after this section).**
+- `deadline_dispatcher.py`: the repo root on `sys.path`; `config_roles` imported at module load — an import
+  that can fail must fail at the FIRST tick, not after a build.
+- `reconcile_from_db(state)`: on every real tick, a slot left `RUNNING` is settled from `model_runs` (the one
+  record the runner always writes): a SUCCESS row for that slot marks it SUCCESS (with run_id and
+  `history_through_gw`, and sets `last_success`); a FAILED row marks it FAILED; an unreachable database logs
+  and leaves the state alone. The next real tick after this deploy settles post_ingest:GW4 and
+  nightly:2026-09-15 from runs 7 and 9.
+- `dispatch_policy.health_reasons`: a slot `RUNNING` for more than 90 min (the runner's own timeout is 60)
+  degrades `/health` — "the dispatcher tick died after or during its build and never recorded the outcome" —
+  which is what the alert probe would have pushed.
+- `Tests/test_deadline_dispatcher.py` (4): `config_roles` resolves at import and `run_build` reads the
+  sidecar; a RUNNING slot is settled from model_runs rows (SUCCESS, FAILED, and the policy then does not
+  re-fire); ONE WHOLE TICK end to end with the network, the season file, the build and the state file faked —
+  SUCCESS recorded, `last_success` set, the promise written, and a second tick does not re-fire; the stale
+  RUNNING health reason.
+
+**Cost.** Four identical runs (6-9) in the database — harmless (same inputs, same frame), the agent serves run
+9. No user-visible wrong answer; the failure was a silent waste plus a state that would have re-fired
+post_ingest on the next confirmed gameweek only once (attempts fresh per slot).

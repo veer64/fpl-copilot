@@ -57,6 +57,9 @@ POST_INGEST_QUIET_H = 6       # a nightly within 6 h of a post_ingest success is
 # attempts x 10-minute ticks + a build + slack
 GRACE_MIN = {"t10": 15, "t30": 25, "t90": 35, "post_ingest": 25, "nightly": 25}
 DISPATCHER_STALE_MIN = 35     # a 10-minute cron that has not ticked for this long is dead
+RUNNING_STALE_MIN = 90        # a slot RUNNING this long is a tick that died after (or during) its build:
+                              # the runner's own timeout is 60 min (2026-09-15: four builds succeeded, the
+                              # dispatcher crashed before recording any, /health said ok throughout)
 TERMINAL = ("SUCCESS", "GAVE_UP")
 
 
@@ -299,6 +302,12 @@ def health_reasons(now, state, next_gw=None):
             if st != "SUCCESS":
                 reasons.append(f"promised run {exp['certain_slot']} at {exp['certain_at']} did not land ({st}) "
                                f"-- the deadline safety net, due regardless of {exp.get('condition', 'FPL')}")
+    for sid, s in (state.get("slots") or {}).items():
+        if s.get("status") == "RUNNING" and s.get("started_at"):
+            age = now - parse_iso(s["started_at"])
+            if age > timedelta(minutes=RUNNING_STALE_MIN):
+                reasons.append(f"slot {sid} has been RUNNING for {int(age.total_seconds() // 60)} min -- the "
+                               f"dispatcher tick died after or during its build and never recorded the outcome")
     n = int(state.get("consecutive_nightly_failures") or 0)
     if n >= 2:
         reasons.append(f"{n} consecutive nightly/post-ingest slots gave up -- no model since "
