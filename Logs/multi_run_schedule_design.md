@@ -288,3 +288,37 @@ still to come" (press conferences) lands with the agent system prompt. The
 min older), not the poller's own timestamp — good enough for the sentence,
 noted. `optimise` still solves the frame's own step 0. The T-10 4-minute
 guard and the :00/:30 assumption are documented, not enforced by cron.
+
+## 11. Decision 2026-09-15 — the deadline slots are unconditional; two gates, two purposes
+
+**The report that prompted it, corrected.** While waiting for FPL to confirm GW4 (all ten fixtures played by
+Monday 19:00Z; the bootstrap still `finished=False` at Tuesday 01:00Z) the assistant reported that every run
+kind, including T-90 / T-30 / T-10, was gated on the previous gameweek being ingested. Reading `plan()` again:
+that was wrong for the runs and right for the promise. The deadline-day branch comes first and never
+consulted `master_gw`, so the three slots would have fired on Friday under a stall. What WAS conditional: (a)
+`expected_next` between deadlines with `master_gw < gw-1` promised only "post_ingest when GW4 is confirmed",
+so `/health` had no timed promise to check and the freshness line told the user nothing about Friday; (b) the
+freshness line did not say that a build's history stopped short of the previous gameweek; (c) nothing tested
+the stalled case, so the guarantee was an accident of branch order, not a decision.
+
+**The decision (user, 2026-09-15).** The three deadline slots fire regardless of confirmation state — their
+purpose is to avoid a MISSING run. Nightly and post_ingest stay gated on the previous gameweek being confirmed
+and ingested — their purpose is to avoid a POINTLESS run. Different purposes; the distinction is in the module
+docstring and at both branches so nobody re-unifies them. A build on history through GW3 is worse than one
+through GW4 and far better than none; strict stays on for every run.
+
+**What changed (`eval/dispatch_policy.py`).**
+- `plan()`: the deadline branch is documented as unconditional and its reason names the history gap ("GW4 not
+  yet confirmed and ingested when this was built: history stops at GW3"); the between-deadlines reason says the
+  deadline-day runs fire regardless.
+- `expected_next()` between deadlines under a stall: the conditional post_ingest promise now carries a CERTAIN
+  fallback — `certain_kind` t90, `certain_slot`, `certain_at` = deadline − 90 min, `certain_grace_min` — and
+  `health_reasons()` degrades if that slot has not landed by `certain_at` + grace ("the deadline safety net,
+  due regardless of …").
+- `freshness()`: "knows results through GW3 -- GW4 not yet confirmed and ingested when this was built: history
+  stops at GW3", and "next run when GW4 confirmed … (post_ingest); in any case Fri 18 Sep 16:00Z (t90),
+  whatever FPL confirms". `history_gap()` is the one sentence, shared by the reason and the freshness line.
+- Tests (`Tests/test_dispatch_policy.py`): the stalled-FPL case with a fake clock and an unconfirmed bootstrap
+  — all three slots fire in order with the season file at GW3 AND with it unreadable, each reason naming the
+  gap; between deadlines nothing but the promise moves; a missed safety net degrades health under the stall;
+  the freshness wording. 21 policy tests.

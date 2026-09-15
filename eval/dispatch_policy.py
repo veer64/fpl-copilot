@@ -27,7 +27,23 @@ reports it. Nightly and post_ingest are gated on the PREVIOUS gameweek being
 confirmed and ingested (master_gw >= next_gw - 1), never on a clock alone: a
 fixed Monday run would build on data through GW3.
 
-Every run is a STRICT build (the runner), exactly like the deadline build.
+TWO GATES WITH TWO PURPOSES -- do not re-unify them (user decision 2026-09-15):
+  * nightly / post_ingest are gated on the previous gameweek being confirmed
+    and ingested because their purpose is to avoid a POINTLESS run (a build on
+    history the last run already had);
+  * the three deadline slots t90 / t30 / t10 are UNCONDITIONAL -- they fire
+    whatever the bootstrap says about the previous gameweek and even if the
+    season file is unreadable -- because their purpose is to avoid a MISSING
+    run: the one thing the user acts on. FPL's confirmation of a gameweek is
+    the one input we do not control; if it stalls, a build on history through
+    GW3 is worse than one through GW4 and far better than none, and the
+    freshness line says exactly which gameweek the history reached. The
+    promise (expected_next) carries the deadline run as a CERTAIN fallback
+    (`certain_at`) even while a conditional post_ingest is still possible, so
+    /health degrades if the safety net does not land.
+
+Every run is a STRICT build (the runner), exactly like the deadline build; a
+strict raise for a real reason is still the right outcome.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -105,9 +121,13 @@ def plan(now, events, state, master_gw):
     out["gw"] = gw
     slots = state.get("slots", {})
 
-    # ---- deadline day: disjoint windows, most urgent first ----
+    # ---- deadline day: disjoint windows, most urgent first. UNCONDITIONAL: this
+    # branch comes before, and never consults, the previous-gameweek gate below --
+    # the safety net exists to avoid a MISSING run, not a pointless one (see the
+    # module docstring). master_gw is only used here to say what the build will know.
     if lead <= 90:
         kind = deadline_window(lead)
+        gap = history_gap(gw, master_gw)
         if kind is None or (kind == "t10" and lead < T10_MIN_LEAD_MIN):
             out["reason"] = (f"GW{gw}: T-{lead:.0f} -- inside the deadline but below the "
                              f"{T10_MIN_LEAD_MIN}-minute minimum lead; nothing fires")
@@ -119,11 +139,13 @@ def plan(now, events, state, master_gw):
                 out["reason"] = f"GW{gw}: {sid} used its {ATTEMPTS[kind]} attempt(s)"
             else:
                 out.update(action=kind, slot=sid, attempt=_attempts(state, sid) + 1,
-                           reason=f"GW{gw}: T-{lead:.0f} -- {kind} window")
+                           reason=f"GW{gw}: T-{lead:.0f} -- {kind} window" + (f" ({gap})" if gap else ""))
         out["expected_next"] = expected_next(now, events, state, master_gw)
         return out
 
-    # ---- between deadlines: the previous gameweek must be confirmed AND ingested ----
+    # ---- between deadlines: nightly / post_ingest need the previous gameweek
+    # confirmed AND ingested (a pointless run otherwise). The deadline slots above
+    # do NOT wait for this. ----
     prev_gw = gw - 1
     if master_gw is None:
         out["reason"] = "season file unreadable -- cannot tell which gameweeks are ingested; nothing fires"
@@ -131,7 +153,8 @@ def plan(now, events, state, master_gw):
         return out
     if master_gw < prev_gw:
         out["reason"] = (f"GW{gw} deadline in {lead / 60:.1f} h; GW{prev_gw} not yet confirmed and "
-                         f"ingested (season file through GW{master_gw}) -- no run until it is")
+                         f"ingested (season file through GW{master_gw}) -- no nightly or post-ingest run "
+                         f"until it is; the deadline-day runs fire regardless from T-90")
         out["expected_next"] = expected_next(now, events, state, master_gw)
         return out
 
@@ -196,12 +219,16 @@ def expected_next(now, events, state, master_gw):
                 "grace_min": None}
 
     prev_gw = gw - 1
+    t90_at = dl - timedelta(minutes=90)
     if master_gw is None or master_gw < prev_gw:
+        # conditional on FPL, which we do not control -- but the deadline run is
+        # CERTAIN: promise it too, so /health can see it missed (the stalled-FPL case)
         return {"kind": "post_ingest", "slot": f"post_ingest:GW{prev_gw}", "gw": gw, "at": None,
                 "condition": f"GW{prev_gw} confirmed by FPL and ingested (ticks 00:17/06:17/12:17/18:17Z), "
                              f"then nightly at {NIGHTLY_HOUR_UTC:02d}:00Z",
-                "grace_min": None}
-    t90_at = dl - timedelta(minutes=90)
+                "grace_min": None,
+                "certain_kind": "t90", "certain_slot": f"t90:GW{gw}", "certain_at": iso(t90_at),
+                "certain_grace_min": GRACE_MIN["t90"]}
     # the next nightly slot that is not done and lands before T-90
     day = now.replace(hour=NIGHTLY_HOUR_UTC, minute=0, second=0, microsecond=0)
     for k in range(0, 8):
@@ -263,6 +290,15 @@ def health_reasons(now, state, next_gw=None):
             st = _slot(state, exp["slot"]).get("status") or "never attempted"
             if st != "SUCCESS":
                 reasons.append(f"promised run {exp['slot']} at {exp['at']} did not land ({st})")
+    elif exp.get("certain_at"):
+        # a conditional promise (post_ingest waiting on FPL) with a certain fallback:
+        # the deadline run must land whatever FPL does
+        at = parse_iso(exp["certain_at"])
+        if now > at + timedelta(minutes=exp.get("certain_grace_min") or 35):
+            st = _slot(state, exp["certain_slot"]).get("status") or "never attempted"
+            if st != "SUCCESS":
+                reasons.append(f"promised run {exp['certain_slot']} at {exp['certain_at']} did not land ({st}) "
+                               f"-- the deadline safety net, due regardless of {exp.get('condition', 'FPL')}")
     n = int(state.get("consecutive_nightly_failures") or 0)
     if n >= 2:
         reasons.append(f"{n} consecutive nightly/post-ingest slots gave up -- no model since "
@@ -300,6 +336,9 @@ def freshness(run, expected=None):
         knows = (f"knows results through GW{k.get('history_through_gw')} "
                  f"(ingested {_fmt(k.get('history_ingested_at'))}), team news to "
                  f"{_fmt(k.get('availability_asof'))}, odds pulled {_fmt(k.get('odds_pulled_at'))}")
+        gap = history_gap(run.get("gw"), k.get("history_through_gw"))
+        if gap:
+            knows += f" -- {gap}"
     pred = f"predicting GW{run.get('gw')}"
     if k.get("deadline_at"):
         pred += f" (deadline {_fmt(k['deadline_at'])})"
@@ -308,6 +347,28 @@ def freshness(run, expected=None):
             nxt = f"next run {_fmt(expected['at'])} ({expected['kind']})"
         else:
             nxt = f"next run when {expected.get('condition')} ({expected['kind']})"
+            if expected.get("certain_at"):
+                nxt += f"; in any case {_fmt(expected['certain_at'])} ({expected.get('certain_kind')}), whatever FPL confirms"
     else:
         nxt = "next run not scheduled"
     return " -- ".join([head, knows, pred, nxt])
+
+
+def history_gap(gw, history_through_gw):
+    """The plain sentence for a build whose history stops short of the previous
+    gameweek -- or None when it does not. Used in the dispatcher's reason and in
+    the freshness line, so a build on unconfirmed history says so wherever it is quoted."""
+    try:
+        gw = int(gw)
+    except (TypeError, ValueError):
+        return None
+    if history_through_gw is None:
+        return f"season file unreadable at build time -- which gameweek the history reaches is not known"
+    try:
+        h = int(history_through_gw)
+    except (TypeError, ValueError):
+        return None
+    if h < gw - 1:
+        missing = f"GW{h + 1}" if h + 1 == gw - 1 else f"GW{h + 1}-GW{gw - 1}"
+        return f"{missing} not yet confirmed and ingested when this was built: history stops at GW{h}"
+    return None

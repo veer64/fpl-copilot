@@ -37,11 +37,62 @@ def succeed(state, p, hist=4, when=None):
 
 
 # ------------------------------------------------------------ gating
-def test_nothing_fires_until_the_previous_gameweek_is_ingested():
+def test_nothing_fires_between_deadlines_until_the_previous_gameweek_is_ingested():
     p = dp.plan(at(13, 12), EVENTS, fresh(), master_gw=3)        # Sunday, GW4 not ingested
     assert p["action"] is None and "GW4 not yet confirmed and ingested" in p["reason"]
+    assert "deadline-day runs fire regardless" in p["reason"]
     assert p["expected_next"]["kind"] == "post_ingest" and p["expected_next"]["at"] is None
     assert "GW4 confirmed" in p["expected_next"]["condition"]
+    # the certain fallback rides with the conditional promise
+    assert p["expected_next"]["certain_kind"] == "t90" and p["expected_next"]["certain_at"] == "2026-09-18T16:00:00Z"
+
+
+# ---------------------------------------------- the stalled-FPL case (2026-09-15)
+EVENTS_STALLED = [dict(e, finished=(e["id"] <= 3), data_checked=(e["id"] <= 3)) for e in EVENTS]   # GW4 never confirmed
+
+
+def test_deadline_slots_fire_with_an_unconfirmed_bootstrap_and_a_stale_season_file():
+    """GW4 played but FPL never confirms it; the season file stops at GW3. Friday's three
+    slots must fire anyway, in order, and say what the build will know."""
+    for master in (3, None):
+        st = fresh()
+        fired = []
+        for t in (at(18, 16, 0), at(18, 16, 10), at(18, 17, 0), at(18, 17, 10), at(18, 17, 20)):
+            p = dp.plan(t, EVENTS_STALLED, st, master_gw=master)
+            if p["action"]:
+                fired.append(p["action"])
+                assert "not yet confirmed and ingested" in p["reason"] or "unreadable" in p["reason"], p["reason"]
+                succeed(st, p, hist=master or 0, when=t + timedelta(minutes=1))
+        assert fired == ["t90", "t30", "t10"], (master, fired)
+    # and between deadlines under the same stall nothing but the promise moves
+    p = dp.plan(at(17, 12, 0), EVENTS_STALLED, fresh(), master_gw=3)
+    assert p["action"] is None and p["expected_next"]["certain_slot"] == "t90:GW5"
+
+
+def test_under_a_stall_a_missed_safety_net_degrades_health():
+    st = fresh()
+    st["last_tick"] = dp.iso(at(18, 16, 40))
+    st["expected_next"] = dp.expected_next(at(17, 12, 0), EVENTS_STALLED, st, master_gw=3)
+    assert st["expected_next"]["at"] is None and st["expected_next"]["certain_at"] == "2026-09-18T16:00:00Z"
+    assert dp.health_reasons(at(18, 16, 20), st, next_gw=5) == []                  # inside the grace
+    r = dp.health_reasons(at(18, 16, 40), st, next_gw=5)
+    assert any("promised run t90:GW5 at 2026-09-18T16:00:00Z did not land (never attempted)" in x and "safety net" in x for x in r)
+    st["slots"]["t90:GW5"] = {"kind": "t90", "status": "SUCCESS", "attempts": 1}
+    assert dp.health_reasons(at(18, 16, 40), st, next_gw=5) == []
+
+
+def test_freshness_names_the_history_gap_and_the_certain_fallback():
+    run = {"run_id": 12, "gw": 5, "kind": "t90", "finished_at": "2026-09-18T16:01:00+00:00",
+           "knowledge": {"duration_s": 50, "history_through_gw": 3, "history_ingested_at": "2026-09-08T00:17:00Z",
+                         "availability_asof": "2026-09-18T15:50:00Z", "odds_pulled_at": "2026-09-18T16:00:30Z"}}
+    s = dp.freshness(run, None)
+    assert "knows results through GW3" in s and "GW4 not yet confirmed and ingested when this was built: history stops at GW3" in s
+    exp = {"kind": "post_ingest", "at": None, "condition": "GW4 confirmed by FPL and ingested",
+           "certain_kind": "t90", "certain_at": "2026-09-18T16:00:00Z"}
+    s2 = dp.freshness({**run, "gw": 5}, exp)
+    assert s2.endswith("next run when GW4 confirmed by FPL and ingested (post_ingest); in any case Fri 18 Sep 16:00Z (t90), whatever FPL confirms")
+    assert dp.history_gap(5, 4) is None and dp.history_gap(6, 3) == "GW4-GW5 not yet confirmed and ingested when this was built: history stops at GW3"
+    assert "unreadable" in dp.history_gap(5, None)
 
 
 def test_post_ingest_fires_once_when_the_master_gains_a_gameweek():
