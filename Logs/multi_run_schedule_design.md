@@ -381,3 +381,20 @@ success followed by a silent crash is indistinguishable from a success.
 **Cost.** Four identical runs (6-9) in the database — harmless (same inputs, same frame), the agent serves run
 9. No user-visible wrong answer; the failure was a silent waste plus a state that would have re-fired
 post_ingest on the next confirmed gameweek only once (attempts fresh per slot).
+
+**Deployed 0b575ef (21:27Z) and settled by the next real tick.** On landing, `/health` turned `degraded` on
+the new reason — both slots RUNNING for 130-170 min — which is the detector working. The 21:30:04Z tick
+logged `reconcile: post_ingest:GW4 -> SUCCESS (run 7)` and `reconcile: nightly:2026-09-15 -> SUCCESS (run 9)`,
+set `last_success` (run 9, history through GW4) and `/health` returned to `ok` with zero reasons; the
+promise is nightly:2026-09-16 at 11:00Z. Suite 421 passed, 1 skipped.
+
+**The Tuesday checks (fix log section 12), all done on the same evidence.** (1) the alert channel — not yet
+installed (user); (2) GW4 ingested (`history_through_gw` 4) and post_ingest:GW4 SUCCESS — yes, via the
+reconciliation; (3) the first `squad_scores` row: GW4, 49 points net, captain Haaland (doubled), one autosub,
+bench 14; (4) term columns: runs 6-9 each 3,954 prediction rows with 3,954 recorded terms; (5)
+`explain_prediction(411, gw=5)` on run 9's frame: fixture line `model`, `stale_by_gameweeks` 0, no
+starting-point label anywhere; `compare_runs(411, 5, 6, 9)` from stored terms: "gap +0.00: no term differs"
+(identical inputs — the reader works on the database); (6) `dc_fit`: n_train 3,840 (GW4's ten matches
+added), `converged` False, max |attack| 7.39 — Coventry still scoreless, the KNOWN_ISSUES #25 artefact as
+predicted; GW6 rows with a lambda below 0.15: Coventry City 37 and their opponents Newcastle 30 (the
+runaway seen from both sides); Hull's defence no longer runs off (they conceded in GW4).
