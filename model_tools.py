@@ -1040,6 +1040,30 @@ def _weekly_ingest_status(reasons):
     return out
 
 
+MODEL_DEGRADED_PREFIX = "MODEL DEGRADED:"
+
+
+def _model_degraded_reasons(run):
+    """The MODEL DEGRADED findings of a run (its strict_findings, per config) as health
+    reasons: "model degraded (run N, config): <finding>". Pure; the JSONB may arrive as a
+    dict or a string; anything unreadable is ignored (no finding, no reason)."""
+    sf = run.get("strict_findings")
+    if isinstance(sf, str):
+        import json
+        try:
+            sf = json.loads(sf)
+        except ValueError:
+            return []
+    if not isinstance(sf, dict):
+        return []
+    out = []
+    for config, notes in sf.items():
+        for n in (notes or []):
+            if isinstance(n, str) and n.startswith(MODEL_DEGRADED_PREFIX):
+                out.append(f"model degraded (run {run.get('run_id')}, {config}): {n[len(MODEL_DEGRADED_PREFIX):].strip()}")
+    return out
+
+
 def health():
     """{status, git_sha, model_versions, data_freshness_by_source, db_ok,
     last_run} -- the master plan's health contract. `status` degrades when
@@ -1123,6 +1147,12 @@ def health():
         }
     else:
         freshness["schedule"] = None
+
+    # a served build whose model is DEGRADED (a loud, non-fatal detector finding in the
+    # run's notes -- live_deadline.MODEL_DEGRADED) degrades health, so the alert probe
+    # pushes it with the club and the lambda named (user decision 2026-09-16)
+    if last:
+        reasons.extend(_model_degraded_reasons(last))
 
     if last_any and last_any["status"] != "SUCCESS":
         lk = last_any.get("kind") or "deadline"

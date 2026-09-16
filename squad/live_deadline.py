@@ -60,6 +60,15 @@ import attacking_rates as rates_mod       # noqa: E402
 import defensive as def_mod               # noqa: E402
 import minutes as minutes_mod             # noqa: E402
 import assembly                           # noqa: E402
+import dixon_coles as dc_mod              # noqa: E402
+
+# The LOUD-but-served form of the extreme-strength detector (user decision
+# 2026-09-16): a finding with this prefix never raises, even under strict; it is
+# written into the run's findings, surfaced by /health as a reason, and pushed by
+# the alert probe. The fatal raise (branch shrink-detector-strict, 419772c) goes in
+# only once the fit converges reliably -- today it would fail every build on the
+# two runaway clubs and Friday would get no build at all, served from Tuesday's.
+MODEL_DEGRADED = "MODEL DEGRADED:"
 
 DC_RULE_FROM = "2025-26"      # the defensive-contribution rule exists from this season on
 MIN_FRAME_ROWS = 300          # an empty/withered frame is the get_minutes silent-empty symptom
@@ -399,6 +408,31 @@ def _fixture_calendar_check(findings, strict, season, target_gws):
         findings.append("note: fixture-calendar re-pull matches the skeleton snapshot on the target gameweeks")
 
 
+LAMBDA_MIN, LAMBDA_MAX = 0.15, 6.0      # the extreme-strength box; its reasoning is in postflight's comment
+
+
+def degraded_findings(frame, last_fit=None):
+    """The two LOUD, NON-FATAL model-degradation findings (MODEL_DEGRADED prefix): a club
+    whose team_lambda sits outside [LAMBDA_MIN, LAMBDA_MAX] at any step, and a fit that
+    did not converge. Pure over the frame (+ dixon_coles.LAST_FIT unless given); returns
+    strings and never raises, so a degraded model is served AND visible."""
+    out = []
+    for step, s in frame.groupby("horizon_step" if "horizon_step" in frame.columns else "gw"):
+        lam = s.groupby("team")["team_lambda"].first().dropna()
+        bad = lam[(lam < LAMBDA_MIN) | (lam > LAMBDA_MAX)]
+        if len(bad):
+            out.append(f"{MODEL_DEGRADED} Dixon-Coles strength EXTREME at horizon step {step}: "
+                       + ", ".join(f"{t} lambda={v:.4f}" for t, v in bad.items())
+                       + f" (outside [{LAMBDA_MIN}, {LAMBDA_MAX}]) -- a parameter ran off: no history and a "
+                       "one-sided record (KNOWN_ISSUES #25); served, not refused")
+    lf = dc_mod.LAST_FIT if last_fit is None else last_fit
+    if lf and lf.get("converged") is False:
+        out.append(f"{MODEL_DEGRADED} Dixon-Coles fit did NOT converge (L-BFGS-B success False after "
+                   f"{lf.get('iterations')} iterations; max|attack| {float(lf.get('max_abs_attack') or 0):.2f}, "
+                   f"max|defence| {float(lf.get('max_abs_defence') or 0):.2f}) -- a parameter running off; served, not refused")
+    return out
+
+
 def postflight(frame, season, gw, strict=False, horizon=1):
     """Detectors on the produced frame for the fallbacks preflight cannot see.
     The step-0 detectors run on the deadline gameweek's rows; horizon > 1 adds
@@ -432,6 +466,31 @@ def postflight(frame, season, gw, strict=False, horizon=1):
                      f"team_lambda value(s) across {len(lam)} clubs"
                      + (" -- exactly the fit's starting point (home e^0.25 / away 1.0)" if at_x0 else "")
                      + "; the fit aborted or trained on nothing (Logs/dc_degenerate_fit_finding_2026-09-13.md)")
+
+    # Dixon-Coles strength EXTREME (2026-09-13, permanent; prereg
+    # Logs/dc_shrinkage_prereg_2026-09-13.md section 5): one club's parameter
+    # ran off. WHY THESE BOUNDS, so nobody relaxes them later for a bad state:
+    # they come from the DISTRIBUTION of team_lambda on the rebuilt record at
+    # steps >= 1 (three seasons, ~10,300 team-fixture cells): minimum 0.188
+    # (2025-26) / 0.408 (2023-24), 0.1st percentile >= 0.199, 99.9th <= 3.95,
+    # maximum 4.32. [0.15, 6.0] sits outside every legitimately observed value
+    # with margin on both sides. The ONLY cells the record ever had outside it
+    # are the five Ipswich cells at 2024-25 cutoff 2 (0.001): the unregularised
+    # fit on a club with no history and a scoreless record -- three orders of
+    # magnitude below the bound, not near it. A parameter that runs off does
+    # not land near 0.15; it lands at 0.001. The bounds were NOT chosen to
+    # accommodate any known-bad state; they were chosen so that the known-bad
+    # state fails by a wide margin. If it ever fires after a remedy, the answer
+    # is to understand the club, never to widen the box. `converged` False is
+    # the same signal from the optimiser's side.
+    #
+    # LOUD, NOT FATAL (2026-09-16): these two findings are appended with the
+    # MODEL_DEGRADED prefix and never raise -- a bad fit must be VISIBLE (health
+    # reason + push, naming the club and its lambda) while the build is still
+    # served, because a failed build is visible and a bad one is not, and today
+    # a fatal raise would leave Friday with no build. The fatal form goes in
+    # only once the fit converges reliably (a remedy under pre-registration).
+    findings.extend(degraded_findings(frame))          # appended, never raised (see degraded_findings)
 
     f = frame[frame["gw"] == gw]
 

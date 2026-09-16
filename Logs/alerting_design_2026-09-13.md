@@ -114,3 +114,15 @@ the user's):**
 
 **The file reaches the host with every deploy** (`/root/fpl-copilot` is the checkout the deploy updates),
 so cron always runs the committed version; an edit to the probe is a push, not a copy.
+
+## 7. The blind spot it inherits (2026-09-15/16), and the rule
+
+The probe was installed and correct when the dispatcher crashed after each of four successful builds on the
+15th, and it pushed nothing: `/health` read `ok` for the whole incident because no failure was ever recorded.
+An alert that consumes `/health` inherits every blind spot `/health` has. Rule, now in the handoff: alerting
+on a health endpoint only alarms on states that endpoint can represent — for every alarm ask what failure
+would leave the endpoint saying ok. Two reasons were added on the endpoint side for the two classes found
+this week: a slot RUNNING for more than 90 minutes (a tick that died after or during its build), and a
+served build whose model is degraded (the loud detector's MODEL DEGRADED findings, naming the club and its
+lambda). The heartbeat remains the proof that the probe itself is alive; it is not a proof that `/health`
+sees everything.

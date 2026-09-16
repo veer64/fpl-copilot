@@ -149,6 +149,46 @@ def test_fixture_output_keeps_live_names(monkeypatch):
     assert lam.min() > 0.15 and lam.max() < 6.0, f"live fixtures outside the strength bounds: {lam.min():.4f}..{lam.max():.4f}"
 
 
+# ------------------------------------------------ the LOUD extreme-strength detector
+import live_deadline as ld                                 # noqa: E402
+
+
+def _frame(lams_by_step):
+    rows = []
+    for step, lams in lams_by_step.items():
+        for i, lam in enumerate(lams):
+            rows.append(dict(horizon_step=step, gw=4 + step, team=f"T{i}", element=100 * step + i,
+                             team_lambda=lam, opp_lambda=1.0, e_points=1.0, understat_id=1.0, position="MID",
+                             p_dc_hit=0.1, penalty_share=0.0))
+    return pd.DataFrame(rows)
+
+
+def test_extreme_strength_is_a_loud_finding_that_is_appended_never_raised():
+    """User decision 2026-09-16: served, not refused -- visible through /health and the push."""
+    good = list(np.linspace(0.45, 3.5, 20))
+    f = _frame({0: good, 1: good[:-1] + [0.0006]})
+    hits = ld.degraded_findings(f, last_fit={})
+    assert len(hits) == 1 and hits[0].startswith(ld.MODEL_DEGRADED)
+    assert "EXTREME at horizon step 1" in hits[0] and "T19 lambda=0.0006" in hits[0] and "served, not refused" in hits[0]
+    assert any("T19 lambda=6.5000" in x for x in ld.degraded_findings(_frame({0: good, 1: good[:-1] + [6.5]}), last_fit={}))
+    assert ld.degraded_findings(_frame({0: good, 1: good[:-1] + [0.2]}), last_fit={}) == []
+    # source level: postflight EXTENDS with these findings and never routes them through _finding
+    import inspect
+    src = inspect.getsource(ld.postflight)
+    assert "findings.extend(degraded_findings(frame))" in src
+    import re
+    dsrc = inspect.getsource(ld.degraded_findings)
+    assert "_finding(" not in dsrc and re.search(r"^\s*raise", dsrc, re.M) is None
+
+
+def test_a_non_converged_fit_is_a_loud_finding_too():
+    good = list(np.linspace(0.45, 3.5, 20))
+    hits = ld.degraded_findings(_frame({0: good, 1: good}),
+                                last_fit={"converged": False, "iterations": 189, "max_abs_attack": 7.39, "max_abs_defence": 0.88})
+    assert len(hits) == 1 and hits[0].startswith(ld.MODEL_DEGRADED) and "did NOT converge" in hits[0] and "7.39" in hits[0]
+    assert ld.degraded_findings(_frame({0: good, 1: good}), last_fit={"converged": True}) == []
+
+
 # ------------------------------------------------------------ the record
 
 

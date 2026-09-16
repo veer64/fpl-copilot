@@ -742,7 +742,10 @@ guard proves the reconstruction matches the record's filter — not that the
 record's filter was knowable; parity proves the code does not diverge, not
 that the inputs were knowable. A boundary rule shared by the record's filter
 and the guard's truncation is invisible to both until it is defined once and
-used by both sides so that they can disagree. Silent fallbacks
+used by both sides so that they can disagree. Alerting on a health endpoint only alarms on states that
+endpoint can represent (added 2026-09-16, from the dispatcher incident of the 15th: four successful
+builds, a crash after each, `/health` ok throughout, the probe correct and blind): every future alarm
+gets the same question asked of it — what failure would leave this endpoint saying ok? Silent fallbacks
 are the enemy; strict mode raises. The laptop runs the suite; the server does
 not. data_checked gating stays. No holdout exists from 2026-08-27 onward. A
 backtest figure is not a live expectation. **Modelling is closed** — the levers
