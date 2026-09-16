@@ -398,3 +398,31 @@ starting-point label anywhere; `compare_runs(411, 5, 6, 9)` from stored terms: "
 added), `converged` False, max |attack| 7.39 — Coventry still scoreless, the KNOWN_ISSUES #25 artefact as
 predicted; GW6 rows with a lambda below 0.15: Coventry City 37 and their opponents Newcastle 30 (the
 runaway seen from both sides); Hull's defence no longer runs off (they conceded in GW4).
+
+**What the alert probe saw (added 2026-09-16 00:40Z, at the user's request).** The probe HAD been installed
+(env file and cron line since Sun 14 Sep 15:44Z; the 11:05Z heartbeat fired on the 15th). Its log through the
+crash window, every ten minutes from 18:10Z to 19:30Z: `health=ok reasons=0 events=none`. It pushed nothing
+because there was nothing to push: no FAILED status was ever recorded and the promise was overwritten each
+tick, so `/health` was `ok` for the whole incident. That is the second finding, and the larger one: a tick
+that dies after a successful build was a class `/health` could not see, and an alert that consumes `/health`
+inherits every blind spot `/health` has. The `RUNNING_STALE_MIN` reason closes this class. After the fix
+deployed (21:27Z) the probe saw `degraded` once (21:30:02Z, one probe before the 21:30:04Z tick settled the
+slots) and then `ok`, so no DEGRADED page (two consecutive probes are required, by design); at 21:40Z it
+pushed two slot outcomes — post_ingest:GW4 SUCCESS (run 7) and nightly:2026-09-15 SUCCESS (run 9) — the
+first two pushes the channel has carried for real. No human touched the server or the state file: the
+recovery was the deployed code's reconciliation on the next tick; the only human action was the code fix
+and its deploy.
+
+**Are the run outputs trustworthy?** Yes. The runner ran to completion each time: strict preflight and
+postflight passed, the frame was written to the volume, the sidecar and the status archive were written,
+the model_runs / model_predictions / model_picks rows were committed (3,954 predictions with terms per run).
+The crash was in the DISPATCHER'S bookkeeping after the runner's subprocess had returned exit 0. Runs 6-9 are
+bit-identical because their inputs were identical; the agent serves run 9.
+
+**Can it recur before Friday, and are the deadline slots exposed?** The crash path was the same for every
+kind, so the deadline slots WERE exposed (a t90 that built and then crashed would have re-fired at t30 as
+attempt 1 of its own slot, and so on — the builds would still have happened, the bookkeeping would not).
+The import now happens at module load and is tested; the end-to-end tick test runs the post-build path; the
+reconciliation settles any slot a future crash leaves RUNNING; the stale-RUNNING reason degrades `/health`
+within 90 min and the probe pushes it. Residual: a NEW kind of post-build crash would still cost one
+re-fire before the reconciliation catches it on the next tick — a wasted build, not a missing one.
