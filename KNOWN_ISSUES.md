@@ -1462,3 +1462,8 @@ call on the branch.
 form with a PROMOTED-CLUB centre for the hinge instead of the league mean -- fixed constants (-0.31 attack,
 +0.20 defence) from 27 promoted clubs over 9 archive cohorts (first-season strength 0.74x / concedes 1.22x);
 falsified / MARGINAL / pass defined before any number; not implemented.
+**2026-09-17 19:00Z:** v3 implemented on the branch and run: starters +0.0018 (+2.1 SE), top-30 -0.0075 (-1.35 SE),
+every structural gate held, verdict MARGINAL by the pre-fixed rule -> NOT adopted. The residual is 2025-26's
+luck component (the record's Sunderland runaway paid off), present at every centre tried; the centre is not
+the lever. Per the prereg: no fourth form without a new argument; let Coventry score. The loud detector
+remains the live floor. STILL OPEN.

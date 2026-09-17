@@ -1,4 +1,9 @@
-# Pre-registration v3: a PROMOTED-CLUB CENTRE for the hinge prior (2026-09-17 evening) — DESIGN ONLY, not implemented
+# Pre-registration v3: a PROMOTED-CLUB CENTRE for the hinge prior (2026-09-17 evening)
+
+> **STATUS 2026-09-17 19:00Z: IMPLEMENTED on branch `hinge-box-v2` (commit adddc17, unpushed), the endpoint RUN, verdict
+> MARGINAL by §4's rule (pooled top-30 −1.35 SE), NOT ADOPTED.** Execution log: `Logs/dc_shrinkage_v3_log_2026-09-17.md`.
+> The centre was not the lever: every sensitivity centre is marginal by the same clause, 2025-26's luck component being
+> the residual. Nothing below is amended.
 
 A new pre-registration, not an amendment of v2. v2 (`Logs/dc_shrinkage_threshold_prereg_2026-09-17.md`, executed in
 `Logs/dc_shrinkage_v2_log_2026-09-17.md`) passed the letter of its bar and was MARGINAL under the user's condition
