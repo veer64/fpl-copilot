@@ -148,3 +148,12 @@ test diverges against the old record by design). main carries the logs, the prer
 #25's note; nothing pushed, nothing deployed, the record untouched. If the user ever wants the form in despite the
 rule, the path is scripted (`rebuild_hinge.ps1`, `*_pre_hinge`) — but it would be a judgement call and must be
 named as one, never as a passed pre-registration.
+
+## 4. Where the code lives (2026-09-17 19:10Z, the user's decision)
+
+Branch `hinge-box-v2` is PUSHED to origin as a record (`origin/hinge-box-v2`, head adddc17: f41a0fe = v2, adddc17 = v3),
+not merged. It is the only place the hinge, the plausibility box, the centring machinery, the league-only scoping, the
+phantom-club guard, the promoted-club centre and the box/detector reconciliation exist as code; if a club reaches
+seven goalless matches the box becomes load-bearing and the code should be findable, not reconstructed. main carries
+the logs and status lines only (pushed the same evening); the deploy workflow rebuilds the container on every push to
+main, so the served SHA moves to the docs commit while the code stays the record's.
