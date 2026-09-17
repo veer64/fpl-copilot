@@ -727,6 +727,10 @@ untouched, retry next tick.
 - The runner's subprocess output is captured with `PIPE` and only lands in the
   run log when the step ends — no live progress inside a step.
 - Heredocs that are too long hit ENAMETOOLONG in the Bash tool; use the Write tool.
+- **Never switch git branches (or edit a model module) while a build queue is live** (2026-09-17): each
+  queued build is a fresh process importing whatever is on disk; one sensitivity build silently ran the
+  record's plain fit after a checkout to main. Caught only because every `LAST_FIT` stamps its constants
+  (`shrink_n`, `shrink_tau0`, `bound`, `n_league`) — check the stamps before using any build.
 
 ---
 

@@ -1458,3 +1458,7 @@ unaffected cutoffs bit-identical, every fit converged, every lambda inside [0.15
 letter; MARGINAL under the user's condition, so NOT adopted at the stop point and not deployed for the GW5
 deadline. The loud detector (MODEL DEGRADED on /health + push) remains the live floor. STILL OPEN; the user's
 call on the branch.
+**2026-09-17 evening:** v3 PRE-REGISTERED, design only (`Logs/dc_shrinkage_v3_prereg_2026-09-17.md`): the same
+form with a PROMOTED-CLUB centre for the hinge instead of the league mean -- fixed constants (-0.31 attack,
++0.20 defence) from 27 promoted clubs over 9 archive cohorts (first-season strength 0.74x / concedes 1.22x);
+falsified / MARGINAL / pass defined before any number; not implemented.
