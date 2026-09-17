@@ -69,6 +69,7 @@ import dixon_coles as dc_mod              # noqa: E402
 # only once the fit converges reliably -- today it would fail every build on the
 # two runaway clubs and Friday would get no build at all, served from Tuesday's.
 MODEL_DEGRADED = "MODEL DEGRADED:"
+MODEL_NOTE = "MODEL NOTE:"        # visible on the run and /health; never degrades, never pushes, never raises
 
 DC_RULE_FROM = "2025-26"      # the defensive-contribution rule exists from this season on
 MIN_FRAME_ROWS = 300          # an empty/withered frame is the get_minutes silent-empty symptom
@@ -414,9 +415,11 @@ LAMBDA_MIN, LAMBDA_MAX = 0.15, 6.0      # the extreme-strength box; its reasonin
 def degraded_findings(frame, last_fit=None):
     """The two LOUD, NON-FATAL model-degradation findings (MODEL_DEGRADED prefix): a club
     whose team_lambda sits outside [LAMBDA_MIN, LAMBDA_MAX] at any step, and a fit that
-    did not converge. Pure over the frame (+ dixon_coles.LAST_FIT unless given); returns
-    strings and never raises, so a degraded model is served AND visible."""
+    did not converge -- plus the MODEL NOTE findings (the hinge prior's clubs; a club clamped
+    at the plausibility bound), which inform and never degrade. Pure over the frame
+    (+ dixon_coles.LAST_FIT unless given); returns strings and never raises."""
     out = []
+    lf = dc_mod.LAST_FIT if last_fit is None else last_fit
     for step, s in frame.groupby("horizon_step" if "horizon_step" in frame.columns else "gw"):
         lam = s.groupby("team")["team_lambda"].first().dropna()
         bad = lam[(lam < LAMBDA_MIN) | (lam > LAMBDA_MAX)]
@@ -425,9 +428,24 @@ def degraded_findings(frame, last_fit=None):
                        + ", ".join(f"{t} lambda={v:.4f}" for t, v in bad.items())
                        + f" (outside [{LAMBDA_MIN}, {LAMBDA_MAX}]) -- a parameter ran off: no history and a "
                        "one-sided record (KNOWN_ISSUES #25); served, not refused")
-    lf = dc_mod.LAST_FIT if last_fit is None else last_fit
+    # THE BOX AND THE DETECTOR, settled 2026-09-17 before the fatal raise ships (prereg v2,
+    # Logs/dc_shrinkage_threshold_prereg_2026-09-17.md): a club CLAMPED at the plausibility
+    # bound (LAST_FIT["at_bound"]) is the box working, not a parameter running off. It is a
+    # MODEL NOTE -- visible in the run's findings and on /health, never a degraded reason, never
+    # pushed, never raised. The EXTREME check above is UNCHANGED and still applies to a clamped
+    # club: its bounds are the bounds, and a lambda below 0.15 is a finding whoever produces
+    # it. The fatal raise, when it ships, raises on EXTREME and on a non-converged fit only.
+    below = (lf or {}).get("clubs_below_n") or {}
+    if below:
+        out.append(f"{MODEL_NOTE} hinge prior active (evidence below {(lf or {}).get('shrink_n')} effective matches): "
+                   + ", ".join(f"{t} (n_eff {v.get('n_eff')}, tau {v.get('tau')})" for t, v in sorted(below.items())))
+    clamped = (lf or {}).get("at_bound") or {}
+    if clamped:
+        out.append(f"{MODEL_NOTE} Dixon-Coles strength CLAMPED at the plausibility bound (+-ln 4 of the league rate): "
+                   + ", ".join(f"{t} ({'/'.join(v)})" for t, v in sorted(clamped.items()))
+                   + " -- a one-sided record with the hinge released; the box is holding (prereg v2 section 1); served")
     if lf and lf.get("converged") is False:
-        out.append(f"{MODEL_DEGRADED} Dixon-Coles fit did NOT converge (L-BFGS-B success False after "
+        out.append(f"{MODEL_DEGRADED} Dixon-Coles fit did NOT converge ({lf.get('method') or 'L-BFGS-B'} success False after "
                    f"{lf.get('iterations')} iterations; max|attack| {float(lf.get('max_abs_attack') or 0):.2f}, "
                    f"max|defence| {float(lf.get('max_abs_defence') or 0):.2f}) -- a parameter running off; served, not refused")
     return out

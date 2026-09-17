@@ -27,3 +27,14 @@ def test_model_degraded_findings_become_health_reasons_naming_the_club():
     assert mt._model_degraded_reasons({"run_id": 12, "strict_findings": {"baseline": ["note: x"]}}) == []
     assert mt._model_degraded_reasons({"run_id": 13, "strict_findings": None}) == []
     assert mt._model_degraded_reasons({"run_id": 14, "strict_findings": "not json"}) == []
+
+
+def test_model_notes_reach_health_as_information_not_reasons():
+    run = {"run_id": 15, "strict_findings": {"baseline": [
+        "MODEL NOTE: hinge prior active (evidence below 10 effective matches): Coventry City (n_eff 4.0, tau 3.36)",
+        "MODEL NOTE: Dixon-Coles strength CLAMPED at the plausibility bound (+-ln 4 of the league rate): Hull (defence) -- served",
+        "note: 269 of 656 rows have no understat_id"]}}
+    notes = mt._model_notes(run)
+    assert len(notes) == 2 and notes[0].startswith("run 15, baseline: hinge prior active") and "CLAMPED" in notes[1]
+    assert mt._model_degraded_reasons(run) == []          # a note never degrades
+    assert mt._model_notes({"run_id": 16, "strict_findings": {"baseline": ["note: x"]}}) == []

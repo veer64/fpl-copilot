@@ -1043,10 +1043,17 @@ def _weekly_ingest_status(reasons):
 MODEL_DEGRADED_PREFIX = "MODEL DEGRADED:"
 
 
-def _model_degraded_reasons(run):
-    """The MODEL DEGRADED findings of a run (its strict_findings, per config) as health
-    reasons: "model degraded (run N, config): <finding>". Pure; the JSONB may arrive as a
-    dict or a string; anything unreadable is ignored (no finding, no reason)."""
+MODEL_NOTE_PREFIX = "MODEL NOTE:"
+
+
+def _model_notes(run):
+    """The MODEL NOTE findings of a run (live_deadline.MODEL_NOTE: the hinge prior's clubs, a
+    club clamped at the plausibility bound) as plain strings for /health's `model_notes`.
+    Informational by design (2026-09-17): never a reason, never degrades, never pushes."""
+    return [f"run {run.get('run_id')}, {config}: {n}" for config, n in _prefixed_findings(run, MODEL_NOTE_PREFIX)]
+
+
+def _prefixed_findings(run, prefix):
     sf = run.get("strict_findings")
     if isinstance(sf, str):
         import json
@@ -1059,9 +1066,17 @@ def _model_degraded_reasons(run):
     out = []
     for config, notes in sf.items():
         for n in (notes or []):
-            if isinstance(n, str) and n.startswith(MODEL_DEGRADED_PREFIX):
-                out.append(f"model degraded (run {run.get('run_id')}, {config}): {n[len(MODEL_DEGRADED_PREFIX):].strip()}")
+            if isinstance(n, str) and n.startswith(prefix):
+                out.append((config, n[len(prefix):].strip()))
     return out
+
+
+def _model_degraded_reasons(run):
+    """The MODEL DEGRADED findings of a run (its strict_findings, per config) as health
+    reasons: "model degraded (run N, config): <finding>". Pure; the JSONB may arrive as a
+    dict or a string; anything unreadable is ignored (no finding, no reason)."""
+    return [f"model degraded (run {run.get('run_id')}, {config}): {n}"
+            for config, n in _prefixed_findings(run, MODEL_DEGRADED_PREFIX)]
 
 
 def health():
@@ -1151,8 +1166,10 @@ def health():
     # a served build whose model is DEGRADED (a loud, non-fatal detector finding in the
     # run's notes -- live_deadline.MODEL_DEGRADED) degrades health, so the alert probe
     # pushes it with the club and the lambda named (user decision 2026-09-16)
+    model_notes = []
     if last:
         reasons.extend(_model_degraded_reasons(last))
+        model_notes = _model_notes(last)        # informational: the hinge's clubs, a clamped club
 
     if last_any and last_any["status"] != "SUCCESS":
         lk = last_any.get("kind") or "deadline"
@@ -1186,4 +1203,5 @@ def health():
             "git_sha": sha, "model_versions": model_versions,
             "data_freshness_by_source": freshness, "db_ok": db_ok,
             "last_run": last_block,
+            "model_notes": model_notes,
             "reasons": reasons}

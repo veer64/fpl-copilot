@@ -51,33 +51,54 @@ BASE = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 PREDICT_SEASON = "2025-26"
 HALF_LIFE_DAYS = 365
 
-# --- Shrinkage on team strengths (pre-registered: Logs/dc_shrinkage_prereg_2026-09-13.md,
-# change A). A Gaussian prior centred at 0 (= the league-average multiplier, the
-# parameterisation's own centre and the unmatched-fixture fill's neutral point) on every
-# attack and defence parameter, applied as 0.5 * SHRINK_TAU * sum(theta^2) on the weighted
-# NLL -- the MAP estimate of the same model. Without it the likelihood of a club with no
-# archive history and a one-sided record (no goals scored, or none conceded) is monotone
-# in that parameter and L-BFGS-B stops at -6..-8 with `converged` False: the club's
-# fixtures are priced at lambda ~0.001 (live 2026-27 GW5: Coventry City attack, Hull City
-# defence; record: 2024-25 cutoff 2, Ipswich). The strength is stated in league-average
-# pseudo-matches: per match the Fisher information of an attack/defence parameter is
-# ~lambda ~1.40, so tau = 1.40 * k is worth k such matches and the posterior mode shrinks
-# the MLE by n_eff / (n_eff + k), n_eff = the club's decay-weighted match count. k = 4 was
-# fixed BEFORE any measurement and is not tuned on the endpoint: a scoreless promoted club
-# after three matches sits at ~0.61x league attack instead of 0; a club with 20 effective
-# matches keeps 83% of its MLE; an established club (n_eff ~60-70 at the 365-day half-life)
-# keeps >= 94%. The prior releases as evidence accrues and never re-tightens.
+# --- Team-strength regularisation, pre-registered v2 (Logs/dc_shrinkage_threshold_prereg_2026-09-17.md,
+# approved 2026-09-17). Two parts, each doing one job; both leave evidence-rich clubs at their
+# exact maximum-likelihood values BY CONSTRUCTION -- the mechanism that falsified the first
+# attempt (a Gaussian prior on EVERY club, k = 4: it compressed the strongest fixtures, where
+# the top-30 slice lives; Logs/dc_shrinkage_log_2026-09-13.md) is this design's constraint.
 #
-# OUTCOME 2026-09-14 (Logs/dc_shrinkage_log_2026-09-13.md section 3): k = 4 was FALSIFIED on
-# its pre-registered endpoint -- the steps-1-5 top-30 sliced Spearman fell by 0.0052 (2023-24)
-# and 0.0065 (2024-25) against the bar of -0.005 -- so the prior is OFF: SHRINK_K = 0 makes the
-# penalty term exactly 0.0 and the objective bit-identical to the pre-shrinkage fit (parity
-# and the as-of guard verified on that). The machinery stays so the next pre-registration
-# (a different k or form is a NEW prereg, never a tuning of this one) is one constant away.
-# The runaway-parameter defect it was meant to bound (KNOWN_ISSUES #25, "exposed") is
-# therefore still OPEN.
-SHRINK_K = 0
-SHRINK_TAU = 1.40 * SHRINK_K          # 1.40 = LEAGUE_AVG_LAMBDA, the neutral fill's lambda
+#   (A) THE HINGE IS A PRIOR ABOUT EVIDENCE. Per club, tau_i = SHRINK_TAU0 * max(0, 1 - n_eff_i /
+#       SHRINK_N), added as 0.5 * sum_i tau_i * (atk_i^2 + dfc_i^2) to the weighted NLL; n_eff_i is
+#       the club's decay-weighted match count. tau0 = 5.6 (four league-average pseudo-matches at
+#       zero evidence); N = 10 from the record's evidence table (a club in the league in either of
+#       the last two seasons carries n_eff >= 25 at cutoff 1; a no-history club crosses 10 at
+#       cutoff 12-13). Above N the penalty is exactly 0.0 -- when no club is below N the objective
+#       is bit-for-bit the unregularised one.
+#   (B) THE BOX IS A BOUND ABOUT FOOTBALL. atk_i, dfc_i in [-ATK_DFC_BOUND, +ATK_DFC_BOUND] = 0.25x
+#       to 4x the league rate. On 21 record fits (cutoffs 2..38 of three seasons) clubs with
+#       n_eff >= 10 span attack [-0.53, +0.90] and defence [-0.69, +0.51]: inside the box by at
+#       least 0.49 in log on every side; the league's historical extremes (worst attack ~0.4x,
+#       best defence ~0.3x) are inside it too. It is applied ONLY when the unbounded fit leaves the
+#       box -- a one-sided record whose likelihood has no minimum -- so a cutoff that never needed
+#       it takes the identical optimiser path (the structural bit-identity the prereg demands).
+#       A club that hits the bound is recorded in LAST_FIT["at_bound"]; live_deadline reports it as
+#       CLAMPED (the box working), which the fatal raise must never treat as a runaway.
+#
+# What a club with zero goals and no history gets (MAP under A, then B): 0.55x the league rate
+# after 3 scoreless matches, 0.46x after 4, 0.31x after 6, 0.25x (the box) from 8 onward and
+# forever -- lambda ~0.41 v an average defence, ~0.17 v the strongest defence the record has
+# fitted. History: the k = 4 global prior of 2026-09-13 was FALSIFIED and removed; a different
+# tau0 / N / bound is a NEW pre-registration, never a tuning of this one. SHRINK_N = 0 switches
+# the hinge off and ATK_DFC_BOUND = None the box, each exactly (a revert, if the bar falsifies).
+#
+# IDENTIFIABILITY (found at implementation, 2026-09-17, before any endpoint number; recorded in
+# the prereg log): the likelihood is invariant to atk + c / dfc - c, so "attack 0" means nothing
+# on its own. The record's fits sit in the gauge sum(atk) = sum(dfc) (L-BFGS-B from zeros never
+# moves along the flat direction), where the LEAGUE MEAN attack is about +0.09, not 0. A prior
+# or a box written on the raw coordinates is therefore not what the prereg's words say ("the
+# league rate") -- and worse, the optimiser can cheapen one club's penalty by shifting the WHOLE
+# league along the flat direction, and a raw-coordinate box lets a scoreless club keep running
+# off through that shift until some established club hits the opposite bound (seen on the
+# synthetic test). Both parts therefore act on CENTRED parameters, atk_i - mean(atk) and
+# dfc_i - mean(dfc) over the clubs in the fit: invariant to the gauge, so the fit stays in the
+# record's gauge and "0.25x the league rate" means exactly that. The box becomes a linear
+# constraint (SLSQP on the refit only; L-BFGS-B, the record's optimiser, everywhere else).
+# The hinge applies to the clubs whose parameters are USED (the predict season's clubs,
+# `prior_teams`): a club relegated two seasons earlier sits at n_eff ~ 9.5 in every fit, and a
+# hinge on it would switch the penalty on at every cutoff and break the bit-identity promised.
+SHRINK_TAU0 = 1.40 * 4                # 1.40 = LEAGUE_AVG_LAMBDA, the neutral fill's lambda; 4 pseudo-matches
+SHRINK_N = 10                         # effective matches at which the hinge has fully released
+ATK_DFC_BOUND = float(np.log(4.0))    # the plausibility box, +-ln 4 (0.25x .. 4x)
 
 # --- Live club names vs the archive (prereg change B). The football-data archive names
 # a returning club 'Hull' / 'Ipswich'; the live pull (and FPL) name it 'Hull City' /
@@ -186,12 +207,10 @@ def knowable_before(matches, cutoff):
 LAST_FIT = {}   # summary of the most recent fit, for the runner's KNOWLEDGE block / provenance
 
 
-def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days):
-    # The assertion behind the rule: a NaN goal in the training set turns the
-    # likelihood NaN and L-BFGS-B returns its INITIAL parameters without any
-    # error (observed live on every 2026-27 build until 2026-09-13). Under
-    # knowable_before this cannot fire; it exists so that any path that
-    # bypasses the rule fails loudly instead of returning the starting point.
+def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days, prior_teams=None):
+    """Fit the DC model on `train_matches` (canonical names). `prior_teams`: the clubs the
+    hinge prior may touch (the predict season's clubs); None = every club in the fit.
+    Refuses (raises) a training set with unplayed matches or no rows -- see knowable_before."""
     n_nan = int(train_matches[["home_goals", "away_goals"]].isna().any(axis=1).sum())
     if n_nan:
         raise ValueError(
@@ -204,10 +223,33 @@ def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days):
     nt = len(all_teams)
     h = train_matches["home"].map(idx).values
     a = train_matches["away"].map(idx).values
-    hg = train_matches["home_goals"].values
-    ag = train_matches["away_goals"].values
+    hg = train_matches["home_goals"].values.astype(float)
+    ag = train_matches["away_goals"].values.astype(float)
     age = (ref_date - train_matches["date_parsed"]).dt.days.values
     w = np.ones(len(age)) if half_life_days is None else np.exp(-(np.log(2) / half_life_days) * age)
+
+    # (A) evidence per club (decay-weighted match count) and the hinge precision it earns
+    n_eff = np.zeros(nt)
+    np.add.at(n_eff, h, w); np.add.at(n_eff, a, w)
+    in_prior = np.ones(nt, dtype=bool) if prior_teams is None else np.array([t in set(prior_teams) for t in all_teams])
+    tau_i = np.zeros(nt)
+    if SHRINK_N:
+        tau_i[in_prior] = SHRINK_TAU0 * np.clip(1.0 - n_eff[in_prior] / SHRINK_N, 0.0, None)
+    hinge_on = bool((tau_i > 0).any())
+    # "The league rate" is the mean over the LEAGUE -- the predict season's clubs (prior_teams) --
+    # not over every club the archive has ever held. The fit's team list spans every archive
+    # season, so it carries clubs with little or NO training evidence (a club promoted in a later
+    # season has zero rows: a phantom whose parameters nothing anchors). A mean over all of them
+    # hands the optimiser a free slack variable: it moved a phantom's defence to +26 to shift the
+    # mean and cheapen one hinged club's penalty, and the box then clamped the phantom at both
+    # bounds (first reference build, 2023-24 cutoffs 2-10; Logs/dc_shrinkage_v2_log_2026-09-17.md
+    # section 1(d)). Centring and the box are therefore over `in_prior` only; every other club is
+    # the plain MLE (or the starting point, for a phantom), exactly as on the record.
+    pri = np.where(in_prior)[0]
+
+    def centred(p):
+        atk, dfc = p[:nt], p[nt:2 * nt]
+        return np.concatenate([atk - atk[pri].mean(), dfc - dfc[pri].mean()])
 
     def nll(params):
         atk, dfc = params[:nt], params[nt:2 * nt]
@@ -221,24 +263,65 @@ def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days):
         tau[(hg == 1) & (ag == 0)] = (1 + lam_a * rho)[(hg == 1) & (ag == 0)]
         tau[(hg == 1) & (ag == 1)] = (1 - rho)
         log_p = log_p + np.log(np.clip(tau, 1e-10, None))
-        # the Gaussian prior at 0 on team strengths (SHRINK_TAU; home_adv and rho free)
-        return -(w * log_p).sum() + 0.5 * SHRINK_TAU * (np.sum(atk ** 2) + np.sum(dfc ** 2))
+        val = -(w * log_p).sum()
+        if hinge_on:
+            # (A) the hinge prior on the evidence-poor clubs' CENTRED parameters (gauge-invariant)
+            c = centred(params)
+            val = val + 0.5 * float(np.sum(tau_i * (c[:nt] ** 2 + c[nt:] ** 2)))
+        return val
 
     x0 = np.zeros(2 * nt + 2); x0[-2] = 0.25
-    res = minimize(nll, x0, method="L-BFGS-B")
-    # decay-weighted match count per club: the evidence the prior is weighed against
-    n_eff = np.zeros(nt)
-    np.add.at(n_eff, h, w); np.add.at(n_eff, a, w)
-    i_min = int(np.argmin(n_eff))
+    res = minimize(nll, x0, method="L-BFGS-B")                     # the unbounded fit, the record's optimiser
+    method, boxed_refit = "L-BFGS-B", False
+    B = ATK_DFC_BOUND
+    c0 = centred(res.x)
+    if B is not None and float(max(np.abs(c0[pri]).max(), np.abs(c0[nt + pri]).max())) > B:
+        # (B) the box, ONLY because the unbounded fit left it: for the league's clubs,
+        # |atk_i - mean(atk)| <= B and the same for defence, as linear inequality constraints
+        # A p + B >= 0 (rows: +-(e_i - 1/n_league over the league's clubs))
+        npri = len(pri)
+        C = np.zeros((2 * npri, 2 * nt + 2))
+        for r, i in enumerate(pri):
+            C[r, pri] = -1.0 / npri;            C[r, i] += 1.0
+            C[npri + r, nt + pri] = -1.0 / npri; C[npri + r, nt + i] += 1.0
+        A = np.vstack([C, -C])
+        cons = [{"type": "ineq", "fun": lambda p, A=A, B=B: A @ p + B, "jac": lambda p, A=A: A}]
+        res = minimize(nll, x0, method="SLSQP", constraints=cons, options={"maxiter": 1000})
+        method, boxed_refit = "SLSQP", True
+    x = res.x
+    c = centred(x)
+    at_bound = {}
+    if B is not None:
+        for i in pri:
+            t = all_teams[i]
+            hit = [nm for nm, v in (("attack", c[i]), ("defence", c[nt + i])) if abs(abs(v) - B) < 1e-5]
+            if hit:
+                at_bound[str(t)] = hit
+    # gate (e) of the prereg: how close the nearest ESTABLISHED club (in the league, n_eff >= N,
+    # not at a bound) sits to the box; and the evidence of the league's poorest club
+    est = [i for i in pri if n_eff[i] >= (SHRINK_N or 0) and str(all_teams[i]) not in at_bound]
+    margins = [(B - abs(c[i]), str(all_teams[i]), "attack") for i in est] + \
+              [(B - abs(c[nt + i]), str(all_teams[i]), "defence") for i in est] if B is not None else []
+    m_min = min(margins) if margins else (None, None, None)
+    i_min = int(min(pri, key=lambda i: n_eff[i]))
     LAST_FIT.clear()
     LAST_FIT.update(n_train=int(len(train_matches)), n_teams=int(nt), iterations=int(res.nit),
-                    converged=bool(res.success), max_abs_attack=float(np.abs(res.x[:nt]).max()),
-                    max_abs_defence=float(np.abs(res.x[nt:2 * nt]).max()),
-                    home_adv=float(res.x[-2]), rho=float(res.x[-1]),
+                    converged=bool(res.success), method=method, boxed_refit=boxed_refit,
+                    max_abs_attack=float(np.abs(x[:nt]).max()), max_abs_defence=float(np.abs(x[nt:2 * nt]).max()),
+                    max_abs_centred_attack=float(np.abs(c[pri]).max()), max_abs_centred_defence=float(np.abs(c[nt + pri]).max()),
+                    league_mean_attack=float(x[pri].mean()), league_mean_defence=float(x[nt + pri].mean()),
+                    n_league=int(len(pri)),
+                    home_adv=float(x[-2]), rho=float(x[-1]),
                     ref_date=str(pd.Timestamp(ref_date)),
-                    shrink_k=int(SHRINK_K), shrink_tau=float(SHRINK_TAU),
-                    n_eff_min=float(n_eff[i_min]), n_eff_min_club=str(all_teams[i_min]))
-    return res.x, idx, nt
+                    shrink_tau0=float(SHRINK_TAU0), shrink_n=int(SHRINK_N or 0),
+                    bound=(None if B is None else float(B)),
+                    n_eff_min=float(n_eff[i_min]), n_eff_min_club=str(all_teams[i_min]),
+                    clubs_below_n={str(all_teams[i]): {"n_eff": round(float(n_eff[i]), 2), "tau": round(float(tau_i[i]), 3)}
+                                   for i in range(nt) if tau_i[i] > 0},
+                    at_bound=at_bound,
+                    min_margin_to_bound=(None if m_min[0] is None else round(float(m_min[0]), 4)),
+                    min_margin_club=(None if m_min[0] is None else f"{m_min[1]} {m_min[2]}"))
+    return x, idx, nt
 
 
 def _outcomes(lam_h, lam_a, max_goals=10):
@@ -415,7 +498,9 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
         train_m = mc[knowable_before(mc, cutoff)].copy()
         ref = cutoff
 
-    params, idx, nt = _fit_dc_decay(train_m, teams, ref, HALF_LIFE_DAYS)
+    cur = mc[mc["season"] == predict_season]
+    prior_teams = sorted(set(cur["home"]) | set(cur["away"]))      # the clubs whose parameters are USED
+    params, idx, nt = _fit_dc_decay(train_m, teams, ref, HALF_LIFE_DAYS, prior_teams=prior_teams)
     atk, dfc, hadv, rho = params[:nt], params[nt:2 * nt], params[-2], params[-1]
 
     df = matches[matches["season"] == predict_season].copy()

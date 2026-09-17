@@ -1,15 +1,12 @@
 """
-Shrinkage on Dixon-Coles team strengths (Logs/dc_shrinkage_prereg_2026-09-13.md):
-change A, a Gaussian prior at 0 on attack/defence with strength k = 4 league-average
-pseudo-matches, releasing as n_eff / (n_eff + k); change B, the archive-canonical club
-name inside the fit and the name guard. (The strict EXTREME-strength detector and its
-tests live on branch shrink-detector-strict until a remedy exists: on main it would
-fail every live build on the two runaway clubs.)
+Regularisation of Dixon-Coles team strengths, and the archive-canonical club name inside the
+fit (prereg change B: canon_club, ARCHIVE_NAME_ALIAS, NEW_TO_ARCHIVE, check_new_clubs).
 
-OUTCOME 2026-09-14: k = 4 was FALSIFIED on its endpoint (Logs/dc_shrinkage_log_2026-09-13.md
-section 3); the module default is SHRINK_K = 0 (prior OFF, objective bit-identical to before).
-These tests pin the MECHANISM under an explicit tau (monkeypatched), so the next
-pre-registration is one constant away, and the guard, alias and detector regardless.
+The k = 4 global prior of 2026-09-14 was FALSIFIED; the v2 form (2026-09-17, approved) is a per-club
+hinge prior (tau0 5.6, N 10) plus a plausibility box (+-ln 4) applied only when the unbounded fit
+leaves it -- both on CENTRED parameters (Logs/dc_shrinkage_v2_log_2026-09-17.md section 1). These
+tests pin the prereg's table, the structural bit-identity, the hinge's scope, the box's scope, and
+the loud detector (MODEL DEGRADED v MODEL NOTE).
 
 Run:
     uv run pytest Tests/test_dixon_coles_shrinkage.py -v
@@ -49,49 +46,107 @@ def _league(rng, n_rounds=12, teams=("A", "B", "C", "D", "E", "F")):
     return rows
 
 
-# ------------------------------------------------------------ change A: the prior
-def test_scoreless_newcomer_is_bounded_not_minus_infinity(monkeypatch):
-    monkeypatch.setattr(dc, "SHRINK_K", 4); monkeypatch.setattr(dc, "SHRINK_TAU", 5.6)
-    rng = np.random.default_rng(1)
+# ------------------------------------------ the v2 form: hinge prior + plausibility box
+def _newcomer_rows(n_scoreless, rng_seed=1):
+    rng = np.random.default_rng(rng_seed)
     rows = _league(rng)
-    # a newcomer N with three matches, no goals scored, no history
-    rows += [_m(40, "N", "A", 0, 2), _m(41, "B", "N", 1, 0), _m(42, "N", "C", 0, 1)]
+    opps = ["A", "B", "C", "D", "E", "F"]
+    for i in range(n_scoreless):
+        rows.append(_m(40 + i, "N", opps[i % 6], 0, 2) if i % 2 == 0 else _m(40 + i, opps[i % 6], "N", 1, 0))
+    return rows
+
+
+def _fit(rows, **kw):
     teams = sorted({r["home"] for r in rows} | {r["away"] for r in rows})
-    p, idx, nt = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365)
-    a_n = p[idx["N"]]
-    assert -1.2 < a_n < -0.15, f"newcomer attack {a_n:.3f}: expected a bounded pull toward league average"
-    assert dc.LAST_FIT["converged"] is True
-    assert dc.LAST_FIT["shrink_k"] == 4 and abs(dc.LAST_FIT["shrink_tau"] - 5.6) < 1e-9
-    assert dc.LAST_FIT["n_eff_min_club"] == "N" and dc.LAST_FIT["n_eff_min"] < 3.5
+    p, idx, nt = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365, **kw)
+    c_atk = p[:nt] - p[:nt].mean(); c_dfc = p[nt:2 * nt] - p[nt:2 * nt].mean()
+    return p, idx, nt, c_atk, c_dfc
 
 
-def test_without_the_prior_the_same_newcomer_runs_off(monkeypatch):
-    rng = np.random.default_rng(1)
-    rows = _league(rng) + [_m(40, "N", "A", 0, 2), _m(41, "B", "N", 1, 0), _m(42, "N", "C", 0, 1)]
-    teams = sorted({r["home"] for r in rows} | {r["away"] for r in rows})
-    monkeypatch.setattr(dc, "SHRINK_TAU", 0.0)
-    p, idx, nt = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365)
-    assert p[idx["N"]] < -3.0          # the defect the prior removes: the MLE is at -inf, the optimiser stops far out
+@pytest.mark.parametrize("n, lo, hi, at_box", [(3, -0.80, -0.35, False), (8, -1.3863, -1.3862, True), (12, -1.3863, -1.3862, True)])
+def test_a_scoreless_newcomer_follows_the_prereg_table(n, lo, hi, at_box):
+    """Zero goals in n matches, no history: the hinge pulls (n < N), then the box holds at
+    exactly -ln 4 = -1.3863 of the league mean (n >= 8) -- the table in
+    Logs/dc_shrinkage_threshold_prereg_2026-09-17.md section 1. At n = 3 the band is wide: the
+    synthetic league's scoring rate and the newcomer's own defence shift the MAP a little."""
+    p, idx, nt, c_atk, c_dfc = _fit(_newcomer_rows(n))
+    a_n = c_atk[idx["N"]]
+    assert lo <= a_n <= hi, f"n={n}: centred attack {a_n:.4f}"
+    assert dc.LAST_FIT["converged"] is True, dc.LAST_FIT
+    assert ("N" in dc.LAST_FIT["at_bound"]) is at_box
+    assert dc.LAST_FIT["boxed_refit"] is at_box
+    assert dc.LAST_FIT["method"] == ("SLSQP" if at_box else "L-BFGS-B")
+    if n < dc.SHRINK_N:
+        assert dc.LAST_FIT["clubs_below_n"]["N"]["tau"] > 0
+    else:
+        assert "N" not in dc.LAST_FIT["clubs_below_n"]
+    # the gauge is the record's: sum(atk) == sum(dfc), L-BFGS-B from zeros never left it
+    assert abs(p[:nt].sum() - p[nt:2 * nt].sum()) < 1e-3
 
 
-def test_established_clubs_barely_move_and_the_prior_releases(monkeypatch):
+def test_without_the_form_the_same_newcomer_runs_off(monkeypatch):
+    monkeypatch.setattr(dc, "SHRINK_N", 0); monkeypatch.setattr(dc, "ATK_DFC_BOUND", None)
+    p, idx, nt, c_atk, _ = _fit(_newcomer_rows(3))
+    assert c_atk[idx["N"]] < -3.0 and dc.LAST_FIT["boxed_refit"] is False and dc.LAST_FIT["at_bound"] == {}
+
+
+def test_a_cutoff_with_no_evidence_poor_club_is_bit_identical_to_the_plain_fit(monkeypatch):
+    """The structural guarantee: no club below N and nothing outside the box -> the objective is
+    the same function and the optimiser takes the same path, bit for bit."""
     rng = np.random.default_rng(2)
-    rows = _league(rng, n_rounds=40)   # ~ 100+ matches per club
-    teams = sorted({r["home"] for r in rows} | {r["away"] for r in rows})
-    monkeypatch.setattr(dc, "SHRINK_K", 4); monkeypatch.setattr(dc, "SHRINK_TAU", 5.6)
-    p_prior, idx, nt = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365)
-    n_eff_min = dc.LAST_FIT["n_eff_min"]
-    monkeypatch.setattr(dc, "SHRINK_TAU", 0.0)
-    p_mle, _, _ = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365)
-    d = np.abs(p_prior[:2 * nt] - p_mle[:2 * nt]).max()
-    assert n_eff_min > 20
-    assert d < 0.08, f"established clubs moved by {d:.3f} under the prior (n_eff_min {n_eff_min:.1f})"
-    # release: the shrunk estimate keeps most of the MLE, in the direction of the MLE
-    mle, sh = p_mle[:nt], p_prior[:nt]
-    big = np.abs(mle) > 0.2
-    if big.any():
-        ratio = (sh[big] / mle[big])
-        assert (ratio > 0.75).all() and (ratio < 1.05).all()
+    rows = _league(rng, n_rounds=40)   # ~100+ matches per club, all inside the box
+    p_form, _, nt, _, _ = _fit(rows)
+    assert dc.LAST_FIT["clubs_below_n"] == {} and dc.LAST_FIT["at_bound"] == {} and dc.LAST_FIT["boxed_refit"] is False
+    assert dc.LAST_FIT["min_margin_to_bound"] > 0.2
+    monkeypatch.setattr(dc, "SHRINK_N", 0); monkeypatch.setattr(dc, "ATK_DFC_BOUND", None)
+    p_plain, _, _, _, _ = _fit(rows)
+    assert np.array_equal(p_form, p_plain)
+
+
+def test_the_hinge_is_scoped_to_the_predict_seasons_clubs():
+    """A club outside prior_teams (relegated seasons ago, its parameters unused) gets no hinge
+    even below N, so the fit is bit-identical to the plain one -- the bit-identity promise
+    would otherwise break at every cutoff (such a club sits at n_eff ~ 9.5)."""
+    rng = np.random.default_rng(3)
+    rows = _league(rng, n_rounds=40)
+    for i in range(4):                      # an old club, four ordinary matches, well inside the box
+        rows.append(_m(30 + i, "OLD", "ABCDEF"[i], 1, 1))
+    p_scoped, _, nt, _, _ = _fit(rows, prior_teams=list("ABCDEF"))
+    assert dc.LAST_FIT["clubs_below_n"] == {}
+    dc.SHRINK_N, keep = 0, dc.SHRINK_N
+    try:
+        p_plain, _, _, _, _ = _fit(rows)
+    finally:
+        dc.SHRINK_N = keep
+    assert np.array_equal(p_scoped, p_plain)
+    p_all, _, _, _, _ = _fit(rows)          # prior_teams=None: the old club IS hinged
+    assert "OLD" in dc.LAST_FIT["clubs_below_n"] and not np.array_equal(p_all, p_plain)
+
+
+def test_a_phantom_club_with_no_rows_is_never_a_slack_variable():
+    """A club in the team list with ZERO training rows (the archive's list spans later seasons)
+    and outside prior_teams must stay at the starting point while another club is hinged: the
+    league mean and the box are over the league's clubs only. Before this (first reference build)
+    the optimiser moved such a phantom's defence to +26 to shift the mean, and the box then
+    clamped the phantom at both bounds (Logs/dc_shrinkage_v2_log_2026-09-17.md section 1(d))."""
+    rows = _newcomer_rows(3)
+    teams = sorted({r["home"] for r in rows} | {r["away"] for r in rows}) + ["PHANTOM"]
+    p, idx, nt = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365, prior_teams=[t for t in teams if t != "PHANTOM"])
+    assert p[idx["PHANTOM"]] == 0.0 and p[nt + idx["PHANTOM"]] == 0.0
+    assert dc.LAST_FIT["converged"] is True and dc.LAST_FIT["boxed_refit"] is False and dc.LAST_FIT["at_bound"] == {}
+    assert dc.LAST_FIT["n_league"] == nt - 1 and "PHANTOM" not in dc.LAST_FIT["clubs_below_n"]
+    # and the hinged newcomer's centred attack (over the league) is the table's pull, unchanged by the phantom
+    league = [idx[t] for t in teams if t != "PHANTOM"]
+    a_n = p[idx["N"]] - p[league].mean()
+    assert -0.80 <= a_n <= -0.35, a_n
+
+
+def test_the_box_binds_only_where_the_mle_runs_off():
+    p, idx, nt, c_atk, c_dfc = _fit(_newcomer_rows(12))
+    assert dc.LAST_FIT["at_bound"] == {"N": ["attack"]}
+    others = [abs(c_atk[idx[t]]) for t in idx if t != "N"] + [abs(v) for v in c_dfc]
+    assert max(others) < dc.ATK_DFC_BOUND - 0.2          # no other parameter near a bound
+    assert dc.LAST_FIT["min_margin_to_bound"] > 0.2 and "N" not in dc.LAST_FIT["min_margin_club"]
 
 
 # ------------------------------------------------------- change B: names and the guard
@@ -130,13 +185,10 @@ def test_declared_new_clubs_match_the_archive_exactly():
         assert dc.check_new_clubs(mc, ps) == set(dc.NEW_TO_ARCHIVE.get(ps, set())), ps
 
 
-def test_fixture_output_keeps_live_names(monkeypatch):
+def test_fixture_output_keeps_live_names():
     """The alias lives inside the fit; the fixtures returned carry the live names the
-    FPL-named frame joins on (assembly.TEAM_MAP unchanged). Under the prior (explicit tau)
-    every live lambda is inside the detector bounds and the fit converges; under the module
-    default (prior OFF) the runaway defect is still there, which the record-bounds assertion
-    below would show -- KNOWN_ISSUES #25 stays open."""
-    monkeypatch.setattr(dc, "SHRINK_K", 4); monkeypatch.setattr(dc, "SHRINK_TAU", 5.6)
+    FPL-named frame joins on (assembly.TEAM_MAP unchanged). Under the v2 form every live lambda
+    is inside the detector bounds and the fit converges."""
     try:
         out = dc.get_fixtures(predict_season="2026-27", cutoff_date="2026-09-18 19:00:00",
                               odds_available_until="2026-09-20 15:30:00")
@@ -192,22 +244,33 @@ def test_a_non_converged_fit_is_a_loud_finding_too():
 # ------------------------------------------------------------ the record
 
 
+def test_clamped_and_hinged_clubs_are_model_notes_not_degraded():
+    """The box working is a MODEL NOTE (visible, never degrading); the EXTREME check keeps its
+    bounds for a clamped club too -- settled 2026-09-17 before the fatal raise ships."""
+    import live_deadline as ld
+    frame = pd.DataFrame({"horizon_step": [1, 1, 1], "team": ["Coventry City", "Hull", "Arsenal"],
+                          "team_lambda": [0.41, 1.10, 2.10]})
+    lf = {"converged": True, "shrink_n": 10, "clubs_below_n": {"Hull": {"n_eff": 4.0, "tau": 3.36}},
+          "at_bound": {"Coventry City": ["attack"]}}
+    out = ld.degraded_findings(frame, last_fit=lf)
+    assert len(out) == 2 and all(o.startswith(ld.MODEL_NOTE) for o in out)
+    assert "hinge prior active" in out[0] and "Hull (n_eff 4.0, tau 3.36)" in out[0]
+    assert "CLAMPED" in out[1] and "Coventry City (attack)" in out[1]
+    assert not any(o.startswith(ld.MODEL_DEGRADED) for o in out)
+    # a clamped club whose lambda is still below 0.15 is EXTREME regardless: the bounds do not move
+    frame.loc[0, "team_lambda"] = 0.14
+    out = ld.degraded_findings(frame, last_fit=lf)
+    assert any(o.startswith(ld.MODEL_DEGRADED) and "Coventry City lambda=0.1400" in o for o in out)
+
+
 def test_record_strengths_inside_the_bounds_once_rebuilt_with_the_prior():
-    """The three canonicals, IF ever built with a prior (stamp dc_shrink_k), carry no team
-    lambda outside [0.15, 6.0] at any step of any cutoff. Skips on the current record (no
-    stamp: k = 4 was falsified and the prior is off)."""
-    checked = 0
+    """Sanity gate (c) of prereg v2, permanent once the record is rebuilt with the form: no team
+    lambda outside [0.15, 6.0] at any step of any cutoff of the three canonicals. Keyed to the
+    preserved pre-change artefact (*_pre_hinge exists <=> the rebuild happened); skips before."""
+    if not (REPO / "data" / "walkforward_h6_2025_26_pre_hinge.parquet").exists():
+        pytest.skip("record not yet rebuilt with the v2 form (no *_pre_hinge artefact)")
     for tag in ("2023_24", "2024_25", "2025_26"):
         p = REPO / "data" / f"walkforward_h6_{tag}.parquet"
-        if not p.exists():
-            continue
-        import pyarrow.parquet as pq
-        if "dc_shrink_k" not in pq.read_schema(p).names:
-            continue
-        cols = pd.read_parquet(p, columns=["cutoff", "gw", "team", "team_lambda", "dc_shrink_k"])
-        assert int(cols["dc_shrink_k"].iloc[0]) > 0
+        cols = pd.read_parquet(p, columns=["cutoff", "gw", "team", "team_lambda"])
         lam = cols.groupby(["cutoff", "gw", "team"])["team_lambda"].first().dropna()
         assert lam.min() >= 0.15 and lam.max() <= 6.0, f"{p.name}: strengths {lam.min():.4f}..{lam.max():.4f}"
-        checked += 1
-    if checked == 0:
-        pytest.skip("no canonical carries the dc_shrink_k stamp yet (pre-rebuild)")
