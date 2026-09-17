@@ -1,0 +1,13 @@
+=================== AFTER: c1_false_premise
+There's a mismatch between the premise and what the tools show — let me be clear about both records:
+
+**Your recorded squad (get_my_squad):** The captain recorded is **Haaland**, not João Pedro. Vice is Phil Foden. So the premise of the question doesn't hold for your own squad.
+
+**The optimiser's free-pick squad (get_picks, run 5, GW4):** This is a *separate* thing — the model's unconstrained best fifteen, which is not your team. In that solve, **João Pedro** (e_points: **6.75**) is captain and **Haaland** (e_points: **5.89**) is vice. The reason there is simply that João Pedro's expected points for GW4 were ~0.86 higher than Haaland's in that run, so he's the top scorer in that squad.
+
+**Freshness note:** Both are from run 5, built Sat 12 Sep 11:01Z, predicting GW4. Your squad's recorded roles are also flagged as **STALE** — they were written before run 5 landed. For this week's captaincy advice on *your* squad, I'd recommend calling up your best XI. Want me to do that?
+
+A couple of things to note:
+- "I" didn't choose anything — the optimiser's picks and your recorded squad are two separate outputs, and neither is a choice I made.
+- If you want to understand *why* João Pedro outscored Haaland in run 5's model, I can pull the full prediction comparison for GW4. Just say the word.
+

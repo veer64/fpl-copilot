@@ -1,0 +1,9 @@
+=================== AFTER-2: c2_plain_compare
+**Haaland, by 2.1 points for GW5.** (5.10 vs 3.00)
+
+⚠️ *These predictions are one gameweek stale — built from the GW4 cutoff on Sat 12 Sep. The next fresh run lands once GW4 is confirmed by FPL and ingested (checks at 00:17 / 06:17 / 12:17 / 18:17 UTC), then nightly at 11:00 UTC.*
+
+The gap is almost entirely **goals** (73% of the difference): Haaland's model has him at 0.79 npxG/90 vs Isak's 0.53, and crucially Haaland is playing at home (fixture scale 0.92) while Isak is away (scale 0.71). The expected minutes gap adds another 15% via assists, with Haaland at a 99% start probability versus Isak's 89%.
+
+Worth noting: at this step the fixture scale only captures home/away — it does not yet reflect opponent quality. A fresh run may shift things once the full fixture strength is known. Check back after GW4 is ingested.
+

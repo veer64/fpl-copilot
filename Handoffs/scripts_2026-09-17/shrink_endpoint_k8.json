@@ -1,0 +1,39 @@
+{
+ "summary": {
+  "2025-26": {
+   "primary_delta": {
+    "starters": 0.00700776229571623,
+    "top30": -0.011820135785788471
+   },
+   "step0_delta": {
+    "starters": 0.005077558161996815,
+    "top30": -0.017724431311504057
+   },
+   "early_cutoffs_delta": {
+    "starters": 0.00646007699898779,
+    "top30": 0.005723829481012355
+   },
+   "rec_means": {
+    "starters": 0.17697746737853498,
+    "top30": 0.1371992878646302
+   },
+   "new_means": {
+    "starters": 0.1839852296742512,
+    "top30": 0.12537915207884173
+   },
+   "lambda_bounds_ok": true,
+   "lambda_min_new": 0.6428371403171411,
+   "lambda_max_new": 2.739997881422966,
+   "early_cutoffs_mean_abs_dlambda": 0.0912465399307348,
+   "mid_season_max_abs_dlambda": 0.21956214862983425,
+   "mid_season_cells_over_0_05": 44,
+   "cold_start_cells_fixed": []
+  }
+ },
+ "stops": [
+  "2025-26 FALSIFIED: steps 1-5 top30 mean Spearman moved -0.0118 (< -0.005)",
+  "2025-26 step 0 starters moved +0.0051 (|d| > 0.002)",
+  "2025-26 step 0 top30 moved -0.0177 (|d| > 0.002)",
+  "2025-26: 44 established-club cells at cutoffs >= 10 moved by > 0.05 in lambda (max 0.220) -- the prior is stronger than stated"
+ ]
+}

@@ -1,0 +1,9 @@
+=================== BEFORE: c1_false_premise
+There's a misconception here worth clearing up straight away: **the recorded captain on your squad is Erling Haaland, not João Pedro.** João Pedro isn't even in your squad.
+
+A couple of important caveats though:
+
+1. **The recorded roles are STALE.** They were set when the squad was seeded on 2026-09-12 at 05:24, but a newer model run (run 5) was built at 11:01 on the same day — after the roles were recorded. So the captain recorded (Haaland) is a snapshot from the earlier run, not a recommendation from the current one.
+
+2. **For this week's captaincy advice**, I should run `get_my_xi` which uses the latest model run to solve the optimal XI and captain from your squad. Want me to do that?
+

@@ -1,0 +1,43 @@
+=================== AFTER-2: c3_full_breakdown
+Here is the full breakdown for **Erling Haaland (FWD, Man City) — GW5: 5.10 expected points**.
+
+**⚠️ Freshness note:** This is one gameweek stale — the frame was built on **Sat 12 Sep 11:01Z** and predicts from the GW4 cutoff. A fresh run lands once GW4 is confirmed by FPL and ingested (ticks at 00:17 / 06:17 / 12:17 / 18:17Z), then nightly at 11:00Z. Check back after that for up-to-date GW5 numbers.
+
+---
+
+```
+Erling Haaland (FWD, Man City) — GW5: 5.10 expected points
+(reconciles: yes)
+
+  goals                  +2.80   e_goals 0.700
+                                 (npxG/90 0.79 × 0.97 of 90 min × fixture 0.92
+                                  + pens 0.000) × 4 pts                        [model]
+    of which penalties   +0.00   penalty_share 0.083 × team_pen_rate 0.000
+                                 × 0.97 min × 4 pts                            [model]
+  appearance             +1.96   P(60+) 0.97 × 2 + P(play <60) 0.02 × 1      [model]
+  assists                +0.47   e_assists 0.158
+                                 (xA/90 0.18 × 0.97 of 90 min × fixture 0.92)
+                                 × 3 pts                                        [model]
+  cards                  -0.15   -(yellow 0.143/90 × 1 + red 0.005/90 × 3)
+                                 × 0.97 min                                     [constant: position rates]
+  defensive contribution +0.01   p_dc_hit 0.005 × 2 × 0.97 min               [constant: flat by design]
+  clean sheet            +0.00   FWD: 0 pts                                    [rule]
+  saves                  +0.00   not a GK                                       [rule]
+  goals conceded         +0.00   not GK/DEF                                    [rule]
+  bonus                  +0.00   bonus model switched off                       [constant: 0 by decision]
+
+  Fixture: team λ 1.284 / opp λ 1.0 → scale 0.9172
+           [constant: the fit's starting point — no team-strength differentiation at this step]
+```
+
+---
+
+**Key things to note:**
+
+- **Goals (+2.80)** is the dominant term, driven by a high npxG/90 of 0.79, a 97% minutes fraction, and a fixture scale of 0.92. **The penalty sub-line is zero** — this is a known issue (#19): the team penalty rate is built from penalties *missed*, so it reads 0.000. Haaland's actual penalty threat is not captured here.
+- **Appearance (+1.96)** reflects a 98.8% start probability and 97.2% chance of 60+ minutes.
+- **Assists (+0.47)** from xA/90 of 0.18.
+- **Cards (−0.15)** is a constant using position-average rates, not a Haaland-specific model.
+- **Bonus is switched off** — the model notes this understates by ~0.3 pts/week on average.
+- **Fixture scale** is also a constant at this step (home/away only, no team-strength differentiation), which is flagged as a known limitation of this run.
+

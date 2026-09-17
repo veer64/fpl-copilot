@@ -1,0 +1,13 @@
+=================== AFTER: c2_plain_compare
+**Haaland**, and it's not close.
+
+*As of the model run built 2026-09-12 11:01 UTC. Next run expected: check back for the updated schedule.*
+
+| | Haaland | Isak |
+|---|---|---|
+| Next GW e-pts | **5.9** | 4.5 |
+| Start probability | 99% | 89% |
+| 6-GW horizon | **29.9** | 20.6 |
+
+Haaland leads by 1.4 points next gameweek and by **9.3 points over the six-week horizon** — a very significant gap. Want me to dig into why with a full breakdown (`compare_predictions`)?
+

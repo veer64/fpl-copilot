@@ -1,0 +1,806 @@
+{
+ "seasons": {
+  "2023-24": {
+   "n_rows": 162604,
+   "cutoffs": 38,
+   "affected_cutoffs": {
+    "1": [
+     "Luton",
+     "Sheffield Utd"
+    ],
+    "2": [
+     "Luton"
+    ],
+    "3": [
+     "Luton"
+    ],
+    "4": [
+     "Luton"
+    ],
+    "5": [
+     "Luton"
+    ],
+    "6": [
+     "Luton"
+    ],
+    "7": [
+     "Luton"
+    ],
+    "8": [
+     "Luton"
+    ],
+    "9": [
+     "Luton"
+    ],
+    "10": [
+     "Luton"
+    ],
+    "11": [
+     "Luton"
+    ]
+   },
+   "boxed_cutoffs": {},
+   "methods": {
+    "L-BFGS-B": 38,
+    "SLSQP": 0
+   },
+   "all_converged": true,
+   "not_converged_cutoffs": [],
+   "iterations_max": 123,
+   "min_margin_to_bound": {
+    "margin": 0.6411,
+    "club": "Sheffield United attack",
+    "cutoff": 2
+   },
+   "league_mean_attack_range": [
+    0.2055,
+    0.2803
+   ],
+   "max_centred_attack": 0.7452,
+   "max_centred_defence": 0.5523,
+   "unaffected_cutoffs": [
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38
+   ],
+   "unaffected_bit_identical": true,
+   "unaffected_moved_columns": [],
+   "affected_max_abs_delta_e_points": 2.2622965309625203,
+   "affected_rows_moved_share": 0.9386638147961751,
+   "lambda_min": {
+    "value": 0.4082351414092094,
+    "at": [
+     2,
+     3,
+     "Sheffield Utd"
+    ]
+   },
+   "lambda_max": {
+    "value": 4.316016893907059,
+    "at": [
+     15,
+     20,
+     "Man City"
+    ]
+   },
+   "record_lambda_min": 0.40776931384840026,
+   "affected_clubs_lambda": [
+    {
+     "cutoff": 1,
+     "club": "Luton",
+     "rec_min": 0.7447,
+     "new_min": 0.7447,
+     "rec_mean": 0.97,
+     "new_mean": 1.16
+    },
+    {
+     "cutoff": 1,
+     "club": "Sheffield Utd",
+     "rec_min": 0.4567,
+     "new_min": 0.4595,
+     "rec_mean": 0.728,
+     "new_mean": 0.732
+    },
+    {
+     "cutoff": 2,
+     "club": "Luton",
+     "rec_min": 0.8398,
+     "new_min": 0.9242,
+     "rec_mean": 1.132,
+     "new_mean": 1.247
+    },
+    {
+     "cutoff": 3,
+     "club": "Luton",
+     "rec_min": 0.5926,
+     "new_min": 0.5926,
+     "rec_mean": 1.134,
+     "new_mean": 1.243
+    },
+    {
+     "cutoff": 4,
+     "club": "Luton",
+     "rec_min": 0.5504,
+     "new_min": 0.8542,
+     "rec_mean": 0.678,
+     "new_mean": 1.113
+    },
+    {
+     "cutoff": 5,
+     "club": "Luton",
+     "rec_min": 0.6262,
+     "new_min": 0.7254,
+     "rec_mean": 0.766,
+     "new_mean": 1.057
+    },
+    {
+     "cutoff": 6,
+     "club": "Luton",
+     "rec_min": 0.4433,
+     "new_min": 0.7369,
+     "rec_mean": 0.622,
+     "new_mean": 0.921
+    },
+    {
+     "cutoff": 7,
+     "club": "Luton",
+     "rec_min": 0.5093,
+     "new_min": 0.7106,
+     "rec_mean": 0.616,
+     "new_mean": 0.808
+    },
+    {
+     "cutoff": 8,
+     "club": "Luton",
+     "rec_min": 0.6998,
+     "new_min": 0.7695,
+     "rec_mean": 0.808,
+     "new_mean": 0.873
+    },
+    {
+     "cutoff": 9,
+     "club": "Luton",
+     "rec_min": 0.5972,
+     "new_min": 0.6638,
+     "rec_mean": 0.651,
+     "new_mean": 0.711
+    },
+    {
+     "cutoff": 10,
+     "club": "Luton",
+     "rec_min": 0.7107,
+     "new_min": 0.74,
+     "rec_mean": 0.797,
+     "new_mean": 0.823
+    },
+    {
+     "cutoff": 11,
+     "club": "Luton",
+     "rec_min": 0.585,
+     "new_min": 0.5952,
+     "rec_mean": 0.752,
+     "new_mean": 0.763
+    }
+   ],
+   "step0_pcs": {
+    "rows_no_affected_club": 26970,
+    "bit_identical": false,
+    "max_delta_no_affected_club": 0.0011657009534224994,
+    "rows_involving_affected_club": 871,
+    "mean_abs_delta": 0.012751605268775593,
+    "max_abs_delta": 0.04576068334786226,
+    "dgw_rows": 983,
+    "dgw_max_abs_delta": 0.012093976546056512,
+    "fixtures_unassigned_to_a_gw": 0,
+    "unpaired_rows": 0,
+    "unpaired_max_abs_delta": 0.0,
+    "unpaired_at": []
+   },
+   "affected_cells_per_slice": 55,
+   "season_means": {
+    "starters": {
+     "record": 0.2446,
+     "form": 0.2455,
+     "delta": 0.0009
+    },
+    "top30": {
+     "record": 0.1962,
+     "form": 0.1921,
+     "delta": -0.0042
+    }
+   },
+   "early_cutoff_1_6_delta": {
+    "starters": 0.0015,
+    "top30": -0.0018
+   },
+   "by_step_delta": {
+    "1": {
+     "starters": -0.0028,
+     "top30": 0.0141
+    },
+    "2": {
+     "starters": -0.0008,
+     "top30": -0.0323
+    },
+    "3": {
+     "starters": 0.0028,
+     "top30": -0.0131
+    },
+    "4": {
+     "starters": 0.0009,
+     "top30": -0.0365
+    },
+    "5": {
+     "starters": 0.0044,
+     "top30": 0.0468
+    }
+   }
+  },
+  "2024-25": {
+   "n_rows": 152003,
+   "cutoffs": 38,
+   "affected_cutoffs": {
+    "1": [
+     "Ipswich"
+    ],
+    "2": [
+     "Ipswich"
+    ],
+    "3": [
+     "Ipswich"
+    ],
+    "4": [
+     "Ipswich"
+    ],
+    "5": [
+     "Ipswich"
+    ],
+    "6": [
+     "Ipswich"
+    ],
+    "7": [
+     "Ipswich"
+    ],
+    "8": [
+     "Ipswich"
+    ],
+    "9": [
+     "Ipswich"
+    ],
+    "10": [
+     "Ipswich"
+    ],
+    "11": [
+     "Ipswich"
+    ],
+    "12": [
+     "Ipswich"
+    ]
+   },
+   "boxed_cutoffs": {},
+   "methods": {
+    "L-BFGS-B": 38,
+    "SLSQP": 0
+   },
+   "all_converged": true,
+   "not_converged_cutoffs": [],
+   "iterations_max": 141,
+   "min_margin_to_bound": {
+    "margin": 0.8171,
+    "club": "Southampton attack",
+    "cutoff": 38
+   },
+   "league_mean_attack_range": [
+    0.2891,
+    0.32
+   ],
+   "max_centred_attack": 0.5692,
+   "max_centred_defence": 0.5249,
+   "unaffected_cutoffs": [
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38
+   ],
+   "unaffected_bit_identical": true,
+   "unaffected_moved_columns": [],
+   "affected_max_abs_delta_e_points": 3.2621192045986307,
+   "affected_rows_moved_share": 0.9605295924296505,
+   "lambda_min": {
+    "value": 0.507790016001846,
+    "at": [
+     5,
+     9,
+     "Southampton"
+    ]
+   },
+   "lambda_max": {
+    "value": 4.425244066755803,
+    "at": [
+     23,
+     23,
+     "Liverpool"
+    ]
+   },
+   "record_lambda_min": 0.0006567528032907888,
+   "affected_clubs_lambda": [
+    {
+     "cutoff": 1,
+     "club": "Ipswich",
+     "rec_min": 0.5708,
+     "new_min": 0.7781,
+     "rec_mean": 0.994,
+     "new_mean": 1.307
+    },
+    {
+     "cutoff": 2,
+     "club": "Ipswich",
+     "rec_min": 0.0007,
+     "new_min": 0.8743,
+     "rec_mean": 0.146,
+     "new_mean": 1.189
+    },
+    {
+     "cutoff": 3,
+     "club": "Ipswich",
+     "rec_min": 0.6747,
+     "new_min": 1.1167,
+     "rec_mean": 0.847,
+     "new_mean": 1.279
+    },
+    {
+     "cutoff": 4,
+     "club": "Ipswich",
+     "rec_min": 0.7721,
+     "new_min": 0.797,
+     "rec_mean": 0.868,
+     "new_mean": 1.172
+    },
+    {
+     "cutoff": 5,
+     "club": "Ipswich",
+     "rec_min": 0.5598,
+     "new_min": 0.9182,
+     "rec_mean": 0.723,
+     "new_mean": 1.071
+    },
+    {
+     "cutoff": 6,
+     "club": "Ipswich",
+     "rec_min": 0.6226,
+     "new_min": 0.8732,
+     "rec_mean": 0.756,
+     "new_mean": 0.995
+    },
+    {
+     "cutoff": 7,
+     "club": "Ipswich",
+     "rec_min": 0.8184,
+     "new_min": 0.9316,
+     "rec_mean": 0.946,
+     "new_mean": 1.067
+    },
+    {
+     "cutoff": 8,
+     "club": "Ipswich",
+     "rec_min": 0.8434,
+     "new_min": 0.9376,
+     "rec_mean": 0.978,
+     "new_mean": 1.065
+    },
+    {
+     "cutoff": 9,
+     "club": "Ipswich",
+     "rec_min": 0.7063,
+     "new_min": 0.7935,
+     "rec_mean": 0.837,
+     "new_mean": 0.919
+    },
+    {
+     "cutoff": 10,
+     "club": "Ipswich",
+     "rec_min": 0.9614,
+     "new_min": 0.991,
+     "rec_mean": 1.121,
+     "new_mean": 1.149
+    },
+    {
+     "cutoff": 11,
+     "club": "Ipswich",
+     "rec_min": 0.9496,
+     "new_min": 0.9648,
+     "rec_mean": 1.044,
+     "new_mean": 1.058
+    },
+    {
+     "cutoff": 12,
+     "club": "Ipswich",
+     "rec_min": 0.8362,
+     "new_min": 0.8362,
+     "rec_mean": 1.13,
+     "new_mean": 1.132
+    }
+   ],
+   "step0_pcs": {
+    "rows_no_affected_club": 25773,
+    "bit_identical": false,
+    "max_delta_no_affected_club": 0.0016246737190042104,
+    "rows_involving_affected_club": 782,
+    "mean_abs_delta": 0.01051884480503056,
+    "max_abs_delta": 0.05764136278791815,
+    "dgw_rows": 364,
+    "dgw_max_abs_delta": 0.0,
+    "fixtures_unassigned_to_a_gw": 0,
+    "unpaired_rows": 0,
+    "unpaired_max_abs_delta": 0.0,
+    "unpaired_at": []
+   },
+   "affected_cells_per_slice": 60,
+   "season_means": {
+    "starters": {
+     "record": 0.2436,
+     "form": 0.2465,
+     "delta": 0.0029
+    },
+    "top30": {
+     "record": 0.1705,
+     "form": 0.1721,
+     "delta": 0.0016
+    }
+   },
+   "early_cutoff_1_6_delta": {
+    "starters": 0.0049,
+    "top30": 0.0013
+   },
+   "by_step_delta": {
+    "1": {
+     "starters": 0.0055,
+     "top30": -0.0192
+    },
+    "2": {
+     "starters": 0.003,
+     "top30": -0.0044
+    },
+    "3": {
+     "starters": 0.0057,
+     "top30": 0.0075
+    },
+    "4": {
+     "starters": 0.0013,
+     "top30": 0.0142
+    },
+    "5": {
+     "starters": -0.0012,
+     "top30": 0.0099
+    }
+   }
+  },
+  "2025-26": {
+   "n_rows": 165401,
+   "cutoffs": 38,
+   "affected_cutoffs": {
+    "1": [
+     "Sunderland"
+    ],
+    "2": [
+     "Sunderland"
+    ],
+    "3": [
+     "Sunderland"
+    ],
+    "4": [
+     "Sunderland"
+    ],
+    "5": [
+     "Sunderland"
+    ],
+    "6": [
+     "Sunderland"
+    ],
+    "7": [
+     "Sunderland"
+    ],
+    "8": [
+     "Sunderland"
+    ],
+    "9": [
+     "Sunderland"
+    ],
+    "10": [
+     "Sunderland"
+    ],
+    "11": [
+     "Sunderland"
+    ]
+   },
+   "boxed_cutoffs": {},
+   "methods": {
+    "L-BFGS-B": 38,
+    "SLSQP": 0
+   },
+   "all_converged": true,
+   "not_converged_cutoffs": [],
+   "iterations_max": 173,
+   "min_margin_to_bound": {
+    "margin": 0.8864,
+    "club": "Arsenal defence",
+    "cutoff": 38
+   },
+   "league_mean_attack_range": [
+    0.2972,
+    0.3309
+   ],
+   "max_centred_attack": 0.4248,
+   "max_centred_defence": 0.4999,
+   "unaffected_cutoffs": [
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38
+   ],
+   "unaffected_bit_identical": true,
+   "unaffected_moved_columns": [],
+   "affected_max_abs_delta_e_points": 2.369741286360531,
+   "affected_rows_moved_share": 0.9648050837101307,
+   "lambda_min": {
+    "value": 0.45474918072116627,
+    "at": [
+     7,
+     7,
+     "West Ham"
+    ]
+   },
+   "lambda_max": {
+    "value": 3.378724699935171,
+    "at": [
+     37,
+     37,
+     "Arsenal"
+    ]
+   },
+   "record_lambda_min": 0.18825400727799327,
+   "affected_clubs_lambda": [
+    {
+     "cutoff": 1,
+     "club": "Sunderland",
+     "rec_min": 0.5931,
+     "new_min": 1.0132,
+     "rec_mean": 0.738,
+     "new_mean": 1.395
+    },
+    {
+     "cutoff": 2,
+     "club": "Sunderland",
+     "rec_min": 0.8807,
+     "new_min": 0.8807,
+     "rec_mean": 1.994,
+     "new_mean": 1.526
+    },
+    {
+     "cutoff": 3,
+     "club": "Sunderland",
+     "rec_min": 1.0356,
+     "new_min": 1.0359,
+     "rec_mean": 1.152,
+     "new_mean": 1.265
+    },
+    {
+     "cutoff": 4,
+     "club": "Sunderland",
+     "rec_min": 0.694,
+     "new_min": 0.694,
+     "rec_mean": 1.246,
+     "new_mean": 1.272
+    },
+    {
+     "cutoff": 5,
+     "club": "Sunderland",
+     "rec_min": 0.8851,
+     "new_min": 0.9792,
+     "rec_mean": 1.066,
+     "new_mean": 1.161
+    },
+    {
+     "cutoff": 6,
+     "club": "Sunderland",
+     "rec_min": 0.7229,
+     "new_min": 0.7887,
+     "rec_mean": 0.976,
+     "new_mean": 1.052
+    },
+    {
+     "cutoff": 7,
+     "club": "Sunderland",
+     "rec_min": 0.7123,
+     "new_min": 0.7645,
+     "rec_mean": 0.987,
+     "new_mean": 1.048
+    },
+    {
+     "cutoff": 8,
+     "club": "Sunderland",
+     "rec_min": 0.614,
+     "new_min": 0.6713,
+     "rec_mean": 0.856,
+     "new_mean": 0.92
+    },
+    {
+     "cutoff": 9,
+     "club": "Sunderland",
+     "rec_min": 0.6045,
+     "new_min": 0.6045,
+     "rec_mean": 0.851,
+     "new_mean": 0.884
+    },
+    {
+     "cutoff": 10,
+     "club": "Sunderland",
+     "rec_min": 0.7238,
+     "new_min": 0.7353,
+     "rec_mean": 0.962,
+     "new_mean": 0.974
+    },
+    {
+     "cutoff": 11,
+     "club": "Sunderland",
+     "rec_min": 0.7166,
+     "new_min": 0.7215,
+     "rec_mean": 0.976,
+     "new_mean": 0.981
+    }
+   ],
+   "step0_pcs": {
+    "rows_no_affected_club": 28037,
+    "bit_identical": false,
+    "max_delta_no_affected_club": 0.001008620171683794,
+    "rows_involving_affected_club": 892,
+    "mean_abs_delta": 0.012102521501806181,
+    "max_abs_delta": 0.06488648722899709,
+    "dgw_rows": 409,
+    "dgw_max_abs_delta": 0.0,
+    "fixtures_unassigned_to_a_gw": 0,
+    "unpaired_rows": 0,
+    "unpaired_max_abs_delta": 0.0,
+    "unpaired_at": []
+   },
+   "affected_cells_per_slice": 55,
+   "season_means": {
+    "starters": {
+     "record": 0.1906,
+     "form": 0.1934,
+     "delta": 0.0028
+    },
+    "top30": {
+     "record": 0.0764,
+     "form": 0.0499,
+     "delta": -0.0264
+    }
+   },
+   "early_cutoff_1_6_delta": {
+    "starters": 0.0038,
+    "top30": -0.0395
+   },
+   "by_step_delta": {
+    "1": {
+     "starters": 0.0016,
+     "top30": -0.0438
+    },
+    "2": {
+     "starters": -0.0003,
+     "top30": -0.026
+    },
+    "3": {
+     "starters": -0.0016,
+     "top30": -0.0252
+    },
+    "4": {
+     "starters": 0.0024,
+     "top30": -0.0348
+    },
+    "5": {
+     "starters": 0.0119,
+     "top30": -0.0024
+    }
+   }
+  }
+ },
+ "pooled": {
+  "cells": 170,
+  "starters": {
+   "record_mean": 0.2268,
+   "form_mean": 0.229,
+   "delta": 0.0022,
+   "se": 0.00106,
+   "delta_over_se": 2.08,
+   "falsified": false,
+   "share_cells_up": 0.618,
+   "share_cells_unchanged": 0.029
+  },
+  "top30": {
+   "record_mean": 0.1484,
+   "form_mean": 0.139,
+   "delta": -0.00934,
+   "se": 0.00622,
+   "delta_over_se": -1.5,
+   "falsified": false,
+   "share_cells_up": 0.424,
+   "share_cells_unchanged": 0.1
+  }
+ },
+ "stops": [],
+ "tells": [
+  "2023-24: step-0 p_cs moved on a fixture with no affected club (max 0.0012) (gate d structural)",
+  "2024-25: step-0 p_cs moved on a fixture with no affected club (max 0.0016) (gate d structural)",
+  "2025-26: step-0 p_cs moved on a fixture with no affected club (max 0.0010) (gate d structural)"
+ ],
+ "verdict": "TELL -- investigate"
+}

@@ -1,0 +1,9 @@
+=================== AFTER-2: c1_false_premise
+The premise doesn't match what the tools show. Let me be specific about both:
+
+**Your squad** (recorded at GW4 seed, 12 Sep 05:24Z): captain is **Haaland**, vice is **Phil Foden**. João Pedro is not even in your squad.
+
+**The optimiser's free-pick squad** (run 5, GW4, built 12 Sep 11:01Z): that one captains **João Pedro**, with Haaland as vice, at expected points of 6.75 vs 5.89 for GW4. But that is the optimiser's own team — not your team.
+
+So "I" didn't captain João Pedro over Haaland on your squad — your recorded captain is Haaland. Note also that those recorded roles are **stale**: they were written before run 5 was built, so I'd recommend calling up your best XI to get the current advice. Want me to do that?
+

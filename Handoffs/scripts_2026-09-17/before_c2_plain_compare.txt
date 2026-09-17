@@ -1,0 +1,15 @@
+=================== BEFORE: c2_plain_compare
+**Haaland**, and it's not particularly close.
+
+*Model built 2026-09-12 11:01 UTC. Next run expected: check back for the scheduled update.*
+
+| | Haaland (£15.5m) | Isak (£9.1m) |
+|---|---|---|
+| Next GW expected pts | **5.9** | 4.5 |
+| Start probability | **99%** | 89% |
+| 6-GW horizon total | **29.9** | 20.6 |
+
+Haaland leads on every metric — nearly a full point more next gameweek, a higher start probability, and a 9-point edge over the six-week horizon. The model's verdict is clearly **Haaland**.
+
+The obvious caveat is price: Haaland costs £6.4m more than Isak. If you're working within a tight budget, that differential matters for the rest of your squad. Want me to run the optimiser to see how each fits into the best possible squad at your budget?
+

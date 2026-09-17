@@ -1,0 +1,54 @@
+### 1. ingest / health
+INGEST_TICK first line: NOTHING-NEW | ACTION REQUIRED in tick: False
+health: ok 19349833f | reasons: []
+slots: {"post_ingest:GW4": {"kind": "post_ingest", "status": "SUCCESS", "attempts": 2, "run_id": 7, "finished_at": "2026-09-15T18:41:22Z"}, "nightly:2026-09-15": {"kind": "nightly", "status": "SUCCESS", "attempts": 2, "run_id": 9, "finished_at": "2026-09-15T19:01:25Z"}} | last_success: {"slot": "nightly:2026-09-15", "run_id": 9, "finished_at": "2026-09-15T19:01:25Z", "history_through_gw": 4}
+### 2. squad_scores
+rows: 1
+   {"score_id": 3, "gw": 4, "version_id": 1, "points_net": 49, "points_raw": 49, "hit": 0, "transfers_made": 0, "free_transfers": 1, "doubled": 411, "doubled_role": "captain", "captain_bonus": 9, "subs_made": [[84, 88]], "final_xi": [82, 388, 115, 8, 367, 398, 427, 411, 379, 26, 88], "bench_points": 14}
+get_my_squad: version 1 | total_points 49 | recorded captain/vice Erling Haaland / Phil Foden
+  autosub: out ('Nathan Collins', 'DEF', 'Brentford') GW4 minutes 0 -> in ('Michael Kayode', 'DEF', 'Brentford') minutes 19
+  armband: ('Erling Haaland', 'FWD', 'Man City') (captain), GW4 points 9 minutes 90; captain_bonus 9
+  final XI minutes: [('Caoimhín Kelleher', 90), ('Marc Guéhi', 90), ('Maxim De Cuyper', 90), ('Riccardo Calafiori', 90), ('Cody Gakpo', 30), ('Phil Foden', 22), ('Bryan Mbeumo', 90), ('Erling Haaland', 90), ('Alexander Isak', 90), ('Kai Havertz', 90), ('Michael Kayode', 19)]
+### 3. Dixon-Coles fit on the new run
+  run 6 post_ingest SUCCESS history_through_gw 4 | dc_fit: {"rho": -0.09763037327717652, "n_teams": 35, "n_train": 3840, "home_adv": 0.16456225096101612, "ref_date": "2026-09-18 19:00:00", "shrink_k": 0, "converged": false, "n_eff_min": 0.04620029999422331, "iterations": 189, "shrink_tau": 0.0, "max_abs_attack": 7.394360491582909, "n_eff_min_club": "Middlesbrough", "max_abs_defence": 0.8837177935385955}
+  run 7 post_ingest SUCCESS history_through_gw 4 | dc_fit: {"rho": -0.09763037327717652, "n_teams": 35, "n_train": 3840, "home_adv": 0.16456225096101612, "ref_date": "2026-09-18 19:00:00", "shrink_k": 0, "converged": false, "n_eff_min": 0.04620029999422331, "iterations": 189, "shrink_tau": 0.0, "max_abs_attack": 7.394360491582909, "n_eff_min_club": "Middlesbrough", "max_abs_defence": 0.8837177935385955}
+  run 8 nightly SUCCESS history_through_gw 4 | dc_fit: {"rho": -0.09763037327717652, "n_teams": 35, "n_train": 3840, "home_adv": 0.16456225096101612, "ref_date": "2026-09-18 19:00:00", "shrink_k": 0, "converged": false, "n_eff_min": 0.04620029999422331, "iterations": 189, "shrink_tau": 0.0, "max_abs_attack": 7.394360491582909, "n_eff_min_club": "Middlesbrough", "max_abs_defence": 0.8837177935385955}
+  run 9 nightly SUCCESS history_through_gw 4 | dc_fit: {"rho": -0.09763037327717652, "n_teams": 35, "n_train": 3840, "home_adv": 0.16456225096101612, "ref_date": "2026-09-18 19:00:00", "shrink_k": 0, "converged": false, "n_eff_min": 0.04620029999422331, "iterations": 189, "shrink_tau": 0.0, "max_abs_attack": 7.394360491582909, "n_eff_min_club": "Middlesbrough", "max_abs_defence": 0.8837177935385955}
+frame on volume: cutoff GW5, gws [np.int64(5), np.int64(6), np.int64(7), np.int64(8), np.int64(9), np.int64(10)], built 2026-09-15 19:01:24.322441+00:00
+  GW5: 20 distinct team_lambda over 20 clubs; min 0.7112 (Sunderland) max 2.284 (Man City)
+  GW6: 20 distinct team_lambda over 20 clubs; min 0.0006 (Coventry City) max 2.237 (Newcastle)
+  GW7: 20 distinct team_lambda over 20 clubs; min 0.0006 (Coventry City) max 3.481 (Man City)
+  GW8: 20 distinct team_lambda over 20 clubs; min 0.0006 (Coventry City) max 1.975 (Chelsea)
+  GW9: 20 distinct team_lambda over 20 clubs; min 0.0006 (Coventry City) max 2.139 (Man City)
+  GW10: 20 distinct team_lambda over 20 clubs; min 0.0005 (Coventry City) max 2.157 (Bournemouth)
+  Coventry City: team_lambda by gw {5: 0.858, 6: 0.0006, 7: 0.0006, 8: 0.0006, 9: 0.0006, 10: 0.0005} | opp_lambda {5: 1.69, 6: 2.237, 7: 2.22, 8: 1.749, 9: 1.488, 10: 1.88}
+  Hull City: team_lambda by gw {5: 0.9224, 6: 1.1014, 7: 1.049, 8: 1.2358, 9: 1.985, 10: 0.5972} | opp_lambda {5: 1.866, 6: 0.501, 7: 0.648, 8: 0.664, 9: 0.496, 10: 0.947}
+  Ipswich Town: team_lambda by gw {5: 0.9214, 6: 1.225, 7: 0.698, 8: 1.1579, 9: 0.4955, 10: 1.2422} | opp_lambda {5: 1.595, 6: 1.851, 7: 3.481, 8: 1.922, 9: 1.985, 10: 2.157}
+  rows with a lambda < 0.15: {(6, 'Coventry City'): 37, (6, 'Newcastle'): 30, (7, 'Coventry City'): 37, (7, 'Spurs'): 40, (8, 'Coventry City'): 37, (8, 'Fulham'): 28, (9, 'Coventry City'): 37, (9, 'Sunderland'): 30, (10, 'Coventry City'): 37, (10, 'Everton'): 25}
+### 4. stored-terms path
+compare_runs(411, 5, 5, 9): run 5 has no recorded terms (built 2026-09-12 11:01:01.624851+00:00, before the term columns of 2026-09-14; they are never backfilled) -- only its totals can be read
+compare_runs(411, 5, 6, 9): run 6 7.66 vs run 9 7.66 (gap +0.00): no term differs.
+RUN9_HAALAND_GW5_JSON={"player_id": 411, "name": "Erling Haaland", "position": "FWD", "team": "Man City", "gw": 5, "horizon_step": 0, "total_e_points": 7.6558, "lines": [{"term": "goals", "points": 5.0649, "formula": "e_goals 1.266 (npxG/90 0.80 x 0.97 of 90 min x fixture 1.63 + pens 0.000) x 4 pts", "inputs": {"e_goals": 1.2662, "npxg90": 0.804, "minutes_frac": 0.9652, "fixture_scale_cal": 1.6317, "e_pen_goals": 0.0}, "source": "model", "constant": null, "notes": ["x 4 pts (FWD)", "fixture scale is linear scale in team strength (gamma 1)"], "penalties": {"points": 0.0, "formula": "penalty_share 0.083 x team_pen_rate 0.000 x 0.97 min x 4 pts", "inputs": {"penalty_share": 0.0833, "team_pen_rate": 0.0}, "source": "model", "constant": null, "notes": ["the penalty term is ~50x undersized (team_pen_rate is built from penalties MISSED; KNOWN_ISSUES #19)"]}}, {"term": "appearance", "points": 1.9609, "formula": "P(60+) 0.97 x 2 + P(play <60) 0.02 x 1", "inputs": {"p_start": 0.9864, "p60": 0.9839, "p_60plus": 0.9705, "p_play_any": 0.9905}, "source": "model", "constant": null, "notes": ["P(play <60) uses a flat 0.30 for the sub chance (flat 0.30 sub chance)"]}, {"term": "assists", "points": 0.7714, "formula": "e_assists 0.257 (xA/90 0.16 x 0.97 of 90 min x fixture 1.63) x 3 pts", "inputs": {"e_assists": 0.2571, "xa90": 0.1633, "minutes_frac": 0.9652, "fixture_scale_cal": 1.6317}, "source": "model", "constant": null, "notes": []}, {"term": "cards", "points": -0.1511, "formula": "-(yellow 0.143/90 x 1 + red 0.005/90 x 3) x 0.97 min", "inputs": {"yellow_per_90": 0.143, "red_per_90": 0.0045, "minutes_frac": 0.9652}, "source": "constant", "constant": "position rates", "notes": ["no player card model"]}, {"term": "defensive_contribution", "points": 0.0097, "formula": "p_dc_hit 0.005 x 2 x 0.97 min", "inputs": {"p_dc_hit": 0.005, "minutes_frac": 0.9652}, "source": "constant", "constant": "flat by design", "notes": ["no forward model; 0.4% hit rate"]}, {"term": "clean_sheet", "points": 0.0, "formula": "FWD: 0 pts", "inputs": {"p_cs": 0.4962}, "source": "rule", "constant": null, "notes": []}, {"term": "saves", "points": 0.0, "formula": "not a GK", "inputs": {}, "source": "rule", "constant": null, "notes": []}, {"term": "goals_conceded", "points": 0.0, "formula": "not GK/DEF", "inputs": {}, "source": "rule", "constant": null, "notes": []}, {"term": "bonus", "points": 0.0, "formula": "bonus_mode = delete", "inputs": {"bonus_mode": "delete"}, "source": "constant", "constant": "0 by decision", "notes": ["the bonus model is switched off; ~0.3 pts/week understated on average"]}], "fixture": {"team_lambda": 2.2844, "opp_lambda": 0.7112, "fixture_scale_cal": 1.6317, "n_fixtures": 1, "source": "model", "constant": null, "notes": []}, "summary": "3 of 9 lines are constants standing in for models (cards: position rates; defensive contribution: flat by design; bonus: 0 by decision) -- the rest are model outputs under FPL's rules; appearance carries a flat 0.30 sub chance.", "reconciles": true, "residual_core": -1.850000002079355e-07, "residual_total": 0.0}
+### 5. term columns
+  run 6: rows 3954, with terms 3954
+  run 7: rows 3954, with terms 3954
+  run 8: rows 3954, with terms 3954
+  run 9: rows 3954, with terms 3954
+### 6. advice: GW5 XI now vs run 5
+  run 9 GW5 (as of cutoff 5): captain Erling Haaland, vice Marc Guéhi, XI pts 55.84
+  XI: [('Erling Haaland', 7.66), ('Marc Guéhi', 5.86), ('Bryan Mbeumo', 5.32), ('Kai Havertz', 4.38), ('Riccardo Calafiori', 4.33), ('Phil Foden', 4.07), ('Cody Gakpo', 3.64), ('Caoimhín Kelleher', 3.6), ('Alexander Isak', 3.48), ('Maxim De Cuyper', 2.94), ('Diego Gómez Amarilla', 2.91)]
+  bench: [('Bernd Leno', 3.15), ('Regan Slater', 2.5), ('Michael Kayode', 2.1), ('Nathan Collins', 1.28)]
+  run 5 GW5 XI: captain Erling Haaland; XI [('Bernd Leno', 4.04), ('Marc Guéhi', 4.35), ('Maxim De Cuyper', 4.16), ('Michael Kayode', 3.27), ('Riccardo Calafiori', 3.0), ('Bryan Mbeumo', 4.16), ('Diego Gómez Amarilla', 3.74), ('Phil Foden', 3.39), ('Cody Gakpo', 3.19), ('Erling Haaland', 5.1), ('Kai Havertz', 3.33)]; bench [('Caoimhín Kelleher', 3.93), ('Nathan Collins', 2.82), ('Regan Slater', 2.68), ('Alexander Isak', 3.0)]; XI pts 41.73
+### 7. transfer proposal now vs run 5
+Traceback (most recent call last):
+  File "<stdin>", line 91, in <module>
+  File "/app/model_tools.py", line 47, in _q
+    cur.execute(sql, params)
+    ~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.14/site-packages/psycopg2/extras.py", line 236, in execute
+    return super().execute(query, vars)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+psycopg2.errors.UndefinedColumn: column "plan_id" does not exist
+LINE 1: ...OM model_transfer_plans WHERE run_id = 5 ORDER BY plan_id DE...
+                                                             ^
+HINT:  Perhaps you meant to reference the column "model_transfer_plans.run_id".

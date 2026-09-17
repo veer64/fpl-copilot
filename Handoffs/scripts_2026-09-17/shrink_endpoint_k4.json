@@ -1,0 +1,107 @@
+{
+ "summary": {
+  "2023-24": {
+   "primary_delta": {
+    "starters": 0.002115215383374669,
+    "top30": -0.005227596210978208
+   },
+   "step0_delta": {
+    "starters": -0.00022678739471199139,
+    "top30": -0.007624799023570744
+   },
+   "early_cutoffs_delta": {
+    "starters": -0.0008704114579801692,
+    "top30": -0.00043603442070205833
+   },
+   "rec_means": {
+    "starters": 0.2575638452825327,
+    "top30": 0.13585593643695595
+   },
+   "new_means": {
+    "starters": 0.25967906066590735,
+    "top30": 0.13062834022597775
+   },
+   "lambda_bounds_ok": true,
+   "lambda_min_new": 0.4868516602954284,
+   "lambda_max_new": 4.03587351177185,
+   "early_cutoffs_mean_abs_dlambda": 0.08757732307942412,
+   "mid_season_max_abs_dlambda": 0.4264832329719894,
+   "mid_season_cells_over_0_05": 558,
+   "cold_start_cells_fixed": []
+  },
+  "2024-25": {
+   "primary_delta": {
+    "starters": -0.0003849545623015871,
+    "top30": -0.006483173808571607
+   },
+   "step0_delta": {
+    "starters": -9.841887376516034e-06,
+    "top30": 0.004097941216751055
+   },
+   "early_cutoffs_delta": {
+    "starters": 0.002388659263448889,
+    "top30": -0.0002693003901798885
+   },
+   "rec_means": {
+    "starters": 0.25796950141885067,
+    "top30": 0.15097614660294165
+   },
+   "new_means": {
+    "starters": 0.2575845468565491,
+    "top30": 0.14449297279437004
+   },
+   "lambda_bounds_ok": true,
+   "lambda_min_new": 0.5553822534013229,
+   "lambda_max_new": 4.425244066755803,
+   "early_cutoffs_mean_abs_dlambda": 0.052865579241046706,
+   "mid_season_max_abs_dlambda": 0.3029235905586294,
+   "mid_season_cells_over_0_05": 555,
+   "cold_start_cells_fixed": [
+    {
+     "cutoff": 2,
+     "team": "Ipswich",
+     "rec": 0.0008253636121507605,
+     "new": 1.14801353039096
+    }
+   ]
+  },
+  "2025-26": {
+   "primary_delta": {
+    "starters": 0.0011497895855699103,
+    "top30": 3.214429459509616e-05
+   },
+   "step0_delta": {
+    "starters": 0.0005578949692774116,
+    "top30": -0.001531525917526741
+   },
+   "early_cutoffs_delta": {
+    "starters": 0.005607280765368039,
+    "top30": -8.639699151727354e-05
+   },
+   "rec_means": {
+    "starters": 0.17709185966324537,
+    "top30": 0.0760836993391025
+   },
+   "new_means": {
+    "starters": 0.17824164924881528,
+    "top30": 0.0761158436336976
+   },
+   "lambda_bounds_ok": true,
+   "lambda_min_new": 0.45474918072116627,
+   "lambda_max_new": 3.378724699935171,
+   "early_cutoffs_mean_abs_dlambda": 0.0626328357851547,
+   "mid_season_max_abs_dlambda": 0.3020343221203008,
+   "mid_season_cells_over_0_05": 406,
+   "cold_start_cells_fixed": []
+  }
+ },
+ "stops": [
+  "2023-24 FALSIFIED: steps 1-5 top30 mean Spearman moved -0.0052 (< -0.005)",
+  "2023-24 step 0 top30 moved -0.0076 (|d| > 0.002)",
+  "2023-24: 558 established-club cells at cutoffs >= 10 moved by > 0.05 in lambda (max 0.426) -- the prior is stronger than stated",
+  "2024-25 FALSIFIED: steps 1-5 top30 mean Spearman moved -0.0065 (< -0.005)",
+  "2024-25 step 0 top30 moved +0.0041 (|d| > 0.002)",
+  "2024-25: 555 established-club cells at cutoffs >= 10 moved by > 0.05 in lambda (max 0.303) -- the prior is stronger than stated",
+  "2025-26: 406 established-club cells at cutoffs >= 10 moved by > 0.05 in lambda (max 0.302) -- the prior is stronger than stated"
+ ]
+}
