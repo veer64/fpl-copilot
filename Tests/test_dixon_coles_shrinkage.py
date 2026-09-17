@@ -141,6 +141,53 @@ def test_a_phantom_club_with_no_rows_is_never_a_slack_variable():
     assert -0.80 <= a_n <= -0.35, a_n
 
 
+# ------------------------------------------------ v3: the promoted-club centre (prereg 2026-09-17 evening)
+def test_a_promoted_club_with_no_rows_sits_exactly_at_the_promoted_centre():
+    """A promoted club with zero training rows has nothing but the hinge: its centred parameters
+    settle at (MU_PROMOTED_ATTACK, MU_PROMOTED_DEFENCE) -- the implementation check the prereg
+    names (section 3's first tell). A non-promoted club in the same position sits at (0, 0)."""
+    rng = np.random.default_rng(4)
+    rows = _league(rng, n_rounds=40)
+    league = list("ABCDEF") + ["P", "Q"]
+    teams = sorted(league)
+    p, idx, nt = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365, prior_teams=league, promoted_teams=["P"])
+    pri = [idx[t] for t in league]
+    c_a = p[:nt] - p[pri].mean(); c_d = p[nt:2 * nt] - p[nt + np.array(pri)].mean()
+    assert abs(c_a[idx["P"]] - dc.MU_PROMOTED_ATTACK) < 1e-3 and abs(c_d[idx["P"]] - dc.MU_PROMOTED_DEFENCE) < 1e-3
+    assert abs(c_a[idx["Q"]]) < 1e-3 and abs(c_d[idx["Q"]]) < 1e-3
+    assert dc.LAST_FIT["promoted"] == ["P"] and dc.LAST_FIT["hinged_not_promoted"] == ["Q"]
+    assert dc.LAST_FIT["clubs_below_n"]["P"]["centre"] == "promoted" and dc.LAST_FIT["clubs_below_n"]["Q"]["centre"] == "league"
+    assert dc.LAST_FIT["mu_promoted"] == {"attack": -0.31, "defence": 0.20}
+    assert dc.LAST_FIT["converged"] is True and dc.LAST_FIT["boxed_refit"] is False
+
+
+def test_the_promoted_centre_lowers_a_scoreless_newcomer_and_the_box_still_holds():
+    """The prereg's table: at n = 3 the promoted centre sits below the league centre by 0.1-0.35
+    (0.20 at the real league rate); at n = 8 both are at the box, -ln 4 exactly, SLSQP."""
+    rows = _newcomer_rows(3)
+    teams = sorted({r["home"] for r in rows} | {r["away"] for r in rows})
+    p2_, idx, nt = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365, prior_teams=teams)
+    a_v2 = p2_[idx["N"]] - p2_[:nt].mean()
+    p3_, idx, nt = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365, prior_teams=teams, promoted_teams=["N"])
+    a_v3 = p3_[idx["N"]] - p3_[:nt].mean()
+    assert 0.10 <= a_v2 - a_v3 <= 0.35, (a_v2, a_v3)
+    assert dc.LAST_FIT["converged"] is True and dc.LAST_FIT["at_bound"] == {}
+    rows = _newcomer_rows(8)
+    teams = sorted({r["home"] for r in rows} | {r["away"] for r in rows})
+    p8, idx, nt = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365, prior_teams=teams, promoted_teams=["N"])
+    a8 = p8[idx["N"]] - p8[:nt].mean()
+    assert abs(a8 + dc.ATK_DFC_BOUND) < 1e-5 and dc.LAST_FIT["at_bound"] == {"N": ["attack"]} and dc.LAST_FIT["method"] == "SLSQP"
+
+
+def test_v2_form_is_unchanged_when_nobody_is_promoted():
+    """v3 = v2 + the centre: with promoted_teams empty (or None) the objective is v2's, bit for bit."""
+    rows = _newcomer_rows(3)
+    teams = sorted({r["home"] for r in rows} | {r["away"] for r in rows})
+    p_a, _, _ = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365, prior_teams=teams)
+    p_b, _, _ = dc._fit_dc_decay(pd.DataFrame(rows), teams, REF, 365, prior_teams=teams, promoted_teams=[])
+    assert np.array_equal(p_a, p_b) and dc.LAST_FIT["promoted"] == [] and dc.LAST_FIT["hinged_not_promoted"] == ["N"]
+
+
 def test_the_box_binds_only_where_the_mle_runs_off():
     p, idx, nt, c_atk, c_dfc = _fit(_newcomer_rows(12))
     assert dc.LAST_FIT["at_bound"] == {"N": ["attack"]}
@@ -197,6 +244,8 @@ def test_fixture_output_keeps_live_names():
     names = set(out["home"]) | set(out["away"])
     assert {"Hull City", "Ipswich Town", "Coventry City"} <= names and "Hull" not in names and "Ipswich" not in names
     assert dc.LAST_FIT["converged"] is True
+    assert dc.LAST_FIT["promoted"] == ["Coventry City", "Hull", "Ipswich"], dc.LAST_FIT["promoted"]   # canonical names inside the fit
+    assert dc.LAST_FIT["hinged_not_promoted"] == []
     lam = pd.concat([out["lam_home"], out["lam_away"]])
     assert lam.min() > 0.15 and lam.max() < 6.0, f"live fixtures outside the strength bounds: {lam.min():.4f}..{lam.max():.4f}"
 
@@ -250,11 +299,12 @@ def test_clamped_and_hinged_clubs_are_model_notes_not_degraded():
     import live_deadline as ld
     frame = pd.DataFrame({"horizon_step": [1, 1, 1], "team": ["Coventry City", "Hull", "Arsenal"],
                           "team_lambda": [0.41, 1.10, 2.10]})
-    lf = {"converged": True, "shrink_n": 10, "clubs_below_n": {"Hull": {"n_eff": 4.0, "tau": 3.36}},
+    lf = {"converged": True, "shrink_n": 10, "clubs_below_n": {"Hull": {"n_eff": 4.0, "tau": 3.36, "centre": "promoted"}},
+          "mu_promoted": {"attack": -0.31, "defence": 0.2}, "hinged_not_promoted": [],
           "at_bound": {"Coventry City": ["attack"]}}
     out = ld.degraded_findings(frame, last_fit=lf)
     assert len(out) == 2 and all(o.startswith(ld.MODEL_NOTE) for o in out)
-    assert "hinge prior active" in out[0] and "Hull (n_eff 4.0, tau 3.36)" in out[0]
+    assert "hinge prior active" in out[0] and "Hull (n_eff 4.0, tau 3.36, centre promoted)" in out[0] and "attack -0.31 / defence 0.2" in out[0]
     assert "CLAMPED" in out[1] and "Coventry City (attack)" in out[1]
     assert not any(o.startswith(ld.MODEL_DEGRADED) for o in out)
     # a clamped club whose lambda is still below 0.15 is EXTREME regardless: the bounds do not move

@@ -99,6 +99,19 @@ HALF_LIFE_DAYS = 365
 SHRINK_TAU0 = 1.40 * 4                # 1.40 = LEAGUE_AVG_LAMBDA, the neutral fill's lambda; 4 pseudo-matches
 SHRINK_N = 10                         # effective matches at which the hinge has fully released
 ATK_DFC_BOUND = float(np.log(4.0))    # the plausibility box, +-ln 4 (0.25x .. 4x)
+# --- v3 (Logs/dc_shrinkage_v3_prereg_2026-09-17.md, approved 2026-09-17): the point the hinge pulls a
+# PROMOTED club toward is not the league mean but what a promoted club has been. Measured on the
+# archive's nine promoted cohorts (2017-18 .. 2025-26, 27 clubs; the plain end-of-season fit,
+# centred over the season's twenty clubs): first-season attack -0.307 (sd 0.22, se 0.04; 0.74x the
+# league rate), defence +0.203 (sd 0.20; concedes 1.22x); the same at mid-season; no cohort on the
+# other side of zero; leave-one-cohort-out within 0.02; returners no better than long-absent clubs
+# (one class). FIXED constants, derived once: a per-fit estimate from the current season's three
+# promoted clubs would couple the centre to exactly the evidence the prior exists to supplement.
+# "Promoted" is a data fact read from the archive at every cutoff (in the predict season's
+# fixtures, not in the previous season's). A club below N that is NOT promoted keeps centre (0, 0)
+# (v2's form) and is named in a MODEL NOTE. A different centre is a NEW pre-registration.
+MU_PROMOTED_ATTACK = -0.31
+MU_PROMOTED_DEFENCE = 0.20
 
 # --- Live club names vs the archive (prereg change B). The football-data archive names
 # a returning club 'Hull' / 'Ipswich'; the live pull (and FPL) name it 'Hull City' /
@@ -207,9 +220,11 @@ def knowable_before(matches, cutoff):
 LAST_FIT = {}   # summary of the most recent fit, for the runner's KNOWLEDGE block / provenance
 
 
-def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days, prior_teams=None):
+def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days, prior_teams=None, promoted_teams=None):
     """Fit the DC model on `train_matches` (canonical names). `prior_teams`: the clubs the
     hinge prior may touch (the predict season's clubs); None = every club in the fit.
+    `promoted_teams`: the clubs among them that are promoted for the predict season -- their
+    hinge centre is (MU_PROMOTED_ATTACK, MU_PROMOTED_DEFENCE); every other club's is (0, 0).
     Refuses (raises) a training set with unplayed matches or no rows -- see knowable_before."""
     n_nan = int(train_matches[["home_goals", "away_goals"]].isna().any(axis=1).sum())
     if n_nan:
@@ -236,6 +251,10 @@ def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days, prior_team
     if SHRINK_N:
         tau_i[in_prior] = SHRINK_TAU0 * np.clip(1.0 - n_eff[in_prior] / SHRINK_N, 0.0, None)
     hinge_on = bool((tau_i > 0).any())
+    # v3: the hinge's centre per club -- the promoted-club constants for promoted clubs, 0 otherwise
+    promoted = set(promoted_teams or ()) & {t for t, ip in zip(all_teams, in_prior) if ip}
+    mu_a = np.array([MU_PROMOTED_ATTACK if t in promoted else 0.0 for t in all_teams])
+    mu_d = np.array([MU_PROMOTED_DEFENCE if t in promoted else 0.0 for t in all_teams])
     # "The league rate" is the mean over the LEAGUE -- the predict season's clubs (prior_teams) --
     # not over every club the archive has ever held. The fit's team list spans every archive
     # season, so it carries clubs with little or NO training evidence (a club promoted in a later
@@ -265,9 +284,10 @@ def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days, prior_team
         log_p = log_p + np.log(np.clip(tau, 1e-10, None))
         val = -(w * log_p).sum()
         if hinge_on:
-            # (A) the hinge prior on the evidence-poor clubs' CENTRED parameters (gauge-invariant)
+            # (A) the hinge prior on the evidence-poor clubs' CENTRED parameters (gauge-invariant),
+            # about the club's centre (v3: the promoted-club constants for a promoted club)
             c = centred(params)
-            val = val + 0.5 * float(np.sum(tau_i * (c[:nt] ** 2 + c[nt:] ** 2)))
+            val = val + 0.5 * float(np.sum(tau_i * ((c[:nt] - mu_a) ** 2 + (c[nt:] - mu_d) ** 2)))
         return val
 
     x0 = np.zeros(2 * nt + 2); x0[-2] = 0.25
@@ -316,8 +336,12 @@ def _fit_dc_decay(train_matches, all_teams, ref_date, half_life_days, prior_team
                     shrink_tau0=float(SHRINK_TAU0), shrink_n=int(SHRINK_N or 0),
                     bound=(None if B is None else float(B)),
                     n_eff_min=float(n_eff[i_min]), n_eff_min_club=str(all_teams[i_min]),
-                    clubs_below_n={str(all_teams[i]): {"n_eff": round(float(n_eff[i]), 2), "tau": round(float(tau_i[i]), 3)}
+                    clubs_below_n={str(all_teams[i]): {"n_eff": round(float(n_eff[i]), 2), "tau": round(float(tau_i[i]), 3),
+                                                       "centre": ("promoted" if all_teams[i] in promoted else "league")}
                                    for i in range(nt) if tau_i[i] > 0},
+                    promoted=sorted(str(t) for t in promoted),
+                    mu_promoted={"attack": float(MU_PROMOTED_ATTACK), "defence": float(MU_PROMOTED_DEFENCE)},
+                    hinged_not_promoted=sorted(str(all_teams[i]) for i in range(nt) if tau_i[i] > 0 and all_teams[i] not in promoted),
                     at_bound=at_bound,
                     min_margin_to_bound=(None if m_min[0] is None else round(float(m_min[0]), 4)),
                     min_margin_club=(None if m_min[0] is None else f"{m_min[1]} {m_min[2]}"))
@@ -500,7 +524,16 @@ def get_fixtures(predict_season=None, cutoff_date=None, predict_dates=None,
 
     cur = mc[mc["season"] == predict_season]
     prior_teams = sorted(set(cur["home"]) | set(cur["away"]))      # the clubs whose parameters are USED
-    params, idx, nt = _fit_dc_decay(train_m, teams, ref, HALF_LIFE_DAYS, prior_teams=prior_teams)
+    # v3: promoted = in the predict season's fixtures and not in the previous archive season's (a data
+    # fact under canonical names; the archive's first season has no previous season -> nobody promoted)
+    earlier = sorted(s for s in mc["season"].unique() if s < predict_season)
+    if earlier:
+        prev = mc[mc["season"] == earlier[-1]]
+        promoted_teams = sorted(t for t in prior_teams if t not in (set(prev["home"]) | set(prev["away"])))
+    else:
+        promoted_teams = []
+    params, idx, nt = _fit_dc_decay(train_m, teams, ref, HALF_LIFE_DAYS, prior_teams=prior_teams,
+                                    promoted_teams=promoted_teams)
     atk, dfc, hadv, rho = params[:nt], params[nt:2 * nt], params[-2], params[-1]
 
     df = matches[matches["season"] == predict_season].copy()

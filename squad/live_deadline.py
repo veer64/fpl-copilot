@@ -437,8 +437,16 @@ def degraded_findings(frame, last_fit=None):
     # it. The fatal raise, when it ships, raises on EXTREME and on a non-converged fit only.
     below = (lf or {}).get("clubs_below_n") or {}
     if below:
-        out.append(f"{MODEL_NOTE} hinge prior active (evidence below {(lf or {}).get('shrink_n')} effective matches): "
-                   + ", ".join(f"{t} (n_eff {v.get('n_eff')}, tau {v.get('tau')})" for t, v in sorted(below.items())))
+        mu = (lf or {}).get("mu_promoted") or {}
+        out.append(f"{MODEL_NOTE} hinge prior active (evidence below {(lf or {}).get('shrink_n')} effective matches; "
+                   f"promoted-club centre attack {mu.get('attack')} / defence {mu.get('defence')}): "
+                   + ", ".join(f"{t} (n_eff {v.get('n_eff')}, tau {v.get('tau')}, centre {v.get('centre', 'league')})"
+                               for t, v in sorted(below.items())))
+        hnp = (lf or {}).get("hinged_not_promoted") or []
+        if hnp:
+            out.append(f"{MODEL_NOTE} a club below {(lf or {}).get('shrink_n')} effective matches that is NOT promoted "
+                       f"(centre = the league mean, v2's form): {', '.join(hnp)} -- the evidence table said this never "
+                       "happens; understand the club")
     clamped = (lf or {}).get("at_bound") or {}
     if clamped:
         out.append(f"{MODEL_NOTE} Dixon-Coles strength CLAMPED at the plausibility bound (+-ln 4 of the league rate): "
