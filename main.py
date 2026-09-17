@@ -46,7 +46,8 @@ import time
 from collections import deque
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -75,6 +76,24 @@ API_KEY_HEADER = "x-api-key"
 # sent over http. Same cleartext caveat as the header.
 COOKIE_NAME = "fpl_key"
 COOKIE_MAX_AGE_S = 60 * 60 * 24 * 30
+
+# A browser that navigates here without the cookie should be told what to do, not
+# handed raw JSON. Carries no secret; it only names the mechanism, which the 401
+# already reveals. API clients (Accept: */*) still get the JSON body.
+UNAUTHORIZED_HTML = """<!DOCTYPE html>
+<html><head><title>FPL Copilot - authentication required</title><style>
+body{font-family:sans-serif;max-width:640px;margin:60px auto;padding:0 20px;line-height:1.5}
+code{background:#f3f3f3;padding:2px 5px;border-radius:3px}
+</style></head><body>
+<h1>Authentication required</h1>
+<p>This app sits behind a shared key. Open it <b>once</b> as
+<code>/?key=YOUR_KEY</code> to set a session cookie for this browser; after that the
+page and everything it calls work normally for 30 days.</p>
+<p>The key is only on the server, as <code>APP_API_KEY</code> in
+<code>/root/fpl-copilot/.env</code>. Programmatic clients send it as the
+<code>X-API-Key</code> header instead. <code>/health</code> is the one route that
+needs no key.</p>
+</body></html>"""
 
 # Single shared conversation history -- see the STILL OPEN note in the module
 # docstring. In-memory, process-global, shared by every caller.
@@ -145,6 +164,10 @@ async def require_api_key(request: Request, call_next):
     presented = (request.headers.get(API_KEY_HEADER, "")
                  or request.cookies.get(COOKIE_NAME, ""))
     if not _key_ok(presented):
+        # A person in a browser gets a page telling them how to authenticate; an
+        # API client gets the JSON body it can parse.
+        if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+            return HTMLResponse(UNAUTHORIZED_HTML, status_code=401)
         return JSONResponse(
             {"detail": f"missing or invalid {API_KEY_HEADER} header "
                        f"(or {COOKIE_NAME} cookie)"},
