@@ -426,3 +426,45 @@ The import now happens at module load and is tested; the end-to-end tick test ru
 reconciliation settles any slot a future crash leaves RUNNING; the stale-RUNNING reason degrades `/health`
 within 90 min and the probe pushes it. Residual: a NEW kind of post-build crash would still cost one
 re-fire before the reconciliation catches it on the next tick — a wasted build, not a missing one.
+
+---
+
+## 13. Verification 2026-09-17 22:00Z — the ungating was already in place; the prompt was re-issued from a stale note
+
+**Why this section exists.** `Handoffs/Squad State handoff.docx` §2.5 ("OPEN — the deadline slots are still
+conditionally gated") and §12.1 ("Ungate the three deadline slots — prompt issued, not confirmed. Do before
+Friday.") both describe the ungating as outstanding, and a work prompt was issued on that basis. It is not
+outstanding. It was done on 2026-09-14 in `c975e26`, deployed, tested and proven live, and section 11 above is
+its record. The docx was saved at 21:37Z on 2026-09-17, about three hours AFTER the same session pushed the
+work it calls unpushed — it is stale at its own write time, not wrong about a later regression.
+
+This is the second time the "everything is gated" reading has been acted on. Section 11 records the first: the
+report that prompted the 2026-09-14 decision was itself wrong about the runs (right about the promise). A
+re-issued prompt is cheap; a re-implementation on top of working code is not. Hence a permanent note.
+
+**What was checked, and how (nothing was changed).**
+
+| requirement, as re-stated in the prompt | where it already is | evidence |
+|---|---|---|
+| t90 / t30 / t10 fire regardless of confirmation state | `plan()`, the `if lead <= 90:` branch — it comes first and RETURNS before the `master_gw` gate is ever reached; the `master_gw is None` (unreadable season file) path is below it too | `eval/dispatch_policy.py` ~line 127, comment "UNCONDITIONAL: this branch comes before, and never consults, the previous-gameweek gate below" |
+| nightly / post_ingest keep the gate unchanged | the between-deadlines branch still returns early on `master_gw < prev_gw` | same file, the branch below the deadline return |
+| the freshness line names the gameweek the history actually reaches | `history_gap(gw, history_through_gw)` — one shared sentence, used by the dispatcher reason and by `freshness()` | "GW4 not yet confirmed and ingested when this was built: history stops at GW3" |
+| strict stays on | not optional: `strict=True` is hard-coded in the runner | `eval/run_live_deadline.py` line 295 |
+| a test with a fake clock and an unconfirmed bootstrap proving all three fire | `test_deadline_slots_fire_with_an_unconfirmed_bootstrap_and_a_stale_season_file` — fake clock, `EVENTS_STALLED`, run for BOTH `master_gw=3` and `master_gw=None`, asserts `fired == ["t90", "t30", "t10"]` and that every reason names the gap | `Tests/test_dispatch_policy.py` line 54 |
+
+`uv run pytest Tests/test_dispatch_policy.py Tests/test_deadline_dispatcher.py -q` -> **25 passed in 0.92 s**.
+
+**Deployed already.** The served SHA is `e32e31b2a`; `git merge-base --is-ancestor c975e26 e32e31b` is true, and
+the file on the server carries the UNCONDITIONAL comment at lines 34 and 127 (read-only ssh). There was nothing
+to deploy, so the container was not touched and no no-touch window was spent.
+
+**The push half of the same prompt was also already done.** Against a fresh `git fetch --all --prune`:
+`git rev-list --left-right --count origin/main...main` = `0 0`, and the same for `origin/hinge-box-v2...hinge-box-v2`.
+main and the branch are both on origin; `origin/hinge-box-v2` head is `adddc17` (f41a0fe = v2, adddc17 = v3),
+not merged, exactly as intended. The "where the code lives" record the prompt asked for already exists and says
+so: `Logs/dc_shrinkage_v3_log_2026-09-17.md` section 4, written 19:10Z.
+
+**The correction to carry forward.** `Handoffs/Squad State handoff.docx` §2.5 and §12.1 are both stale and should
+be struck or marked done; the .docx is the user's file, so it is left untouched here. Anything generated from
+that docx will keep re-raising these two items until it is. The live open items from §12.1 that ARE real remain
+real: the external uptime monitor, and rotating the ntfy topic (it was pasted into a chat).
