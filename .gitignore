@@ -18,3 +18,10 @@ fplcache/
 deploy_key_new
 deploy_key_new.pub
 backups/
+# The server deploy runbook. Scanned 2026-09-17: it contains NO credentials
+# (no ntfy topic, no HEALTH_URL value, no private key, no password value).
+# It is kept out because it is an operational map of a live host -- rotation
+# status, sshd config precedence, the cron layout, and the note that the DB
+# password passed through a chat -- and this repo is PUBLIC. The durable copy
+# lives on disk at Handoffs/, untracked. See Logs/multi_run_schedule_design.md #13.
+Handoffs/Server deploy handoff.docx
