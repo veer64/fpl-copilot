@@ -1,5 +1,10 @@
 # Pre-registration: THRESHOLD-form shrinkage on Dixon-Coles team strengths (2026-09-14) — DESIGN ONLY, not implemented
 
+> **SUPERSEDED 2026-09-17 by `Logs/dc_shrinkage_threshold_prereg_2026-09-17.md` (v2)** before any implementation:
+> this linear hinge releases completely at N = 10, so a club scoreless in ten matches would run to −∞ again. v2
+> keeps the hinge and adds a plausibility box (±ln 4) that holds at any number of goalless matches; its lambda
+> floor is stated there. Kept for the record; nothing here was run.
+
 The second attempt at KNOWN_ISSUES #25 ("exposed, not fixed"). The first, a Gaussian prior on every club
 (`Logs/dc_shrinkage_prereg_2026-09-13.md`, k = 4), was FALSIFIED on its endpoint
 (`Logs/dc_shrinkage_log_2026-09-13.md` §3). This is a NEW pre-registration, not a tuning of that one: the
