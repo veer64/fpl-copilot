@@ -183,11 +183,16 @@ for a promoted side costs it (2023-24). The broad slice, likely starters, is up 
 | N = 6 | 105 | +0.0026 (0.0015), +1.7 SE | −0.0085 (0.0089), −1.0 SE | +0.0001 / +0.0020 / −0.0276 | yes / 0.408 / 0.64 | one unaffected cutoff (2025-26 c9) differs in `pred_bps` by 7e-15, e_points unchanged: bonus-model floating-point noise, not the form |
 | N = 15 | 195 | +0.0019 (0.0010), +1.9 SE | −0.0075 (0.0057), −1.3 SE | −0.0042 / +0.0016 / −0.0198 | yes / 0.455 / 0.77 | |
 | tau_0 = 2.8 | 170 | +0.0017 (0.0008), +2.0 SE | −0.0091 (0.0056), −1.6 SE | −0.0077 / +0.0034 / −0.0242 | yes / 0.408 / 0.64 | |
-| box ln 3 | (pending) | | | | | |
-| box ln 6 | (pending) | | | | | |
+| box ln 3 | 170 | +0.0022 (0.0011), +2.1 SE | −0.0093 (0.0062), −1.5 SE | −0.0042 / +0.0016 / −0.0264 | yes / 0.408 / **0.35** | identical to the form (the box never binds); the nearest established club is 0.35 from the narrower bound (Sheffield United attack, 2023-24 c2) |
+| box ln 6 | 170 | +0.0022 (0.0011), +2.1 SE | −0.0093 (0.0062), −1.5 SE | −0.0042 / +0.0016 / −0.0264 | yes / 0.408 / 1.05 | identical to the form (the box never binds) |
 
 The pattern is the same in every row: starters up ~2 SE, top-30 down 1–1.6 SE, 2025-26's top-30 the whole of it.
 The box rows can only reproduce the form exactly (the box never binds on the record).
+
+Provenance note: the sensitivity queues ran variants as successive processes, and the 2025-26 box-ln-6 build started after the
+working tree had been switched to main (17:18Z) — its fits log carried no form stamps (a plain record build). Caught by the
+stamps (`shrink_n`, `shrink_tau0`, `bound`, `n_league` in every `LAST_FIT`), discarded and re-run on the branch (17:33Z).
+Every other sensitivity file carries the intended stamps. Lesson: never switch branches while a build queue is live.
 
 ## 3. The decision at the stop point (prereg §5 step 2; the user's condition of 2026-09-17)
 
