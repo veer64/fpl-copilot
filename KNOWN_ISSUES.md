@@ -1450,3 +1450,11 @@ FALSIFIED on its pre-registered endpoint (steps-1-5 top-30 sliced Spearman -0.00
 2024-25 against a bar of -0.005; `Logs/dc_shrinkage_log_2026-09-13.md`). Prior OFF in the code (`SHRINK_K =
 0`, objective bit-identical to before). The alias map + name guard (change B) and the strict extreme-strength
 detector are in the tree; the detector would fail today's live build, so nothing is deployed. STILL OPEN.
+**2026-09-17:** the v2 form (per-club hinge prior tau_0 5.6 / N 10 plus a plausibility box +-ln 4, both on
+CENTRED parameters over the league's clubs; `Logs/dc_shrinkage_threshold_prereg_2026-09-17.md`) was implemented
+on branch `hinge-box-v2` and run against its pre-registered endpoint (`Logs/dc_shrinkage_v2_log_2026-09-17.md`):
+unaffected cutoffs bit-identical, every fit converged, every lambda inside [0.15, 6.0] (2024-25 cutoff 2 Ipswich
+0.0007 -> 0.874), starters +0.0022 (+2.1 SE), top-30 -0.0093 (-1.5 SE, all of it 2025-26). Not falsified by the
+letter; MARGINAL under the user's condition, so NOT adopted at the stop point and not deployed for the GW5
+deadline. The loud detector (MODEL DEGRADED on /health + push) remains the live floor. STILL OPEN; the user's
+call on the branch.

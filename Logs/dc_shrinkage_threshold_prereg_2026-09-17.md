@@ -1,4 +1,9 @@
-# Pre-registration v2: hinge prior + plausibility box on Dixon-Coles team strengths (2026-09-17) — DESIGN ONLY, not implemented
+# Pre-registration v2: hinge prior + plausibility box on Dixon-Coles team strengths (2026-09-17)
+
+> **STATUS 2026-09-17 evening: IMPLEMENTED on branch `hinge-box-v2` (unpushed), the endpoint RUN, NOT ADOPTED at the stop
+> point.** Execution log: `Logs/dc_shrinkage_v2_log_2026-09-17.md` — §1 the four implementation findings (identifiability:
+> the form acts on centred parameters; the hinge scoped to the league's clubs; the box/detector reconciliation; the
+> phantom-club slack variable), §2 the numbers verbatim, §3 the decision. Nothing below is amended; the bar stands as written.
 
 Supersedes `Logs/dc_shrinkage_threshold_prereg_2026-09-14.md` (v1), whose linear hinge released completely at
 N = 10 and would therefore have let a club scoreless in ten matches run to −∞ again. The user's requirement
