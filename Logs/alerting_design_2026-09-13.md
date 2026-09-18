@@ -183,3 +183,56 @@ backup. Neither is read by anything. The backup's only sensitive content is the 
 `HEALTH_URL` is trivially recoverable, so it can be deleted once the rotation is considered settled;
 the history line wants scrubbing for the same reason. Low urgency — the name is already burned and
 nothing subscribes to it — but it is residue, and residue is how a value leaks a second time.
+
+---
+
+## 9. Layer A is live (2026-09-18) — the external uptime monitor
+
+Closes the open item from §4 and §5: the probe in §6 runs ON the host, so it cannot report the host
+being gone. That was always the gap; it is now covered.
+
+**UptimeRobot, free tier. Monitor "FPL Copilot health".**
+
+| setting | value |
+|---|---|
+| type | HTTP(s) keyword |
+| URL | `http://68.183.131.154:8000/health` |
+| interval | 5 minutes |
+| keyword | `"db_ok":true` |
+| incident when | the keyword does **NOT** exist |
+| alerts | email |
+
+**Why the check is INVERTED, which is the whole design.** `/health` returns **HTTP 200 even when
+degraded** — deliberately, because a degraded build is still served. And `degraded` is the current
+*expected, persistent* state: the Coventry runaway (KNOWN_ISSUES #25) keeps six reasons on the
+endpoint and will until that club's lambda comes back inside the box. So the two obvious
+configurations both fail:
+
+* a **plain up/down check** would never fire on an application or database failure, because the app
+  answers 200 in both;
+* a **keyword-exists alert on `degraded`** — which is what §4.2 of the handoff originally specified —
+  would fire on the very first probe and never stop, and an alarm that is always red is an alarm
+  nobody reads. That is the same alarm-fatigue failure §2 was designed against, and it would have
+  been self-inflicted.
+
+Inverting it covers **three distinct failures in one monitor**:
+
+1. **host gone** — no response at all;
+2. **app dead or erroring** — a response without the keyword;
+3. **Postgres unreachable** — the app answers, but `"db_ok":false`, so the literal is absent.
+
+**Known brittleness, recorded rather than discovered later.** The keyword is an exact JSON literal.
+FastAPI's default serialisation emits `"db_ok":true` with no space, and a change to the response
+format — a pretty-printer, a key rename, a field reordering that separates the token — breaks the
+match. But it breaks **toward a false alarm, not toward silence**, which is the right direction for a
+monitor: a spurious page costs attention, a silent monitor costs the outage. If the health payload is
+ever reshaped, this keyword must be revisited in the same change.
+
+**Correction to an earlier caution.** When this was specified I flagged that keyword monitoring might
+be a paid feature and should be checked at signup. **It is available on UptimeRobot's free tier as of
+2026-09-18** — the caution was unfounded. Recorded so nobody re-litigates the choice of provider on
+that basis.
+
+**What is still not covered.** This watches reachability and the database, not correctness. A build
+that succeeds with a wrong model is invisible to it — that is the §6 probe's job via the MODEL
+DEGRADED reasons, and the two layers remain complementary exactly as §1 describes.
