@@ -1467,3 +1467,14 @@ every structural gate held, verdict MARGINAL by the pre-fixed rule -> NOT adopte
 luck component (the record's Sunderland runaway paid off), present at every centre tried; the centre is not
 the lever. Per the prereg: no fourth form without a new argument; let Coventry score. The loud detector
 remains the live floor. STILL OPEN.
+**2026-09-18 -- a SECOND consequence, independent of the Botman artefact (`Logs/hold_comparison_log_2026-09-18.md` §4):**
+the hold-vs-move gap cannot be measured honestly while ANY club's lambda sits outside [0.15, 6.0], because holding
+earns a second free transfer at the next gameweek and the hold plan can spend it on precisely the fixtures the
+runaway has mispriced -- so the gap is biased IN FAVOUR OF HOLDING by an unknown amount. This is not the Botman
+problem restated: that one inflates a PLAYER's price at a later step, which a reader can see in the plan and
+decline; this one inflates the value of HAVING AN EXTRA TRANSFER, which corrupts a comparison and hides inside a
+single scalar. It is a new argument for closing #25 -- the earlier pre-registrations were all argued on
+rank-correlation endpoints, and this is a different cost: a feature built to tell a clear gain from a near-tie
+cannot do its job at all while the defect is live. It is NOT retired by "let Coventry score": it returns for any
+club whose strength runs off, in any season. `propose_transfers` therefore REFUSES the gap (and the
+rolled-transfer offer) while the detector fires, rather than reporting a number with a caveat attached.
