@@ -292,3 +292,88 @@ the 15-solve loop entirely rather than sitting alongside it.
 After the v1 backtest produces a number. The point of v1 is a working end-to-end
 season simulation with honest accounting; adding search sophistication before there
 is a baseline to compare against makes the improvement unmeasurable.
+
+---
+
+## Feature idea: league table and team form as a tool
+
+### Observation that prompted this
+A live session on 2026-09-17. The agent was asked, in effect, "how is Hull City
+doing?" and could not answer: it has no standings, no form, no results context.
+It refused rather than guessing, which is the grounding contract working exactly
+as written (system prompt section 1: never fill a gap from general knowledge of
+football). But the refusal was unsatisfying, and it should not have been
+necessary — the information is cheap and almost all of it is already on the
+volume. A refusal is the right behaviour for a missing SOURCE; this is a missing
+TOOL over a source we already have.
+
+Recording this as two separate items, because one is plumbing and the other is a
+genuine modelling-facing feature with a dependency.
+
+### Item 1 — standings and form. Derivable, no new source.
+Position, points, played, won/drawn/lost, goals for/against, goal difference,
+and last-N results per club. A `get_league_table` and/or `get_team_form` tool.
+
+Everything needed is already ingested: the fixtures and scores in
+`data/history/odds_all_seasons_with_2026_27.parquet` (Date, HomeTeam, AwayTeam,
+FTHG, FTAG) plus the FPL-API rows for played gameweeks. No new upstream, no new
+credential, no new cost.
+
+**The one rule that matters: build it AS-OF the frame's cutoff.** It must not be
+able to report a result the prediction did not know. Reuse
+`dixon_coles.knowable_before(matches, cutoff)` -- do NOT write a second
+date comparison. That function exists precisely because two independently written
+comparisons of a timed cutoff against day-stamped dates drifted into a leak on one
+side and a degenerate fit on the other (KNOWN_ISSUES #25, LEAKAGE.md item 7). A
+standings tool is a third caller of the same rule and should be wired to the same
+function, so the three can never disagree.
+
+There is no leakage RISK in the feature itself -- past results only -- but there is
+every opportunity to reintroduce the same boundary bug, and a table that silently
+includes the cutoff day's matches would be exactly that bug wearing a new hat.
+
+Implementation notes: the table needs fixtures mapped to gameweeks, which the
+archive gives by date and the FPL bootstrap gives by event -- decide which is
+authoritative before writing it. The agent's scope section (system prompt section 6)
+currently lists this kind of question as out of scope; adding the tool means editing
+that section too, or the agent will keep refusing a question it can now answer.
+
+### Item 2 — why the model disagrees with the table. The interesting one.
+A club can sit 4th and still be priced low, because the model thinks the record is
+luck or the sample is too short to believe. A tool that puts the table position
+next to the fitted attack/defence strength and NAMES the gap turns a user's "but
+they're 4th" into an explainable answer instead of a refusal.
+
+This is the honest version of the feature: not "here is the table" but "here is
+what the table says, here is what the fit says, and here is why they differ."
+
+Implementation note: the per-club strengths are not currently exposed anywhere a
+tool can read them. `dixon_coles._team_strengths_table(teams, atk, dfc)` builds
+exactly the right frame but is only logged as an MLflow artifact, and `LAST_FIT`
+carries only the aggregates (max_abs_attack, max_abs_defence, n_eff_min). Surfacing
+per-club attack/defence -- and each club's decay-weighted effective match count,
+which is the actual answer to "is the sample too short to believe" -- is the real
+work here.
+
+### The dependency, and it is not optional
+**Item 2 is only honest once the runaway-lambda issue (KNOWN_ISSUES #25) is
+resolved or clearly labelled**, because Hull and Coventry are precisely the clubs
+where the fit and the table disagree most, and today that disagreement is partly a
+defect rather than a judgement.
+
+Measured on run 11 (2026-09-17): at GW5, which is market-priced, every club sits
+inside [0.15, 6.0] -- Coventry City 0.8824, Hull City 0.9575. At horizon steps 1-5,
+which are Dixon-Coles priced, Coventry City is at lambda 0.0006 and the fit reports
+`converged False`. So a strengths-vs-table tool built today would, for the two clubs
+a user is most likely to ask about, present a number that the project's own detector
+is simultaneously flagging as degraded on /health.
+
+Either ship item 2 after #25 closes, or make it read the detector (the
+MODEL DEGRADED findings are already on the run row, and `model_tools`
+`_model_degraded_reasons` already parses them) and say plainly that this club's
+fitted strength is not currently trustworthy. What it must not do is print 0.0006
+next to "Coventry City, 14th" and let the reader draw a conclusion.
+
+### When to do it
+Item 1 any time -- it is small, self-contained, and makes the agent visibly more
+useful. Item 2 after #25, or with the detector wired in from the start.
