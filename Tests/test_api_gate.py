@@ -189,6 +189,71 @@ def test_rate_limited_caller_gets_429_not_a_model_call(client, main_mod):
     assert "rate limit" in r.json()["detail"]
 
 
+# A real browser's Accept header, verbatim from Chrome.
+HTML_ACCEPT = {"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+
+
+def test_browser_style_get_without_a_key_returns_the_html_notice(client):
+    """A person who navigates here unauthenticated must be told what to do. Raw
+    JSON in the viewport is what sent the last round of confusion (2026-09-17)."""
+    r = client.get("/", headers=HTML_ACCEPT)
+    assert r.status_code == 401
+    assert r.headers["content-type"].startswith("text/html")
+    assert "<html" in r.text.lower()
+    assert "Authentication required" in r.text
+    assert "?key=" in r.text          # it names the way in
+
+
+def test_api_style_get_without_a_key_returns_json(client):
+    """An API client must keep getting a body it can parse."""
+    r = client.get("/", headers={"accept": "*/*"})
+    assert r.status_code == 401
+    assert r.headers["content-type"].startswith("application/json")
+    assert isinstance(r.json()["detail"], str)
+    assert "<html" not in r.text.lower()
+
+
+def test_a_client_that_sends_no_accept_header_gets_json(client):
+    r = client.get("/")
+    assert r.status_code == 401
+    assert r.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.parametrize("accept", ["text/html", "*/*", "application/json"])
+def test_no_401_body_ever_contains_the_secret(client, accept):
+    """Whichever branch answers, the key must not be in the response."""
+    r = client.get("/", headers={"accept": accept})
+    assert r.status_code == 401
+    assert KEY not in r.text
+
+
+def test_the_html_notice_names_the_mechanism_but_holds_no_secret(main_mod):
+    page = main_mod.UNAUTHORIZED_HTML
+    assert KEY not in page
+    assert "APP_API_KEY=" not in page        # the NAME may appear, never an assignment
+    assert "X-API-Key" in page and "/health" in page
+
+
+def test_the_html_branch_is_get_only_so_posts_still_get_json(client):
+    """The page's own fetch() calls are POSTs; they must receive JSON to parse."""
+    r = client.post("/chat", headers=HTML_ACCEPT, json={"message": "x"})
+    assert r.status_code == 401
+    assert r.headers["content-type"].startswith("application/json")
+    assert isinstance(r.json()["detail"], str)
+
+
+def test_health_is_still_open_to_a_browser_accept_header(client):
+    r = client.get("/health", headers=HTML_ACCEPT)
+    assert r.status_code not in (401, 503)
+
+
+def test_a_browser_with_a_valid_key_gets_the_app_not_the_notice(client):
+    r = client.get("/", headers={**HTML_ACCEPT, "x-api-key": KEY})
+    assert r.status_code == 200
+    assert "Authentication required" not in r.text
+    assert "FPL Copilot" in r.text
+
+
 def test_the_secret_is_not_hardcoded_anywhere_in_the_tree(main_mod):
     """The gate is worthless if the key is committed. static/index.html in
     particular must stay free of it -- this repository is public."""
