@@ -248,3 +248,84 @@ def test_quantile_columns_carry_no_sql_default():
             if f"ADD COLUMN IF NOT EXISTS {c} " in line or f"ADD COLUMN IF NOT EXISTS {c}\t" in line:
                 assert "DEFAULT" not in line.upper(), line
                 assert "NOT NULL" not in line.upper(), line
+
+
+# ============================================================================
+# The read path against a schema that has NOT been migrated yet.
+#
+# On 2026-09-18 the quantile columns were deployed at 23:09Z while the last write --
+# which is the only thing that runs ensure_schema -- was run 15 at 17:21Z. Every
+# get_prediction call raised UndefinedColumn until ensure_schema was run by hand.
+#
+# The existing tests proved the WRITE emits None when the FRAME lacks the columns.
+# Nothing proved the READ survives a DATABASE that has never seen them. That is the
+# class these cover, and it is not specific to quantiles: it recurs with every new column.
+# ============================================================================
+def test_read_columns_exclude_what_the_schema_does_not_have():
+    import model_tools as mt
+    old_schema = set(mt.PRED_BASE_COLS)                 # a database from before the migration
+    cols = mt._prediction_columns(old_schema)
+    assert cols == mt.PRED_BASE_COLS
+    for c in qt.QUANTILE_COLS:
+        assert c not in cols, c
+
+
+def test_read_columns_include_them_once_the_schema_has_them():
+    import model_tools as mt
+    new_schema = set(mt.PRED_BASE_COLS) | set(mt.PRED_OPTIONAL_COLS)
+    cols = mt._prediction_columns(new_schema)
+    for c in qt.QUANTILE_COLS:
+        assert c in cols, c
+
+
+def test_unknown_schema_falls_back_to_the_base_columns():
+    """If introspection itself fails, read the columns that have always existed rather
+    than guessing -- a read must not die because it could not ask."""
+    import model_tools as mt
+    assert mt._prediction_columns(set()) == mt.PRED_BASE_COLS
+    assert mt._prediction_columns(None) == mt.PRED_BASE_COLS
+
+
+def test_get_prediction_survives_a_database_that_never_saw_the_columns(monkeypatch):
+    """END TO END on the path the agent uses, against a pre-migration schema. This is the
+    test whose absence let the outage through: add_quantiles passed, get_prediction was
+    never called."""
+    import model_tools as mt
+    monkeypatch.setattr(mt, "_COLUMN_CACHE", {})
+    monkeypatch.setattr(mt, "_latest_run", lambda gw=None, any_status=False: {
+        "run_id": 15, "gw": 5, "kind": "t10", "slot": "t10:GW5", "status": "SUCCESS",
+        "finished_at": None, "started_at": None, "build_duration_s": None,
+        "strict_findings": None, "model_versions": None, "knowledge": None})
+    monkeypatch.setattr(mt, "_run_meta", lambda run, config=None: {"run_id": run["run_id"]})
+
+    asked = {}
+
+    def fake_q(sql, params=()):
+        if "information_schema" in sql:
+            return [{"column_name": c} for c in mt.PRED_BASE_COLS]   # pre-migration
+        asked["sql"] = sql
+        assert not any(c in sql for c in qt.QUANTILE_COLS), \
+            "the read named a column the schema does not have"
+        return [{c: 1.0 for c in mt.PRED_BASE_COLS} | {"gw": 5, "horizon_step": 0,
+                                                       "e_points": 5.1}]
+    monkeypatch.setattr(mt, "_q", fake_q)
+
+    out = mt.get_prediction(411, gw=5)
+    assert "error" not in out, out
+    assert out["quantiles"]["computed"] is False
+    assert "not computed" in out["quantiles"]["why"] or "did not compute" in out["quantiles"]["why"]
+
+
+def test_the_quantile_block_survives_rows_with_no_quantile_KEYS_at_all():
+    """Not merely None -- absent. A pre-migration row has no such key to be None."""
+    import model_tools as mt
+    rows = [{"gw": 5, "e_points": 5.1}]
+    blk = mt._quantile_block(rows)
+    assert blk["computed"] is False and blk["per_gw"] == []
+
+
+def test_the_column_cache_expires_so_a_migration_is_seen_without_a_restart():
+    """The build runs the migration while the API process is already up; a permanently
+    cached column list would keep the read blind until someone restarted it."""
+    import model_tools as mt
+    assert 0 < mt.COLUMN_CACHE_TTL_S <= 300

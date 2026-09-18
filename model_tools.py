@@ -155,20 +155,66 @@ def get_player_card(player_id: int):
 
 
 # -------------------------------------------------------------- predictions
+# ---- reading a table whose newest columns may not exist yet ----------------------
+# A READ MUST NOT DIE BECAUSE A WRITE HAS NOT HAPPENED. New columns are added by
+# `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` inside db_write.ensure_schema, and ONLY the
+# write paths call it -- so between deploying a column and the next build finishing, a read
+# that names that column fails outright. That happened on 2026-09-18: the quantile columns
+# were deployed at 23:09Z, the last write was run 15 at 17:21Z, and every get_prediction call
+# raised UndefinedColumn until ensure_schema was run by hand.
+#
+# The fix is on the READ side deliberately, rather than making migrations stricter: a read
+# that depends on a write having happened is fragile in a way that recurs with every new
+# column. Optional columns are selected only if the live schema has them, and their absence
+# reads the same as their being NULL -- "not computed", never zero.
+PRED_BASE_COLS = ["gw", "horizon_step", "e_points", "e_minutes", "p_start", "p_60plus",
+                  "e_goals", "e_assists", "p_cs", "exp_bonus"]
+PRED_OPTIONAL_COLS = ["e_pen_goals", "penalty_share",
+                      "q_p10", "q_p50", "q_p90", "q_sd", "q_degenerate", "q_distinct",
+                      "q_resid_sampling", "q_resid_structural", "q_tolerance",
+                      "q_method_version", "q_minutes_shape", "q_draws"]
+_COLUMN_CACHE = {}
+COLUMN_CACHE_TTL_S = 60.0          # short, so a migration is picked up without a restart
+
+
+def _prediction_columns(available):
+    """PURE. The base columns always; an optional column only when the schema has it.
+    An empty/unknown `available` falls back to the base set -- the columns that have existed
+    since before any of this, so the read still works when introspection itself fails."""
+    if not available:
+        return list(PRED_BASE_COLS)
+    return list(PRED_BASE_COLS) + [c for c in PRED_OPTIONAL_COLS if c in available]
+
+
+def _table_columns(table, ttl=COLUMN_CACHE_TTL_S):
+    """The columns the LIVE table has. Cached briefly: long enough not to cost a round trip
+    per call, short enough that a migration run by a build is picked up without restarting
+    the API. Returns an empty set if it cannot tell, which _prediction_columns treats as
+    "assume only the base columns"."""
+    now = time.time()
+    hit = _COLUMN_CACHE.get(table)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    try:
+        rows = _q("SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+                  (table,))
+        cols = {r["column_name"] for r in rows}
+    except Exception:                                   # noqa: BLE001 -- a read must not die here
+        cols = set()
+    _COLUMN_CACHE[table] = (now, cols)
+    return cols
+
+
 def get_prediction(player_id: int, gw: int = None):
     """The production model's view of one player: the target gw if given,
     else every gameweek in the latest run's six-week horizon."""
     run = _latest_run()
     if run is None:
         return {"error": "no successful pipeline run in the database yet"}
-    sql = """SELECT gw, horizon_step, e_points, e_minutes, p_start, p_60plus,
-                    e_goals, e_assists, p_cs, exp_bonus,
-                    q_p10, q_p50, q_p90, q_sd, q_degenerate, q_distinct,
-                    q_resid_sampling, q_resid_structural, q_tolerance,
-                    q_method_version, q_minutes_shape, q_draws,
-                    e_pen_goals, penalty_share
-             FROM model_predictions
-             WHERE run_id = %s AND config = %s AND element = %s"""
+    cols = _prediction_columns(_table_columns("model_predictions"))
+    sql = ("SELECT " + ", ".join(cols)
+           + " FROM model_predictions"
+           + " WHERE run_id = %s AND config = %s AND element = %s")
     params = [run["run_id"], PRODUCTION_CONFIG, player_id]
     if gw is not None:
         sql += " AND gw = %s"

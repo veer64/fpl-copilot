@@ -390,3 +390,54 @@ cheaper test and could be done sooner). The check is: fit the three within-state
 realised minutes, compare to 85/35/20, and if they differ materially, add the fitted shape as
 MS-4 and re-measure the P90 movement rather than silently replacing MS-1 -- the version stamp
 exists so old and new rows stay comparable.
+
+---
+
+# Incident (2026-09-18 23:09Z - 23:4xZ): every prediction call failed. A read that depended on a write.
+
+**What broke.** From the quantiles deploy at 23:09:40Z, `get_prediction` raised
+`UndefinedColumn: column "q_p10" does not exist` on every call. The agent could not answer a
+prediction question at all.
+
+**Why.** The twelve quantile columns are added by `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+inside `db_write.ensure_schema`, and **only the write paths call it -- no read does.** The last
+write was run 15 at 17:21:29Z, nearly six hours before the deploy; the next was days away,
+because the nightly is gated until GW5 is confirmed. So the migration had never executed, while
+the widened `SELECT` naming those columns went live immediately. Confirmed by
+`information_schema`: `present 0/12`, table at 40 columns.
+
+**It was not a NULL-handling bug.** Tested in isolation the same evening, `_quantile_block` on
+rows whose twelve values are all `None` returns `computed: false` with the "not computed"
+explanation. The nullable design was sound; the SEQUENCING was not.
+
+**Fixed, in two steps.** `ensure_schema` run against the live database (12/12 present, nullable,
+no defaults, 52 columns, zero rows with a non-null `q_p50`), then `get_prediction` called
+directly -- run 15 reads `computed: false`, and `compare_players`, `compare_predictions` and
+`get_picks` are unaffected.
+
+**The durable fix is on the READ side, deliberately** (user decision): optional columns are
+selected only when the live schema has them, via a 60-second-TTL introspection cache that picks
+up a migration without restarting the API. Making migrations stricter would have left the same
+fragility for the next column added. A read must never depend on a write having happened.
+
+## What made it possible, and the rule it produced
+
+The live verification an hour earlier ran **`quantiles.add_quantiles` over the frame** and
+reported 24.9 s, 3,954 rows and a clean structural distribution. All true, and all about the
+computation. **`get_prediction` -- the only path the agent uses -- was never called once.**
+
+That is the second time in two days: on 2026-09-17 a cookie jar proved every endpoint answered
+while the browser UI rendered `undefined`, because curl never executes the page's JavaScript.
+Both verifications were real, measured, and aimed one layer below the failure, which is exactly
+what made them convincing and useless.
+
+Recorded as a standing rule in section 14 of the Squad State handoff: **verify the path the user
+touches, not the path you were thinking about.**
+
+## The test that was missing
+
+`test_a_run_that_skipped_quantiles_writes_NULL_not_ZERO` proved the WRITE emits `None` when the
+FRAME lacks the columns. Nothing proved the READ survives a DATABASE that has never seen them --
+a different direction entirely. Now covered by five tests, including one that drives
+`get_prediction` end to end against a simulated pre-migration schema and asserts the generated
+SQL names no column the schema lacks.
