@@ -1180,6 +1180,57 @@ def _weekly_ingest_status(reasons):
     return out
 
 
+BACKUP_STALE_HOURS = 30.0        # nightly at 03:43Z: one missed run is already a reason
+
+
+def _backup_status(reasons):
+    """The off-site backup's status file (data/live/BACKUP_STATUS.json on the volume,
+    written by eval/backup_b2.py on the host). Appends to `reasons` on FAILURE and on
+    SILENCE.
+
+    Silence matters as much as failure here, and more than it does for most checks: a
+    backup that stopped three weeks ago is indistinguishable from a working one until the
+    day it is needed. So a missing file, or a last success older than BACKUP_STALE_HOURS,
+    is a reason in its own right -- not merely an absent field. The standing question for
+    any alarm is what failure would leave it looking fine, and for a backup the answer is
+    'it quietly stopped running', which is exactly what this catches."""
+    p = REPO / "data" / "live" / "BACKUP_STATUS.json"
+    if not p.exists():
+        reasons.append("off-site backup has NEVER run on this volume "
+                       "(data/live/BACKUP_STATUS.json missing -- cron not installed?)")
+        return None
+    import json
+    try:
+        s = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        reasons.append("off-site backup status file is unreadable "
+                       "(data/live/BACKUP_STATUS.json)")
+        return None
+    now = datetime.now(timezone.utc)
+    out = {k: s.get(k) for k in
+           ("status", "started_at", "finished_at", "last_success_at", "duration_s",
+            "dump_bytes", "data_bytes", "dump_tables", "dump_key", "data_key",
+            "bucket", "row_counts", "error")}
+    if s.get("status") == "FAILED":
+        reasons.append("off-site backup FAILED: " + str(s.get("error"))[:160] +
+                       " (data/live/BACKUP_STATUS.json)")
+    last = s.get("last_success_at")
+    if not last:
+        reasons.append("off-site backup has never SUCCEEDED (only failed attempts recorded)")
+    else:
+        try:
+            age_h = (now - datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+                     ).total_seconds() / 3600
+            out["last_success_age_hours"] = round(age_h, 1)
+            if age_h > BACKUP_STALE_HOURS:
+                reasons.append(f"off-site backup has not succeeded for {age_h:.0f}h "
+                               f"(nightly expected; over {BACKUP_STALE_HOURS:.0f}h is a "
+                               f"stopped backup, not a slow one)")
+        except ValueError:
+            reasons.append("off-site backup: last_success_at is unparseable")
+    return out
+
+
 MODEL_DEGRADED_PREFIX = "MODEL DEGRADED:"
 
 
@@ -1253,6 +1304,11 @@ def health():
     # cron that has stopped ticking all degrade health, because otherwise the
     # next deadline builds on stale history and nobody is told.
     freshness["weekly_ingest"] = _weekly_ingest_status(reasons)
+
+    # the off-site backup (eval/backup_b2.py, host cron 03:43Z): failure AND silence
+    # both become reasons, so the existing probe and ntfy path carry them and there is
+    # no second alert channel to keep alive.
+    freshness["backup"] = _backup_status(reasons)
 
     nd = _next_deadline()
     if nd:
