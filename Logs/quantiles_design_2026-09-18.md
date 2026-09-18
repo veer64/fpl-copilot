@@ -346,3 +346,47 @@ silently different.
 
 * the two-part reconciliation check (R1) needs its structural half specified in code;
 * MS-1 wants a check against realised minutes distributions when there is a season of them.
+
+---
+
+# Built (2026-09-18)
+
+`quantiles.py` (pure, imports no part of the model stack -- the explain.py precedent),
+`db_write.py` (12 nullable columns, `ADD COLUMN IF NOT EXISTS`), `eval/run_live_deadline.py`
+(post-build hook, off for t10, seed recorded in the knowledge block), `model_tools.py`
+(`get_prediction` returns the quantile block and the fidelity block),
+`prompts/system_prompt.md` (the reporting contract), `Tests/test_quantiles.py`.
+
+**The model path is untouched.** The simulation reads the assembled frame and adds columns;
+`e_points` is unchanged. Parity proven, not asserted -- see the suite record below.
+
+**Both halves of the reconciliation are in code.** `q_resid_sampling` is judged against
+`q_tolerance = max(0.02, 3*sd/sqrt(N))`; `q_resid_structural` is stored as a value and
+`quantiles.reconciles()` deliberately does not look at it. The structural half is obtained from
+the SAME draws by redrawing only the two floor terms at the pinned rate, so it costs two extra
+draws on GK/DEF rows rather than a second full simulation, and it is identically zero for MID
+and FWD.
+
+**The fidelity block names all three fragilities of P90** -- bonus at zero, the penalty term,
+and MS-1's sensitivity -- and carries `p90_is_weaker_than_p50: true`. The prompt forbids
+presenting P90 as comparable in quality to P50, forbids adding the two residuals together, and
+requires saying "not computed" rather than nothing when a run skipped them.
+
+## Open item, dated: MS-1 against realised minutes
+
+**2026-09-18 -- OPEN.** MS-1 (85 / 35 / 20) is an assumption the model does not contain. It is
+scaled per row so the mean reproduces `e_minutes` exactly, which is why the reconciliation is
+insensitive to it, and it is versioned as `minutes_shape_version` so it can be varied. What it
+has NOT been is validated against reality: nobody has compared it to the realised distribution
+of minutes for started-and-60+, started-and-withdrawn and substitute appearances.
+
+**Not blocking, and deliberately not blocked on.** 2026-27 is five gameweeks old, so there is
+no season of realised minutes to validate against yet, and waiting would hold a specified
+feature behind data that does not exist. The sensitivity is bounded and measured: P90 moves on
+~2.5% of rows across the three shapes, P10 and P50 on under 1%.
+
+**Revisit when a season of 2026-27 minutes exists** (or against an archive season, which is the
+cheaper test and could be done sooner). The check is: fit the three within-state means from
+realised minutes, compare to 85/35/20, and if they differ materially, add the fitted shape as
+MS-4 and re-measure the P90 movement rather than silently replacing MS-1 -- the version stamp
+exists so old and new rows stay comparable.

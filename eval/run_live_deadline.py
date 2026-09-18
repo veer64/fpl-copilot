@@ -34,8 +34,10 @@ import argparse
 import io
 import json
 import re
+import hashlib
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +50,21 @@ sys.path.insert(0, str(REPO / "squad"))
 # (props pull + crosswalk + consensus, hmin refit) run at all. ONE source:
 # config_roles.py (production = baseline since 2026-09-11; no shadow).
 import config_roles as cr  # noqa: E402
+
+
+# ---- quantiles (Logs/quantiles_design_2026-09-18.md) -----------------------------
+# ACTIVE for nightly / post_ingest / t90 / t30; SKIPPED for t10, where ~40 s on a 70-86 s
+# build is a ~45% increase on the one run that cannot be late.
+QUANTILES_ACTIVE = True
+QUANTILE_SKIP_KINDS = ("t10",)
+
+
+def quantile_seed(season, gw, started_at):
+    """A seed derived from what the run record already stores, so a stored quantile is
+    reproducible from the database alone: season, gameweek and the run's own start time.
+    It is ALSO written into the knowledge block, so nobody has to rederive it."""
+    key = f"{season}|{int(gw)}|{started_at.isoformat() if started_at else 'na'}"
+    return int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:12], 16)
 
 
 def utc_now():
@@ -209,6 +226,10 @@ def knowledge_block(season, gw, frames, started_at, finished_at, kind, slot, att
         pass
     return {
         "kind": kind, "slot": slot, "attempt": attempt,
+        # the quantile seed is recorded, not merely derivable: a stored P10/P50/P90
+        # must be reproducible from the run record without re-deriving anything.
+        "quantile_seed": (quantile_seed(season, gw, started_at)
+                          if QUANTILES_ACTIVE and kind not in QUANTILE_SKIP_KINDS else None),
         "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
         "duration_s": round((finished_at - started_at).total_seconds(), 1),
         "history_through_gw": hist_gw, "history_ingested_at": man.get("written"),
@@ -304,6 +325,37 @@ def run(R, season, gw, started_at=None):
             R.section(f"STRICT BUILD {config.upper()}", f"RAISED:\n{e}")
             return
     R.log(f"strict builds passed for {list(cr.CONFIGS)}")
+
+    # ---- 3b. quantiles (Logs/quantiles_design_2026-09-18.md), POST-BUILD and pure.
+    # Reads the assembled frame and adds columns; e_points is untouched and no model-path
+    # file is involved, so parity is unaffected.
+    #
+    # OFF FOR t10 BY DESIGN. It costs ~40 s on a 70-86 s build -- a ~45% increase on the one
+    # run that cannot be late, for a number nobody acts on in the last ten minutes. The t10
+    # rows are written with NULL quantiles, which the read layer reports as "not computed for
+    # this run" rather than as an absence of uncertainty.
+    if QUANTILES_ACTIVE and getattr(R, "kind", "deadline") not in QUANTILE_SKIP_KINDS:
+        import quantiles as qt
+        seed = quantile_seed(season, gw, started_at)
+        for config in list(frames):
+            t_q = time.time()
+            frames[config] = qt.add_quantiles(frames[config], seed)
+            f = frames[config]
+            bad = int((f["q_resid_sampling"].abs() > f["q_tolerance"]).sum())
+            lines = [
+                f"N={qt.N_DRAWS} {qt.METHOD_VERSION}/{qt.DEFAULT_SHAPE} seed={seed} "
+                f"in {time.time() - t_q:.0f} s.",
+                f"  sampling half outside max(0.02, 3*sd/sqrt(N)): {bad}/{len(f)} rows",
+                f"  structural half (a bias, no pass bar): mean "
+                f"{f['q_resid_structural'].mean():+.4f}, nonzero on "
+                f"{int((f['q_resid_structural'].abs() > 1e-9).sum())} rows",
+                f"  one-sided range bars (P10 == P50): "
+                f"{int(f['q_degenerate'].sum())}/{len(f)}",
+            ]
+            R.section(f"QUANTILES {config.upper()}", "\n".join(lines))
+    else:
+        R.section("QUANTILES", f"skipped for kind={getattr(R, 'kind', 'deadline')} "
+                               f"(active={QUANTILES_ACTIVE}); rows written with NULL quantiles")
 
     # ---- 4. coverage + credits (parsed from this run's own step output) ----
     m = re.search(r"(\d+)/(\d+) events priced.*credits remaining (\d+)", odds_out, re.S)

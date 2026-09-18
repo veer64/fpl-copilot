@@ -162,7 +162,11 @@ def get_prediction(player_id: int, gw: int = None):
     if run is None:
         return {"error": "no successful pipeline run in the database yet"}
     sql = """SELECT gw, horizon_step, e_points, e_minutes, p_start, p_60plus,
-                    e_goals, e_assists, p_cs, exp_bonus
+                    e_goals, e_assists, p_cs, exp_bonus,
+                    q_p10, q_p50, q_p90, q_sd, q_degenerate, q_distinct,
+                    q_resid_sampling, q_resid_structural, q_tolerance,
+                    q_method_version, q_minutes_shape, q_draws,
+                    e_pen_goals, penalty_share
              FROM model_predictions
              WHERE run_id = %s AND config = %s AND element = %s"""
     params = [run["run_id"], PRODUCTION_CONFIG, player_id]
@@ -178,7 +182,59 @@ def get_prediction(player_id: int, gw: int = None):
     out["predictions"] = [{k: (float(v) if isinstance(v, float) else v)
                            for k, v in r.items()} for r in rows]
     out["horizon_e_points_sum"] = round(sum(r["e_points"] or 0 for r in rows), 2)
+    out["quantiles"] = _quantile_block(rows)
     return out
+
+
+def _quantile_block(rows):
+    """The quantile half of a prediction answer, or an explicit statement that this run did
+    not compute them -- never silence, which a reader would take for an absence of
+    uncertainty rather than an absence of a calculation.
+
+    P90 is NOT presented as comparable in quality to P50: it is the number carrying the new
+    information and the one the model's known defects corrupt most, so the fidelity block
+    travels with it (quantiles.fidelity)."""
+    import quantiles as qt
+    have = [r for r in rows if r.get("q_p50") is not None]
+    if not have:
+        return {"computed": False,
+                "why": ("this run did not compute quantiles -- the t10 slot skips them "
+                        "deliberately, because ~40 s on a 70-86 s build is a ~45% increase "
+                        "on the one run that cannot be late. Ask after the next nightly, "
+                        "t90 or t30 run. This is a missing CALCULATION, not an absence of "
+                        "uncertainty."),
+                "per_gw": []}
+    per = []
+    for r in have:
+        per.append({
+            "gw": r["gw"],
+            "p10": round(float(r["q_p10"]), 2), "p50": round(float(r["q_p50"]), 2),
+            "p90": round(float(r["q_p90"]), 2), "sd": round(float(r["q_sd"] or 0), 3),
+            "one_sided_bar": bool(r.get("q_degenerate")),
+            "reconciles": qt.reconciles(r),
+            "resid_sampling": round(float(r["q_resid_sampling"] or 0), 4),
+            "resid_structural": round(float(r["q_resid_structural"] or 0), 4),
+            "tolerance": round(float(r["q_tolerance"] or qt.TOL_FLOOR), 4),
+        })
+    worst = max(have, key=lambda r: abs(float(r["q_resid_sampling"] or 0)))
+    return {
+        "computed": True,
+        "method_version": worst.get("q_method_version"),
+        "minutes_shape": worst.get("q_minutes_shape"),
+        "draws": worst.get("q_draws"),
+        "per_gw": per,
+        "reconciliation": {
+            "form": "two-part, deliberately",
+            "sampling": "judged against max(0.02, 3*sd/sqrt(N)); a breach is a finding",
+            "structural": ("reported as a value with NO pass bar -- it is a BIAS, not noise: "
+                           "the model evaluates the saves and conceded terms at EXPECTED "
+                           "minutes, so it does not shrink with more draws. Identically zero "
+                           "for MID and FWD. A single combined bar would either hide it or "
+                           "fail about 8% of rows forever."),
+            "all_within_sampling_tolerance": all(p["reconciles"] for p in per),
+        },
+        "fidelity": qt.fidelity(worst),
+    }
 
 
 def compare_players(player_id_a: int, player_id_b: int):

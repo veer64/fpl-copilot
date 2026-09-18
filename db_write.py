@@ -74,6 +74,29 @@ CREATE INDEX IF NOT EXISTS ix_pred_lookup
 -- explained later, not only the frame on the volume. Nullable, no default: a
 -- catalogue-only change that rewrites no row (append-only undisturbed). NULL on rows
 -- written before this change = "terms not recorded for that run"; never backfilled.
+-- Quantiles (2026-09-18; Logs/quantiles_design_2026-09-18.md). P10/P50/P90 by Monte Carlo
+-- over the model's OWN component probabilities -- e_points is untouched and no model-path file
+-- changes. Nullable, never backfilled: NULL means "this run did not compute them" (the t10 slot
+-- does not, deliberately -- it would add ~45% to the one build that cannot be late).
+--   q_resid_sampling / q_resid_structural are the TWO HALVES of the reconciliation and are not
+--   interchangeable. The sampling half is judged against q_tolerance = max(0.02, 3*sd/sqrt(N));
+--   the structural half is a BIAS (the model evaluates the saves and conceded terms at expected
+--   minutes) which does not shrink with N, is identically 0 for MID/FWD, and carries NO pass bar.
+--   A single combined bar would either hide it or fail ~8% of rows forever.
+--   q_degenerate marks P10 == P50: on ~60% of rows the bar is one-sided, which is correct for a
+--   player who usually does not play. Stored so the UI never has to infer it from equality.
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_p10              REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_p50              REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_p90              REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_sd               REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_degenerate       BOOLEAN;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_distinct         INT;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_resid_sampling   REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_resid_structural REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_tolerance        REAL;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_method_version   TEXT;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_minutes_shape    TEXT;
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS q_draws            INT;
 ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_appear        REAL;
 ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_goals         REAL;
 ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS pts_assists       REAL;
@@ -236,8 +259,13 @@ TERM_REAL_COLS = ["pts_appear", "pts_goals", "pts_assists", "pts_cs", "pts_dc", 
                   "p60", "minutes_frac", "p_dc_hit", "team_lambda", "opp_lambda", "fixture_scale_cal",
                   "npxg90", "xa90", "saves_per_90", "yellow_per_90", "red_per_90"]
 TERM_COLS = TERM_REAL_COLS + ["understat_id", "n_fixtures"]
+# quantiles: written only by runs that computed them (see quantiles.py)
+QUANT_REAL_COLS = ["q_p10", "q_p50", "q_p90", "q_sd", "q_resid_sampling",
+                   "q_resid_structural", "q_tolerance"]
+QUANT_COLS = QUANT_REAL_COLS + ["q_degenerate", "q_distinct", "q_method_version",
+                                "q_minutes_shape", "q_draws"]
 PRED_INSERT_COLS = (["run_id", "config", "element", "gw", "cutoff", "horizon_step"]
-                    + PRED_COLS + TERM_COLS)
+                    + PRED_COLS + TERM_COLS + QUANT_COLS)
 
 
 def _real(v):
@@ -272,7 +300,13 @@ def prediction_rows(run_id, config, f):
         terms = tuple(_real(r[c]) if c in have else None for c in TERM_REAL_COLS)
         us = _understat(r["understat_id"]) if "understat_id" in have else None
         nf = (int(r["n_fixtures"]) if "n_fixtures" in have and r["n_fixtures"] == r["n_fixtures"] else None)
-        rows.append(base + pred + terms + (us, nf))
+        quant = tuple(_real(r[c]) if c in have else None for c in QUANT_REAL_COLS)
+        qdeg = (bool(r["q_degenerate"]) if "q_degenerate" in have and r["q_degenerate"] == r["q_degenerate"] else None)
+        qdis = (int(r["q_distinct"]) if "q_distinct" in have and r["q_distinct"] == r["q_distinct"] else None)
+        qmv = (str(r["q_method_version"]) if "q_method_version" in have and r["q_method_version"] == r["q_method_version"] else None)
+        qms = (str(r["q_minutes_shape"]) if "q_minutes_shape" in have and r["q_minutes_shape"] == r["q_minutes_shape"] else None)
+        qdr = (int(r["q_draws"]) if "q_draws" in have and r["q_draws"] == r["q_draws"] else None)
+        rows.append(base + pred + terms + (us, nf) + quant + (qdeg, qdis, qmv, qms, qdr))
     return PRED_INSERT_COLS, rows
 
 

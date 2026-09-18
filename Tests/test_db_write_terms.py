@@ -37,8 +37,17 @@ def test_insert_names_its_columns_and_the_placeholders_match():
     cols = db_write.PRED_INSERT_COLS
     sql = db_write.prediction_insert_sql(cols)
     assert sql.startswith("INSERT INTO model_predictions (run_id, config, element, gw, cutoff, horizon_step, e_points")
-    assert sql.count("%s") == len(cols) == 6 + len(db_write.PRED_COLS) + len(db_write.TERM_COLS)
-    assert cols[-2:] == ["understat_id", "n_fixtures"]
+    # the tripwire: the key, PRED_COLS, TERM_COLS, then QUANT_COLS (added 2026-09-18 for the
+    # quantiles). Adding a group without updating this is exactly what it exists to catch.
+    assert sql.count("%s") == len(cols) == (6 + len(db_write.PRED_COLS)
+                                            + len(db_write.TERM_COLS) + len(db_write.QUANT_COLS))
+    assert cols[-len(db_write.QUANT_COLS) - 2:-len(db_write.QUANT_COLS)] == ["understat_id", "n_fixtures"]
+    assert cols[-len(db_write.QUANT_COLS):] == db_write.QUANT_COLS
+    # the quantile columns are nullable with no default: a run that skipped them (t10) must
+    # read as "not computed", never as zero uncertainty
+    for c in db_write.QUANT_COLS:
+        assert re.search(rf"ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS {c}\s+"
+                         rf"(REAL|TEXT|INT|BOOLEAN);", db_write.DDL), c
 
 
 def _frame(**over):
