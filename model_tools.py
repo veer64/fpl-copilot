@@ -1333,6 +1333,81 @@ def _backup_status(reasons):
     return out
 
 
+CANARY_MAX_MS = 2000.0        # a read this slow is itself a finding
+
+
+def _tool_surface_check(reasons):
+    """Does the agent's own tool surface actually WORK? Reachability and model state were
+    both green on 2026-09-18 while every get_prediction call raised UndefinedColumn for
+    ~35 minutes, because /health never called a tool. Nothing would have told us; the
+    outage was found by a person asking a question.
+
+    So: pick a canary row from the latest run and CALL get_prediction on it -- the same
+    entry point the agent uses, not a query that resembles it. ~3 queries, milliseconds,
+    no solve and no model load, which is cheap enough for a five-minute probe.
+
+    WHAT FAILURE WOULD LEAVE *THIS* SAYING OK -- answered here, not after:
+      * Any other tool. This exercises get_prediction ONLY. set_my_squad, get_my_xi,
+        explain_prediction and compare_* are untouched, and propose_transfers cannot be
+        probed at all (a 20-40 s solve has no place in a health endpoint).
+      * The agent itself. run_agent, the Anthropic call and agent.py's tool dispatch are
+        not exercised: a malformed tool SCHEMA would break every conversation while this
+        stays green. Catching that needs a real /chat call, which costs money and belongs
+        in a separate, much lower-frequency check.
+      * The HTTP layer. This runs INSIDE the app process, so a broken route or a
+        misconfigured key gate is invisible here (the external monitor covers reachability,
+        but not /chat specifically).
+      * Correctness. It proves a number came back, never that the number is right.
+      * "No row" is partly circular: the canary is chosen FROM the predictions table, so
+        an empty table shows up as a missing canary rather than as a missing row. Both are
+        reasons, so the case is covered -- but by the first branch, not the second.
+      * Staleness. It reads the latest run whatever its age; freshness is last_run's job.
+    """
+    try:
+        run = _latest_run()
+        if run is None:
+            return {"ok": None, "why": "no successful run yet"}       # last_run already says so
+        row = _q("""SELECT element, gw FROM model_predictions
+                    WHERE run_id = %s AND config = %s AND e_points IS NOT NULL
+                    ORDER BY e_points DESC LIMIT 1""", (run["run_id"], PRODUCTION_CONFIG))
+        if not row:
+            reasons.append(f"tool surface: run {run['run_id']} has NO usable prediction rows "
+                           f"for config {PRODUCTION_CONFIG} -- the agent cannot answer anything")
+            return {"ok": False, "why": "no canary row"}
+        el, gw = int(row[0]["element"]), int(row[0]["gw"])
+        t0 = time.time()
+        out = get_prediction(el, gw=gw)
+        ms = round((time.time() - t0) * 1000, 1)
+        if "error" in out:
+            reasons.append(f"tool surface: get_prediction({el}, gw={gw}) returned an error -- "
+                           f"{str(out['error'])[:140]}")
+            return {"ok": False, "element": el, "gw": gw, "ms": ms, "error": out["error"][:200]}
+        preds = out.get("predictions") or []
+        if not preds:
+            reasons.append(f"tool surface: get_prediction({el}, gw={gw}) returned no prediction "
+                           f"row, though the row exists in the table")
+            return {"ok": False, "element": el, "gw": gw, "ms": ms}
+        ep = preds[0].get("e_points")
+        if ep is None or ep != ep:
+            reasons.append(f"tool surface: get_prediction({el}, gw={gw}) returned a row whose "
+                           f"e_points is not a number")
+            return {"ok": False, "element": el, "gw": gw, "ms": ms}
+        if ms > CANARY_MAX_MS:
+            reasons.append(f"tool surface: get_prediction took {ms:.0f} ms (over "
+                           f"{CANARY_MAX_MS:.0f} ms) -- the agent's reads are degrading")
+        return {"ok": True, "element": el, "gw": gw, "ms": ms,
+                "e_points": round(float(ep), 3),
+                "quantiles_computed": bool((out.get("quantiles") or {}).get("computed")),
+                "covers": "get_prediction only -- not the agent, not /chat, not other tools"}
+    except Exception as e:                                    # noqa: BLE001
+        # A probe that crashes the endpoint it probes is worse than no probe, so this is
+        # converted into a REASON and never allowed to escape. Swallowing it silently would
+        # recreate the exact failure this check exists for.
+        reasons.append(f"tool surface: get_prediction RAISED {type(e).__name__}: "
+                       f"{str(e).strip()[:160]} -- the agent cannot answer prediction questions")
+        return {"ok": False, "raised": f"{type(e).__name__}: {str(e).strip()[:200]}"}
+
+
 MODEL_DEGRADED_PREFIX = "MODEL DEGRADED:"
 
 
@@ -1411,6 +1486,10 @@ def health():
     # both become reasons, so the existing probe and ntfy path carry them and there is
     # no second alert channel to keep alive.
     freshness["backup"] = _backup_status(reasons)
+
+    # the agent's own tool surface: reachability and model state can both be green
+    # while every tool call raises (2026-09-18). This CALLS get_prediction.
+    freshness["tool_surface"] = _tool_surface_check(reasons)
 
     nd = _next_deadline()
     if nd:
