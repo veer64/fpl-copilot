@@ -71,11 +71,36 @@ def test_a_slot_left_running_is_settled_from_model_runs():
     assert p["action"] is None and "already SUCCESS" in p["reason"]
 
 
+class _FrozenClock:
+    """Stand-in for the dispatcher's `datetime`, so the WALL clock agrees with --now.
+
+    main() honours --now for plan(), last_tick and started_at, but reads the real
+    clock for finished_at and for the post-build expected_next. That is CORRECT in
+    production -- the build really did finish a minute or two after the tick began,
+    and recording the tick's start as the finish would be a lie -- and it is exactly
+    what made this test non-hermetic: it asserted on a value derived from wall time
+    while appearing to control the clock through --now.
+
+    The EVENTS fixture is anchored to an absolute DL5 = 2026-09-18 17:30Z, so once
+    real time passed that instant the post-build promise resolved GW6 and the test
+    began failing on identical code (verified 2026-09-18: green at 23:51Z the night
+    before, red at 18:52Z the next day, with the tree stashed). A time bomb, not a
+    regression. Freezing both clocks to the same instant keeps the dispatcher's real
+    semantics under test and makes the assertion deterministic for good.
+    """
+    at = None
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.at
+
+
 def test_one_tick_end_to_end_records_the_outcome_and_the_next_promise(monkeypatch, tmp_path):
     monkeypatch.setattr(dd, "LIVE", tmp_path)
     monkeypatch.setattr(dd, "STATE", tmp_path / "dispatch_state.json")
     monkeypatch.setattr(dd, "master_max_gw", lambda season: 4)
     monkeypatch.setattr(dd, "reconcile_from_db", lambda state, rows=None: [])
+    monkeypatch.setattr(dd, "datetime", _FrozenClock)
 
     class Resp:
         def json(self):
@@ -84,15 +109,20 @@ def test_one_tick_end_to_end_records_the_outcome_and_the_next_promise(monkeypatc
     side = {"run_id": 12, "config": dd.cr.PRODUCTION_CONFIG, "gw": 5, "kind": "post_ingest", "slot": "post_ingest:GW4",
             "knowledge": {"history_through_gw": 4}}
     monkeypatch.setattr(dd, "run_build", lambda *a, **k: (0, side))
+    _FrozenClock.at = dp.parse_iso("2026-09-15T18:30:00Z")
     dd.main(["--season", "2026-27", "--now", "2026-09-15T18:30:00Z"])
     st = json.loads((tmp_path / "dispatch_state.json").read_text(encoding="utf-8"))
     s = st["slots"]["post_ingest:GW4"]
     assert s["status"] == "SUCCESS" and s["run_id"] == 12 and s["history_through_gw"] == 4
     assert st["last_success"]["history_through_gw"] == 4
     assert st["expected_next"]["kind"] in ("nightly", "t90")
+    # the promise must be about the deadline the fake clock is BEFORE (GW5). This is
+    # the assertion the wall-clock leak was breaking: it silently became GW6.
+    assert st["expected_next"]["gw"] == 5, st["expected_next"]
     # a second tick ten minutes later does NOT re-fire the slot
     calls = []
     monkeypatch.setattr(dd, "run_build", lambda *a, **k: calls.append(a) or (0, side))
+    _FrozenClock.at = dp.parse_iso("2026-09-15T18:40:00Z")
     dd.main(["--season", "2026-27", "--now", "2026-09-15T18:40:00Z"])
     assert calls == []
 
