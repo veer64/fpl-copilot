@@ -27,11 +27,12 @@ converts the model's own uncertainty into spread:
 2. Every rate term conditions on the **realised** minutes, not on `minutes_frac`. Goals and
    assists are drawn Poisson at `e_goals · (m/minutes_frac)`, so the mean is `e_goals` by
    construction while the variance is no longer suppressed.
-3. **Conceded and clean sheet are coupled through ONE team-goals draw**: `C ~ Poisson(opp_lambda)`
-   over the match, `CS = (C == 0) and played60`, and the player's on-pitch concessions
-   `~ Binomial(C, m)`.
+3. **Conceded and clean sheet are coupled through ONE team-goals draw.** Originally written as
+   `C ~ Poisson(opp_lambda)`; **CORRECTED in R3 below to `C ~ Poisson(-ln p_cs)`** after that
+   coupling was found to be wrong at step 0. `CS = (C == 0) and played60`, and the player's
+   on-pitch concessions `~ Binomial(C, m)`.
 
-### A check that came out well
+### A check that came out well -- and was NOT GENERAL. Superseded by R3.
 
 Coupling only works if the model's `p_cs` agrees with the clean-sheet chance its own conceded
 term implies. Measured on 74 regular-starting GK/DEF rows at GW6:
@@ -40,9 +41,12 @@ term implies. Measured on 74 regular-starting GK/DEF rows at GW6:
 p_cs vs exp(-opp_lambda):  diff mean +0.0000, sd 0.0000, max 0.000
 ```
 
-**Exactly equal on every row** — `p_cs` *is* `exp(-opp_lambda)`. The model is internally
-consistent here, so the coupling introduces no contradiction and the simulation can never draw
-a clean sheet alongside two conceded.
+Exactly equal on every row -- and the conclusion drawn from it was **WRONG**, because GW6 is
+horizon step 1. At steps 1-5 there are no odds and both quantities collapse to pure
+Dixon-Coles, so equality there says nothing about step 0, where `opp_lambda` is the pure-market
+lambda and `p_cs` comes from the 0.2/0.8 CS blend. That mistake produced the 0.3246 residual.
+**A check on one horizon step is not a check on the model.** See R3 for the diagnosis and the
+fix; the coupling now uses `-ln(p_cs)`.
 
 ### The one place "nothing new is modelled" does not hold
 
@@ -98,8 +102,9 @@ with the row:
 > **tolerance = max(0.02, 3 · sd/√N)** — a three-sigma band on the simulation's own error,
 > reported per row, with the structural component separated.
 
-The `max 0.3246` outlier is larger than a 3-sigma band plausibly explains and should be
-identified before building.
+The `max 0.3246` outlier is larger than a 3-sigma band plausibly explains. **Identified in R3:
+a sampler bug in the clean-sheet coupling, now fixed -- max residual 0.3265 -> 0.1060.** The
+figures in this section are the PRE-FIX measurement; R3 carries the corrected ones.
 
 ### The structural (Jensen) residual, isolated as specified
 
@@ -213,3 +218,131 @@ model-path change and a new pre-registration.
 * confirm the t10 flag;
 * the minutes-shape constant (85/35/20) wants a sensitivity check, since the two `floor()` terms
   are the only ones that depend on it.
+
+---
+
+# Addendum — the four rulings, and what closing them found (2026-09-18)
+
+## R1. Tolerance: `max(0.02, 3·sd/√N)` per row — accepted, and it needs a second half
+
+Ruling accepted: a flat bound penalises high-variance players for being high-variance, and a
+5.7% permanent breach rate is alarm fatigue.
+
+Measured with the band in place (corrected sampler, N = 20,000):
+
+```
+rows inside their own band : 3636 / 3954  (92.0%)
+band median 0.0200   max 0.1242
+worst offenders: Ouattara DEF 0.1056/0.0200 · Struijk DEF 0.1045/0.0248
+                 Tomiyasu DEF 0.0879/0.0200 · Pau Torres DEF 0.1038/0.0414
+```
+
+**Every remaining breach is a DEF, and that is the point: the band measures SAMPLING noise, and
+what is left is the STRUCTURAL residual, which is not noise and does not shrink with N.** A
+noise band can never contain a bias. So the check is two-part, not one:
+
+* **sampling component** must sit inside `max(0.02, 3·sd/√N)`;
+* **structural component** — measured separately by re-running the same draws with the
+  saves/conceded rate pinned to `minutes_frac` — is reported per row as a value, with no pass
+  bar, because it is a property of the model and not an error in the simulator.
+
+A single combined bar would either hide the bias or fail 8% of rows forever.
+
+## R2. t10 flag — confirmed
+
+On for nightly, post_ingest, t90, t30. **Off for t10.** +36 s on a 70–86 s build is a ~45%
+increase on the one run that cannot be late, for a number nobody acts on in the last ten
+minutes.
+
+## R3. The 0.3246 residual — a SAMPLER BUG, found and fixed. Not a model-path question.
+
+Term-by-term attribution on the worst row (Neco Williams, DEF, GW5, N = 200,000) put the entire
+residual in one term:
+
+```
+term            model column   simulated       diff
+pts_appear            1.9201      1.9212     +0.0011
+pts_goals             0.4650      0.4669     +0.0020
+pts_assists           0.4127      0.4167     +0.0040
+pts_cs                1.9712      1.6753     -0.2958   <==
+pts_dc                0.9462      0.9385     -0.0076
+pts_conceded         -0.1871     -0.1905     -0.0034
+pts_cards            -0.1799     -0.1784     +0.0016
+SUM                   5.3481      5.0499     -0.2982
+```
+
+**Cause.** The sampler coupled the clean sheet to the team-goals draw at `opp_lambda`. That is
+right at steps 1–5 and WRONG at step 0:
+
+```
+p_cs vs exp(-opp_lambda), regular-starting GK/DEF, by horizon step
+   step 0 (gw5) : mean diff -0.0006  sd 0.0211  max|d| 0.0782
+   steps 1-5    : max |d| = 0.000000   (n = 370)
+```
+
+At steps 1–5 there are no odds, so the lambda and the clean-sheet lambda both collapse to pure
+Dixon-Coles and are identical. **At step 0 they are different quantities**: `opp_lambda` is the
+pure-market lambda (`LAM_BLEND_W = 0`) while `p_cs = exp(-cs_lambda)` with
+`cs_lambda = 0.2·DC + 0.8·market` (`CS_BLEND_W = 0.2`). For that row the 0.0822 probability gap
+× 4 pts × `p_60plus` ≈ 0.296 — the whole residual.
+
+My earlier "p_cs equals exp(-opp_lambda) exactly on every row" check was run on **GW6 only**,
+which is step 1. It was true, and it did not generalise to the step the feature is mostly read
+at. A check on one horizon step is not a check on the model.
+
+**Fix.** Draw team goals at `cs_lambda = -ln(p_cs)`, not `opp_lambda`. Then `P(clean sheet)` is
+`p_cs` by construction, the clean-sheet term reconciles exactly, and conceded inherits a rate
+that differs from `opp_lambda` by ~0.2% at step 0 and not at all at steps 1–5 — a negligible
+error on a term worth ~0.19 points, traded for an exact one on a term worth up to 4.
+
+```
+team goals ~ Poisson(opp_lambda)  [original] : mean 0.0137  p95 0.0516  max 0.3265
+team goals ~ Poisson(-ln p_cs)    [corrected]: mean 0.0128  p95 0.0505  max 0.1060
+```
+
+**Max residual 0.3265 → 0.1060.** What remains is consistent with the structural term; the
+pathological outlier is gone. The model was never wrong here — `pts_cs == p_cs · CS_PTS ·
+p_60plus` holds to 0.000000 on every row. **No model-path question arises.**
+
+## R4. The minutes shape is a NEW ASSUMPTION: named MS-1, versioned, and measured
+
+The frame carries the **mean** of the minutes distribution (`e_minutes`) and three
+probabilities, but **not its shape**. Sampling minutes requires an assumption the model does not
+contain. It is named rather than buried:
+
+> **MS-1** — minutes 85 / 35 / 20 for started-and-60+, started-and-withdrawn, and substitute,
+> scaled per row so the mean reproduces `e_minutes` exactly. Carried as
+> `minutes_shape_version` alongside `quantile_method_version`, so it can be varied and
+> compared.
+
+**"Nothing new is modelled" is therefore NOT true of the minutes draw, and is not claimed.** It
+holds for every other component.
+
+Sensitivity, two alternative shapes, corrected sampler, N = 20,000:
+
+| shape | resid mean | P10 mean\|d\| | P50 mean\|d\| | P90 mean\|d\| | P90 rows changed |
+|---|---|---|---|---|---|
+| **MS-1** 85/35/20 | 0.0128 | — | — | — | baseline |
+| MS-2 80/30/15 | 0.0130 | 0.0023 | 0.0054 | **0.0252** | **2.6%** |
+| MS-3 88/45/25 | 0.0128 | 0.0028 | 0.0064 | **0.0242** | **2.5%** |
+
+The **reconciliation is insensitive** to the shape — by construction, since the per-row scaling
+forces the mean to match. The **quantiles are not**, and the sensitivity is concentrated exactly
+where it hurts:
+
+* P10 moves on 0.2–0.3% of rows, P50 on 0.6–0.7%;
+* **P90 moves on ~2.5% of rows, by up to 2 whole points on the worst.**
+
+**So P90 is now fragile in three independent ways**: bonus-at-zero and the penalty term bias it
+low (§4), and the one assumption the model forced us to invent moves it on 2.5% of rows. The
+quantile that carries all the new information is the least trustworthy number the feature
+produces. That strengthens §4's finding rather than softening it.
+
+Tolerable at this size, and the reason to version it: MS-1 is a decision that can be revisited
+against realised minutes, and a stamped version makes old and new rows comparable instead of
+silently different.
+
+## Still open before building
+
+* the two-part reconciliation check (R1) needs its structural half specified in code;
+* MS-1 wants a check against realised minutes distributions when there is a season of them.
