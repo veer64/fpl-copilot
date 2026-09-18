@@ -126,3 +126,60 @@ this week: a slot RUNNING for more than 90 minutes (a tick that died after or du
 served build whose model is degraded (the loud detector's MODEL DEGRADED findings, naming the club and its
 lambda). The heartbeat remains the proof that the probe itself is alive; it is not a proof that `/health`
 sees everything.
+
+---
+
+## 8. Topic rotation (2026-09-18)
+
+**Why.** The ntfy topic was rotated because the old name had been pasted into a chat. On the public
+ntfy.sh server the topic name is the ONLY access control — there is no key, no account, no ACL — so
+anyone holding it can both read every alert and inject fake ones. `NTFY_SERVER` is unset, so the
+public server is what we are on.
+
+Checked before rotating, and worth recording because it bounds the exposure: the old topic value had
+**never been committed** — zero commits across the whole history contained it, and no file in the
+working tree did. The chat paste was its only escape.
+
+**Neither the old nor the new value is recorded here, in any commit message, or in any log line.**
+
+**How.** `/root/fpl-alert.env` rewritten atomically (`os.replace` onto a mode-600 temp file), with
+`HEALTH_URL` preserved. The new value was staged to the server over stdin and consumed from a file,
+never passed on a command line where it would reach `ps` or the shell history; the staged copies on
+both ends were deleted. Verified afterwards without printing anything: topic changed, `HEALTH_URL`
+unchanged and still `http://127.0.0.1:8000/health`, both keys present, mode 600, root-owned, old
+value absent from the live file.
+
+**Tested end to end, in two stages, against the real env and the real code path.**
+
+1. A direct POST to the new topic — HTTP 200, accepted by the server.
+2. The real probe run TWICE against a temporary state file, so `DEBOUNCE_PROBES = 2` pushed a genuine
+   DEGRADED (the six Coventry reasons) rather than a synthetic message. `bad_streak = 2`,
+   `degraded_pushed = True`.
+
+Both arrived on the phone; the user then unsubscribed from the old topic.
+
+**Three pushes arrived, not two, and that is expected.** Probe 1 also fired a heartbeat: a blank temp
+state file has no `last_heartbeat_date`, and the run was past `HEARTBEAT_UTC`, so the probe correctly
+concluded today's heartbeat had not been sent *on that state*. An artefact of testing against a fresh
+state, not a fault.
+
+**The production state file was not disturbed.** `/var/lib/fpl-alert/state.json` was last written by
+the 19:30:02Z cron tick, before the 19:37:23Z test, and its mtime and hash were unchanged afterwards;
+the test wrote only to `/tmp/alert-rotate-test.json`, which was removed. `/var/log/fpl-alert.log`
+continued its ten-minute cadence throughout, every line `health=degraded reasons=6 events=none`.
+
+**What rotation does NOT do.** It stops future traffic; it does not recall past traffic. Every message
+already published to the old topic stays retrievable on ntfy.sh by anyone who knows the old name until
+those messages age out of the server's cache. Rotation is the right fix and it is not retroactive.
+
+Because the production state still records `degraded_pushed` for the standing Coventry condition, the
+probe will not re-push DEGRADED on the new topic inside the six-hour rate limit. The first unprompted
+production push on the new topic is therefore the daily heartbeat at 11:05Z — that, not the manual
+test, is the proof that the CRON path picked up the new env.
+
+**Open, minor: the old value still exists in two places on the server** — `/root/.bash_history` (from
+when it was first set up by hand) and `/root/fpl-alert.env.bak.rotate-2026-09-18`, the pre-rotation
+backup. Neither is read by anything. The backup's only sensitive content is the dead topic, since
+`HEALTH_URL` is trivially recoverable, so it can be deleted once the rotation is considered settled;
+the history line wants scrubbing for the same reason. Low urgency — the name is already burned and
+nothing subscribes to it — but it is residue, and residue is how a value leaks a second time.
