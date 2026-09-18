@@ -56,6 +56,7 @@ score. See _adjusted_pool for how they are kept representable in the MIP.
 """
 
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -396,7 +397,7 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
                         mode="balanced", horizon=DEFAULT_HORIZON,
                         decay=DEFAULT_DECAY, wildcard=False, hit_bar=None,
                         bench_boost_gw=None, cutoff=None, locked_elements=None,
-                        banned_elements=None, return_plan=False):
+                        banned_elements=None, return_plan=False, hold_compare=False):
     """Plan `horizon` gameweeks ahead with the transfer MIP, return this week's move.
 
     Rolling horizon: the solver produces a plan for GW..GW+horizon-1, but only the
@@ -422,6 +423,15 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
     view. locked_elements / banned_elements pass through to the MIP.
     return_plan=True returns a 5-tuple with the whole horizon plan appended
     (the tool persists every step); the default 4-tuple is unchanged.
+
+    hold_compare (2026-09-18, default False) additionally solves the same pools
+    with force_hold -- "hold THIS gameweek only", used[0] == 0 with steps 1-5
+    free -- and records what doing nothing scores, so a reader can tell a clear
+    gain from a near-tie. It MEASURES and never decides: the recommendation is
+    untouched and HOLD_PREFERENCE_EPS, the constant that would change it, stays
+    None. The result rides on plan[0] as hold_objective / hold_margin (move minus
+    hold) / hold_plan / hold_team / hold_solved / hold_status; the tuple shape is
+    unchanged. Off by default, so the backtest is bit-identical.
     """
     # Every gameweek in the plan is read from ONE cutoff. That is the whole
     # point: gameweek k+3 as seen from k, not gameweek k+3 as seen from k+3.
@@ -494,6 +504,55 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
                 step["hold_applied"] = True; step["hold_margin"] = margin; step["declined_transfers"] = [declined]
             else:
                 step["hold_margin"] = margin
+
+    # ---- HOLD COMPARISON (2026-09-18). MEASURES what doing nothing scores; it
+    # never changes what is recommended. The thing that WOULD change the
+    # recommendation is HOLD_PREFERENCE_EPS above, and it stays None. This block
+    # only adds keys to `step`; `step` itself is never reassigned here, so team,
+    # transfers and the objective are exactly what the move solve produced.
+    #
+    # Default OFF. The backtest never passes hold_compare, so this cannot run in
+    # walk_forward / the arm builders and their output stays bit-identical.
+    #
+    # "Hold" means hold THIS gameweek only: force_hold adds used[0] == 0 and
+    # leaves steps 1-5 free, so the rolled free transfer is earned and spent
+    # inside the same plan (ft[1] <= ft[0] + 1 when step 0 spends nothing).
+    if hold_compare and not wildcard and len(state.elements) == 15:
+        if step["transfers_made"] == 0:
+            # The unconstrained optimum already holds at step 0, so adding
+            # used[0] == 0 cannot change it -- the same plan is still optimal
+            # and the margin is exactly zero. Skip the second solve rather than
+            # pay ~15 s to rediscover an answer already in hand.
+            step["hold_objective"] = float(step["objective"])
+            step["hold_margin"] = 0.0
+            step["hold_plan"] = plan
+            step["hold_team"] = None                     # identical to the move team
+            step["hold_solved"] = False
+            step["hold_status"] = status
+            step["hold_seconds"] = 0.0
+        else:
+            _t_hold = time.time()
+            status_c, plan_c = build_and_solve(
+                pools, current_squad=state.elements, purchase_prices=purchase_prices,
+                bank=state.bank, free_transfers=state.free_transfers, mode=mode, decay=decay,
+                wildcard_step=None, hit_bar=hit_bar, bench_boost_step=bb_step, force_hold=True,
+                locked_elements=locked_elements, banned_elements=banned_elements)
+            step["hold_seconds"] = round(time.time() - _t_hold, 2)
+            step["hold_status"] = status_c
+            step["hold_solved"] = True
+            if plan_c is None:
+                # A hold that will not solve is reported as absent, never as zero:
+                # a missing baseline must not read as "no difference".
+                step["hold_objective"] = None
+                step["hold_margin"] = None
+                step["hold_plan"] = None
+                step["hold_team"] = None
+            else:
+                step["hold_objective"] = float(plan_c[0]["objective"])
+                step["hold_margin"] = float(step["objective"]) - step["hold_objective"]
+                step["hold_plan"] = plan_c
+                step["hold_team"] = assign_bench_order(plan_to_team(plan_c[0], pools[gw]))
+
     team = assign_bench_order(plan_to_team(step, pools[gw]))
 
     # Pair each sale with a purchase. Positions must match, because the 15 is

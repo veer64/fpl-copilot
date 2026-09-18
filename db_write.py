@@ -163,6 +163,22 @@ CREATE TABLE IF NOT EXISTS model_transfer_plans (
     git_sha           TEXT,
     note              TEXT
 );
+-- Hold comparison (2026-09-18, Logs/hold_comparison_log_2026-09-18.md). Every
+-- proposal now comes as a PAIR: the move plan, and the hold baseline that says
+-- what doing nothing scores over the same horizon. Without it a reader cannot
+-- tell a clear gain from a near-tie, and roughly 20% of backtest deadlines were
+-- decided by margins under 0.02 with two exact ties in 2025-26.
+--   plan_kind          'move' | 'hold' (NULL on rows written before this change)
+--   paired_proposal_id the move row points at ITS hold baseline. One direction
+--                      only, deliberately: the hold is written first so the move
+--                      can reference it, and nothing is ever UPDATEd -- the table
+--                      stays append-only. To go the other way:
+--                      SELECT ... WHERE paired_proposal_id = <the hold's id>.
+-- The gap is NOT stored: it is objective(move) - objective(hold), both already
+-- on the rows, and a stored copy is one more thing that can disagree with them.
+ALTER TABLE model_transfer_plans ADD COLUMN IF NOT EXISTS plan_kind TEXT;
+ALTER TABLE model_transfer_plans ADD COLUMN IF NOT EXISTS paired_proposal_id INT
+    REFERENCES model_transfer_plans(proposal_id);
 CREATE TABLE IF NOT EXISTS model_transfers (
     transfer_id   SERIAL PRIMARY KEY,
     proposal_id   INT NOT NULL REFERENCES model_transfer_plans(proposal_id),
@@ -298,7 +314,7 @@ PLAN_COLS = ["source", "user_id", "season", "gw", "squad_version_id", "run_id", 
              "hit_bar", "locked", "banned", "status", "objective", "n_transfers", "hits",
              "hit_cost_points", "free_transfers_before", "free_transfers_after", "bank_before",
              "bank_after", "captain", "vice", "predicted_xi_points", "hold_applied",
-             "solve_seconds", "git_sha", "note"]
+             "solve_seconds", "git_sha", "note", "plan_kind", "paired_proposal_id"]
 TRANSFER_COLS = ["horizon_step", "gw", "element_out", "name_out", "element_in", "name_in",
                  "sold_for", "bought_for", "executable"]
 

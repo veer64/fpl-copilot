@@ -732,7 +732,8 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
                       user_id: int = 1, source: str = "chat"):
     """The six-week transfer plan for the user's OWN squad (transfer_mip via
     simulator.decide_gameweek_mip -- the production decision path; H=6,
-    decay 0.45, HIT_COST 4; a real solve, typically ten to forty seconds,
+    decay 0.45, HIT_COST 4; TWO real solves since 2026-09-18 -- the move plan and
+    the hold baseline on the same pools -- typically twenty to sixty seconds,
     occasionally longer). Read through get_my_squad's store, never the table.
 
     Before any proposal: every one of the fifteen is valued by
@@ -825,7 +826,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         team, transfers, step, eff_h, plan = sim.decide_gameweek_mip(
             df, current, state, pool0, prices_live, all_gws, mode="balanced", horizon=horizon,
             decay=DEFAULT_DECAY, cutoff=cutoff, locked_elements=lock or None,
-            banned_elements=ban or None, return_plan=True)
+            banned_elements=ban or None, return_plan=True, hold_compare=True)
     except (RuntimeError, ValueError) as e:
         return {"error": f"the transfer MIP could not produce a plan: {e} (locks/bans infeasible or "
                          "unaffordable?)", "locked": lock, "banned": ban}
@@ -853,33 +854,82 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
                          f"gives {change['n_transfers']} / {change['hits']}", "bug": True}
 
     # ---- later steps (indicative: predictions as of the same cutoff, market prices)
-    later = []
-    for st in plan[1:]:
-        g = int(st["gw"])
-        pool_g = sim.gw_slice(df, g, cutoff=cutoff)
-        pos_g = dict(zip(pool_g["element"].astype(int), pool_g["position"]))
-        val_g = dict(zip(pool_g["element"].astype(int), pool_g["value"].astype(int)))
-        nm_g = dict(zip(pool_g["element"].astype(int), pool_g["name"]))
-        names.update(nm_g)
-        buys = list(int(b) for b in st["buys"])
-        pairs = []
-        for o in (int(s) for s in st["sells"]):
-            m = next((b for b in buys if pos_g.get(b) == pos_g.get(o)), None)
-            if m is not None:
-                buys.remove(m)
-            pairs.append((o, m))
-        later.append({"horizon_step": int(st["horizon_step"]), "gw": g, "hits": int(st["hits"]),
-                      "free_transfers": int(st["free_transfers"]),
-                      "transfers": [{"out": names.get(o, str(o)), "out_id": o,
-                                     "in": names.get(i, str(i)) if i is not None else None, "in_id": i,
-                                     "bought_for": (round(val_g[i] / 10, 1) if i in val_g else None)}
-                                    for o, i in pairs],
-                      "captain": names.get(int(st["captain"]), st["captain"]) if st["captain"] is not None else None})
+    # ONE implementation, used for the move plan and for the hold baseline: two
+    # copies of this pairing would be two chances to drift.
+    def _later_steps(a_plan):
+        out = []
+        for st in a_plan[1:]:
+            g = int(st["gw"])
+            pool_g = sim.gw_slice(df, g, cutoff=cutoff)
+            pos_g = dict(zip(pool_g["element"].astype(int), pool_g["position"]))
+            val_g = dict(zip(pool_g["element"].astype(int), pool_g["value"].astype(int)))
+            nm_g = dict(zip(pool_g["element"].astype(int), pool_g["name"]))
+            names.update(nm_g)
+            buys = list(int(b) for b in st["buys"])
+            pairs = []
+            for o in (int(s) for s in st["sells"]):
+                m = next((b for b in buys if pos_g.get(b) == pos_g.get(o)), None)
+                if m is not None:
+                    buys.remove(m)
+                pairs.append((o, m))
+            out.append({"horizon_step": int(st["horizon_step"]), "gw": g, "hits": int(st["hits"]),
+                        "free_transfers": int(st["free_transfers"]),
+                        "transfers": [{"out": names.get(o, str(o)), "out_id": o,
+                                       "in": names.get(i, str(i)) if i is not None else None, "in_id": i,
+                                       "bought_for": (round(val_g[i] / 10, 1) if i in val_g else None)}
+                                      for o, i in pairs],
+                        "captain": names.get(int(st["captain"]), st["captain"]) if st["captain"] is not None else None})
+        return out
+
+    def _rows_for_later(steps):
+        return [dict(horizon_step=st["horizon_step"], gw=st["gw"], element_out=t["out_id"],
+                     name_out=t["out"], element_in=t["in_id"], name_in=t["in"], sold_for=None,
+                     bought_for=(None if t["bought_for"] is None else int(round(t["bought_for"] * 10))),
+                     executable=False)
+                for st in steps for t in st["transfers"]]
+
+    later = _later_steps(plan)
+
+    # ---- the HOLD BASELINE (2026-09-18, Logs/hold_comparison_log_2026-09-18.md)
+    # What doing nothing scores over the same horizon, so a reader can tell a
+    # clear gain from a near-tie. "Hold" is THIS gameweek only -- steps 1-5 stay
+    # free and the rolled free transfer is earned and spent inside the plan --
+    # because nobody decides to stop transferring for six weeks; the question is
+    # move now or wait. The XI is re-solved at every step in both plans (the MIP
+    # carries a start[i,t] variable per step), so holding is not penalised by a
+    # frozen lineup you would have fixed anyway.
+    hold_obj = step.get("hold_objective")
+    hold_plan = step.get("hold_plan")
+    hold_team = step.get("hold_team")
+    hold_margin = step.get("hold_margin")
+    if hold_team is None and hold_plan is not None:
+        # the move solve already held at step 0: the hold IS the move
+        hold_team, hold_change, hold_req = team, change, req
+    elif hold_plan is not None:
+        hold_req = squad_store.proposal_to_request(hold_team)
+        try:
+            _, hold_change = squad_store.plan_change(
+                record, hold_req["player_ids"], hold_req["captain_id"], hold_req["vice_id"],
+                hold_req["bench_order_ids"], current, live2,
+                priced_from=f"players_live as of {max(r['updated_at'] for r in live2.values())}",
+                created_by="model_tools.propose_transfers (hold baseline, dry run)",
+                next_deadline_gw=current)
+        except ValueError as e:
+            return {"error": f"HOLD BASELINE NOT APPLICABLE -- a bug, not a suggestion: {e}",
+                    "bug": True}
+        if hold_change["n_transfers"] != 0:
+            return {"error": "HOLD BASELINE IS NOT A HOLD -- a bug, not a suggestion: applying it "
+                             f"gives {hold_change['n_transfers']} transfer(s), expected 0",
+                    "bug": True}
+    else:
+        hold_change = hold_req = None
 
     # ---- persist the proposal (append-only)
     run = _latest_run(gw=cutoff)
     hold = bool(step.get("hold_applied"))
     xi_pts = squad_store.compare_roles(new_doc["players"], team)["optimal_xi_points"]
+    hold_xi_pts = (squad_store.compare_roles(doc["players"], hold_team)["optimal_xi_points"]
+                   if hold_team is not None and hold_plan is not None else None)
     header = dict(
         source=source, user_id=user_id, season=record["season"], gw=current,
         squad_version_id=record["version_id"], run_id=(run["run_id"] if run else None),
@@ -895,13 +945,102 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     rows = [dict(horizon_step=0, gw=current, element_out=t["out"], name_out=t["out_name"],
                  element_in=t["in"], name_in=t["in_name"], sold_for=t["sold_for"],
                  bought_for=t["bought_for"], executable=True) for t in change["transfers"]]
-    for st in later:
-        for t in st["transfers"]:
-            rows.append(dict(horizon_step=st["horizon_step"], gw=st["gw"], element_out=t["out_id"],
-                             name_out=t["out"], element_in=t["in_id"], name_in=t["in"], sold_for=None,
-                             bought_for=(None if t["bought_for"] is None else int(round(t["bought_for"] * 10))),
-                             executable=False))
+    rows += _rows_for_later(later)
+
+    # The HOLD is written FIRST so the move can point at it and nothing is ever
+    # UPDATEd -- the table stays append-only. The hold carries NO step-0 row (a
+    # hold makes no move this week) and its steps 1-5 as executable=false, the
+    # same convention the move plan uses for its later steps.
+    hold_later, hold_pid = [], None
+    if hold_plan is not None and hold_change is not None:
+        hold_later = _later_steps(hold_plan)
+        hold_header = dict(
+            header, status=str(step.get("hold_status") or "Optimal"),
+            objective=(None if hold_obj is None else float(hold_obj)),
+            n_transfers=0, hits=0, hit_cost_points=0,
+            free_transfers_before=hold_change["free_transfers_before"],
+            free_transfers_after=hold_change["free_transfers_after"],
+            bank_before=hold_change["bank_before"], bank_after=hold_change["bank_after"],
+            captain=hold_req["captain_id"], vice=hold_req["vice_id"],
+            predicted_xi_points=(None if hold_xi_pts is None else float(hold_xi_pts)),
+            hold_applied=True, solve_seconds=step.get("hold_seconds"),
+            plan_kind="hold", paired_proposal_id=None,
+            note=("hold baseline for the move proposal written next: hold THIS gameweek only "
+                  "(step 0 forced to zero transfers, steps 1-5 free, the rolled free transfer "
+                  "earned and spent inside the plan). " + header["note"]
+                  + ("; not re-solved -- the move solve already held at step 0, so the forced hold "
+                     "is the same plan and the gap is exactly zero"
+                     if not step.get("hold_solved", True) else "")))
+        hold_pid = db_write.write_proposal(hold_header, _rows_for_later(hold_later))
+
+    header["plan_kind"] = "move"
+    header["paired_proposal_id"] = hold_pid
+    if step.get("hold_seconds") is not None:
+        header["solve_seconds"] = round(max(solve_s - float(step["hold_seconds"]), 0.0), 1)
     proposal_id = db_write.write_proposal(header, rows)
+
+    # ---- the comparison, and the one condition under which it is REFUSED
+    # The gap is not merely uncertain while a strength has run off: it is biased,
+    # and biased in a known direction. Holding earns a second free transfer at
+    # the next gameweek, and if a runaway club sits inside the horizon the hold
+    # plan can spend that extra transfer on exactly the fixtures the model has
+    # mispriced. So the hold's objective is inflated and the gap understates the
+    # case for moving. Reporting it with a caveat would be a warning with the
+    # answer attached; the answer is withheld instead. Both plans are still
+    # computed and stored -- the record survives, only the verdict waits.
+    degraded = _model_degraded_reasons(run) if run else []
+    gap_obj = None if hold_obj is None else round(float(step["objective"]) - float(hold_obj), 3)
+    gap_this = (None if hold_xi_pts is None else round(float(xi_pts) - float(hold_xi_pts), 2))
+    hold_comparison = {
+        "stored_as_proposal_id": hold_pid,
+        "basis": "hold THIS gameweek only: step 0 forced to zero transfers, steps 1-5 free, the "
+                 "rolled free transfer earned and spent inside the plan; the XI is re-solved at "
+                 "every step in both plans",
+        "move_objective": round(float(step["objective"]), 3),
+        "hold_objective": None if hold_obj is None else round(float(hold_obj), 3),
+        "move_predicted_xi_points": round(float(xi_pts), 2),
+        "hold_predicted_xi_points": None if hold_xi_pts is None else round(float(hold_xi_pts), 2),
+        "hold_re_solved": bool(step.get("hold_solved", False)),
+        "hold_solve_seconds": step.get("hold_seconds"),
+        "refused": bool(degraded),
+        "gap_objective": None if degraded else gap_obj,
+        "gap_this_gw": None if degraded else gap_this,
+    }
+    if degraded:
+        hold_comparison["refusal"] = (
+            "The hold-vs-move gap cannot be measured honestly right now, so it is not reported. "
+            "Holding earns a second free transfer at the next gameweek, and a club whose "
+            "Dixon-Coles strength has run off sits inside this horizon, so the hold plan can spend "
+            "that transfer on fixtures the model has mispriced. The gap is therefore biased IN "
+            "FAVOUR OF HOLDING by an unknown amount (KNOWN_ISSUES #25). Both plans were computed "
+            "and stored; only the comparison is withheld. Ask again once the model-degraded "
+            "condition clears.")
+        hold_comparison["condition"] = degraded
+    elif gap_obj is None:
+        hold_comparison["verdict"] = "no hold baseline: the hold solve returned no plan"
+    else:
+        hold_comparison["verdict"] = (
+            f"moving scores {gap_obj:+.3f} on the six-week objective against holding"
+            if gap_obj else "moving and holding score the same on the six-week objective")
+
+    # The rolled-transfer offer: only when the recommendation IS to hold, and
+    # never while the detector fires -- that exploration is priced on precisely
+    # the gameweek the runaway contaminates.
+    if change["n_transfers"] != 0:
+        rolled_offer = None
+    elif degraded:
+        rolled_offer = {
+            "offered": False, "refused": True,
+            "reason": ("Not while the model is degraded. Exploring what a second free transfer "
+                       "opens up next gameweek means pricing that gameweek, and that is exactly "
+                       "where the runaway strength sits (KNOWN_ISSUES #25). Ask again once the "
+                       "condition clears."),
+            "condition": degraded}
+    else:
+        rolled_offer = {
+            "offered": True,
+            "question": (f"You are holding, so a second free transfer rolls to GW{current + 1}. "
+                         f"Shall I explore what two free transfers at GW{current + 1} opens up?")}
 
     def m(t):
         return None if t is None else round(t / 10, 1)
@@ -915,7 +1054,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         key=lambda x: (order[x["role"]], x["bench_order"] or 0, -x["e_points"]))
     return {
         "proposal_id": proposal_id, "source": source,
-        "wait_note": "a real MIP solve: typically ten to forty seconds, occasionally longer",
+        "wait_note": "two real MIP solves (the move plan and the hold baseline): typically twenty to sixty seconds, occasionally longer",
         "gw": current, "path": header["note"], "predictions_as_of_cutoff_gw": cutoff,
         "stale_by_gameweeks": current - cutoff, "frame_built_at": str(built), **_frame_built(cutoff),
         "run_id": header["run_id"], "model_version": (_version(run, PRODUCTION_CONFIG) if run else None),
@@ -924,6 +1063,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "locked": [names.get(e, str(e)) for e in lock], "banned": [names.get(e, str(e)) for e in ban],
         "solve_seconds": solve_s, "total_seconds": round(time.time() - t0, 1),
         "objective": round(float(step["objective"]), 3), "hold_applied": hold,
+        "hold_comparison": hold_comparison, "rolled_transfer": rolled_offer,
         "valuation_check": {"all_fifteen_agree": True, "moved_prices": moved,
                             "sell_value": m(state.sell_value(prices_live)), "bank": m(state.bank)},
         "this_deadline": {
