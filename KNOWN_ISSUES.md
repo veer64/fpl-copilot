@@ -1498,3 +1498,14 @@ constants from `explain.py` and keep its own series-level logic, with a test ass
 classify the same lambda identically. Not done alongside the quantile change: it is a build-path
 edit and needs its own change, suite run and deploy. See
 `Logs/quantiles_design_2026-09-18.md`, "Open item, dated".
+**CORRECTION (2026-09-19 UTC) to the third-consequence entry above:** it cited "Coventry forwards at
+`e_goals 0.0004` get P90 = 1" as evidence of the own-side runaway. Checked on the live frame after deploy: those
+rows have `p_start 0.00` and `e_points 0.30` -- their ceiling is 1 because they do not play, which is the
+ordinary one-sided bar, not the runaway. A STARTING Coventry forward (Awoniyi) is P10/P50/P90 = 0/2/6 at GW5
+with `team_lambda 0.81` and 0/2/6 at GW6-8 with `team_lambda ~0.0006`: the runaway moves his quantiles not at
+all, because `e_goals` comes from `npxg90` and the fixture scaling rather than off `team_lambda`. The two sides
+are NOT symmetric. The OPPONENT-side runaway is the real one -- it enters through `p_cs`, which the simulation
+couples on directly, and manufactures a floor: Jordan Pickford GW10 goes from a floor of 1 in his five clean
+gameweeks to a floor of 6 against an attack fit at 0.00047, and 21 starting GK/DEF in this frame face one. The
+own-side case is flagged and should be (the fit is broken and a reader is entitled to know) but it is largely
+inert numerically, and 185 of the 338 rows are own-team -- so 338 must NOT be read as 338 corrupted floors.

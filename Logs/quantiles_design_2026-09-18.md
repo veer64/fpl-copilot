@@ -617,3 +617,73 @@ edited is not a test that pins the invariant.**
 - **Risk while open:** low today (the literals agree), unbounded on the day someone tunes one.
   Every consumer of the fit -- the degraded detector, the hold-vs-move refusal and now the
   quantile floor -- would then disagree about what counts as degraded.
+
+## Live confirmation after deploy (2026-09-19 00:2xZ, commit 7d8081a, run 15 frame)
+
+Re-run on the server against the real frame, because the laptop copy is a stale 2026-09-14
+artefact with every lambda inside [0.65, 2.68] and no runaway rows in it.
+
+**The count reproduces exactly.** Frame cutoff GW5, built 2026-09-18 17:21:27Z: **338 of 3,954**
+rows with a fixture lambda outside [0.15, 6.0], **67/77/65/67/62** across gw6-10, **185** own-team
+and **153** opponent. Same numbers as before the change, as they must be — the fix changed what is
+reported, not what is fit.
+
+**The near-miss is closed on the real read path**, which is the part a green unit test could not
+establish. Element 21, through the SELECT `get_prediction` actually builds (26 columns):
+
+| gw | team_lambda | opp_lambda | `fixture_runaway` |
+|---|---|---|---|
+| 5-9 | 0.50-1.88 | 0.95-1.77 | False |
+| 10 | 1.8795557 | **0.00047442116** | **True** |
+
+Lambdas populated on every row; the flag reads **True** on the real runaway row. Before the fix
+neither column was in the SELECT, so every one of these would have read NaN and answered False.
+`_quantile_block` over those rows gives `runaway_gws [10]`, `source_gw 10`, four fragilities, and
+the caveat scoped to `Applies to GW10 only, not the whole horizon`. `explain_prediction` on the
+same row emits the same sentence. Both voices agree.
+
+**The danger, on a real player.** Jordan Pickford (Everton GK), quantiles computed from the frame
+the way a build computes them:
+
+| gw | p_cs | e_points | P10 | P50 | P90 | runaway |
+|---|---|---|---|---|---|---|
+| 5 | 0.3876 | 4.28 | **1** | 3 | 7 | False |
+| 6 | 0.3324 | 3.66 | **1** | 3 | 7 | False |
+| 7 | 0.2600 | 3.48 | **1** | 2 | 7 | False |
+| 8 | 0.1707 | 2.74 | **1** | 2 | 7 | False |
+| 9 | 0.2126 | 3.15 | **1** | 2 | 7 | False |
+| 10 | 0.9995 | 6.98 | **6** | 7 | 10 | **True** |
+
+That is the whole argument in one column. Five honest floors of 1, then a floor of **6** — a
+goalkeeper who "cannot return less than six points" — produced entirely by an opponent whose
+attack was fit at 0.00047. Tarkowski, Branthwaite and Mykolenko are the same fixture at P10 5.
+Twenty-one starting GK/DEF in this frame face a runaway attack.
+
+The own-club branch names the club, as intended:
+`Coventry City (own team) at lambda 0.0006: a strength parameter ran off ... KNOWN_ISSUES #25`.
+
+### CORRECTION to this log and to commit 7d8081a: the Coventry-forward figure was misattributed
+
+Both said *"Coventry forwards at `e_goals 0.0004` get P90 = 1 — the ceiling of a Premier League
+forward, from a strength that never converged."* The measurement is real; **the attribution is
+wrong.** Checked on the live frame: the three GW6 Coventry forwards with P90 = 1 all have
+`p_start 0.00` and `e_points 0.30`. Their ceiling is 1 because they **do not play**, which is the
+ordinary one-sided bar the feature already handles — not because their club's lambda ran off.
+
+The starting case is the test, and it is undramatic: Taiwo Awoniyi (Coventry, `p_start > 0.5`)
+comes out **P10/P50/P90 = 0/2/6 at GW5 with `team_lambda 0.81`, and 0/2/6 at GW6, GW7 and GW8
+with `team_lambda ≈ 0.0006`.** The runaway moves his quantiles **not at all**, because `e_goals`
+is driven by `npxg90` and the fixture scaling rather than read off `team_lambda` directly.
+
+So the two sides are **not** symmetric, and the honest statement is narrower than the one shipped:
+
+- **Opponent-side runaway → real and dangerous.** It enters through `p_cs`, which the simulation
+  couples on directly, and it manufactures a floor. Pickford 1 → 6.
+- **Own-side runaway → flagged, but largely inert in the quantiles.** It does not collapse a
+  starting forward's distribution. The flag is still correct to fire — the fit is still broken and
+  a reader is still entitled to know — but it should not be sold as a large numeric effect.
+
+Nothing in the code changes: `runaway_side()` already reports the two sides with different
+`effect` strings, and the opponent's is the one that says the floor is manufactured. What changes
+is the claim. 185 of the 338 rows are own-team, so **the majority of flagged rows are the milder
+case**, and the 338 should not be read as 338 corrupted floors.
