@@ -35,6 +35,8 @@ FWD_BASE_RATE = 0.005
 
 TOL = 1e-6                       # float summation order only; anything larger is a defect
 LAMBDA_MIN, LAMBDA_MAX = 0.15, 6.0   # the runaway-strength box (KNOWN_ISSUES #25)
+RUNAWAY_NOTE = (f"a strength parameter ran off (lambda outside [{LAMBDA_MIN}, {LAMBDA_MAX}]): "
+                "a club with no history and a one-sided record -- KNOWN_ISSUES #25")
 X0_HOME, X0_AWAY = float(math.exp(0.25)), 1.0     # the Dixon-Coles fit's starting point
 PEN_FALLBACK = 0.05
 SUB_CHANCE = 0.30
@@ -65,6 +67,39 @@ def _f(row, col, default=float("nan")):
         return float(v)
     except (TypeError, ValueError):
         return float("nan")
+
+
+def fixture_runaway(row):
+    """Does THIS row's fixture rest on a Dixon-Coles strength that ran off?
+
+    Exported so other modules reuse the DETECTION and not merely the vocabulary. On
+    2026-09-18 quantiles.py imported CONSTANT_LABELS, CS_PTS, GOAL_PTS and PEN_FALLBACK from
+    here and reimplemented none of this -- so explain_prediction flagged a runaway fixture on
+    a row while the quantile block built from the same row said nothing, and the simulation
+    sampled a 99.94% clean sheet as though it were real. One implementation, one place."""
+    tl, ol = _f(row, "team_lambda"), _f(row, "opp_lambda")
+    return bool((tl == tl and (tl < LAMBDA_MIN or tl > LAMBDA_MAX))
+                or (ol == ol and (ol < LAMBDA_MIN or ol > LAMBDA_MAX)))
+
+
+def runaway_side(row):
+    """Which side ran off, and its lambda -- named as far as the frame allows. The frame
+    carries the player's own club but not the opponent's name, and pairing clubs by matching
+    lambdas is the recorded mis-pairing trap, so the opponent is described, never guessed."""
+    tl, ol = _f(row, "team_lambda"), _f(row, "opp_lambda")
+    # A club the frame does not carry is None, never the string "None" or "?" -- a caller that
+    # prints the club has to be able to tell "not known" from a name, or it prints the placeholder.
+    club = row.get("team") if hasattr(row, "get") else getattr(row, "team", None)
+    club = None if club is None or str(club).strip() in ("", "?", "nan", "None") else str(club)
+    out = []
+    if tl == tl and (tl < LAMBDA_MIN or tl > LAMBDA_MAX):
+        out.append({"side": "own team", "club": club, "lambda": round(tl, 4),
+                    "effect": "their own attack ran off, so goals and assists are near zero"})
+    if ol == ol and (ol < LAMBDA_MIN or ol > LAMBDA_MAX):
+        out.append({"side": "opponent", "club": None, "lambda": round(ol, 4),
+                    "effect": "the opponent's attack ran off, so a clean sheet is priced as "
+                              "near certain and the FLOOR is manufactured"})
+    return out
 
 
 def _close(a, b, tol=1e-9):
@@ -126,7 +161,7 @@ def breakdown(row, step_rows=None):
     prior = _no_understat(row)
     degenerate = step_is_degenerate(step_rows)
     neutral = _close(tl, LEAGUE_AVG_LAMBDA, 1e-9) and _close(ol, LEAGUE_AVG_LAMBDA, 1e-9)
-    runaway = (tl == tl and (tl < LAMBDA_MIN or tl > LAMBDA_MAX)) or (ol == ol and (ol < LAMBDA_MIN or ol > LAMBDA_MAX))
+    runaway = fixture_runaway(row)
 
     lines = []
 
@@ -225,7 +260,7 @@ def breakdown(row, step_rows=None):
     else:
         fx_src, fx_const = "model", None
     if runaway:
-        fx_notes.append(f"a strength parameter ran off (lambda outside [{LAMBDA_MIN}, {LAMBDA_MAX}]): a club with no history and a one-sided record -- KNOWN_ISSUES #25")
+        fx_notes.append(RUNAWAY_NOTE)
     if step >= 1 and int(_f(row, "odds_horizon_gws", 0) or 0) == 0 and not degenerate:
         fx_notes.append("beyond the deadline gameweek the fixture uses the fitted Dixon-Coles strengths, not the market")
     if n_fix > 1:

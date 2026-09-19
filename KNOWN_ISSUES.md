@@ -1478,3 +1478,23 @@ rank-correlation endpoints, and this is a different cost: a feature built to tel
 cannot do its job at all while the defect is live. It is NOT retired by "let Coventry score": it returns for any
 club whose strength runs off, in any season. `propose_transfers` therefore REFUSES the gap (and the
 rolled-transfer offer) while the detector fires, rather than reporting a number with a caveat attached.
+**2026-09-18 -- a THIRD consequence, in the quantile answer (`Logs/quantiles_design_2026-09-18.md`,
+"Runaway fixtures reach the quantiles"):** a runaway opponent prices a clean sheet at near certainty, so the
+Monte Carlo manufactures a CONFIDENT FLOOR. Measured on the live frame: 338 of 3,954 rows have a fixture lambda
+outside [0.15, 6.0] (67/77/65/67/62 across gw6-10; 185 own-team, 153 opponent). Malick Thiaw at GW6 facing
+Coventry comes out `p_cs 0.9994` -> P10/P50/P90 = 5/6/12; Coventry forwards at `e_goals 0.0004` get P90 = 1.
+This is the opposite failure direction to the first two: they mislead about a CEILING, which costs a missed
+opportunity, whereas a floor is what a reader trusts when judging a pick SAFE, so a fabricated one makes them
+take a risk they were told did not exist. Unlike the hold-vs-move gap, the quantiles are NOT refused -- the
+distribution is still the model's own and the rest of it is sound -- but P10 is declared UNUSABLE on an affected
+row, per gameweek, in explain's own words, and the prompt requires it said before the floor is quoted. Note the
+defect's reach: it is now visible in the degraded-run detector, a transfer comparison, and an uncertainty
+estimate, which are three unrelated consumers of the same fit.
+**OPEN ITEM (2026-09-19 UTC, 2026-09-18 local), from the quantile work:** the [0.15, 6.0] box is declared TWICE --
+`explain.py:37` (read path; `fixture_runaway`, now shared by `quantiles.py` and `model_tools.py`)
+and `squad/live_deadline.py:411` (build path; the loud detector). They agree only because the
+literals were typed twice, and nothing fails if they drift. `live_deadline.py` should import the
+constants from `explain.py` and keep its own series-level logic, with a test asserting the two
+classify the same lambda identically. Not done alongside the quantile change: it is a build-path
+edit and needs its own change, suite run and deploy. See
+`Logs/quantiles_design_2026-09-18.md`, "Open item, dated".

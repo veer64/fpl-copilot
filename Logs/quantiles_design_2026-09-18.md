@@ -441,3 +441,179 @@ FRAME lacks the columns. Nothing proved the READ survives a DATABASE that has ne
 a different direction entirely. Now covered by five tests, including one that drives
 `get_prediction` end to end against a simulated pre-migration schema and asserts the generated
 SQL names no column the schema lacks.
+
+---
+
+# Runaway fixtures reach the quantiles (2026-09-18)
+
+## The question, and the measurement that answered it
+
+Asked: *does the quantile block inherit the model-degraded condition — a P90 for a player facing
+Coventry at steps 1-5 is built on lambda 0.0006 — the way `explain_prediction` flags it?*
+
+Measured on the live frame before changing anything. **No.**
+
+| | |
+|---|---|
+| Rows whose fixture has a lambda outside [0.15, 6.0] | **338 of 3,954** |
+| By gameweek (gw6-10) | 67 / 77 / 65 / 67 / 62 |
+| Own attack ran off / opponent's attack ran off | 185 / 153 |
+| Terms `fidelity()` mentioned: runaway, lambda, #25, Coventry, degraded, extreme | **none of the six** |
+| `explain_prediction` on the same row | full note, KNOWN_ISSUES #25 named |
+
+What it does to the numbers:
+
+- **Malick Thiaw** (Newcastle DEF, GW6, facing Coventry): `p_cs 0.9994` → **P10/P50/P90 = 5/6/12**.
+  A near-certain clean sheet, sampled 20,000 times as though it were real.
+- **Coventry forwards**, GW6: `e_goals 0.0004` → **P90 = 1**. The ceiling of a Premier League
+  forward, from a strength that never converged.
+
+## The finding: reusing a module's vocabulary is not reusing its detection
+
+`quantiles.py` imported `CONSTANT_LABELS`, `CS_PTS`, `GOAL_PTS` and `PEN_FALLBACK` from
+`explain.py`. It shared the scoring constants and the fixed label set, and the fidelity block was
+written deliberately "in explain_prediction's fixed vocabulary". The import list made it look
+like one source of truth. **The bound check was not in it**, because it was never exported —
+`fixture_runaway` did not exist, the test lived inline inside `breakdown()`. So the two modules
+said different things about the same row, and the quieter one was the one the agent quotes when
+someone asks whether a pick is safe.
+
+This is the **fourth** instance of the §14 pattern, after:
+
+1. *Alerting on a health endpoint only alarms on states that endpoint can represent* — the probe
+   inherited the blind spots of the thing it probed.
+2. *"Fixed" and "deployed" are different words* — the verified artefact was not the served one.
+3. *Verify the path the USER touches, not the path you were thinking about* — `add_quantiles`
+   measured clean over the frame while `get_prediction` raised on every call.
+
+Each time the check was real and aimed one step to the side of the thing that was broken. Here
+the sideways step was **an import list that carried the words and not the test**. A shared
+vocabulary is evidence of nothing: it makes two modules describe the same world in the same
+terms, which is precisely what disguises them disagreeing about the facts. Rule: *when two
+modules must agree about a condition, export the PREDICATE, not the sentence.*
+
+## What was built
+
+- `explain.py` — `LAMBDA_MIN/LAMBDA_MAX`, `RUNAWAY_NOTE`, `fixture_runaway(row)` and
+  `runaway_side(row)` factored out of `breakdown()`, which now calls them. `RUNAWAY_NOTE` is
+  byte-identical to the sentence `breakdown()` emitted before, so explain's output is unchanged
+  (its 15 tests pass untouched).
+  `runaway_side()` returns `club=None` for the opponent **on purpose**: the frame carries the
+  player's own club and not their opponent's, and pairing clubs by matching lambdas is the
+  recorded mis-pairing trap. The side is described, never guessed.
+- `quantiles.fidelity()` — calls `fixture_runaway`, adds a **fourth fragility** naming the club
+  and its lambda with the #25 reference, in explain's words.
+- `model_tools._quantile_block()` — `runaway`, `p10_unusable` and `runaway_sides` on **every
+  `per_gw` entry**, because a horizon usually mixes affected and clean fixtures and one
+  answer-level flag would either condemn the clean gameweeks or excuse the broken one.
+- `prompts/system_prompt.md` — one rule, in the quantiles section.
+
+## P10 is the number this corrupts, and it outranks the P90 caveat
+
+The first three fragilities all understate a **ceiling**. This one fabricates a **floor**, and
+they are not symmetric: an understated ceiling makes a reader miss an opportunity, but a floor is
+what a reader trusts when deciding a pick is **safe**, so a manufactured one makes them take a
+risk they were told did not exist. `fidelity()` therefore gives P10 its own caveat — the only
+term-level caveat besides P90's — and the prompt requires it *before* the floor is quoted, not
+after.
+
+## Which row speaks for the answer
+
+It was `max(abs(q_resid_sampling))`. That was arbitrary: sampling noise is the one part of this
+that is bounded, tolerance-checked and reported per row already, so the noisiest row is not the
+most fragile one — in the mixed horizon used as a test case the noisiest row is a **clean** one.
+Now: the earliest gameweek that **has** the condition, falling back to the earliest gameweek when
+none does. Deterministic in both branches, and independent of row order. When only some
+gameweeks are affected the caveat prefixes itself with the gameweeks it is true of
+(`Applies to GW6, GW8 only, not the whole horizon`), and `fidelity.runaway_gws` carries the list.
+
+## Tests
+
+`Tests/test_quantile_runaway.py`, 19 tests in four groups: the detection is shared (including one
+that monkeypatches `explain.LAMBDA_MIN` and asserts the quantile flag follows — a second copy of
+the bound fails it), `fidelity()` flags the row in explain's exact words, the answer-level block
+comes from the affected rows and is scoped and order-independent, and the prompt carries the
+rule.
+
+## Not closed by this
+
+This makes the defect **visible**; it does not fix it. KNOWN_ISSUES #25 stays open, and the
+cold-start work (v2 hinge+box, v3 promoted-club centre, both MARGINAL) is still the place a fix
+would come from. What changed is that a reader can no longer be handed a 99.94% clean sheet with
+nothing said. Note the **third** consequence of #25 now on the record, after the degraded-run
+detector and the hold-vs-move bias: it manufactures confident floors in the quantile answer.
+
+## The same pattern, one step further in: the flag would have been DEAD ON ARRIVAL
+
+Caught during the build, before deploy, and worth recording because it is the §14 pattern
+applied to the fix for the §14 pattern.
+
+`fidelity()` was correct. `_quantile_block()` was correct. Nineteen tests passed. And
+`get_prediction` would have reported `runaway: false` on all 338 affected rows — because its
+`SELECT` names neither `team_lambda` nor `opp_lambda`. `PRED_BASE_COLS` and `PRED_OPTIONAL_COLS`
+were built for the quantile read and carry no model internals, so `fixture_runaway(r)` would have
+seen two missing columns, read them as NaN, and answered **False** on every live row.
+
+That is worse than not having built it. An absent flag is silence; a flag that cannot see its own
+input reads as **"checked, and fine."** The unit tests could not catch it: they construct rows
+with the lambdas present, which is the shape the function is designed for and not the shape the
+live read produces.
+
+Fixed on the read side, consistent with the 2026-09-18 incident rule: `team_lambda` and
+`opp_lambda` join `PRED_OPTIONAL_COLS` (selected only when the live schema has them) and are
+listed in `PRED_INTERNAL_COLS`, which strips them from the `predictions` payload — they are
+**inputs to a flag, not outputs**, and a raw strength parameter printed beside `e_points` invites
+the agent to quote it as a prediction.
+
+The club needed the same treatment. `model_predictions` does not carry `team`, and pairing clubs
+by matching lambdas is the recorded mis-pairing trap, so it comes from one guarded `players_live`
+lookup: if it fails the club is simply not named (`"this player's own club at lambda 0.0006"`) and
+the prediction is unaffected. `explain.runaway_side` now returns `club=None` rather than
+`str(None)` when the frame has no club — a caller that prints the club must be able to tell "not
+known" from a name, or it prints the placeholder, which a test caught as the literal string
+`"None (own team) at lambda 0.0006"`.
+
+Four further tests cover it, including one asserting the lambdas are selected, one asserting they
+are stripped from `predictions`, and one that makes the club lookup raise and requires the
+prediction to survive with the flag still set.
+
+**Generalised: check that a new signal can SEE its inputs on the live read path, not only that it
+computes correctly when handed them.** Three of the four §14 entries are now the same shape — the
+verification was real, and aimed one layer to the side.
+
+## Open item, dated: `squad/live_deadline.py:411` is a second copy of the bound
+*(2026-09-19 UTC = 2026-09-18 20:xx local; same session as everything above it — this machine is UTC−4 and the log is headed by its local date.)*
+
+Swept the repo for the box afterwards. `explain.py` now owns it for the read path, and
+`quantiles.py` and `model_tools.py` both call `explain.fixture_runaway`. But
+**`squad/live_deadline.py:411` declares its own `LAMBDA_MIN, LAMBDA_MAX = 0.15, 6.0`** for the
+loud detector that writes `degraded_findings` at build time. The two agree today only because
+the literals were typed twice.
+
+Not merged here, deliberately. They are different granularities: the detector tests a whole
+**fit's** lambda series per horizon step and names the club, while `fixture_runaway` tests **one
+row's** two lambdas. Merging them means deciding which shape is primary, and `live_deadline.py`
+is on the build path — a change there is not a by-the-way edit at the end of a feature.
+
+**OPEN ITEM (2026-09-19 UTC): one bound, two declarations, and nothing fails if they drift.**
+
+This is exactly what `test_quantiles_uses_explains_detection_and_not_a_second_copy` and
+`test_moving_the_bound_moves_both` were written to prevent — and the second copy was already
+there when they were written. The tests guard the two modules the feature touched; they say
+nothing about the build path, so the defect the feature exists to stop is still live one file
+over. Worth stating plainly rather than leaving implied: **a test that pins the modules you just
+edited is not a test that pins the invariant.**
+
+- **Fix:** `live_deadline.py` imports `LAMBDA_MIN`/`LAMBDA_MAX` from `explain.py` and keeps its
+  own series-level logic and its own message. One declaration, two granularities.
+- **Test that must come with it:** one asserting the build-time detector and
+  `explain.fixture_runaway` classify the same lambda identically, driven off the shared
+  constants so moving the box moves both — the existing monkeypatch test extended to a third
+  caller.
+- **Why not done here:** `squad/live_deadline.py` is on the build path. Changing it at the end of
+  a read-path feature is the kind of by-the-way edit that lands untested in a deadline build, and
+  the no-touch window rules exist for precisely that. It needs its own change, its own suite run
+  and its own deploy.
+- **Risk while open:** low today (the literals agree), unbounded on the day someone tunes one.
+  Every consumer of the fit -- the degraded detector, the hold-vs-move refusal and now the
+  quantile floor -- would then disagree about what counts as degraded.

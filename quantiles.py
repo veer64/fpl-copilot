@@ -60,7 +60,8 @@ import math
 
 import numpy as np
 
-from explain import CONSTANT_LABELS, CS_PTS, GOAL_PTS, PEN_FALLBACK
+from explain import (CONSTANT_LABELS, CS_PTS, GOAL_PTS, PEN_FALLBACK, RUNAWAY_NOTE,
+                     fixture_runaway, runaway_side)
 
 METHOD_VERSION = "mc-1"
 
@@ -205,6 +206,22 @@ def fidelity(row):
                           "constant": CONSTANT_LABELS["card_rates"],
                           "effect": "variance from a league rate, not this player"})
 
+    # FOURTH FRAGILITY: the row's own fixture may rest on a strength that ran off. Detected
+    # with explain's OWN check (fixture_runaway), not a second copy of the bound test -- on
+    # 2026-09-18 this module imported explain's vocabulary and not its detection, so
+    # explain_prediction flagged a runaway on a row while the quantile block built from the
+    # same row said nothing at all.
+    runaway = fixture_runaway(row)
+    sides = runaway_side(row) if runaway else []
+    # Name the club and its lambda where the frame allows it. runaway_side() returns club=None
+    # for the opponent on purpose -- the frame carries the player's own club and not their
+    # opponent's, and pairing clubs by matching lambdas is the recorded mis-pairing trap -- so
+    # the phrase describes the side rather than inventing a name.
+    named = "; ".join((f"{sd['club']} ({sd['side']})" if sd["club"]
+                       else ("this player's own club" if sd["side"] == "own team"
+                             else "the opponent"))
+                      + f" at lambda {sd['lambda']:g}" for sd in sides)
+
     st = _f(row, "q_resid_structural")
     if abs(st) > 1e-9:
         notes.append(f"structural residual {st:+.4f} points: the model evaluates the saves and "
@@ -212,6 +229,39 @@ def fidelity(row):
                      "it by a bias that does not shrink with more draws. Reported, not corrected.")
 
     return {
+        # A runaway opponent prices a clean sheet at near certainty, which raises the FLOOR.
+        # P10 is the number a reader trusts when deciding a pick is safe, so a manufactured
+        # floor is more dangerous than an understated ceiling: the ceiling makes you miss an
+        # opportunity, the floor makes you take a risk you were told did not exist.
+        "runaway_fixture": runaway,
+        "runaway_note": (f"{named}: {RUNAWAY_NOTE}") if runaway else None,
+        "runaway_sides": sides,
+        # The fourth fragility is listed alongside the three P90 ones so a reader counts four,
+        # not three-plus-a-footnote. The first three understate a CEILING; this one fabricates
+        # a FLOOR, which is why it is the only one carrying its own caveat.
+        "fragilities": [
+            {"n": 1, "affects": "P90", "term": "bonus",
+             "what": "fixed at 0, so the entire upper tail is missing"},
+            {"n": 2, "affects": "P90", "term": "penalties",
+             "what": "the term measures penalties MISSED (KNOWN_ISSUES #19), so takers' "
+                     "ceilings are understated"},
+            {"n": 3, "affects": "P90", "term": "minutes shape",
+             "what": f"{row.get('q_minutes_shape', DEFAULT_SHAPE)} is an assumption the model "
+                     "does not contain; alternatives move P90 on ~2.5% of rows by up to 2 points"},
+        ] + ([{"n": 4, "affects": "P10", "term": "runaway fixture",
+               "what": f"{named}: {RUNAWAY_NOTE}. A clean sheet is priced near certain, so the "
+                       "floor is manufactured -- P10 is unusable on this row"}] if runaway else []),
+        "p10_is_unsafe_when_runaway": runaway,
+        "p10_caveat": (
+            "P10 here is NOT a floor you can rely on. This row's fixture rests on a "
+            "Dixon-Coles strength that ran off -- " + named + ": " + RUNAWAY_NOTE +
+            " -- and a runaway opponent "
+            "prices a clean sheet at near certainty, so the simulation manufactures a "
+            "confident floor that the model has no basis for. Treat P10 as unusable on this "
+            "row and say so; a floor is what a reader trusts when judging a pick SAFE, which "
+            "makes a fabricated one more dangerous than an understated ceiling."
+            if runaway else
+            "P10 rests on the same components as the rest and carries no extra caveat here."),
         "p90_is_weaker_than_p50": True,
         "p90_caveat": (
             "P90 carries the new information and is the LEAST reliable of the three. It is "
@@ -225,7 +275,10 @@ def fidelity(row):
         "zero_variance_terms": zero_variance,
         "n_zero_variance": len(zero_variance),
         "summary": (f"{len(zero_variance)} of 9 lines contribute no variance because they are "
-                    f"constants; all of them bias P90 low."),
+                    f"constants; all of them bias P90 low."
+                    + (" AND this row's fixture rests on a strength that ran off, which "
+                       "manufactures the floor -- P10 is unusable here, not merely uncertain."
+                       if runaway else "")),
         "degenerate": bool(row.get("q_degenerate", False)),
         "degenerate_note": ("P10 == P50: the range bar is one-sided, which is correct for a "
                             "player who usually does not play -- P90 carries the only signal."

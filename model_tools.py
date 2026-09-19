@@ -172,7 +172,15 @@ PRED_BASE_COLS = ["gw", "horizon_step", "e_points", "e_minutes", "p_start", "p_6
 PRED_OPTIONAL_COLS = ["e_pen_goals", "penalty_share",
                       "q_p10", "q_p50", "q_p90", "q_sd", "q_degenerate", "q_distinct",
                       "q_resid_sampling", "q_resid_structural", "q_tolerance",
-                      "q_method_version", "q_minutes_shape", "q_draws"]
+                      "q_method_version", "q_minutes_shape", "q_draws",
+                      # INPUTS to the runaway flag, not outputs. Selected so the quantile
+                      # block can run explain's bound check on the row it is describing --
+                      # without them fixture_runaway() sees no lambdas and answers False on
+                      # every live row, which is the flag being dead on arrival rather than
+                      # absent. Stripped from `predictions` below: a raw strength parameter
+                      # is not a prediction and must not read as one.
+                      "team_lambda", "opp_lambda"]
+PRED_INTERNAL_COLS = ("team_lambda", "opp_lambda")
 _COLUMN_CACHE = {}
 COLUMN_CACHE_TTL_S = 60.0          # short, so a migration is picked up without a restart
 
@@ -223,10 +231,25 @@ def get_prediction(player_id: int, gw: int = None):
     if not rows:
         return {"error": f"no prediction rows for player {player_id} in run "
                          f"{run['run_id']} (not in the pool at that cutoff)"}
+    # The player's club, for naming a runaway own-team strength. model_predictions does not
+    # carry it, and guessing a club by matching lambdas is the recorded mis-pairing trap. A
+    # separate, guarded lookup: if it fails the club is simply not named, and the rest of the
+    # answer is unaffected -- a cosmetic lookup must never be able to break a prediction read.
+    club = None
+    try:
+        hit = _q("SELECT team FROM players_live WHERE element = %s LIMIT 1", (player_id,))
+        club = hit[0]["team"] if hit else None
+    except Exception:                                   # noqa: BLE001
+        club = None
+    for r in rows:
+        r["team"] = club
+
     out = _run_meta(run)
     out["player_id"] = player_id
+    out["team"] = club
     out["predictions"] = [{k: (float(v) if isinstance(v, float) else v)
-                           for k, v in r.items()} for r in rows]
+                           for k, v in r.items()
+                           if k not in PRED_INTERNAL_COLS and k != "team"} for r in rows]
     out["horizon_e_points_sum"] = round(sum(r["e_points"] or 0 for r in rows), 2)
     out["quantiles"] = _quantile_block(rows)
     return out
@@ -241,6 +264,7 @@ def _quantile_block(rows):
     information and the one the model's known defects corrupt most, so the fidelity block
     travels with it (quantiles.fidelity)."""
     import quantiles as qt
+    from explain import fixture_runaway, runaway_side   # the DETECTION, not a second copy
     have = [r for r in rows if r.get("q_p50") is not None]
     if not have:
         return {"computed": False,
@@ -252,8 +276,15 @@ def _quantile_block(rows):
                 "per_gw": []}
     per = []
     for r in have:
+        ra = fixture_runaway(r)
         per.append({
             "gw": r["gw"],
+            # Per gameweek, because a horizon usually mixes runaway and ordinary fixtures and
+            # a single answer-level flag would either condemn the clean gameweeks or excuse
+            # the broken one. When true, P10 is MANUFACTURED, not merely uncertain.
+            "runaway": ra,
+            "p10_unusable": ra,
+            "runaway_sides": runaway_side(r) if ra else [],
             "p10": round(float(r["q_p10"]), 2), "p50": round(float(r["q_p50"]), 2),
             "p90": round(float(r["q_p90"]), 2), "sd": round(float(r["q_sd"] or 0), 3),
             "one_sided_bar": bool(r.get("q_degenerate")),
@@ -262,12 +293,30 @@ def _quantile_block(rows):
             "resid_structural": round(float(r["q_resid_structural"] or 0), 4),
             "tolerance": round(float(r["q_tolerance"] or qt.TOL_FLOOR), 4),
         })
-    worst = max(have, key=lambda r: abs(float(r["q_resid_sampling"] or 0)))
+    # WHICH ROW SPEAKS FOR THE ANSWER. It was the largest-sampling-residual row, which was
+    # arbitrary: sampling noise is the one part of this that is bounded and reported per row
+    # anyway, so the noisiest row is not the most fragile one. Take fidelity from a row that
+    # HAS the condition -- earliest affected gameweek, so it is deterministic -- and fall back
+    # to the earliest gameweek when none does. The runaway gameweeks are listed either way,
+    # so a caveat drawn from one row is scoped to the rows it is true of.
+    runaways = [r for r in have if fixture_runaway(r)]
+    by_gw = sorted(have, key=lambda r: int(r["gw"]))
+    src = sorted(runaways, key=lambda r: int(r["gw"]))[0] if runaways else by_gw[0]
+    fid = qt.fidelity(src)
+    fid["source_gw"] = int(src["gw"])
+    fid["source_rule"] = ("earliest gameweek whose fixture has a runaway strength"
+                          if runaways else "earliest gameweek in the horizon (none is affected)")
+    fid["runaway_in_horizon"] = bool(runaways)
+    fid["runaway_gws"] = [int(r["gw"]) for r in sorted(runaways, key=lambda r: int(r["gw"]))]
+    fid["p10_unusable_gws"] = list(fid["runaway_gws"])
+    if runaways and len(runaways) < len(have):
+        fid["p10_caveat"] = (f"Applies to GW{', GW'.join(str(g) for g in fid['runaway_gws'])} "
+                             f"only, not the whole horizon. " + fid["p10_caveat"])
     return {
         "computed": True,
-        "method_version": worst.get("q_method_version"),
-        "minutes_shape": worst.get("q_minutes_shape"),
-        "draws": worst.get("q_draws"),
+        "method_version": src.get("q_method_version"),
+        "minutes_shape": src.get("q_minutes_shape"),
+        "draws": src.get("q_draws"),
         "per_gw": per,
         "reconciliation": {
             "form": "two-part, deliberately",
@@ -279,7 +328,7 @@ def _quantile_block(rows):
                            "fail about 8% of rows forever."),
             "all_within_sampling_tolerance": all(p["reconciles"] for p in per),
         },
-        "fidelity": qt.fidelity(worst),
+        "fidelity": fid,
     }
 
 
