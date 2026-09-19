@@ -164,10 +164,13 @@ def knowable_before(matches, cutoff):
     strictly before that day, with both goals present.
 
     This is the ONE definition of the as-of boundary for match results. It
-    is used in exactly two places, deliberately: the training filter in
-    get_fixtures (selects the rows it admits) and the as-of guard's
-    truncation in eval/asof_reconstruction.py (nulls the rows it excludes).
-    Before 2026-09-13 the two were aligned by accident -- both compared the
+    is used in exactly three places, deliberately: the training filter in
+    get_fixtures (selects the rows it admits), the as-of guard's
+    truncation in eval/asof_reconstruction.py (nulls the rows it excludes),
+    and the read-side standings tool model_tools.get_league_table (added
+    2026-09-19: selects the results the table may count and, called again
+    with goals forced present, names the fixtures it may not).
+    Before 2026-09-13 the first two were aligned by accident -- both compared the
     archive's DAY-stamped dates against a cutoff WITH time of day, so every
     match on the cutoff day counted as "before the cutoff" on both sides:
     the record's fit trained on that day's results (a leak) and the live fit

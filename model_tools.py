@@ -1767,3 +1767,202 @@ def get_price_movements(window_days: int = 7, user_id: int = 1, include_squad: b
         out["my_squad_unavailable"] = ("no active squad version, so only market movers are "
                                        "shown -- selling prices need your purchase prices")
     return out
+
+
+# ---------------------------------------------------------------- league table (as-of)
+LEAGUE_STACK_COLS = ["season", "GW", "team", "was_home", "kickoff_time", "fixture"]
+AS_OF_RULE = ("a result counts only if the match finished before the cutoff DAY began -- "
+              "dixon_coles.knowable_before, the fit's own training filter and the as-of "
+              "guard's truncation, applied unchanged (KNOWN_ISSUES #25)")
+
+
+def _league_matches(season):
+    """The odds archive as the FIT reads it: dixon_coles._load_matches -- the same file
+    resolution (the season extension when the frozen archive lacks the season), the same nine
+    columns, the same date parser. Not a second reader. Lazy import: dixon_coles brings scipy
+    (about 1.4 s once per process) and nothing else of the model stack -- mlflow stays out."""
+    import dixon_coles as dc
+    return dc._load_matches(predict_season=season)
+
+
+def _league_calendar(season):
+    """That season's rows of the stack + forward skeleton (season_stack.load_stack): the calendar
+    the walk-forward derives its cutoff from, and the fixture ids that label gameweeks. An empty
+    frame when the season has none."""
+    import season_stack
+    df = season_stack.load_stack(columns=LEAGUE_STACK_COLS)
+    return df[df["season"] == season]
+
+
+def _odds_provenance(season):
+    """The odds pull's provenance sidecar for a season (odds_live_pull_<tag>.provenance.json),
+    or None for an archive season priced by football-data's Bet365 columns. Read so the table
+    can say WHO priced the matches: for a live season the same B365-named columns hold a
+    de-margined multi-book consensus, and the column name alone would attribute it to a
+    bookmaker that is not even in the panel."""
+    p = REPO / "data" / "history" / f"odds_live_pull_{season.replace('-', '_')}.provenance.json"
+    try:
+        import json
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    except (OSError, ValueError):
+        return None
+
+
+def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
+                     include_odds_xpts: bool = True):
+    """The league table AS OF a cutoff, from match results already on the volume.
+
+    The cutoff is the latest run's by default -- the deadline gameweek's first kickoff, derived
+    the way the walk-forward derives it -- so the table holds exactly the results the model knew.
+    Every match admitted passes dixon_coles.knowable_before, the one as-of rule (a result counts
+    only if the match FINISHED before the cutoff DAY began); fixtures dated before the cutoff
+    day that carry no result are named in `results_missing_before_cutoff`, never silently
+    dropped and never counted. Per club: position, played/won/drawn/lost, goals, goal
+    difference, points, per-game rates, form (most recent LAST), home/away splits, streaks, and
+    Bet365's odds-implied expected points over the matches already played -- Bet365's number,
+    attributed as such, descriptive only and never a forecast. With `team`, that club's row and
+    its results grouped by gameweek (a double is two entries). A club with no admitted result
+    comes back null with a reason, not 0-0-0.
+    """
+    import pandas as pd
+    import league_table as lt
+    import dixon_coles as dc                    # the ONE rule; lazy, see _league_matches
+    run = _latest_run()
+    if run is None:
+        return {"error": "no successful pipeline run in the database yet"}
+    try:
+        ms = _league_matches(run["season"])
+    except Exception as e:                              # noqa: BLE001
+        return {"error": f"the match archive could not be read: {type(e).__name__}: "
+                         f"{str(e)[:200]}. No table can be built; this is a missing FILE, not "
+                         "an empty season."}
+    cal, cal_note = None, None
+    try:
+        cal = _league_calendar(run["season"])
+    except Exception as e:                              # noqa: BLE001 -- labels degrade, table does not
+        cal_note = f"the calendar could not be read ({type(e).__name__}: {str(e)[:120]})"
+
+    # -- the cutoff
+    if as_of is None:
+        cutoff = lt.first_kickoff_by_gw(cal).get(int(run["gw"]))
+        if cutoff is None:
+            return {"error": f"the calendar has no first kickoff for GW{run['gw']}, so the latest "
+                             f"run's cutoff cannot be derived"
+                             f"{(' -- ' + cal_note) if cal_note else ''}. Pass as_of explicitly."}
+        source = (f"the latest run's cutoff: GW{run['gw']}'s first kickoff, derived from the "
+                  f"stack + forward skeleton the way the walk-forward derives cutoff_date")
+    else:
+        cutoff, err = lt.parse_as_of(as_of)
+        if err:
+            return {"error": err}
+        source = "as_of, as given (read as UTC)"
+
+    # -- the season: the latest one with a fixture dated ON or before the cutoff day. That is
+    # the same rule asked one day later, with goals forced present so only its DATE clause acts.
+    forced_all = ms.assign(home_goals=0.0, away_goals=0.0)
+    dated_by_cutoff_day = dc.knowable_before(forced_all, cutoff + pd.Timedelta(days=1))
+    archive_first = ms["date_parsed"].min()
+    stamp = f"{cutoff:%Y-%m-%d %H:%M:%S}"
+    if not dated_by_cutoff_day.any():
+        out = _run_meta(run)
+        out.update({"season": None, "table": [], "n_matches_in_table": 0,
+                    "as_of": {"cutoff": stamp, "source": source, "rule": AS_OF_RULE,
+                              "status": "before_first_match",
+                              "archive_first_match": f"{archive_first:%Y-%m-%d}",
+                              "statement": (f"as_of {stamp} is before the archive's first match "
+                                            f"({archive_first:%Y-%m-%d}); there is no table to "
+                                            f"report for that date")}})
+        return out
+    season = str(ms.loc[dated_by_cutoff_day, "season"].max())
+    ms_s = ms[ms["season"] == season]
+
+    # -- THE rule, applied once to admit and once (goals forced present) to name the excluded
+    known_mask = dc.knowable_before(ms_s, cutoff)
+    dated_mask = dc.knowable_before(ms_s.assign(home_goals=0.0, away_goals=0.0), cutoff)
+    known = ms_s[known_mask]
+    missing = ms_s[dated_mask & ~known_mask]
+
+    # -- gameweek labels: pair fixture sides in that season's calendar; label only, never filter
+    if cal is not None and season != run["season"]:
+        try:
+            cal = _league_calendar(season)
+        except Exception as e:                          # noqa: BLE001
+            cal, cal_note = None, f"the calendar could not be read ({type(e).__name__})"
+    index = lt.gameweek_index(cal)
+    known_l, n_unmapped = lt.label_matches(known, index)
+    missing_l, _ = lt.label_matches(missing, index)
+    long = lt.long_form(known_l)
+
+    clubs = sorted({lt.fpl_name(x) for x in set(ms_s["home"]) | set(ms_s["away"])})
+    resolved = None
+    if team is not None:
+        resolved, err = _resolve_team(team, clubs)
+        if err:
+            return {"error": err, "known_teams": clubs}
+    n_form = max(1, min(int(form_last_n), lt.MAX_FORM_N))
+    rows = lt.table(long, clubs, n_form, include_odds_xpts)
+
+    # -- what the archive knows relative to the cutoff (a statement, never a silent truncation)
+    with_result = ms_s[ms_s["home_goals"].notna() & ms_s["away_goals"].notna()]
+    latest_result = with_result["date_parsed"].max() if len(with_result) else None
+    n_missing = int(len(missing))
+    if latest_result is None:
+        status = "ok"
+        statement = f"no result of {season} is in the archive yet; every club's row is null"
+    elif cutoff.normalize() > latest_result + pd.Timedelta(days=1):
+        status = "after_latest_result"
+        statement = (f"the archive's latest result is dated {latest_result:%Y-%m-%d} and the "
+                     f"cutoff is {stamp}; "
+                     + (f"{n_missing} fixture(s) dated before the cutoff day carry no result "
+                        f"(results_missing_before_cutoff) -- the table is INCOMPLETE as of that "
+                        f"date, not merely older" if n_missing else
+                        "no fixture is dated between them, so the table is complete as of that "
+                        "date"))
+    else:
+        status = "ok"
+        statement = (f"the archive's latest result is dated {latest_result:%Y-%m-%d}; "
+                     + (f"{n_missing} fixture(s) dated before the cutoff day carry no result "
+                        f"(postponed, or not yet ingested) -- see results_missing_before_cutoff"
+                        if n_missing else
+                        "every fixture dated before the cutoff day has a result"))
+
+    out = _run_meta(run)
+    out.update({
+        "season": season,
+        "as_of": {"cutoff": stamp, "source": source, "rule": AS_OF_RULE, "status": status,
+                  "statement": statement,
+                  "archive_first_match": f"{archive_first:%Y-%m-%d}",
+                  "season_first_fixture": f"{ms_s['date_parsed'].min():%Y-%m-%d}",
+                  "latest_result": None if latest_result is None else f"{latest_result:%Y-%m-%d}"},
+        "table": rows if resolved is None else [r for r in rows if r["team"] == resolved],
+        "clubs": clubs,
+        "n_matches_in_table": int(len(known)),
+        "results_missing_before_cutoff": {
+            "n": n_missing, "matches": lt.missing_list(missing_l),
+            "note": ("fixtures dated before the cutoff day with no result in the archive: "
+                     "postponed and still carrying the original date, or played but not yet "
+                     "ingested. Not counted. If any is listed, the table is incomplete as of "
+                     "this cutoff." if n_missing else
+                     "none: every fixture dated before the cutoff day has a result")},
+        "gameweek_labels": {
+            "source": "the stack + forward skeleton, pairing the two sides of each fixture id",
+            "unmapped": n_unmapped,
+            "note": (("no calendar rows for this season; every gw is null" + (
+                          f" ({cal_note})" if cal_note else "")) if not index else
+                     ("labels only: the table's arithmetic never depends on them" +
+                      (f"; {n_unmapped} match(es) the calendar could not pair carry gw null"
+                       if n_unmapped else "")))},
+        "form": {"last_n": n_form, "direction": lt.FORM_DIRECTION},
+        "tiebreak": lt.TIEBREAK,
+    })
+    if season != run["season"]:
+        out["season_note"] = (f"as_of falls in {season}, not the latest run's {run['season']}: "
+                              f"this is the {season} table")
+    odds_meta = lt.odds_attribution(_odds_provenance(season)) if include_odds_xpts else None
+    if include_odds_xpts:
+        out["odds_xpts"] = odds_meta
+    if resolved is not None:
+        pos = next((r["position"] for r in rows if r["team"] == resolved), None)
+        out["form_detail"] = lt.form_detail(long, resolved, pos, include_odds_xpts,
+                                            attribution=odds_meta)
+    return out

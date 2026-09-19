@@ -232,6 +232,35 @@ tools_schema = [
             },
             "required": []
         }
+    },
+    {
+        "name": "get_league_table",
+        "description": (
+            "The league table and each club's form AS OF a cutoff -- by default the latest run's "
+            "cutoff (the deadline gameweek's first kickoff), so it shows exactly the results the "
+            "model knew and nothing later. Built from match results already on the volume. Use "
+            "for 'how are Hull doing', 'who is top', 'what is Arsenal's form', 'home record', "
+            "'have they kept clean sheets'. Returns position, played/won/drawn/lost, goals, goal "
+            "difference, points, per-game rates, form (most recent LAST), home/away splits, "
+            "streaks, and the market's odds-implied expected points for the matches ALREADY "
+            "PLAYED (attributed to its source by season -- Bet365 for archive seasons, a "
+            "de-margined multi-book consensus for the live season -- descriptive only, never a "
+            "forecast). With `team`, that club's "
+            "row plus its results grouped by gameweek. A club with no result yet comes back with "
+            "nulls and a reason, not zeros. Says when the table is incomplete as of the cutoff."),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "as_of": {"type": "string",
+                          "description": "ISO timestamp cutoff (UTC); omit for the latest run's cutoff"},
+                "team": {"type": "string", "description": "Club name; omit for the full table"},
+                "form_last_n": {"type": "integer",
+                                "description": "How many recent matches the form fields cover (default 5)"},
+                "include_odds_xpts": {"type": "boolean",
+                                      "description": "Include Bet365 odds-implied expected points for played matches (default true)"}
+            },
+            "required": []
+        }
     }
 ]
 
@@ -243,7 +272,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
                          get_my_xi, propose_transfers, explain_prediction,
                          compare_predictions, compare_runs, get_fixtures,
-                         get_price_movements)
+                         get_price_movements, get_league_table)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -291,6 +320,7 @@ available_functions = {
     "compare_runs": compare_runs,
     "get_fixtures": get_fixtures,
     "get_price_movements": get_price_movements,
+    "get_league_table": get_league_table,
 }
 
 def run_agent(user_message: str, messages: list = None):
