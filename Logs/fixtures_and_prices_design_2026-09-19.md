@@ -311,3 +311,53 @@ A test comparing the two lists costs nothing and fires before the push.
 
 The deploy-then-check discipline is what turned a silent production outage into a ten-minute
 fix, so it stays. But it is the second line, not the first.
+
+---
+
+## 10. Live confirmation after the fix (e48c961, 2026-09-19 08:0xZ)
+
+Same check, re-run on the server. **ALL CHECKS PASSED.**
+
+`get_fixtures("Newcastle", horizon=5)`, run 15, calendar age 85.6 h, 20/20 team names:
+
+| gw | | opponent | attacking | clean sheet | priced off | |
+|---|---|---|---|---|---|---|
+| 5 | H | Hull City | 1.874 easy | 0.377 easy | **MARKET** | |
+| 6 | A | Coventry City | 2.237 easy | 0.999 easy | pure-DC | **RUNAWAY** |
+| 7 | H | Aston Villa | 1.698 avg | 0.254 avg | pure-DC | |
+| 8 | A | Crystal Palace | 1.563 avg | 0.254 avg | pure-DC | |
+| 9 | H | Everton | 1.548 avg | 0.338 avg | pure-DC | |
+
+Everything the design claimed, visible in one table: opponents named from the calendar, two
+difficulty numbers that move independently, GW5 market-priced against GW6–9 pure Dixon-Coles,
+and the Coventry fixture flagged. Across all 20 clubs: **8 runaway fixtures, 92 clean** — the
+flag discriminates rather than firing everywhere. The reverse side reads correctly too:
+Coventry vs Newcastle shows `opp_lambda 2.23659`, clean sheet 0.1068, flagged for their *own*
+attack.
+
+`get_price_movements(window_days=14)`: observed 2026-09-04T17:30Z → 2026-09-18T17:30Z, 27
+snapshots, **largest gap 183.0 hours** — 7.6 days, the burst-sampling finding confirmed in
+live data rather than inferred from filenames. 201 movers. No forward field in the payload.
+Squad paid 99.1, sells for 99.0; every `sells_for` matches `squad_state.sell_price`, and 6
+risen players all sell below market (De Cuyper paid 4.7, now 4.9, sells 4.8).
+
+### CORRECTION to §5: the runtime estimate was too low
+
+§5 projected ~60 ms for `get_fixtures` by summing components (30 ms SQL + 14 ms parquet +
+"shaping"). Measured end to end through `agent.call_tool`, best of 3:
+
+| | estimated | **measured** |
+|---|---|---|
+| `get_fixtures`, one club | ~60 ms | **198 ms** |
+| `get_fixtures`, all 20 | — | **295 ms** |
+| `get_price_movements` | ~73 ms | **103 ms** |
+
+The estimate omitted the shaping it waved at: the read pulls **all** ~3,954 prediction rows
+for the run, not the 120 team-gw rows it ends up using, and then builds the full calendar
+dict. Summing the parts I had timed undercounted by 3×, which is the ordinary failure of
+component estimates — the part nobody times is the part that costs.
+
+The conclusion is unchanged: both stay on demand, neither goes in a build, and 300 ms inside
+a chat turn is not felt. If the fixture read ever needs to be faster, the obvious move is to
+push the per-(team, gw) collapse into SQL with a `DISTINCT ON` rather than pulling every
+player row and deduping in Python.
