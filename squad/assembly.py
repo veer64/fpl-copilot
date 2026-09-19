@@ -30,8 +30,9 @@ LEAGUE_AVG_LAMBDA = 1.40
 # "Sheffield United" was missing until then -- every Sheffield fixture join
 # failed silently in their PL seasons (2019-20, 2020-21, 2023-24) and the
 # players' e_points collapsed to 0.0 all season. See KNOWN_ISSUES #14.
-TEAM_MAP = {"Man United": "Man Utd", "Tottenham": "Spurs",
-            "Sheffield United": "Sheffield Utd"}
+# 2026-09-19: the literal moved to team_map.py (pure) so the read-side tools can
+# use it without importing this module's model stack. Same dict, one home.
+from team_map import TEAM_MAP  # noqa: E402
 DC_BASE = {"DEF": 0.125, "MID": 0.136, "FWD": 0.058, "GK": 0.0}
 
 # D1 scoring terms (saves, goals conceded, cards, penalty share). This flag both
