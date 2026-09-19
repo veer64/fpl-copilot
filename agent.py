@@ -193,6 +193,45 @@ tools_schema = [
             },
             "required": []
         }
+    },
+    {
+        "name": "get_fixtures",
+        "description": (
+            "Fixtures with difficulty from OUR model, not FPL's FDR. Difficulty comes back as "
+            "TWO numbers per fixture -- attacking (how easy it is to score) and defensive (how "
+            "easy a clean sheet is) -- because they routinely disagree and that disagreement is "
+            "the point. Never average them into one score. Use for 'who does X play', 'how are "
+            "Arsenal's next five fixtures', 'is this a good run'. Each fixture says whether it "
+            "is market-priced or pure Dixon-Coles, and flags a runaway strength."),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Club name; omit for all 20 clubs"},
+                "gw": {"type": "integer", "description": "One gameweek; omit to use horizon"},
+                "horizon": {"type": "integer",
+                            "description": "How many gameweeks from the current one (default 5)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_price_movements",
+        "description": (
+            "Risers and fallers from the stored price snapshots, and what each of the user's own "
+            "players would SELL for now under the asymmetric rule (a rise is shared with FPL -- "
+            "you get half rounded down; a fall is yours in full). Use for 'who is rising', 'what "
+            "is my squad worth', 'can I afford X'. It reports what HAS happened: it cannot say "
+            "whether a price will change next, and a recent rise is not evidence of the next one."),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "window_days": {"type": "integer",
+                                "description": "Look back this many days (default 7)"},
+                "include_squad": {"type": "boolean",
+                                  "description": "Include the user's own selling prices (default true)"}
+            },
+            "required": []
+        }
     }
 ]
 
@@ -203,7 +242,8 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
                          get_my_xi, propose_transfers, explain_prediction,
-                         compare_predictions, compare_runs)
+                         compare_predictions, compare_runs, get_fixtures,
+                         get_price_movements)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -249,6 +289,8 @@ available_functions = {
     "explain_prediction": explain_prediction,
     "compare_predictions": compare_predictions,
     "compare_runs": compare_runs,
+    "get_fixtures": get_fixtures,
+    "get_price_movements": get_price_movements,
 }
 
 def run_agent(user_message: str, messages: list = None):

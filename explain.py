@@ -82,6 +82,54 @@ def fixture_runaway(row):
                 or (ol == ol and (ol < LAMBDA_MIN or ol > LAMBDA_MAX)))
 
 
+def fixture_provenance(row, step_rows=None):
+    """The fixture line's SOURCE, its constant label and its notes -- the tenth line of a
+    breakdown, and the whole provenance story for one (team, gameweek).
+
+    Exported for the same reason fixture_runaway is: get_fixtures reports difficulty from
+    these lambdas, and a reader cannot tell a market-priced fixture from a pure Dixon-Coles
+    one by looking at the number. Two modules deriving that independently is how explain and
+    quantiles came to disagree about a runaway on 2026-09-18. One implementation, one place.
+
+    Returns (source, constant, notes) where source is "model" or "constant" -- the same fixed
+    vocabulary every other line uses.
+    """
+    tl, ol = _f(row, "team_lambda"), _f(row, "opp_lambda")
+    step = int(_f(row, "horizon_step", 0)) if _f(row, "horizon_step", 0) == _f(row, "horizon_step", 0) else 0
+    n_fix = int(_f(row, "n_fixtures", 1)) if _f(row, "n_fixtures", 1) == _f(row, "n_fixtures", 1) else 1
+    degenerate = step_is_degenerate(step_rows)
+    neutral = _close(tl, LEAGUE_AVG_LAMBDA, 1e-9) and _close(ol, LEAGUE_AVG_LAMBDA, 1e-9)
+
+    notes = []
+    if degenerate:
+        src, const = "constant", CONSTANT_LABELS["x0_fixture"]
+        notes.append("every club at this step sits at the fit's starting point (home e^0.25 / away 1.0): home/away only, no team strength (Logs/dc_degenerate_fit_finding_2026-09-13.md)")
+    elif neutral:
+        src, const = "constant", CONSTANT_LABELS["neutral_fixture"]
+        notes.append("no fixture match in the Dixon-Coles join: both lambdas at the neutral fill 1.40")
+    else:
+        src, const = "model", None
+    if fixture_runaway(row):
+        notes.append(RUNAWAY_NOTE)
+    if step >= 1 and int(_f(row, "odds_horizon_gws", 0) or 0) == 0 and not degenerate:
+        notes.append("beyond the deadline gameweek the fixture uses the fitted Dixon-Coles strengths, not the market")
+    if n_fix > 1:
+        notes.append(f"double gameweek: {n_fix} fixtures -- additive terms are summed, the rates shown are fixture averages")
+    return src, const, notes
+
+
+def market_priced(row):
+    """Is THIS fixture's lambda priced off the market, or off the fitted strengths alone?
+
+    Step 0 is the deadline gameweek and carries odds (LAM_BLEND_W = 0, so pure market);
+    beyond it the odds feed returns nothing and the fixture falls back to pure Dixon-Coles.
+    They are different quality numbers and the fixture list must say which it is showing.
+    """
+    step = int(_f(row, "horizon_step", 0)) if _f(row, "horizon_step", 0) == _f(row, "horizon_step", 0) else 0
+    horizon = int(_f(row, "odds_horizon_gws", 0) or 0)
+    return bool(step == 0 or step <= horizon)
+
+
 def runaway_side(row):
     """Which side ran off, and its lambda -- named as far as the frame allows. The frame
     carries the player's own club but not the opponent's name, and pairing clubs by matching
@@ -249,22 +297,8 @@ def breakdown(row, step_rows=None):
     else:
         add("bonus", "exp_bonus", f"exp_bonus (bonus_mode = {bonus_mode})", {"bonus_mode": bonus_mode}, "model")
 
-    # the fixture line
-    fx_notes = []
-    if degenerate:
-        fx_src, fx_const = "constant", CONSTANT_LABELS["x0_fixture"]
-        fx_notes.append("every club at this step sits at the fit's starting point (home e^0.25 / away 1.0): home/away only, no team strength (Logs/dc_degenerate_fit_finding_2026-09-13.md)")
-    elif neutral:
-        fx_src, fx_const = "constant", CONSTANT_LABELS["neutral_fixture"]
-        fx_notes.append("no fixture match in the Dixon-Coles join: both lambdas at the neutral fill 1.40")
-    else:
-        fx_src, fx_const = "model", None
-    if runaway:
-        fx_notes.append(RUNAWAY_NOTE)
-    if step >= 1 and int(_f(row, "odds_horizon_gws", 0) or 0) == 0 and not degenerate:
-        fx_notes.append("beyond the deadline gameweek the fixture uses the fitted Dixon-Coles strengths, not the market")
-    if n_fix > 1:
-        fx_notes.append(f"double gameweek: {n_fix} fixtures -- additive terms are summed, the rates shown are fixture averages")
+    # the fixture line -- shared with get_fixtures (fixture_provenance), not duplicated here
+    fx_src, fx_const, fx_notes = fixture_provenance(row, step_rows)
     fixture = {"team_lambda": round(tl, 4) if tl == tl else None, "opp_lambda": round(ol, 4) if ol == ol else None,
                "fixture_scale_cal": round(fs, 4) if fs == fs else None, "n_fixtures": n_fix,
                "source": fx_src, "constant": fx_const, "notes": fx_notes}

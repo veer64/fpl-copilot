@@ -200,8 +200,11 @@ def test_a_run_without_quantiles_still_says_nothing_about_runaways(mt):
 
 def test_the_prompt_tells_the_agent_to_lead_with_it():
     p = (REPO / "prompts" / "system_prompt.md").read_text(encoding="utf-8")
-    line = [l for l in p.splitlines() if "`runaway`" in l]
-    assert len(line) == 1, "exactly one rule, in the quantiles section"
+    # Several rules legitimately mention a runaway now -- get_fixtures flags one too. Select
+    # the QUANTILES rule by what only it says, rather than asserting a count that any later
+    # tool makes wrong.
+    line = [l for l in p.splitlines() if "`runaway`" in l and "P10 is unusable" in l]
+    assert len(line) == 1, "exactly one quantiles runaway rule"
     line = line[0]
     for needed in ("P10 is unusable", "KNOWN_ISSUES #25", "runaway_gws", "manufactured", "SAFE"):
         assert needed in line, needed

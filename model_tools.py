@@ -1613,3 +1613,135 @@ def health():
             "data_freshness_by_source": freshness, "db_ok": db_ok,
             "last_run": last_block,
             "reasons": reasons}
+
+
+# ---------------------------------------------------------------------------
+# get_fixtures / get_price_movements (master plan 5.4). Both are ON DEMAND and
+# neither runs inside a build: measured 60 ms and 73 ms respectively on the
+# droplet. The work is in the pure modules; these are the read paths that feed
+# them, and they are what the agent actually calls -- so they are what the
+# tests drive (the section 14 rule, three entries deep now).
+# ---------------------------------------------------------------------------
+FIXTURE_TEAM_ALIASES = {"spurs": "Spurs", "tottenham": "Spurs", "man utd": "Man Utd",
+                        "man united": "Man Utd", "manchester united": "Man Utd",
+                        "man city": "Man City", "manchester city": "Man City",
+                        "forest": "Nott'm Forest", "nottingham forest": "Nott'm Forest",
+                        "wolves": "Wolves", "newcastle": "Newcastle", "spurs fc": "Spurs"}
+
+
+def _resolve_team(name, known):
+    """Match a club the way a person types it, or say it is unknown. Never a fuzzy
+    best-effort: naming the wrong club's fixtures is worse than declining."""
+    if name is None:
+        return None, None
+    raw = str(name).strip()
+    for k in known:
+        if k.lower() == raw.lower():
+            return k, None
+    alias = FIXTURE_TEAM_ALIASES.get(raw.lower())
+    if alias and alias in known:
+        return alias, None
+    hits = [k for k in known if raw.lower() in k.lower()]
+    if len(hits) == 1:
+        return hits[0], None
+    if len(hits) > 1:
+        return None, f"{raw!r} matches {sorted(hits)} -- name one"
+    return None, f"{raw!r} is not a club in this season's calendar"
+
+
+def _team_gw_rows(run_id, skel):
+    """The per-(team, gameweek) model row. team is not a column on model_predictions, so the
+    club comes from the SKELETON's own (element, gw) -> team -- the as-of club the frame was
+    built with, not players_live's current club, which would mis-attribute a transferred
+    player. The lambdas are constant within (team, gw), so one row per group is exact."""
+    rows = _q("SELECT element, gw, horizon_step, team_lambda, opp_lambda, p_cs, "
+              "       n_fixtures, odds_horizon_gws "
+              "FROM model_predictions WHERE run_id = %s AND config = %s",
+              (run_id, PRODUCTION_CONFIG))
+    if not rows:
+        return [], {}
+    team_of = {(int(r["element"]), int(r["GW"])): str(r["team"])
+               for r in skel[["element", "GW", "team"]].drop_duplicates().to_dict("records")}
+    seen, out, by_gw = set(), [], {}
+    for r in rows:
+        t = team_of.get((int(r["element"]), int(r["gw"])))
+        if t is None:
+            continue
+        by_gw.setdefault(int(r["gw"]), []).append({"team": t, "team_lambda": r["team_lambda"]})
+        key = (t, int(r["gw"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({**r, "team": t})
+    import pandas as pd
+    step_rows = {g: pd.DataFrame(v) for g, v in by_gw.items()}
+    return out, step_rows
+
+
+def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
+    """Fixtures with difficulty from OUR model, as TWO numbers -- not FPL's FDR.
+
+    Difficulty is never one composite: attacking difficulty (how easy is it to score here) and
+    defensive difficulty (how easy is a clean sheet) are reported separately, because they
+    routinely disagree and the disagreement is the information FDR throws away. The raw
+    lambdas travel alongside so nothing is hidden, labelled as PRODUCTS rather than opponent
+    ratings, with provenance saying whether each is market-priced or pure Dixon-Coles and a
+    runaway warning on any fixture touching a club whose strength ran off.
+    """
+    import fixtures_tool as ft
+    run = _latest_run()
+    if run is None:
+        return {"error": "no successful pipeline run in the database yet"}
+    try:
+        import pandas as pd
+        skel = pd.read_parquet(ft.SKELETON, columns=ft.SKELETON_COLS)
+        age_h = round((time.time() - ft.SKELETON.stat().st_mtime) / 3600.0, 1)
+    except Exception as e:                              # noqa: BLE001
+        return {"error": f"the fixture calendar ({ft.SKELETON.name}) could not be read: "
+                         f"{type(e).__name__}: {str(e)[:200]}. No fixtures can be listed; "
+                         "this is a missing FILE, not an empty schedule."}
+    cal, n_names = ft.calendar(df=skel)
+    if not cal:
+        return {"error": "the fixture calendar parsed to nothing; refusing to report fixtures"}
+    if n_names == 0:
+        return {"error": "no bootstrap snapshot to resolve team ids to names; refusing to "
+                         "list fixtures rather than naming opponents by id alone"}
+    known = sorted({k[0] for k in cal})
+    resolved = None
+    if team is not None:
+        resolved, err = _resolve_team(team, known)
+        if err:
+            return {"error": err, "known_teams": known}
+    rows, step_rows = _team_gw_rows(run["run_id"], skel)
+    out = _run_meta(run)
+    out.update(ft.build(rows, cal, n_names, team=resolved, gw=gw, horizon=horizon,
+                        step_rows_by_gw=step_rows, skeleton_age_hours=age_h))
+    return out
+
+
+def get_price_movements(window_days: int = 7, user_id: int = 1, include_squad: bool = True):
+    """Risers and fallers from the poller's stored snapshots, and what your own players sell
+    for right now under the asymmetric rule (purchase plus half the rise rounded down; falls
+    in full), via squad_state.sell_price -- the same function the transfer MIP uses.
+
+    It reports what HAS happened. The snapshots are burst-sampled rather than daily, so the
+    unit is net change between two observations, and both timestamps travel with the answer.
+    It does not forecast and must not be read as forecasting.
+    """
+    import prices_tool as pt
+    squad = None
+    if include_squad:
+        try:
+            record = squad_store.read_active(user_id)
+            squad = record["squad_json"] if isinstance(record, dict) else None
+        except Exception:                               # noqa: BLE001 -- movers still answerable
+            squad = None
+    try:
+        out = pt.movements(window_days=window_days, squad=squad)
+    except Exception as e:                              # noqa: BLE001
+        return {"error": f"price snapshots could not be read: {type(e).__name__}: "
+                         f"{str(e)[:200]}"}
+    if include_squad and squad is None and "error" not in out:
+        out["my_squad_unavailable"] = ("no active squad version, so only market movers are "
+                                       "shown -- selling prices need your purchase prices")
+    return out

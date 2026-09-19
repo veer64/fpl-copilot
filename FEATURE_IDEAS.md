@@ -377,3 +377,32 @@ next to "Coventry City, 14th" and let the reader draw a conclusion.
 ### When to do it
 Item 1 any time -- it is small, self-contained, and makes the agent visibly more
 useful. Item 2 after #25, or with the detector wired in from the start.
+
+## OPEN ITEM: the tool budget is spent (2026-09-19)
+
+Master plan §5.4: *"Deliberately small surface (~10) because tool sprawl degrades tool
+selection."*
+
+- Registered before today: **15**.
+- `get_fixtures` + `get_price_movements`: **17**.
+- `search_news` (§5.6) is not optional — it is the only legitimate origin for an injury claim
+  under the §5.5 grounding contract — so the real number is **18 against a stated budget of
+  about 10.**
+
+Both tools added today are on §5.4's own list, so adding them was right. The point is what
+comes next.
+
+**The budget is spent. The next tool needs an argument, not just a use case.** A use case is
+why someone would call it. An argument is why the whole surface is better with it than without
+— which now means saying what it displaces, or why selection does not degrade at 19.
+
+**And there is no instrument.** Nothing here shows selection *has* degraded: tool-choice
+accuracy has never been measured at any surface size. The budget was set by judgement and is
+being exceeded by judgement, with no evidence either way. If the surface keeps growing, the
+measurement should come before the growth — an eval over prompts with a known correct tool,
+run at 10, 15 and 18 tools, would settle in an afternoon whether the §5.4 worry is real here.
+
+Related: `tools.py` is dead code — `agent.py` imports from `model_tools`, and `tools.py`'s five
+functions are reachable from nothing. Not part of the 15. Delete in its own change.
+
+Full context: `Logs/fixtures_and_prices_design_2026-09-19.md` §6.
