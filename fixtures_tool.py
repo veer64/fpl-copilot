@@ -193,6 +193,10 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                                             "are published this far out, and this is a LOWER "
                                             "QUALITY number than a market-priced one"),
                         "market_priced": market_priced(mrow),
+                        "how_known": ("from horizon_step: the deadline gameweek carries odds, "
+                                      "beyond it none are published. model_predictions does "
+                                      "not store odds_horizon_gws, so this is derived, not "
+                                      "read"),
                         "horizon_step": (int(mrow["horizon_step"])
                                          if mrow.get("horizon_step") is not None else None),
                         "notes": notes,

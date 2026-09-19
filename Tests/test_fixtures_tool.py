@@ -261,3 +261,53 @@ def test_a_missing_calendar_is_an_error_not_an_empty_schedule(mt, monkeypatch):
 def test_no_run_is_an_error_before_anything_else(mt, monkeypatch):
     monkeypatch.setattr(mt, "_latest_run", lambda gw=None, any_status=False: None)
     assert "error" in mt.get_fixtures()
+
+
+# ------------------------------------------- the dead-on-arrival class, third time in three days
+
+def test_the_read_names_no_column_the_table_lacks(mt):
+    """2026-09-19: get_fixtures selected odds_horizon_gws, which is a FRAME column and is NOT
+    in db_write.PRED_INSERT_COLS -- so it has never existed on model_predictions and every
+    call raised UndefinedColumn. The unit tests passed throughout: they hand `build` a row in
+    the shape it wants, which is not the shape the live read produces. Caught by the live
+    check, and this is the test that would have caught it first."""
+    import db_write
+    for c in mt.FIXTURE_REQUIRED_COLS:
+        assert c in db_write.PRED_INSERT_COLS, f"required column {c} is never written"
+    stored = [c for c in mt.FIXTURE_OPTIONAL_COLS if c in db_write.PRED_INSERT_COLS]
+    assert "odds_horizon_gws" not in stored, "if this is now stored, the comment is stale"
+    assert set(stored) == {"horizon_step", "p_cs", "n_fixtures"}
+
+
+def test_an_absent_optional_column_is_dropped_from_the_sql_not_raised(mt, monkeypatch):
+    seen = {}
+
+    def fake_q(sql, params=()):
+        seen["sql"] = sql
+        return []
+    monkeypatch.setattr(mt, "_table_columns",
+                        lambda t, ttl=None: {"element", "gw", "team_lambda", "opp_lambda",
+                                             "horizon_step", "p_cs", "n_fixtures"})
+    monkeypatch.setattr(mt, "_q", fake_q)
+    mt._team_gw_rows(9, pd.DataFrame(SINGLE, columns=ft.SKELETON_COLS))
+    assert "odds_horizon_gws" not in seen["sql"], "named a column the live schema lacks"
+    for c in ("team_lambda", "opp_lambda", "p_cs"):
+        assert c in seen["sql"]
+
+
+def test_a_missing_required_column_is_an_error_not_a_silent_empty(mt, monkeypatch):
+    """An empty fixture list reads as 'no games'. A broken schema must not look like that."""
+    monkeypatch.setattr(mt, "_latest_run", lambda gw=None, any_status=False: {"run_id": 9})
+    monkeypatch.setattr(mt, "_run_meta", lambda run: {"run_id": 9})
+    monkeypatch.setattr(mt, "_table_columns", lambda t, ttl=None: {"element", "gw"})
+    monkeypatch.setattr(mt, "_q", lambda sql, params=(): [])
+    out = mt.get_fixtures(team="Newcastle")
+    assert "error" in out and "required column" in out["error"].lower() + str(out)
+    assert out["required_columns"] == list(mt.FIXTURE_REQUIRED_COLS)
+
+
+def test_market_priced_still_splits_correctly_without_the_absent_column():
+    """The column's absence must not silently make everything look market-priced."""
+    assert explain.market_priced({"horizon_step": 0}) is True
+    assert explain.market_priced({"horizon_step": 3}) is False
+    assert explain.market_priced({"horizon_step": 2, "odds_horizon_gws": 3}) is True

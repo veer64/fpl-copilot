@@ -1622,6 +1622,19 @@ def health():
 # them, and they are what the agent actually calls -- so they are what the
 # tests drive (the section 14 rule, three entries deep now).
 # ---------------------------------------------------------------------------
+# The columns this read needs, split the way the 2026-09-18 incident requires: a READ must
+# not assume a column exists. odds_horizon_gws is the case in point -- it is a FRAME column
+# and is NOT in db_write.PRED_INSERT_COLS, so it has never existed on model_predictions, and
+# naming it unconditionally made every get_fixtures call raise UndefinedColumn. Caught by the
+# live dead-on-arrival check, which is the third time in three days for this class.
+#
+# Its absence is harmless to the meaning: explain.market_priced defaults the horizon to 0, so
+# step 0 reads market-priced and steps 1-5 read pure Dixon-Coles -- which is the truth this
+# season, and the same default explain.breakdown already applies. The payload says the split
+# came from horizon_step rather than implying a column we do not store.
+FIXTURE_REQUIRED_COLS = ("element", "gw", "team_lambda", "opp_lambda")
+FIXTURE_OPTIONAL_COLS = ("horizon_step", "p_cs", "n_fixtures", "odds_horizon_gws")
+
 FIXTURE_TEAM_ALIASES = {"spurs": "Spurs", "tottenham": "Spurs", "man utd": "Man Utd",
                         "man united": "Man Utd", "manchester united": "Man Utd",
                         "man city": "Man City", "manchester city": "Man City",
@@ -1654,10 +1667,14 @@ def _team_gw_rows(run_id, skel):
     club comes from the SKELETON's own (element, gw) -> team -- the as-of club the frame was
     built with, not players_live's current club, which would mis-attribute a transferred
     player. The lambdas are constant within (team, gw), so one row per group is exact."""
-    rows = _q("SELECT element, gw, horizon_step, team_lambda, opp_lambda, p_cs, "
-              "       n_fixtures, odds_horizon_gws "
-              "FROM model_predictions WHERE run_id = %s AND config = %s",
-              (run_id, PRODUCTION_CONFIG))
+    available = _table_columns("model_predictions")
+    missing_required = [c for c in FIXTURE_REQUIRED_COLS if available and c not in available]
+    if missing_required:
+        return [], {}
+    cols = list(FIXTURE_REQUIRED_COLS) + [c for c in FIXTURE_OPTIONAL_COLS
+                                          if not available or c in available]
+    rows = _q("SELECT " + ", ".join(cols) + " FROM model_predictions "
+              "WHERE run_id = %s AND config = %s", (run_id, PRODUCTION_CONFIG))
     if not rows:
         return [], {}
     team_of = {(int(r["element"]), int(r["GW"])): str(r["team"])
@@ -1713,6 +1730,11 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
         if err:
             return {"error": err, "known_teams": known}
     rows, step_rows = _team_gw_rows(run["run_id"], skel)
+    if not rows:
+        return {"error": f"run {run['run_id']} has no per-team fixture rows to price "
+                         "(the prediction table is missing a required column, or the run "
+                         "wrote nothing). No difficulty can be reported.",
+                "required_columns": list(FIXTURE_REQUIRED_COLS)}
     out = _run_meta(run)
     out.update(ft.build(rows, cal, n_names, team=resolved, gw=gw, horizon=horizon,
                         step_rows_by_gw=step_rows, skeleton_age_hours=age_h))

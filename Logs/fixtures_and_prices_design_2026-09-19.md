@@ -247,3 +247,67 @@ to imply the one I cared about (the map is not stubbed), and the incidental prop
 one the environment breaks. **Assert the property you mean, not a stronger one that implies
 it** — the stronger one fails for reasons that have nothing to do with the thing under test,
 and a test that fails for unrelated reasons is how a suite stops being read.
+
+---
+
+## 9. The live check caught a real one, first time out
+
+Deployed `e812edd`, ran the dead-on-arrival check against the real server, and the very
+first assertion failed:
+
+```
+[FAIL] no error -- tool get_fixtures failed:
+       UndefinedColumn: column "odds_horizon_gws" does not exist
+```
+
+**Every `get_fixtures` call raised.** The tool was completely non-functional in production
+while 37 tests passed and the suite was green.
+
+`odds_horizon_gws` is a **frame** column. It is not in `db_write.PRED_INSERT_COLS` and has
+therefore never existed on `model_predictions`. I wrote a hardcoded eight-column `SELECT`
+without checking it against the insert list — the list I had read earlier in the same
+session, on screen, while checking something else.
+
+### Why the tests could not catch it
+
+The same reason as yesterday, which is what makes this a pattern rather than an accident.
+The unit tests hand `build()` a dict in the shape the function wants. The live read produces
+a different shape, and the gap between those two shapes is precisely where this class of
+defect lives. **Testing a pure function with a hand-made input tests the function, not the
+read.**
+
+### The fix, on the read side
+
+`FIXTURE_REQUIRED_COLS` / `FIXTURE_OPTIONAL_COLS` with `_table_columns` — the tolerant
+pattern the 2026-09-18 incident mandated, which I had already built and then did not use one
+file over. An absent optional column is dropped from the SQL; an absent *required* column is
+an explicit error naming it, because an empty fixture list reads as "no games" and a broken
+schema must not look like that.
+
+The absence is harmless to the meaning: `explain.market_priced` defaults the horizon to 0, so
+step 0 reads market-priced and steps 1–5 read pure Dixon-Coles, which is the truth this season
+and the same default `breakdown()` already applies. The payload now says `how_known:
+"...derived, not read"` rather than implying a column we do not store.
+
+Four tests added, including one asserting every required column is in `PRED_INSERT_COLS` and
+one asserting the generated SQL names nothing the live schema lacks.
+
+### Three times in three days, and what that now means
+
+| date | the check that passed | the path that was broken |
+|---|---|---|
+| 09-17 | curl proved every endpoint answered | the browser UI rendered `undefined` |
+| 09-18 | `add_quantiles` measured clean over the frame | `get_prediction` raised on every call |
+| 09-19 | 37 tests over pure functions | `get_fixtures` raised on every call |
+
+Yesterday's entry generalised it as *"check that a new signal can SEE its inputs on the live
+read path."* That was right and it was not enough, because I then wrote a new read and did
+not apply it. The rule needs a mechanical trigger rather than a principle to remember:
+
+**Any new SQL `SELECT` against `model_predictions` must be checked against
+`db_write.PRED_INSERT_COLS` in a test, at the time it is written.** Not "verify on the live
+path afterwards" — that is what caught it, and catching it after deploy is the expensive way.
+A test comparing the two lists costs nothing and fires before the push.
+
+The deploy-then-check discipline is what turned a silent production outage into a ten-minute
+fix, so it stays. But it is the second line, not the first.
