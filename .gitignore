@@ -25,3 +25,6 @@ backups/
 # password passed through a chat -- and this repo is PUBLIC. The durable copy
 # lives on disk at Handoffs/, untracked. See Logs/multi_run_schedule_design.md #13.
 Handoffs/Server deploy handoff.docx
+
+# saved browser pages for the manual FBref export (a megabyte each, not project data)
+tmp/
