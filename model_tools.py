@@ -1808,6 +1808,25 @@ def _odds_provenance(season):
         return None
 
 
+def _run_cutoff(run, cal, as_of, cal_note=None):
+    """(cutoff, source sentence, error). as_of None -> the latest run's gameweek at its first
+    kickoff, derived the way the walk-forward derives cutoff_date; else as_of read as UTC.
+    Shared by get_league_table and get_match_stats so the two can never disagree."""
+    import league_table as lt
+    if as_of is None:
+        cutoff = lt.first_kickoff_by_gw(cal).get(int(run["gw"]))
+        if cutoff is None:
+            return None, None, (f"the calendar has no first kickoff for GW{run['gw']}, so the latest "
+                                f"run's cutoff cannot be derived"
+                                f"{(' -- ' + cal_note) if cal_note else ''}. Pass as_of explicitly.")
+        return cutoff, (f"the latest run's cutoff: GW{run['gw']}'s first kickoff, derived from the "
+                        f"stack + forward skeleton the way the walk-forward derives cutoff_date"), None
+    cutoff, err = lt.parse_as_of(as_of)
+    if err:
+        return None, None, err
+    return cutoff, "as_of, as given (read as UTC)", None
+
+
 def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
                      include_odds_xpts: bool = True):
     """The league table AS OF a cutoff, from match results already on the volume.
@@ -1843,19 +1862,9 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
         cal_note = f"the calendar could not be read ({type(e).__name__}: {str(e)[:120]})"
 
     # -- the cutoff
-    if as_of is None:
-        cutoff = lt.first_kickoff_by_gw(cal).get(int(run["gw"]))
-        if cutoff is None:
-            return {"error": f"the calendar has no first kickoff for GW{run['gw']}, so the latest "
-                             f"run's cutoff cannot be derived"
-                             f"{(' -- ' + cal_note) if cal_note else ''}. Pass as_of explicitly."}
-        source = (f"the latest run's cutoff: GW{run['gw']}'s first kickoff, derived from the "
-                  f"stack + forward skeleton the way the walk-forward derives cutoff_date")
-    else:
-        cutoff, err = lt.parse_as_of(as_of)
-        if err:
-            return {"error": err}
-        source = "as_of, as given (read as UTC)"
+    cutoff, source, err = _run_cutoff(run, cal, as_of, cal_note)
+    if err:
+        return {"error": err}
 
     # -- the season: the latest one with a fixture dated ON or before the cutoff day. That is
     # the same rule asked one day later, with goals forced present so only its DATE clause acts.
@@ -1965,4 +1974,249 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
         pos = next((r["position"] for r in rows if r["team"] == resolved), None)
         out["form_detail"] = lt.form_detail(long, resolved, pos, include_odds_xpts,
                                             attribution=odds_meta)
+    return out
+
+
+# ---------------------------------------------------------------- match stats (as-of)
+MS_ARCHIVE_STAT_COLS = ["HS", "AS", "HST", "AST", "HC", "AC", "HF", "AF", "HY", "AY", "HR", "AR"]
+FBREF_DIR = REPO / "data" / "fbref"
+FBREF_CATEGORIES = ("standard", "misc")          # the categories the registry reads
+
+
+def _fbref_folder(key):
+    """stack season key -> FBref folder: '2025-26' -> '2025-2026'."""
+    return f"{key[:4]}-{key[:2]}{key[-2:]}"
+
+
+def _ms_club_sets():
+    """{season: set of FPL club names} measured from the stack -- the one target every source's
+    names are checked against, per season."""
+    import season_stack
+    df = season_stack.load_stack(columns=["season", "team"]).dropna()
+    return {s: set(g["team"].unique()) for s, g in df.groupby("season")}
+
+
+def _ms_archive(seasons):
+    """Match rows for `seasons` with the FIT's own keys (dixon_coles._load_matches: date_parsed,
+    home, away, goals -- one date parser) plus the match-stat columns, read from the same file
+    by row index. The combined file the newest requested season resolves to holds every
+    season, so one read serves them all."""
+    import pandas as pd
+    import dixon_coles as dc
+    newest = max(seasons)
+    m = dc._load_matches(predict_season=newest)
+    path = REPO / "data" / "history" / f"odds_all_seasons_with_{newest.replace('-', '_')}.parquet"
+    if not path.exists():                              # a season the frozen archive holds
+        path = REPO / "data" / "history" / "odds_all_seasons.parquet"
+    import pyarrow.parquet as pq
+    have = [c for c in MS_ARCHIVE_STAT_COLS if c in pq.read_schema(path).names]
+    stats = pd.read_parquet(path, columns=have)
+    m = m.join(stats.loc[m.index], how="left")
+    for c in MS_ARCHIVE_STAT_COLS:
+        if c not in m.columns:
+            m[c] = float("nan")
+    return m.reset_index(drop=True)          # EVERY season the file holds: coverage is measured on all
+
+
+def _ms_understat(seasons):
+    """Team xG per match from the per-player files, summed per (match, side) and pivoted to
+    one row per match in FPL spelling: season, date_parsed, home, away, xg_home, xg_away,
+    npxg_home, npxg_away. Seasons without a file are simply absent (a gap, stated later)."""
+    import pandas as pd
+    from team_map import UNDERSTAT_TEAM_MAP
+    parts = []
+    files = sorted((REPO / "data" / "history").glob("understat_matches_*.parquet"))   # every season on disk
+    for p in files:
+        s = p.stem.replace("understat_matches_", "").replace("_", "-")
+        u = pd.read_parquet(p, columns=["match_id", "match_date", "team", "h_a", "xG", "npxG"])
+        t = u.groupby(["match_id", "match_date", "h_a", "team"], as_index=False)[["xG", "npxG"]].sum()
+        h = t[t["h_a"] == "h"].set_index("match_id")
+        a = t[t["h_a"] == "a"].set_index("match_id")
+        j = h.join(a, lsuffix="_h", rsuffix="_a", how="inner")
+        parts.append(pd.DataFrame({
+            "season": s, "date_parsed": pd.to_datetime(j["match_date_h"]),
+            "home": j["team_h"].map(lambda n: UNDERSTAT_TEAM_MAP.get(n, n)).values,
+            "away": j["team_a"].map(lambda n: UNDERSTAT_TEAM_MAP.get(n, n)).values,
+            "xg_home": j["xG_h"].values, "xg_away": j["xG_a"].values,
+            "npxg_home": j["npxG_h"].values, "npxg_away": j["npxG_a"].values}))
+    if not parts:
+        return pd.DataFrame(columns=["season", "date_parsed", "home", "away", "xg_home", "xg_away",
+                                     "npxg_home", "npxg_away"])
+    return pd.concat(parts, ignore_index=True)
+
+
+def _ms_fbref(seasons):
+    """(tables, provenance): tables[season key][category]['for'|'against'] as frames, for the
+    seasons on disk; provenance = the root sidecar and each season's sidecar, read now."""
+    import json
+    import pandas as pd
+    root_p = FBREF_DIR / "provenance.json"
+    prov = {"root": json.loads(root_p.read_text(encoding="utf-8")) if root_p.exists() else {}, "seasons": {}}
+    tables = {}
+    for s in seasons:
+        folder = FBREF_DIR / _fbref_folder(s)
+        sc = folder / "provenance.json"
+        if not sc.exists():
+            continue
+        prov["seasons"][_fbref_folder(s)] = json.loads(sc.read_text(encoding="utf-8"))
+        tables[s] = {}
+        for cat in FBREF_CATEGORIES:
+            for side in ("for", "against"):
+                p = folder / cat / f"stats_squads_{cat}_{side}.csv"
+                if p.exists():
+                    tables[s].setdefault(cat, {})[side] = pd.read_csv(p, encoding="utf-8")
+    return tables, prov
+
+
+def get_match_stats(team: str, opponent: str = None, stats: list = None, seasons: int = None,
+                    last_n_matches: int = None, venue: str = None, side: str = "for",
+                    as_of: str = None):
+    """Rich factual team stats from what is already on the volume -- head-to-head, form
+    windows, home/away splits, for and against. ONE STAT, ONE SOURCE (match_stats.REGISTRY):
+    goals, shots, corners, fouls and cards from the odds archive per match; xG from Understat
+    per match; possession, crosses, interceptions, tackles won, offsides and fouls drawn from
+    FBref as SEASON AGGREGATES. Every stat says its grain and its measured coverage; a season
+    aggregate asked for a window, a venue or an opponent is refused by name and returned
+    labelled. Per-match rows pass through dixon_coles.knowable_before once. A stats lookup,
+    not advice: no price, no probability, no recommendation.
+    """
+    import pandas as pd
+    import match_stats as ms
+    import dixon_coles as dc                    # the ONE rule; lazy (scipy)
+    from team_map import fpl_name
+    names, err = ms.validate(stats, venue, side, seasons, last_n_matches)
+    if err:
+        return err
+    run = _latest_run()
+    if run is None:
+        return {"error": "no successful pipeline run in the database yet"}
+    keys = ms.season_keys(run["season"], seasons)
+    cal, cal_note = None, None
+    try:
+        cal = _league_calendar(run["season"])
+    except Exception as e:                              # noqa: BLE001
+        cal_note = f"the calendar could not be read ({type(e).__name__}: {str(e)[:120]})"
+    cutoff, source, err = _run_cutoff(run, cal, as_of, cal_note)
+    if err:
+        return {"error": err}
+    try:
+        archive = _ms_archive(keys)
+    except Exception as e:                              # noqa: BLE001
+        return {"error": f"the match archive could not be read: {type(e).__name__}: {str(e)[:200]}. "
+                         "This is a missing FILE, not an empty season."}
+    understat = _ms_understat(keys)
+    tables, fprov = _ms_fbref(keys)
+    clubs_by = _ms_club_sets()
+    # coverage is measured on EVERY season a source holds, before the request narrows the rows:
+    # a stat is covered for a season when its own source has values there
+    coverage = {"odds_archive": {}, "understat": {}, "fbref": {}}
+    for n, spec in ms.REGISTRY.items():
+        if spec.source == "odds_archive":
+            col = spec.columns[0]
+            coverage["odds_archive"][n] = sorted(s for s, g in archive.groupby("season")
+                                                 if col in g and g[col].notna().any())
+    coverage["understat"]["*"] = sorted(understat["season"].unique()) if len(understat) else []
+    archive = archive[archive["season"].isin(keys)].reset_index(drop=True)       # the requested seasons only,
+    understat = understat[understat["season"].isin(keys)].reset_index(drop=True) # whatever the loader returned
+
+    # -- names: every source through the maps, then the fit's own archive alias where a season's
+    # FPL spelling is the archive's ("Ipswich" in 2024-25), checked per season against the stack;
+    # 0 unmapped or the join is refused
+    from dixon_coles import ARCHIVE_NAME_ALIAS
+
+    def _to_season(frame):
+        if not len(frame):
+            return frame
+        f = frame.copy()
+        for col in ("home", "away"):
+            fixed = []
+            for s, n in zip(f["season"], f[col]):
+                clubs_s = clubs_by.get(s, set())
+                alt = ARCHIVE_NAME_ALIAS.get(n)
+                fixed.append(alt if (n not in clubs_s and alt in clubs_s) else n)
+            f[col] = fixed
+        return f
+    archive = _to_season(archive.assign(home=archive["home"].map(fpl_name), away=archive["away"].map(fpl_name)))
+    understat = _to_season(understat)
+    unmapped = {}
+    for label, frame in (("odds archive", archive), ("understat", understat)):
+        for s, g in frame.groupby("season"):
+            bad = (set(g["home"]) | set(g["away"])) - clubs_by.get(s, set())
+            if bad:
+                unmapped.setdefault(label, {})[s] = sorted(bad)
+    for s, cats in tables.items():
+        for cat, sides in cats.items():
+            for sd, t in sides.items():
+                bad = set(t["team"]) - clubs_by.get(s, set())
+                if bad:
+                    unmapped.setdefault("fbref", {})[s] = sorted(bad)
+    if unmapped:
+        return {"error": f"unmapped club name(s) in a source -- refusing to join: {unmapped}",
+                "unmapped": unmapped}
+    clubs = sorted(set().union(*(clubs_by.get(s, set()) for s in keys)))
+    resolved, err = _resolve_team(team, clubs)
+    if err:
+        return {"error": err, "known_teams": clubs}
+    opp = None
+    if opponent is not None:
+        opp, err = _resolve_team(opponent, clubs)
+        if err:
+            return {"error": err, "known_teams": clubs}
+
+    # -- join Understat onto the archive rows (same match, same keys), then THE rule, once
+    if len(understat):
+        u = understat.assign(day=understat["date_parsed"].dt.normalize())
+        m = archive.assign(day=archive["date_parsed"].dt.normalize()).merge(
+            u.drop(columns=["date_parsed", "season"]), on=["day", "home", "away"], how="left").drop(columns=["day"])
+    else:
+        m = archive.copy()
+        for c in ("xg_home", "xg_away", "npxg_home", "npxg_away"):
+            m[c] = float("nan")
+    known = m[dc.knowable_before(m, cutoff)]
+
+    on_disk = fprov["root"].get("seasons_on_disk") or []
+    coverage["fbref"]["*"] = sorted(f"{f[:4]}-{f[-2:]}" for f in on_disk)   # every season on disk, stack keys
+
+    # -- FBref aggregates vs the cutoff: fixtures dated after the cutoff day and on or before the
+    # save day (the rule twice, goals forced present) are inside the aggregate if played
+    post_cutoff, all_null = {}, {}
+    for s in keys:
+        sc = fprov["seasons"].get(_fbref_folder(s)) or {}
+        saved = sc.get("saved_at")
+        all_null[s] = {cat: (sc.get("tables") or {}).get(f"stats_squads_{cat}_for", {}).get("all_null_columns", [])
+                       for cat in FBREF_CATEGORIES}
+        if not saved:
+            post_cutoff[s] = (False, 0, None)
+            continue
+        save_ts = pd.Timestamp(saved)
+        save_ts = save_ts.tz_convert("UTC").tz_localize(None) if save_ts.tzinfo else save_ts
+        forced = m[m["season"] == s].assign(home_goals=0.0, away_goals=0.0)
+        between = ~dc.knowable_before(forced, cutoff) & dc.knowable_before(forced, save_ts + pd.Timedelta(days=1))
+        n_after = int(between.sum())
+        post_cutoff[s] = (n_after > 0, n_after, saved)
+
+    sources = {
+        "odds_archive": {"attribution": ("the odds archive: football-data.co.uk E0 files for the archive "
+                                         "seasons; for the live season, scores from FPL's fixtures endpoint "
+                                         "and the match-stat columns from football-data's current E0 file "
+                                         "(eval/fill_e0_stats.py)"),
+                         "grain": "per_match", "seasons_present": sorted(m["season"].unique())},
+        "understat": {"attribution": "Understat per-player match rows, summed to the team per match",
+                      "grain": "per_match", "seasons_present": coverage["understat"]["*"],
+                      # Understat matches with no archive row on (day, home, away): stated, never dropped silently
+                      "unjoined_matches": (len(set(zip(understat["date_parsed"].dt.normalize(), understat["home"], understat["away"]))
+                                               - set(zip(archive["date_parsed"].dt.normalize(), archive["home"], archive["away"])))
+                                           if len(understat) else 0)},
+        "fbref": {"attribution": fprov["root"].get("source"),
+                  "coverage_statement": fprov["root"].get("coverage_statement"),
+                  "seasons_on_disk": on_disk,
+                  "statement": next((sc.get("statement") for sc in fprov["seasons"].values() if sc.get("statement")), None),
+                  "saved_at": {s: (fprov["seasons"].get(_fbref_folder(s)) or {}).get("saved_at") for s in keys},
+                  "grain": "season_aggregate"},
+    }
+    rows = ms.club_rows(known, resolved)
+    out = _run_meta(run)
+    out.update({"as_of": {"cutoff": f"{cutoff:%Y-%m-%d %H:%M:%S}", "source": source, "rule": AS_OF_RULE}})
+    out.update(ms.build(resolved, opp, names, side, venue, last_n_matches, keys, rows, tables, coverage,
+                        all_null, post_cutoff, sources))
     return out

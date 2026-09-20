@@ -261,6 +261,40 @@ tools_schema = [
             },
             "required": []
         }
+    },
+    {
+        "name": "get_match_stats",
+        "description": (
+            "Rich factual team stats from matches already played, as of the model's cutoff: "
+            "head-to-head records and meetings, form windows, home/away splits, for and against. "
+            "Use for 'how much possession has Liverpool had', 'last five Liverpool-Everton "
+            "meetings', 'Arsenal's shots at home this season', 'corners for and against'. ONE "
+            "stat, ONE source, named in the answer: goals/shots/shots on target/corners/fouls/cards "
+            "per match from the odds archive; xG per match from Understat; possession, crosses, "
+            "interceptions, tackles won, offsides and fouls drawn from FBref as SEASON AGGREGATES "
+            "that cannot be windowed, split by venue or restricted to an opponent (the tool says so "
+            "and returns the season figure labelled). Each stat carries its grain and season "
+            "coverage; a gap is stated, never filled. Big chances, woodwork, passing and aerials are "
+            "held nowhere and are refused by name. Pass stat NAMES only -- never a query. A stats "
+            "lookup, not advice: no price, no probability, no recommendation."),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Club name (aliases like 'spurs' resolve)"},
+                "opponent": {"type": "string", "description": "Set for head-to-head only: meetings with this club"},
+                "stats": {"type": "array", "items": {"type": "string"},
+                          "description": ("Stat names from the registry, e.g. goals, shots, shots_on_target, "
+                                          "corners, fouls, yellow_cards, red_cards, xg, npxg, possession, "
+                                          "crosses, interceptions, tackles_won, offsides, fouled; omit for "
+                                          "the core set")},
+                "seasons": {"type": "integer", "description": "Last N seasons ending at the current one; omit for the current season"},
+                "last_n_matches": {"type": "integer", "description": "Form window over the most recent admitted matches (per-match stats only)"},
+                "venue": {"type": "string", "enum": ["home", "away"], "description": "Restrict to home or away; omit for both"},
+                "side": {"type": "string", "enum": ["for", "against", "both"], "description": "The team's own numbers, the opponents', or both (default for)"},
+                "as_of": {"type": "string", "description": "ISO timestamp cutoff (UTC); omit for the latest run's cutoff"}
+            },
+            "required": ["team"]
+        }
     }
 ]
 
@@ -272,7 +306,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
                          get_my_xi, propose_transfers, explain_prediction,
                          compare_predictions, compare_runs, get_fixtures,
-                         get_price_movements, get_league_table)
+                         get_price_movements, get_league_table, get_match_stats)
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -321,6 +355,7 @@ available_functions = {
     "get_fixtures": get_fixtures,
     "get_price_movements": get_price_movements,
     "get_league_table": get_league_table,
+    "get_match_stats": get_match_stats,
 }
 
 def run_agent(user_message: str, messages: list = None):
