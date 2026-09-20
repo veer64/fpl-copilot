@@ -1,4 +1,8 @@
-﻿data/
+﻿data/*
+# the FBref manual-export CSVs and sidecars are tracked (1.2 MB, 11 seasons): they are
+# written from browser saves on the laptop and must reach the server with the code
+!data/fbref/
+data/fbref/_last_batch_report.json
 .venv/
 **/__pycache__/
 *.pyc

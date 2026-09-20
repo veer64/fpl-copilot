@@ -1,0 +1,49 @@
+{
+ "source": "FBref (fbref.com), MANUAL browser saves by the human -- no request made by code",
+ "script": "eval/fbref_export.py",
+ "script_version": "fbref-export-2",
+ "processed_at": "2026-09-20T20:51:05.099836+00:00",
+ "seasons_on_disk": [
+  "2016-2017",
+  "2017-2018",
+  "2018-2019",
+  "2019-2020",
+  "2020-2021",
+  "2021-2022",
+  "2022-2023",
+  "2023-2024",
+  "2024-2025",
+  "2025-2026",
+  "2026-2027"
+ ],
+ "seasons_written_this_run": [],
+ "seasons_withheld_unmapped": {},
+ "files_refused": [
+  {
+   "file": "2010-2011 Premier League Stats _ FBref.com.html",
+   "reason": "no club set for 2010-2011 (2010-11) in the stack; team names cannot be verified for this season -- stopping"
+  },
+  {
+   "file": "2011-2012 Premier League Stats _ FBref.com.html",
+   "reason": "no club set for 2011-2012 (2011-12) in the stack; team names cannot be verified for this season -- stopping"
+  },
+  {
+   "file": "2012-2013 Premier League Stats _ FBref.com.html",
+   "reason": "no club set for 2012-2013 (2012-13) in the stack; team names cannot be verified for this season -- stopping"
+  },
+  {
+   "file": "2013-2014 Premier League Stats _ FBref.com.html",
+   "reason": "no club set for 2013-2014 (2013-14) in the stack; team names cannot be verified for this season -- stopping"
+  },
+  {
+   "file": "2014-2015 Premier League Stats _ FBref.com.html",
+   "reason": "no club set for 2014-2015 (2014-15) in the stack; team names cannot be verified for this season -- stopping"
+  },
+  {
+   "file": "2015-2016 Premier League Stats _ FBref.com.html",
+   "reason": "no club set for 2015-2016 (2015-16) in the stack; team names cannot be verified for this season -- stopping"
+  }
+ ],
+ "coverage_statement": "Coverage starts at 2016-17 (stack season key), the first season the vaastav stack holds, because a club name can only be verified against the season's club set measured from the stack; the odds archive starts there too. Saved pages for earlier seasons are REFUSED by the name-verification guard and listed in files_refused -- not processed with unverified names, and no hand-written club list substitutes.",
+ "wall_clock_seconds": 7.59
+}

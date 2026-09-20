@@ -1,0 +1,139 @@
+{
+ "source": "FBref (fbref.com), MANUAL browser save by the human -- no request made by code",
+ "script": "eval/fbref_export.py",
+ "script_version": "fbref-export-2",
+ "season": "2019-2020",
+ "season_evidence": {
+  "results_ids": [
+   "2019-2020"
+  ],
+  "heading": "2019-2020",
+  "title": "2019-2020",
+  "canonical_url": "2019-2020"
+ },
+ "competition": "Premier League",
+ "page_title": "2019-2020 Premier League Stats | FBref.com",
+ "page_heading": "2019-2020 Premier League Stats",
+ "page_url": "https://fbref.com/en/comps/9/2019-2020/2019-2020-Premier-League-Stats",
+ "saved_file": "tmp\\2019-2020 Premier League Stats _ FBref.com.html",
+ "saved_at": "2026-09-20T20:41:35.989478+00:00",
+ "saved_bytes": 954940,
+ "processed_at": "2026-09-20T20:50:10.745802+00:00",
+ "categories_captured": [
+  "keeper",
+  "misc",
+  "playing_time",
+  "shooting",
+  "standard"
+ ],
+ "tables": {
+  "results2019-202091_overall": {
+   "category": "results",
+   "table_type": "results_overall",
+   "rows": 20,
+   "columns": 15,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  },
+  "results2019-202091_home_away": {
+   "category": "results",
+   "table_type": "results_home_away",
+   "rows": 20,
+   "columns": 20,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_standard_for": {
+   "category": "standard",
+   "table_type": "squad_for",
+   "rows": 20,
+   "columns": 21,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_standard_against": {
+   "category": "standard",
+   "table_type": "squad_against",
+   "rows": 20,
+   "columns": 21,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_keeper_for": {
+   "category": "keeper",
+   "table_type": "squad_for",
+   "rows": 20,
+   "columns": 21,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_keeper_against": {
+   "category": "keeper",
+   "table_type": "squad_against",
+   "rows": 20,
+   "columns": 21,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_shooting_for": {
+   "category": "shooting",
+   "table_type": "squad_for",
+   "rows": 20,
+   "columns": 13,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_shooting_against": {
+   "category": "shooting",
+   "table_type": "squad_against",
+   "rows": 20,
+   "columns": 13,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_playing_time_for": {
+   "category": "playing_time",
+   "table_type": "squad_for",
+   "rows": 20,
+   "columns": 19,
+   "all_null_columns": [
+    "games_complete"
+   ],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_playing_time_against": {
+   "category": "playing_time",
+   "table_type": "squad_against",
+   "rows": 20,
+   "columns": 19,
+   "all_null_columns": [
+    "games_complete"
+   ],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_misc_for": {
+   "category": "misc",
+   "table_type": "squad_for",
+   "rows": 20,
+   "columns": 15,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  },
+  "stats_squads_misc_against": {
+   "category": "misc",
+   "table_type": "squad_against",
+   "rows": 20,
+   "columns": 15,
+   "all_null_columns": [],
+   "was_inside_html_comment": false
+  }
+ },
+ "skipped_tables": [
+  "nations"
+ ],
+ "duplicate_id_notes": [
+  "nations: 2 copies with identical content, one kept"
+ ],
+ "possession_populated": "20 of 20 squads (stats_squads_standard_for)",
+ "statement": "SEASON AGGREGATES, NOT PER-MATCH. xG is UNAVAILABLE on these pages (FBref lost its Opta licence in early 2026) -- no xG column exists here and none was omitted. POSSESSION is sourced from the Standard table's `possession` column; there is no Possession page and no Passing page as of 2026-09-20. Team names in `team` are FPL spellings via team_map.FBREF_TEAM_MAP (+ the fit's archive alias where a season's FPL spelling is the archive's); `team_fbref` is FBref's own."
+}
