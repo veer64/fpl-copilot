@@ -2068,6 +2068,41 @@ def _ms_fbref(seasons):
     return tables, prov
 
 
+def _e0_fill_sidecar(season):
+    """The E0 fill's provenance sidecar (eval/fill_e0_stats.py) for a season, or None."""
+    import json
+    p = REPO / "data" / "history" / f"e0_live_stats_{season.replace('-', '_')}.provenance.json"
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    except (OSError, ValueError):
+        return None
+
+
+def _e0_fill_check(season, archive):
+    """Does the sidecar's claim match the file? The sidecar records populated_after per column;
+    the archive rows for the season are counted here. A sidecar that silently describes absent
+    data (the 2026-09-22 ingest wiped 640 filled cells and the sidecar still claimed them) is the
+    same class of defect as the Bet365 mislabel, so the answer carries both numbers."""
+    sc = _e0_fill_sidecar(season)
+    if sc is None:
+        return None
+    claimed = sc.get("populated_after") or {}
+    rows = archive[archive["season"] == season]
+    cols = [c for c in claimed if c in rows.columns]
+    actual = {c: int(rows[c].notna().sum()) for c in cols}
+    claimed_n = sum(int(claimed[c] or 0) for c in cols)
+    actual_n = sum(actual.values())
+    ok = all(int(claimed[c] or 0) == actual[c] for c in cols)
+    return {"sidecar_fetched_at": sc.get("fetched_at"), "columns_checked": cols,
+            "claimed_cells": claimed_n, "actual_cells": actual_n, "consistent": ok,
+            "statement": (f"the E0 fill sidecar for {season} matches the archive on {len(cols)} columns"
+                          if ok else
+                          f"the E0 fill sidecar for {season} claims {claimed_n} filled cells across "
+                          f"{len(cols)} columns but the archive holds {actual_n}: the fill was overwritten "
+                          f"(an ingest rebuilt the file) or has not been re-applied -- the sidecar "
+                          f"describes data that is not there")}
+
+
 def get_match_stats(team: str, opponent: str = None, stats: list = None, seasons: int = None,
                     last_n_matches: int = None, venue: str = None, side: str = "for",
                     as_of: str = None):
@@ -2200,7 +2235,8 @@ def get_match_stats(team: str, opponent: str = None, stats: list = None, seasons
                                          "seasons; for the live season, scores from FPL's fixtures endpoint "
                                          "and the match-stat columns from football-data's current E0 file "
                                          "(eval/fill_e0_stats.py)"),
-                         "grain": "per_match", "seasons_present": sorted(m["season"].unique())},
+                         "grain": "per_match", "seasons_present": sorted(m["season"].unique()),
+                         "e0_fill": _e0_fill_check(run["season"], archive)},
         "understat": {"attribution": "Understat per-player match rows, summed to the team per match",
                       "grain": "per_match", "seasons_present": coverage["understat"]["*"],
                       # Understat matches with no archive row on (day, home, away): stated, never dropped silently

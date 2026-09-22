@@ -127,6 +127,7 @@ def mt(monkeypatch):
     monkeypatch.setattr(model_tools, "_ms_fbref", lambda seasons: (_fbref(), _fbref_provenance()))
     monkeypatch.setattr(model_tools, "_ms_club_sets", lambda: {
         "2025-26": {"Arsenal", "Spurs", "Everton"}, "2026-27": {"Arsenal", "Spurs", "Everton"}})
+    monkeypatch.setattr(model_tools, "_e0_fill_sidecar", lambda season: None)
     return model_tools
 
 
@@ -386,6 +387,29 @@ def test_attribution_and_coverage_come_from_the_sidecars_and_flip_with_them(mt, 
     assert out2["sources"]["fbref"]["seasons_on_disk"] == ["2026-2027"]
     src = inspect.getsource(mt.get_match_stats)
     assert "Coverage starts at 2016-17" not in src, "hardcoded coverage"
+
+
+def test_the_e0_sidecar_is_checked_against_the_file_and_a_lie_is_named(mt, monkeypatch):
+    """2026-09-22: the GW5 ingest wiped the 640 filled cells while the sidecar still claimed
+    them. The answer now carries claimed vs actual, per column, and says when they differ."""
+    # a sidecar that matches the synthetic archive: 2026-27 has 0 filled cells for these columns
+    truthful = {"fetched_at": "2026-09-20T22:29:08+00:00",
+                "populated_after": {"HS": 0, "AS": 0, "HC": 0, "AC": 0, "HTHG": 0}}
+    monkeypatch.setattr(mt, "_e0_fill_sidecar", lambda season: truthful)
+    out = mt.get_match_stats(team="Arsenal", stats=["goals"])
+    chk = out["sources"]["odds_archive"]["e0_fill"]
+    assert chk["consistent"] is True and chk["columns_checked"] == ["HS", "AS", "HC", "AC"]   # HTHG not loaded
+    assert chk["claimed_cells"] == 0 and chk["actual_cells"] == 0
+    # the lie: the sidecar claims 40 per column, the file holds none
+    lying = {"fetched_at": "2026-09-20T22:29:08+00:00", "populated_after": {"HS": 40, "AS": 40, "HC": 40}}
+    monkeypatch.setattr(mt, "_e0_fill_sidecar", lambda season: lying)
+    out = mt.get_match_stats(team="Arsenal", stats=["goals"])
+    chk = out["sources"]["odds_archive"]["e0_fill"]
+    assert chk["consistent"] is False and chk["claimed_cells"] == 120 and chk["actual_cells"] == 0
+    assert "describes data that is not there" in chk["statement"]
+    # no sidecar at all: nothing claimed, nothing to check
+    monkeypatch.setattr(mt, "_e0_fill_sidecar", lambda season: None)
+    assert mt.get_match_stats(team="Arsenal", stats=["goals"])["sources"]["odds_archive"]["e0_fill"] is None
 
 
 def test_no_field_presents_a_price_probability_or_forecast(mt):
