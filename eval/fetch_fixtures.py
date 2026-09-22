@@ -61,6 +61,10 @@ UA = {"User-Agent": "Mozilla/5.0 (fpl-copilot ingestion; weekly; contact: repo o
 
 sys.path.insert(0, str(REPO / "squad"))
 from assembly import TEAM_MAP  # noqa: E402  (the odds->vaastav name bridge; read-only)
+import pyarrow.parquet as pq  # noqa: E402
+# ONE list of the E0 stat columns: the fill's own definition, read here so combine() can carry
+# them through the rebuild and the two callers can never drift (see preserve_e0_fill).
+from fill_e0_stats import FILL_COLS as E0_FILL_COLS  # noqa: E402
 
 # int64 archive columns that must go nullable-float in the combined file (future
 # fixtures have no result yet). Cast is lossless for every archive value.
@@ -191,6 +195,34 @@ def write_slice(df, prov, season):
     return out
 
 
+def preserve_e0_fill(add, out, season):
+    """PRESERVE THE E0 STAT FILL (2026-09-22). eval/fill_e0_stats.py fills its FILL_COLS on the
+    combined file's live-season rows; rebuilding from archive + slice dropped them at every
+    ingest (the GW5 ingest of 2026-09-22 wiped 640 cells on the server two days after the
+    fill). Carry them from the PREVIOUS combined file onto the fresh slice rows, keyed like the
+    price carry-forward on (Date, HomeTeam, AwayTeam), filling NULLS only -- a value the fresh
+    slice already holds is never touched, and a rescheduled fixture (new date) simply does not
+    match and is re-filled by the next fill run. The column set is the fill's own
+    (E0_FILL_COLS is fill_e0_stats.FILL_COLS), so the two can never drift. Returns
+    (slice, cells preserved)."""
+    if not out.exists():
+        return add, 0
+    have_cols = [c for c in E0_FILL_COLS if c in pq.read_schema(out).names and c in add.columns]
+    if not have_cols:
+        return add, 0
+    key = ["Date", "HomeTeam", "AwayTeam"]
+    prev = pd.read_parquet(out, columns=["season"] + key + have_cols)
+    prev = prev[prev["season"] == season].set_index(key)
+    have = prev.reindex(pd.MultiIndex.from_frame(add[key]))
+    n = 0
+    for c in have_cols:
+        need = add[c].isna().values & have[c].notna().values
+        if need.any():
+            add.loc[need, c] = have[c].values[need]
+            n += int(need.sum())
+    return add, n
+
+
 def combine(season):
     tag = season.replace("-", "_")
     add = pd.read_parquet(HIST / f"odds_fixtures_{tag}.parquet")
@@ -201,11 +233,13 @@ def combine(season):
             base[c] = base[c].astype("float64")  # fixtures, unpulled stat columns)
     assert list(base.columns) == list(add.columns)
     out = HIST / f"odds_all_seasons_with_{tag}.parquet"
+    add, n_preserved = preserve_e0_fill(add, out, season)
     combined = pd.concat([base, add], ignore_index=True)
     tmp = out.with_suffix(".tmp.parquet")
     combined.to_parquet(tmp, index=False)
     replace_with_retry(tmp, out)
-    print(f"COMBINED -> {out.name}: {len(base)} archive rows (source file untouched) + {len(add)}")
+    print(f"COMBINED -> {out.name}: {len(base)} archive rows (source file untouched) + {len(add)}; "
+          f"E0 stat cells preserved from the previous combined file: {n_preserved}")
 
 
 def main():
