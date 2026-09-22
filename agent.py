@@ -271,9 +271,13 @@ tools_schema = [
             "meetings', 'Arsenal's shots at home this season', 'corners for and against'. ONE "
             "stat, ONE source, named in the answer: goals/shots/shots on target/corners/fouls/cards "
             "per match from the odds archive; xG per match from Understat; possession, crosses, "
-            "interceptions, tackles won, offsides and fouls drawn from FBref as SEASON AGGREGATES "
-            "that cannot be windowed, split by venue or restricted to an opponent (the tool says so "
-            "and returns the season figure labelled). Each stat carries its grain and season "
+            "interceptions, tackles won, offsides and fouls drawn from FBref as SEASON AGGREGATES. "
+            "The filter rule is by GRAIN, never by stat name: EVERY per-match stat (goals, shots, "
+            "shots_on_target, corners, fouls, yellow_cards, red_cards, xg, npxg) accepts EVERY filter "
+            "-- opponent, venue, last_n_matches, seasons -- so 'corners in the last 5 meetings with "
+            "X' is opponent + last_n_matches + stats=['corners']; only the season-aggregate stats "
+            "refuse opponent, venue and a window (the tool says so and returns the season figure "
+            "labelled), and each stat's `filters` block states which apply. Each stat carries its grain and season "
             "coverage; a gap is stated, never filled. Big chances, woodwork, passing and aerials are "
             "held nowhere and are refused by name. Pass stat NAMES only -- never a query. A stats "
             "lookup, not advice: no price, no probability, no recommendation."),
@@ -281,7 +285,7 @@ tools_schema = [
             "type": "object",
             "properties": {
                 "team": {"type": "string", "description": "Club name (aliases like 'spurs' resolve)"},
-                "opponent": {"type": "string", "description": "Set for head-to-head only: meetings with this club"},
+                "opponent": {"type": "string", "description": "Restrict to meetings with this club (head-to-head). Works with every per-match stat -- goals, shots, corners, fouls, cards, xG -- and combines with venue, last_n_matches and seasons"},
                 "stats": {"type": "array", "items": {"type": "string"},
                           "description": ("Stat names from the registry, e.g. goals, shots, shots_on_target, "
                                           "corners, fouls, yellow_cards, red_cards, xg, npxg, possession, "

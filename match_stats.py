@@ -66,6 +66,17 @@ CORE_STATS = ["goals", "shots", "shots_on_target", "corners", "xg", "possession"
 VENUES = ("home", "away")
 SIDES = ("for", "against", "both")
 MAX_SEASONS, MAX_WINDOW = 11, 100
+# THE FILTER RULE, BY GRAIN, NEVER BY STAT NAME. Every per-match stat accepts every filter;
+# a season aggregate refuses the three that need matches and accepts `seasons`. Stated on
+# every returned stat as `filters` so a caller reads it instead of inferring it (2026-09-22:
+# the agent dropped `opponent` from a corners question and told the user corners could not be
+# filtered by opponent -- the tool had never been asked).
+FILTERS_BY_GRAIN = {
+    "per_match": {"opponent": "accepted", "venue": "accepted", "last_n_matches": "accepted",
+                  "seasons": "accepted"},
+    "season_aggregate": {"opponent": "refused", "venue": "refused", "last_n_matches": "refused",
+                         "seasons": "accepted"},
+}
 NOT_ADVICE = ("a stats lookup of matches already played: it states no price, no chance of a "
               "future result and no recommendation, and none can be derived from it")
 
@@ -255,6 +266,7 @@ def build(team, opponent, names, side, venue, last_n, seasons, rows, tables, cov
         cov = coverage.get(spec.source, {})
         covered = list(cov.get(name, cov.get("*", [])))
         base["coverage"] = {"seasons": covered, "source": spec.source, "grain": spec.grain}
+        base["filters"] = dict(FILTERS_BY_GRAIN[spec.grain])           # by grain, never by name
         missing = [s for s in seasons if s not in covered]
         if missing:
             base["coverage_note"] = (f"{name} is covered by {spec.source} for {covered or 'no season'}; "

@@ -312,6 +312,54 @@ def test_xg_comes_from_understat_and_joins_onto_the_filtered_archive_rows(mt):
 
 # ------------------------------------------------------------------ designed refusals
 
+def test_every_per_match_stat_accepts_every_filter_and_every_aggregate_refuses_three(mt):
+    """THE INVARIANT, by grain and never by stat name. 2026-09-22: a user asked for corners in
+    the last 5 meetings with Spurs; the agent dropped `opponent` and said corners could not be
+    filtered by opponent. The tool had never been asked -- this pins that it accepts, for every
+    per-match stat in the registry, so a future stat wired wrongly fails here."""
+    import match_stats as ms
+    filters = {"opponent": {"opponent": "Spurs"}, "venue": {"venue": "home"},
+               "last_n_matches": {"last_n_matches": 5}, "seasons": {"seasons": 2},
+               "all": {"opponent": "Spurs", "venue": "home", "last_n_matches": 5, "seasons": 2}}
+    for name, spec in ms.REGISTRY.items():
+        if spec.source is None:
+            continue
+        for fname, args in filters.items():
+            out = mt.get_match_stats(team="Arsenal", stats=[name], side="both", **args)
+            assert "error" not in out, (name, fname, out.get("error"))
+            s = _stat(out, name)
+            refused = sorted(k for k in s if k.endswith("_refusal"))
+            if spec.grain == "per_match":
+                assert refused == [], f"per-match stat {name} refused {refused} under {fname}"
+                assert s["window"] is not None and "matches_counted" in s["window"], (name, fname)
+                assert s["filters"] == {"opponent": "accepted", "venue": "accepted",
+                                        "last_n_matches": "accepted", "seasons": "accepted"}
+            else:
+                expected = {"opponent": ["opponent_refusal"], "venue": ["venue_refusal"],
+                            "last_n_matches": ["window_refusal"], "seasons": [],
+                            "all": ["opponent_refusal", "venue_refusal", "window_refusal"]}[fname]
+                assert refused == expected, (name, fname, refused)
+                assert s["filters"]["opponent"] == "refused" and s["filters"]["seasons"] == "accepted"
+    src = inspect.getsource(ms.build)
+    assert '"corners"' not in src and "'corners'" not in src, "a stat name in the filter logic"
+
+
+def test_corners_in_the_last_meetings_with_an_opponent_return_a_hand_checked_number(mt):
+    """The failing question's shape on the synthetic rows. Arsenal v Spurs with corners:
+    16/8/25 Arsenal home HC 8 AC 3 -> for 8, against 3; 20/9/25 Spurs home HC 3 AC 6 -> Arsenal
+    for 6, against 3; 22/8/26 has no corners (unfilled) -> not counted. For 14, against 6 over 2."""
+    out = mt.get_match_stats(team="Arsenal", opponent="Tottenham", stats=["corners"],
+                             last_n_matches=5, seasons=2, side="both")
+    c = _stat(out, "corners")
+    assert [k for k in c if k.endswith("_refusal")] == []
+    assert c["window"] == {"requested": 5, "matches_in_scope": 3, "matches_counted": 2, "complete": False}
+    assert c["for"]["total"] == 14 and c["against"]["total"] == 6
+    assert out["head_to_head"]["matches_counted"] == 3           # goals know all three meetings
+    # possession with an opponent is still refused with the grain reason, unchanged
+    p = _stat(mt.get_match_stats(team="Arsenal", opponent="Tottenham", stats=["possession"], seasons=2), "possession")
+    assert "cannot be restricted to head-to-head meetings: it is a season aggregate" in p["opponent_refusal"]
+
+
 def test_a_stat_outside_its_measured_season_range_is_a_stated_refusal_not_a_number(mt):
     out = mt.get_match_stats(team="Arsenal", stats=["corners"], seasons=1)   # 2026-27: archive corners all null
     c = _stat(out, "corners")
