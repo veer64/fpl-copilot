@@ -573,3 +573,9 @@ Coventry's lambda sits at 0.21–0.29 across steps 1–5. Verified the detector 
 synthetic input — fixed, not blinded. The E0 stat fill now survives the weekly ingest
 (`fetch_fixtures.combine` carries the fill's own columns; proven through a real `--force-gw 5`
 ingest, 800 cells before and after).
+
+**2026-09-23, later:** third instance of one pattern in a day — the agent follows section 1b's
+reasoning and gets the surface form wrong (skipped the `get_fixtures(gw=7)` call, a stray
+"week", then a declined verdict expressed as "No"). Prompt-following degrades on the
+mechanical instructions while the judgment holds, the reverse of the expected failure mode,
+and further argument for the prompt-behaviour eval that does not exist.
