@@ -543,3 +543,33 @@ layer to the side of the thing that mattered — and the response is a mechanica
 one outage on its first run. The open items that matter are the duplicate λ bound on the build
 path, the spent tool budget with no instrument behind it, and an unattributed `git pull` on the
 server that nobody has identified.
+
+---
+
+## 11. Addendum, 2026-09-23 — four agent-side defects, two uninstrumented gaps, open item 11 solved
+
+**Four defects found by live `/chat` turns and missed by every test, all on the agent's side,
+none in a tool:** (1) head-to-head defaulted to the current season and answered a correct zero
+(2026-09-22, fixed in the prompt, 4de15e5); (2) a corners question had its `opponent` argument
+dropped and the user was told corners could not be filtered by opponent — the tool was never
+asked (2026-09-22, 3a9c3aa: `filters` block by grain + prompt); (3) the initial horizon
+omission; (4) a step-1 Dixon-Coles figure presented as decision-grade with "check back
+tomorrow" for a gameweek three weeks out (2026-09-23, prompt section 1b). **Tool tests do not
+catch these.** They are the argument for a prompt-behaviour eval that does not exist. With the
+tool-selection instrument also unmeasured at any surface size (surface now 19), that is **two**
+uninstrumented agent-behaviour gaps, not one.
+
+**Open item 11 is solved.** The unattributed `git pull` is `.github/workflows/deploy.yml`
+(in the repo since 2026-07-05, rewritten for compose 2026-08-31): on every push to main,
+GitHub Actions sshes in and runs `git pull` then `docker compose up -d --build`. It arrives
+through sshd, which is why no cron, timer or hook was ever found. Consequences: every push is
+an immediate deploy regardless of the deadline / ingest no-touch window, and a manual deploy
+races it (a ref-lock error on 2026-09-22 22:26Z). The standing rule "every push to main is a
+deploy" was literally true. Whether to gate the workflow on the no-touch window is undecided.
+
+**Also since §0:** `/health` went from six reasons to zero at run 16 (2026-09-21 18:31:52Z)
+because Coventry scored (1-0 at Nott'm Forest, 19 Sep); the fit converged (170 iterations) and
+Coventry's lambda sits at 0.21–0.29 across steps 1–5. Verified the detector still fires on
+synthetic input — fixed, not blinded. The E0 stat fill now survives the weekly ingest
+(`fetch_fixtures.combine` carries the fill's own columns; proven through a real `--force-gw 5`
+ingest, 800 cells before and after).
