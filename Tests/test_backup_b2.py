@@ -85,10 +85,58 @@ def test_a_bare_endpoint_is_forced_to_https(raw, want):
     assert bb.endpoint_url(raw) == want
 
 
-def test_live_is_excluded_and_nothing_else_is():
-    """live/ is frames, status archives and dispatch_state -- rebuilt by the next tick.
-    Everything else is kept, including BOTH places odds live."""
-    assert bb.SKIP_DIRS == ("live",)
+def _fake_volume(root):
+    """A model-data volume in miniature: the kept dirs, and live/ with everything the real
+    one holds -- status files, run logs, the deadline frames, and the raw poller archive."""
+    (root / "history").mkdir(parents=True)
+    (root / "history" / "x.parquet").write_bytes(b"h" * 10)
+    (root / "fbref" / "2025-2026").mkdir(parents=True)
+    (root / "fbref" / "2025-2026" / "y.csv").write_bytes(b"f" * 10)
+    live = root / "live"
+    (live / "bootstrap_raw" / "2026-27").mkdir(parents=True)
+    (live / "bootstrap_raw" / "2026-27" / "20260918T173009Z.json.gz").write_bytes(b"r" * 10)
+    (live / "bootstrap_raw" / "2026-27" / "20260925T024620Z.build_fetch.json.gz").write_bytes(b"b" * 10)
+    (live / "runs").mkdir()
+    (live / "runs" / "GW6_nightly_20260925T1100Z.txt").write_bytes(b"s" * 10)
+    for name in ("BACKUP_STATUS.json", "GW6_BUILD_STATUS.txt", "INGEST_STATUS.txt",
+                 "_tmp_frame_baseline.parquet", "dispatch_state.json"):
+        (live / name).write_bytes(b"x" * 10)
+    return root
+
+
+def test_live_is_excluded_EXCEPT_the_raw_poller_archive(tmp_path):
+    """KNOWN_ISSUES #26 (2026-09-25): data/live/bootstrap_raw/ is SOURCE data -- what
+    bootstrap-static served at each second, not rebuildable -- and had never been backed up
+    because the exclusion was the whole of live/. Now every entry under live/ is excluded
+    by name EXCEPT bootstrap_raw; nothing outside live/ is excluded at all."""
+    vol = _fake_volume(tmp_path / "vol")
+    ex = bb.exclusions(str(vol))
+    assert ex == sorted(ex)
+    assert "./live" not in ex and not any(x.startswith("./live/bootstrap_raw") for x in ex)
+    assert set(ex) == {"./live/BACKUP_STATUS.json", "./live/GW6_BUILD_STATUS.txt", "./live/INGEST_STATUS.txt",
+                       "./live/_tmp_frame_baseline.parquet", "./live/dispatch_state.json", "./live/runs"}
+    assert bb.SKIP_DIRS == ("live",) and bb.KEEP_UNDER_SKIPPED == {"live": ("bootstrap_raw",)}
+    # a volume with no live/ at all excludes nothing and does not crash
+    assert bb.exclusions(str(tmp_path / "empty")) == []
+
+
+@pytest.mark.skipif(__import__("shutil").which("tar") is None, reason="no tar on PATH")
+def test_data_tar_holds_the_raw_archive_and_nothing_else_from_live(tmp_path, monkeypatch):
+    """The real command, on the miniature volume: the archive must contain the raw poller
+    files and the kept dirs, and NOTHING else from live/."""
+    import tarfile
+    vol = _fake_volume(tmp_path / "vol")
+    monkeypatch.setattr(bb, "VOLUME", str(vol))
+    monkeypatch.setattr(bb, "MIN_DATA_BYTES", 0)
+    path, size = bb.make_data_tar(str(tmp_path), "stamp")
+    with tarfile.open(path, "r:gz") as t:
+        names = {m.name.replace("\\", "/").lstrip("./") for m in t.getmembers() if m.isfile()}
+    assert "live/bootstrap_raw/2026-27/20260918T173009Z.json.gz" in names
+    assert "live/bootstrap_raw/2026-27/20260925T024620Z.build_fetch.json.gz" in names
+    assert "history/x.parquet" in names and "fbref/2025-2026/y.csv" in names
+    leaked = sorted(n for n in names if n.startswith("live/") and not n.startswith("live/bootstrap_raw/"))
+    assert leaked == [], f"live/ entries other than bootstrap_raw leaked into the backup: {leaked}"
+    assert size > 0
 
 
 def test_the_tripwire_tables_include_the_two_that_were_asked_for():

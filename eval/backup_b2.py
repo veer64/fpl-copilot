@@ -10,7 +10,8 @@ WHAT IT TAKES
   * a LOGICAL dump -- `pg_dump -Fc`, taken against the RUNNING database. Not a file copy of
     the volume: copying Postgres data files while the server is writing gives a torn
     snapshot that may not restore at all, and would fail silently until the day it is needed.
-  * the model-data volume EXCEPT `live/`. `live/` is the deadline frames, the build and
+  * the model-data volume EXCEPT `live/` -- but INCLUDING `live/bootstrap_raw/`, the raw
+    poller archive (KNOWN_ISSUES #26, 2026-09-25). `live/` is the deadline frames, the build and
     ingest status archives and dispatch_state -- all rebuilt by the next tick. Everything
     else is kept, rather than enumerating odds files: the odds sit in two places
     (`odds_props/` and `history/odds_*`), the whole volume is under 70 MB, and B2 is about
@@ -67,7 +68,12 @@ VOLUME = "/var/lib/docker/volumes/fpl-copilot_fpl_model_data/_data"
 STATUS_PATH = os.path.join(VOLUME, "live", "BACKUP_STATUS.json")
 PG_CONTAINER = "fpl-postgres"
 DB_NAME = "fpl"
-SKIP_DIRS = ("live",)                 # rebuilt by the next tick
+SKIP_DIRS = ("live",)                 # rebuilt by the next tick ...
+# ... EXCEPT the raw poller archive (KNOWN_ISSUES #26, 2026-09-25): data/live/bootstrap_raw/
+# is SOURCE data -- what bootstrap-static served at each second, the only record the live
+# availability rows and the FPL news versions are derived from -- and it is not rebuildable.
+# Every other entry under live/ is excluded by name; this one is kept. ~8 MB per season.
+KEEP_UNDER_SKIPPED = {"live": ("bootstrap_raw",)}
 REMOTE = "b2s3"
 
 # Floors, not targets: they exist to make a truncated artefact loud. The database is ~23 MB
@@ -169,13 +175,32 @@ def verify_dump(path):
         run(["docker", "exec", PG_CONTAINER, "rm", "-f", tmp_in_container])
 
 
+def exclusions(volume=None):
+    """The tar --exclude patterns: each skipped dir as a whole when nothing under it is kept,
+    otherwise every entry under it EXCEPT the kept ones, by name, listed at call time so a
+    new status file is excluded without anyone editing this list. Sorted, so the command
+    line is reproducible."""
+    volume = VOLUME if volume is None else volume
+    out = []
+    for d in SKIP_DIRS:
+        keep = KEEP_UNDER_SKIPPED.get(d, ())
+        if not keep:
+            out.append(f"./{d}")
+            continue
+        base = os.path.join(volume, d)
+        if not os.path.isdir(base):
+            continue
+        out.extend(f"./{d}/{name}" for name in os.listdir(base) if name not in keep)
+    return sorted(out)
+
+
 def make_data_tar(workdir, stamp):
     """gzip, not zstd: parquet is already compressed so the ratio barely differs, and gzip is
     readable on any machine someone might be restoring from in a hurry."""
     path = os.path.join(workdir, f"model_data_{stamp}.tar.gz")
     cmd = ["tar", "-czf", path, "-C", VOLUME]
-    for d in SKIP_DIRS:
-        cmd += ["--exclude", f"./{d}"]
+    for x in exclusions():
+        cmd += ["--exclude", x]
     cmd += ["."]
     r = run(cmd)
     if r.returncode != 0:

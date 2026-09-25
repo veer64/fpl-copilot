@@ -78,5 +78,5 @@ def test_merged_availability_unique_keys_and_schema():
     assert (av.dtypes == ref.dtypes).all()
     assert not av.duplicated(["season", "element", "gw"]).any()
     assert (av["season"] == "2026-27").all()
-    assert set(av["asof_source"].unique()) <= {"live_snapshot", "live_late_news", "build_fetch",
+    assert set(av["asof_source"].unique()) <= {"live_snapshot", "live_late_news", "build_fetch", "news_fetch",
                                                "snapshot", "late_news"}

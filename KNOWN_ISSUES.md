@@ -1510,7 +1510,7 @@ gameweeks to a floor of 6 against an attack fit at 0.00047, and 21 starting GK/D
 own-side case is flagged and should be (the fit is broken and a reader is entitled to know) but it is largely
 inert numerically, and 185 of the 338 rows are own-team -- so 338 must NOT be read as 338 corrupted floors.
 
-## #26 -- the raw poller archive (data/live/bootstrap_raw/) has NEVER been backed up -- OPEN 2026-09-25
+## #26 -- the raw poller archive (data/live/bootstrap_raw/) had NEVER been backed up -- RESOLVED, PENDING DEPLOY 2026-09-25
 
 `eval/backup_b2.py` archives the model-data volume EXCEPT `live/` (`SKIP_DIRS = ("live",)`,
 on the stated grounds that `live/` is rebuilt by the next tick). The raw poller archive
@@ -1524,5 +1524,15 @@ availability the live builds are derived from (`poll_availability.py --build` an
 Losing the volume loses the 2026-27 availability history that the as-of rows for GW1-5
 were built from. Found during the stale-availability fix (the build-time snapshot now
 also lands here). Not fixed in that change: the backup's exclusion list is its own
-decision and its own deploy. The obvious shape is to carve `live/bootstrap_raw/` back
-into the archive (a few MB per season) while keeping the rest of `live/` excluded.
+decision and its own deploy.
+
+**RESOLVED in the working tree, PENDING DEPLOY (2026-09-25, later the same day):**
+`eval/backup_b2.py` now builds its exclusion list per entry -- `exclusions()` lists every
+name directly under `live/` at run time and excludes each one EXCEPT `bootstrap_raw`
+(`KEEP_UNDER_SKIPPED`). The rest of `live/` stays out; nothing outside `live/` changes.
+Tested (`Tests/test_backup_b2.py`): the exclusion list on a miniature volume names every
+`live/` entry but the archive, and a real `tar` run of the same command puts the archive's
+files in and nothing else from `live/`. Size added, measured on a copy of the server's
+53-file archive: 8,182,316 bytes as tar.gz (the files are already gzipped, so the archive
+adds its raw size). Takes effect on the first 03:43Z backup after the deploy; until then
+the archive is still unprotected.

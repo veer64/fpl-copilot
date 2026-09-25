@@ -372,9 +372,11 @@ def build(season=None, now=None):
                        "snapshot_path": str(snap_path.relative_to(REPO))}
                 src = late.get(el, e)
                 row.update({f"asof_{f}": src.get(f) for f in FIELDS})
+                # provenance by origin: a poller poll is 'live_snapshot'; any other origin
+                # (build_fetch, news_fetch, ...) is named as itself, never as a poll
                 row["asof_source"] = ("live_late_news" if el in late
-                                      else SOURCE_BUILD if raw_source(snap_path) == SOURCE_BUILD
-                                      else "live_snapshot")
+                                      else "live_snapshot" if raw_source(snap_path) == SOURCE_POLLER
+                                      else raw_source(snap_path))
                 row["season"] = s
                 rows.append(row)
         if not rows:
