@@ -1,0 +1,63 @@
+{
+ "request": {
+  "query": "Coventry City team news injury update",
+  "search_depth": "advanced",
+  "include_domains": [
+   "ccfc.co.uk"
+  ],
+  "start_date": "2026-09-14",
+  "end_date": "2026-09-18",
+  "max_results": 5
+ },
+ "http": 200,
+ "response": {
+  "query": "Coventry City team news injury update",
+  "follow_up_questions": null,
+  "answer": null,
+  "images": [],
+  "results": [
+   {
+    "url": "https://www.ccfc.co.uk/news",
+    "title": "News",
+    "content": "Coventry City announce new partnership with Red Bull. Club News |. 3 days ago ... Frank Lampard provides latest update on Aur\u00e8le Amenda. Club News |. 17",
+    "score": 0.47343868,
+    "raw_content": null,
+    "id": "762d95-00"
+   },
+   {
+    "url": "https://www.reddit.com/r/penguins",
+    "title": "r/penguins",
+    "content": "[Pens Inside Scoop] Amanda Kessel provided an update on Ben Kindel's lower-body injury that was initially listed as day-to-day: \"It's looking more week-to-week\u00a0...Read more",
+    "score": 0.24013293,
+    "raw_content": null,
+    "id": "cd5cb1-01"
+   },
+   {
+    "url": "https://www.concordiacollege.edu/news",
+    "title": "News | Concordia College",
+    "content": "## Students and faculty partner with Sanford Health on mental health program for injured athletes\n\n Continue Reading\n\nA Concordia College student and a Concordia College professor are among three Moorhead artists whose works were selected for the Minnesota State Fair 2026 fine arts competition in St. Paul.\n\n## In the News: Concordia student and professor chosen for art competition\n\n Continue Reading\n\nPrevious Page \n Next Page\n\nFeatured   \nVideos\n\n## Photo of the Week\n\n    \n\nContact ### Kari Lucin\n\nMedia Relations Specialist   Communications and Marketing\n\nP 218.299.3678\n\nE klucin@cord.edu\n\n  \n\nEvents Calendar\n\n \n\n## Events Calendar\n\nStay up to date on upcoming events.\n\n View Calendar\n\n  \n\nNewsletter\n\n \n\n## Newsletter\n\nRead the latest news and updates.\n\n Subscribe\n\n  \n\nMagazine [...] Continue Reading\n\nConcordia College professors spent summer learning about artificial intelligence and thoughtfully incorporating AI into their work.\n\n## Concordia College professors find AI solutions for educators\n\n Continue Reading\n\nConcordia Athletics will host a ribbon-cutting ceremony to celebrate the newly renovated Memorial Auditorium at 3 p.m. Saturday, Sept. 12.\n\n## Concordia to host Memorial Auditorium ribbon-cutting ceremony\n\n Continue Reading\n\nEligible students will be able to transfer to Concordia and pay $2,500 a semester in tuition.\n\n## Concordia and M State partner on new affordability transfer program\n\n Continue Reading\n\nThe initiative provides meaningful support for athletes facing setbacks in their sports and personal lives. [...] Skip to Main Content\n\n## Uh-oh! Internet Explorer is out of date.\n\nYou are currently running an old version of Internet Explorer that does not support some of the features on this site. For a better experience upgrade to Microsoft Edge.\n\nUpdate to Microsoft Edge\n\nOr try an alternative browser:\n\nChrome Firefox\n\nConcordia College\n\n Menu Switch\n\n \n\nFeatured  \nArticle\n\n[](\n\nAcademics\n\n## Concordia symposium explores vocation \u2014 and the joys and struggles of calling\n\nConcordia invites the public to explore the transformative power of vocation in the Sept. 23 symposium, \u201cPassion to Purpose: How Vocation Shapes Wellness and Meaning.\"\n\nContinue Reading\n\n# News & Events",
+    "score": 0.03277815,
+    "raw_content": null,
+    "id": "8e9c6b-02"
+   },
+   {
+    "url": "https://news.ycombinator.com/item?id=49729412",
+    "title": "Claude Cowork and chat are now one Claude",
+    "content": "| |  |  |  |  ---  |  |  | vertigoruntime 7 days ago  | parent | prev | next (javascript:void(0))   I just have RSS feeds of news in AI circles that may be cool, built an entire tracker around it - helps me pick up new stuff on time !  reply | |\n| |  |  |  |  ---  |  |  | peterldowns 7 days ago  | root | parent | next (javascript:void(0))   What made you just start posting on HN? Welcome and thanks for the links!  reply | |\n| |  |  |  |  ---  |  |  | brazukadev 7 days ago  | root | parent | prev | next (javascript:void(0))   this post became a great \"Show HN\" for it  reply | |\n| |  |  |  |  ---  |  |  | zakisaad 7 days ago  | root | parent | prev | next (javascript:void(0))   Any chance you could drop the set of feeds? Would be very interested!  reply | | [...] If I saw a bunch of blogs with affiliate links or landing pages for slop products I\u2019d be more suspicious.\n\nIf I saw a bunch of blogs with affiliate links or landing pages for slop products I\u2019d be more suspicious.\n\nreply\n\n|  |  |  |\n --- \n|  |  | orliesaurus 7 days ago  | parent | prev | next (javascript:void(0))   > putting my tinfoil hat on and awaiting for replies  reply |\n\nreply\n\n|  |  |  |\n --- \n|  |  | vertigoruntime 7 days ago  | parent | prev | next (javascript:void(0))   I just have RSS feeds of news in AI circles that may be cool, built an entire tracker around it - helps me pick up new stuff on time !  reply |\n\nreply [...] of my favourites. Chat does it. I read some of them, liked some, disliked few. I give chat that information, it recommends me based on those, now I don't know which of the entries are relevant or not. I don't want lock-in, so I try my best to tell it to generate copy-able MD syntax that I have to manually paste to an editor. With Work mode, I tell the model to just maintain an append only markdown file, where it writes \"still recommended\", \"not recommended any more\", etc. beside titles. It does this after each turn. This is just an example. Work - I see it as a mode that can maintain, update, and edit a file. It's very convenient.  reply | | | |  |  |  |  ---  |  |  | shepherdjerred 7 days ago  | parent | prev | next (javascript:void(0))   > The harness, steering, etc. in the",
+    "score": 0.021866694,
+    "raw_content": null,
+    "id": "e16e51-03"
+   },
+   {
+    "url": "https://www.cbsnews.com/news/new-photos-damage-u-s-kuwait-saudi-arabia-iran-drone-missile-attacks",
+    "title": "New photos show widespread damage at U.S. positions caused by Iranian missile, drone attacks - CBS News",
+    "content": "Watch CBS News\n\n# New photos show widespread damage at U.S. positions caused by Iranian missile, drone attacks\n\nJonah  Kaplan\n\nSeptember 15, 2026 / 5:14 PM EDT\n/ CBS News\n\nNew photos obtained exclusively by CBS News reveal for the first time the widespread damage and destruction of buildings and vehicles at multiple U.S. positions across the Middle East, as a result of Iranian missile and drone attacks.\n\nThe images were sent to CBS News by active service members on condition of anonymity because of rigid media restrictions within the military.\n\n\"This is major damage to our bases that hasn't been communicated to the American public,\" one deployed service member told CBS News. \"We're standing there with our eyes closed getting punched in the face.\"\n\nimage-1-1.jpg [...] screenshot-2026-09-15-at-4-42-08-pm.png \n\n\"These are not 'squirters' getting through,\" the service member added, referencing language used by Defense Secretary Pete Hegseth after the deadly March 1 attack on Port of Shuaiba in Kuwait that killed six U.S. troops. \"We're not defending these bases. We're just watching them get destroyed.\"\n\n### The War with Iran More\n\n#### Iran war could cost $2 billion per month, Congressional Budget Office estimates\n\nU.S. Army Soldiers Conduct Operations in the Middle East \n\n#### Pentagon inspector general says Iran war has caused weapons shortages\n\nhq-b7aewyaajzx6.jpg \n\n#### Iran's proxies using Yemen to compound war's impact on oil prices\n\nYemen's Houthi Detained Fighters Arriving Sana'a In  2026 [...] Yemen's Houthi Detained Fighters Arriving Sana'a In  2026 \n\n#### White House backs Hegseth as new details come out about Iran war's cost\n\nDefense Secretary Pete Hegseth salutes as he welcomes Germany's defense minister at the Pentagon in Arlington, Virginia, Sept. 15, 2026. \n\n#### Missile crisis: The hard truths about America's military arsenal\n\nlockheed-martin-patriot-missile-assembly-1280.jpg \n\nIn:\n\n\u00a9 2026 CBS Interactive Inc. All Rights Reserved.\n\n#### CBS News 24/7\n\nCopyright \u00a92026 CBS Interactive Inc. All rights reserved.",
+    "score": 0.018534167,
+    "raw_content": null,
+    "id": "045acc-04"
+   }
+  ],
+  "response_time": 2.34,
+  "request_id": "b6b1fc8d-5fda-4658-af85-8aec82d7ab23"
+ }
+}

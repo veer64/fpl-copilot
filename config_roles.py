@@ -28,3 +28,70 @@ LEVER_INPUTS_ACTIVE = "combined" in CONFIGS
 # definition, read by the builder and the read side alike -- never copied.
 from datetime import timedelta
 MAX_AVAILABILITY_AGE = timedelta(hours=6)
+
+# CLUB_DOMAINS -- the official-website allowlist for club team news (approved by the user
+# 2026-09-25 after a one-GET verification of every site): FPL team name (bootstrap-static
+# `teams[].name`) -> registrable domain, no "www." so subdomains match. ONE place; every
+# fetcher, search filter and provenance check reads this and nothing else. Not verified by
+# title on the seven JavaScript-rendered sites (avfc, afcb, ccfc, evertonfc, wearehullcity,
+# nottinghamforest, safc): their served HTML carries no <title>; the domains are the clubs'.
+CLUB_DOMAINS = {
+    "Arsenal": "arsenal.com",
+    "Aston Villa": "avfc.co.uk",
+    "Bournemouth": "afcb.co.uk",
+    "Brentford": "brentfordfc.com",
+    "Brighton": "brightonandhovealbion.com",
+    "Chelsea": "chelseafc.com",
+    "Coventry City": "ccfc.co.uk",
+    "Crystal Palace": "cpfc.co.uk",
+    "Everton": "evertonfc.com",
+    "Fulham": "fulhamfc.com",
+    "Hull City": "wearehullcity.co.uk",
+    "Ipswich Town": "itfc.co.uk",
+    "Leeds": "leedsunited.com",
+    "Liverpool": "liverpoolfc.com",
+    "Man City": "mancity.com",
+    "Man Utd": "manutd.com",
+    "Newcastle": "newcastleunited.com",
+    "Nott'm Forest": "nottinghamforest.co.uk",
+    "Spurs": "tottenhamhotspur.com",
+    "Sunderland": "safc.com",
+}
+
+# CLUB_NEWS_CLUBS -- the clubs whose official sites Tavily can actually read (measured
+# 2026-09-25: basic search returned real availability text for these nine; the other eleven
+# returned ~150-char stubs or nothing at any depth). club_news.py searches these only.
+CLUB_NEWS_CLUBS = ("Arsenal", "Brentford", "Chelsea", "Crystal Palace", "Liverpool",
+                   "Man City", "Man Utd", "Newcastle", "Spurs")
+# TAVILY_MONTHLY_LIMIT -- credits per calendar month the club-news runner may spend, by
+# Tavily's published rule (basic search 1, basic extract 1 per 5 URLs), counted from the
+# tavily_calls table. The guard refuses a run whose worst-case plan would cross it.
+# USER DECISION 2026-09-25: 800 (the Researcher plan holds 1,000).
+TAVILY_MONTHLY_LIMIT = 800
+
+# TEAM_ALIASES -- hand-written names a club is called in prose, keyed by FPL team name. The
+# full alias map (club_news.team_aliases) is this list PLUS the FPL team data from the newest
+# raw snapshot (name, short_name). Kept to forms that identify ONE club: bare "United" or
+# "City" would match three clubs each and are deliberately absent.
+TEAM_ALIASES = {
+    "Arsenal": ["Gunners"],
+    "Aston Villa": ["Villa", "AVFC"],
+    "Bournemouth": ["AFC Bournemouth", "Cherries"],
+    "Brentford": ["Bees"],
+    "Brighton": ["Brighton & Hove Albion", "Brighton and Hove Albion", "Seagulls", "Albion"],
+    "Chelsea": ["Blues"],
+    "Coventry City": ["Coventry", "Sky Blues"],
+    "Crystal Palace": ["Palace", "Eagles", "CPFC"],
+    "Everton": ["Toffees"],
+    "Fulham": ["Cottagers"],
+    "Hull City": ["Hull", "Tigers"],
+    "Ipswich Town": ["Ipswich", "Tractor Boys"],
+    "Leeds": ["Leeds United", "LUFC", "Whites"],
+    "Liverpool": ["LFC"],
+    "Man City": ["Manchester City", "Man City", "MCFC", "Citizens"],
+    "Man Utd": ["Manchester United", "Man United", "Man Utd", "MUFC", "Red Devils"],
+    "Newcastle": ["Newcastle United", "NUFC", "Magpies"],
+    "Nott'm Forest": ["Nottingham Forest", "Nottm Forest", "Forest", "NFFC"],
+    "Spurs": ["Tottenham", "Tottenham Hotspur", "THFC"],
+    "Sunderland": ["SAFC", "Black Cats"],
+}

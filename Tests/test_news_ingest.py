@@ -341,7 +341,8 @@ def test_schema_constraints(conn):
         cur.execute("SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'news_items'")
         cols = dict(cur.fetchall())
     assert set(cols) == {"id", "source", "guid", "version", "url", "headline", "body", "published_at", "fetched_at",
-                         "content_hash", "raw_ref", "element_id", "status", "chance", "inserted_at"}
+                         "content_hash", "raw_ref", "element_id", "status", "chance", "inserted_at",
+                         "club", "date_source"}                       # club/date_source added 2026-09-25 (club news)
     assert cols["published_at"] == "YES" and cols["fetched_at"] == "NO"
 
 

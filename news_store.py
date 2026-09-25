@@ -59,7 +59,7 @@ REPO = Path(__file__).resolve().parent
 RAW_DIR = REPO / "data" / "news" / "raw"
 USER_AGENT = "fpl-copilot news ingest (+https://github.com/veer64/fpl-copilot)"
 BBC_URL = "https://feeds.bbci.co.uk/sport/football/premier-league/rss.xml"
-SOURCES = ("bbc", "fpl")
+SOURCES = ("bbc", "fpl", "club")
 STATUS_WORDS = {"a": "available", "d": "doubtful", "i": "injured", "s": "suspended",
                 "u": "unavailable", "n": "not in squad"}
 # RFC 822 named zones that feeds actually use. email.utils knows GMT/UT/UTC/Z and the US
@@ -72,7 +72,7 @@ NAMED_ZONES = {"GMT": 0, "UT": 0, "UTC": 0, "Z": 0, "BST": 3600, "IST": 3600, "W
 DDL = """
 CREATE TABLE IF NOT EXISTS news_items (
     id            BIGSERIAL PRIMARY KEY,
-    source        TEXT NOT NULL CHECK (source IN ('bbc', 'fpl')),
+    source        TEXT NOT NULL CHECK (source IN ('bbc', 'fpl', 'club')),
     guid          TEXT NOT NULL,
     version       INT  NOT NULL CHECK (version >= 1),
     url           TEXT,
@@ -92,12 +92,41 @@ CREATE TABLE IF NOT EXISTS news_items (
 ALTER TABLE news_items DROP CONSTRAINT IF EXISTS news_items_source_guid_content_hash_key;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_news_items_version ON news_items (source, guid, version);
 CREATE INDEX IF NOT EXISTS ix_news_items_fetched ON news_items (fetched_at);
+-- 2026-09-25, club news: a third source, the club the row belongs to, and HOW the row is dated:
+--   'feed' (RSS pubDate), 'source_field' (FPL news_added), 'url' (a day-level date in the URL),
+--   'first_seen' (no claim; fetched_at is the only time), 'backlog' (seeded history, date unknown)
+ALTER TABLE news_items DROP CONSTRAINT IF EXISTS news_items_source_check;
+ALTER TABLE news_items ADD CONSTRAINT news_items_source_check CHECK (source IN ('bbc', 'fpl', 'club'));
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS club        TEXT;
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS date_source TEXT;
+UPDATE news_items SET date_source = CASE
+    WHEN source = 'bbc' THEN 'feed'
+    WHEN source = 'fpl' AND published_at IS NOT NULL THEN 'source_field'
+    WHEN source = 'fpl' THEN 'first_seen'
+    END
+WHERE date_source IS NULL AND source IN ('bbc', 'fpl');
+CREATE INDEX IF NOT EXISTS ix_news_items_club ON news_items (club) WHERE club IS NOT NULL;
+
+-- every Tavily call, with the credits it cost by Tavily's published rule (club_news.py's
+-- credit guard sums this month's rows before any call)
+CREATE TABLE IF NOT EXISTS tavily_calls (
+    id         BIGSERIAL PRIMARY KEY,
+    called_at  TIMESTAMPTZ NOT NULL,
+    endpoint   TEXT NOT NULL,                       -- 'search' | 'extract'
+    club       TEXT,
+    query      TEXT,
+    n_results  INT,
+    credits    INT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_tavily_calls_at ON tavily_calls (called_at);
 
 -- The exact chunk string the embedding layer will see (2026-09-25 spec):
 --   RSS: "[BBC Sport | YYYY-MM-DD HH:MMZ] <headline>\\n<body>"
 --   FPL: "[FPL official | published_at, or fetched_at if null] <headline>\\n
 --         Status: <word>. <chance>% chance of playing. <news>"   (chance sentence omitted when null;
 --         a cleared version reads "Status: available. No injury news (flag cleared).")
+--   club: "[<Club> official site | published_at as YYYY-MM-DD, or 'first seen <fetched_at date>',
+--          or 'date unknown (backlog)'] <headline>\\n<body>"
 CREATE OR REPLACE VIEW news_embed_text AS
 SELECT id, source, guid, version, fetched_at, embed_text, length(embed_text) AS char_count
 FROM (
@@ -119,6 +148,14 @@ FROM (
                           || CASE WHEN chance IS NOT NULL THEN ' ' || chance::text || '% chance of playing.' ELSE '' END
                           || ' ' || body)
                    END
+            WHEN 'club' THEN
+                '[' || COALESCE(club, 'Club') || ' official site | '
+                || CASE
+                     WHEN published_at IS NOT NULL THEN to_char(published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+                     WHEN date_source = 'backlog' THEN 'date unknown (backlog)'
+                     ELSE 'first seen ' || to_char(fetched_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+                   END
+                || '] ' || headline || E'\\n' || body
         END AS embed_text
     FROM news_items
 ) t;
@@ -220,7 +257,8 @@ def parse_rss(xml_bytes):
 # ---- the versioned store ----------------------------------------------------------------
 
 _COLS = ("source", "guid", "version", "url", "headline", "body", "published_at", "fetched_at",
-         "content_hash", "raw_ref", "element_id", "status", "chance")
+         "content_hash", "raw_ref", "element_id", "status", "chance", "club", "date_source")
+_DEFAULT_DATE_SOURCE = {"bbc": "feed"}          # fpl is decided per row: source_field when it has a claim, else first_seen
 
 
 def upsert_versions(conn, source, candidates):
@@ -246,9 +284,11 @@ def upsert_versions(conn, source, candidates):
             cur.execute("SELECT COALESCE(MAX(version), 0) FROM news_items WHERE source = %s AND guid = %s",
                         (source, c["guid"]))
             version = int(cur.fetchone()[0]) + 1
+            date_source = c.get("date_source") or _DEFAULT_DATE_SOURCE.get(source) or \
+                ("source_field" if c.get("published_at") is not None else "first_seen")
             row = (source, c["guid"], version, c.get("url"), c["headline"], c.get("body") or "",
                    c.get("published_at"), c["fetched_at"], c["content_hash"], c["raw_ref"],
-                   c.get("element_id"), c.get("status"), c.get("chance"))
+                   c.get("element_id"), c.get("status"), c.get("chance"), c.get("club"), date_source)
             cur.execute(f"INSERT INTO news_items ({', '.join(_COLS)}) VALUES ({', '.join(['%s'] * len(_COLS))}) "
                         f"ON CONFLICT (source, guid, version) DO NOTHING RETURNING id", row)
             if cur.fetchone() is None:

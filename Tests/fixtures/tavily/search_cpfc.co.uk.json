@@ -1,0 +1,63 @@
+{
+ "request": {
+  "query": "Crystal Palace team news injury update",
+  "search_depth": "basic",
+  "include_domains": [
+   "cpfc.co.uk"
+  ],
+  "start_date": "2026-09-14",
+  "end_date": "2026-09-18",
+  "max_results": 5
+ },
+ "http": 200,
+ "response": {
+  "query": "Crystal Palace team news injury update",
+  "follow_up_questions": null,
+  "answer": null,
+  "images": [],
+  "results": [
+   {
+    "url": "https://www.cpfc.co.uk/news/first-team/team-news-sage-hints-at-possible-sarr-nketiah-returns",
+    "title": "Team News: Sage hints at possible Sarr & Nketiah returns",
+    "content": "Team News: Sage hints at possible Sarr & Nketiah returns\n\nSkip navigation\n\nCrystal palace\n\nCrystal palace\n\nCrystal palace\n\n# Team News: Sage hints at possible Sarr & Nketiah returns\n\n## First-team\n\nPierre Sage says Isma\u00efla Sarr and Eddie Nketiah could both return to the matchday squad for Crystal Palace\u2019s first-ever UEFA Europa League fixture on Thursday. [...] Sage said of Sarr: \u201cHe could be in the team tomorrow, as [could] Eddie Nketiah, because they started to train with us this week, and they are in shape.\u201d\n\nAsked further about Jean-Philippe Mateta and Dean Henderson \u2013 the former missing since the opening day of the season, the latter also absent from last week\u2019s matches, Sage said of the duo\u2019s returns: \u201cI hope it will be after the international break.\n\n\u201cWith long injuries, there\u2019s more or less days. That\u2019s why we hope and we will see.\u201d [...] Although he will be absent on Thursday, it was announced just before the press conference that Henderson has signed a new contract with the club, committing his future to Palace until 2030.\n\nSage smiled: \u201cWe are really happy for us, we are really happy for him \u2013 it\u2019s a long-term contract for our captain.",
+    "score": 0.6580885,
+    "raw_content": null,
+    "id": "57c478-00"
+   },
+   {
+    "url": "https://www.cpfc.co.uk/news/match-reports/match-report-highlights-crystal-palace-lech-poznan-september-2026",
+    "title": "Report: Eagles ease past Poznan in excellent Europa debut",
+    "content": "On their way... to Frankfurt? A lot of football to be played before then, for sure, but an early indicator of Palace's intentions in this competition.\n\nOn the evidence of this performance, you wouldn't bet against it.\n\nPalace: Ben\u00edtez (GK), Ahanor, Richards (Canvot, 73), Disasi, Khalaili (Mingueza, 61), Timber (McNeil, 62), Wharton, Mitchell, Pino, Kamada (Sarr, 74), Strand Larsen (Nketiah, 74).\n\nSubs: Matthews (GK), Benetton (GK), Tomiyasu, Chilwell, Williams, Osorio. [...] In full control, Palace could have added more, Wharton with a low drive wide and Eddie Nketiah \u2013 making his return from injury off the bench along with Isma\u00efla Sarr \u2013 screwing a strike wide when played through on goal by Pino.\n\nPozna\u0144 had a late chance too as Michal Gurgul hit a firm first-time drive which Ben\u00edtez did brilliantly to beat away, low to his left. [...] Report: Eagles ease past Poznan in excellent Europa debut\n\nSkip navigation\n\nCrystal palace\n\nCrystal palace\n\nCrystal palace\n\n# Report: Eagles ease past Poznan in excellent Europa debut\n\nMatch reports\n\n4\n\nNketiah 89'\n\nStrand Larsen 34'\n\nRichards 27'\n\nPino 10'\n\n0\n\nCrystal Palace ran rampant on their UEFA Europa League debut, cruising past Polish league champions Lech Pozna\u0144 4-0 at Selhurst Park to record their biggest-ever European win.",
+    "score": 0.4746074,
+    "raw_content": null,
+    "id": "c9425f-01"
+   },
+   {
+    "url": "https://www.cpfc.co.uk/news/features/new-ground-palaces-first-ever-matches-in-competitions-tournament-debuts",
+    "title": "Tournament debuts: Palace\u2019s first-ever matches in competitions",
+    "content": "Simon Osborn answered for Palace at Selhurst in injury-time: a sign of the top-flight rollercoaster to come in SE25.\n\n### First\u2026 League Cup match\n\nEstablished in the 1960/61 season as the Football League Cup \u2013 now, of course, referred to as the Carabao Cup for sponsorship reasons \u2013 Palace admittedly needed time to find their feet in the competition. [...] Crystal Palace\u2019s sensational 2025, capped by a statement arrival in Europe.\n\nLet's see if we can do it again in 2026, and the Europa League, shall we?\n\nBuy tickets\n\n### Match Details\n\nCrystal Palace v Lech Poznan\n\n Thursday, 17th September\n 20:00 BST\n UEFA Europa League\n Selhurst Park\n Buy tickets here.\n\n### Related News\n\n Club\n Features\n\n### Related News\n\nMore News [...] Liverpool again snatched the lead back in an absorbing contest through Jeremie Frimpong, but Oliver Glasner\u2019s side grew into the contest the longer it went on. Eventually Isma\u00efla Sarr scored a late, but fully deserved, equaliser after a wonderful pass from Adam Wharton.\n\nThat meant a penalty shootout in the glorious Wembley sunshine, with Dean Henderson producing heroics, saving two spot kicks \u2013 Justin Devenny then smashing home the winning penalty at match point.",
+    "score": 0.44376975,
+    "raw_content": null,
+    "id": "3abb61-02"
+   },
+   {
+    "url": "https://www.cpfc.co.uk/news/video/sage-targets-historic-europa-league-campaign",
+    "title": "Sage targets \u2018historic\u2019 Europa League campaign",
+    "content": "Sage targets \u2018historic\u2019 Europa League campaign\n\nSkip navigation\n\nCrystal palace\n\nCrystal palace\n\nCrystal palace\n\n# Sage targets \u2018historic\u2019 Europa League campaign\n\n## Video\n\nCrystal Palace can make history in Europe for a second season in a row, Pierre Sage firmly believes.\n\n Read the Manager's pre-match team news update. [...] \u201cIshak is someone who everybody knows,\u201d Sage confirmed. \u201cHe scored a lot of goals last year. He competed with Isma\u00efla Sarr in the Conference League and now he's ready.\n\n\u201cThat's why tomorrow we have to be careful with him, and we have to consider him, but we have to consider all the team, because they play well.\n\n\u201cAnd like I told you, we have to be really focused on what we have to do, first of all, because we have a gap between what we want to do and what we\u2019ve done at the moment. [...] Pozna\u0144 last season were also in the Conference League, reaching the Round of 16 before falling to Shakhtar Donestk \u2013 who Palace went on to eliminate in the last four.\n\nNevertheless, Sweden international forward Mikael Ishak managed to plunder an impressive eight goals in 10 appearances in Europe last season, only falling one short of the top scorer \u2013 Palace\u2019s very own Isma\u00efla Sarr.",
+    "score": 0.37655488,
+    "raw_content": null,
+    "id": "837f9e-03"
+   },
+   {
+    "url": "https://www.cpfc.co.uk/news/announcement/dean-henderson-signs-new-crystal-palace-contract",
+    "title": "Dean Henderson signs new Crystal Palace contract",
+    "content": "Dean Henderson signs new Crystal Palace contract\n\nSkip navigation\n\nCrystal palace\n\nCrystal palace\n\nCrystal palace\n\n# Dean Henderson signs new Crystal Palace contract\n\n## Announcement\n\nCrystal Palace are delighted to announce that our European trophy-winning captain Dean Henderson has signed a new contract with the club. [...] From the penalty save that kept us in front against Manchester City in May 2025\u2019s FA Cup Final, to the many stops against Liverpool to win the Community Shield at Wembley months later, to wearing the armband throughout the UEFA Conference League knockout stages last season en route to glory in Leipzig, Henderson\u2019s contributions to Palace\u2019s golden era have earned him his place in club folklore.\n\nNow, the 29-year-old has committed the next chapter of his decorated career to the club. [...] Stay tuned for our exclusive Dean Henderson interview \u2013 showing from tomorrow (17th September) on Palace TV!\n\n01 / 05\n\n### Related News\n\n Announcement\n Club\n First-team\n Dean Henderson\n\n### Related News\n\nMore News",
+    "score": 0.2922674,
+    "raw_content": null,
+    "id": "b4a804-04"
+   }
+  ],
+  "response_time": 2.5,
+  "request_id": "e5cd3c2a-3667-4258-b9bf-eaf87837e60c"
+ }
+}

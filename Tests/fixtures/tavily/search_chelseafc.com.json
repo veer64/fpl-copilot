@@ -1,0 +1,63 @@
+{
+ "request": {
+  "query": "Chelsea team news injury update",
+  "search_depth": "basic",
+  "include_domains": [
+   "chelseafc.com"
+  ],
+  "start_date": "2026-09-14",
+  "end_date": "2026-09-18",
+  "max_results": 5
+ },
+ "http": 200,
+ "response": {
+  "query": "Chelsea team news injury update",
+  "follow_up_questions": null,
+  "answer": null,
+  "images": [],
+  "results": [
+   {
+    "url": "https://www.chelseafc.com/en/news/article/xabi-alonso-confirms-chelsea-team-news-for-brentford",
+    "title": "Xabi Alonso confirms Chelsea team news for Brentford | News | Official Site | Chelsea Football Club",
+    "content": "There were concerns over Joao Pedro after the striker withdrew from the Brazil squad for the upcoming international break, and James as he missed the start of training on Tuesday. However, Alonso insists they have not been ruled out of our next match.\n\n\u2018In terms of injuries and in terms of the squad we are having the last training session tomorrow so no-one is ruled out for us for Friday,\u2019 he explained. [...] Xabi Alonso confirmed that Joao Pedro and Reece James, along with the whole of his Chelsea squad, remain in contention to face Brentford going into matchday.\n\nThe Blues make the short trip across west London to take on Brentford in the Premier League\u2019s Friday night kick-off, hoping to get back to winning ways after last week\u2019s 2-2 draw with Hull City at Stamford Bridge. [...] Our manager also hinted that there is a chance that Moises Caicedo could return to the matchday squad, with the midfielder having been restricted to just a brief appearance against Brighton & Hove Albion so far this season.\n\n\u2018He\u2019s getting closer and tomorrow we will take the final decision on the team and on the squad that is coming to Brentford.\u2019",
+    "score": 0.6426349,
+    "raw_content": null,
+    "id": "266068-00"
+   },
+   {
+    "url": "https://www.chelseafc.com/en/news/article/brentford-vs-chelsea-all-you-need-to-know-26-27",
+    "title": "Brentford vs Chelsea: All you need to know | News | Official Site | Chelsea Football Club",
+    "content": "## Team news\n\nAlonso confirmed that Joao Pedro and Reece James, along with the whole of his Chelsea squad, remain in contention to face Brentford. There were concerns over Joao Pedro after the striker withdrew from the Brazil squad for the upcoming international break, and James as he missed the start of training on Tuesday. [...] \u2018In terms of injuries and in terms of the squad, we are having the last training session on Friday so no-one is ruled out for us,\u2019 he explained in his pre-match press conference.\n\n\u2018So I prefer to be cautious and we will wait to take the final decision on every player. We will see if Joao is ready to play, it\u2019s a possibility. For Reece, it was just a decision for Tuesday and we see his development and we will decide.\u2019 [...] It was a similar story when Alonso discussed the potential return from injury of Moises Caicedo, Marco Palestra and Jordan Henderson.\n\n\u2018Moises is getting closer and we will take the final decision on the team and on the squad that is coming to Brentford. Before the players know we need to assess all the positions with the last training and we will make the decision for the game.\u2019\n\n## The history",
+    "score": 0.61057013,
+    "raw_content": null,
+    "id": "a72169-01"
+   },
+   {
+    "url": "https://www.chelseafc.com/en/news/article/alonso-confident-theres-more-to-come-from-cole-palmer",
+    "title": "Alonso confident there\u2019s \u2018more to come\u2019 from Cole Palmer | News | Official Site | Chelsea Football Club",
+    "content": "Cole Palmer has started the season in excellent form and Xabi Alonso believes our No10 can reach even greater heights if he keeps enjoying his football.\n\nPalmer was outstanding in his first two campaigns at Stamford Bridge, but injury made it difficult for him to replicate that level of performance in 2025/26. [...] He didn\u2019t go to the FIFA World Cup this summer, and the break afforded him a chance to rest and reset. It has served Palmer well, with the attacker already finding the net four times and registering two assists.\n\nWe will find out today if Palmer is back in the England fold, but for now Alonso has urged him to just keep playing with a smile on his face.\n\n\u2018I think there's some more to come from Cole,\u2019 said Alonso. [...] \u2018I'm very happy with Cole. The way he has prepared since the first day of pre-season, he's been there. He has shown this desire to enjoy his game.\n\n\u2018What he wants is to enjoy his game, to have this good feeling on the pitch, to have this connection with players around. If he gets that, the rest will come. England will come, winning more games will come.\n\n\u2018That will come naturally because he's a top-level player and that's the main thing, for him to feel good.\u2019",
+    "score": 0.5134007,
+    "raw_content": null,
+    "id": "9c9218-02"
+   },
+   {
+    "url": "https://www.chelseafc.com/en/news/article/bompastor-on-james-new-role-and-potters-deserved-opportunity",
+    "title": "Bompastor on James\u2019 new role and Potter's deserved opportunity | News | Official Site | Chelsea Football Club",
+    "content": "With Aggie Beever-Jones among the substitutes this time around, those changes saw James switching to a central striker\u2019s role. It produced the desired results as the England international netted our third goal of a resounding victory over the Red Devils.\n\n\u2018I think we all know LJ is probably not a real number nine and she likes to drop deep and have the ball,\u2019 said Bompastor, after seeing her team pick up our first league win of the campaign in emphatic fashion. [...] The player who came into the line-up in place of Beever-Jones was Academy graduate Potter, the 20-year-old taking her spot in midfield for her first WSL start of the season, after impressing in the 1-0 UEFA Women\u2019s Champions League win away at Real Sociedad.\n\n\u2018I already said I am a manager who really likes to develop young players,\u2019 Bompastor continued.\n\n\u2018I want to give them the opportunity when they have the right mindset, they work hard and they have the quality. I'm always keen to do that. [...] \u2018So it's important when we play with LJ as a number nine to have two number tens who are in the pocket, but also making penetrating runs. That's why it's important for us to pay attention when we decide which profiles are playing around her.\n\n\u2018It\u2019s important to have this threat because I think on Sunday we could exploit the space behind the back line for United and we were quite good at doing that.\u2019",
+    "score": 0.38041422,
+    "raw_content": null,
+    "id": "d6fcc7-03"
+   },
+   {
+    "url": "https://www.chelseafc.com/en/news/article/analysis-how-chelsea-reversed-scoring-fortunes-with-emphatic-man-utd",
+    "title": "Analysis: How Chelsea reversed scoring fortunes with emphatic Man Utd display | News | Official Site | Chelsea Football Club",
+    "content": "True to what she explained the previous week, Bompastor made a triple substitution in the 71st minute, rotating James, Katie McCabe and Alyssa Thompson for Sandy Baltimore, Veerle Buurman and Maika Hamano, before goals from Ellie Carpenter and Lucy Bronze completed the rout. Here's a look at how we turned our fortunes around.\n\n## Clinical Blues [...] Keen to ensure we took all three points away from Manchester, Bompastor played an aggressive formation. Katie McCabe and Lucy Bronze pushed up high, leaving just Kadeisha Buchanan from the back three to stay deep and alert to the danger of counter-attacks.\n\nMcCabe and Bronze supported a double-pivot midfield made up of Lexi Potter and Keira Walsh, while we went for an all-out attack with a front five of Ellie Carpenter, Kaptein, James, Nusken and Alyssa Thompson. [...] Bompastor's ruthless approach gave a side attempting to implement a new style of play no choice but to retreat backwards to deal with the constant goal threats from our talented front five, as the graphic below shows. The home side were reduced to an xG of 0.20, attempting just two shots on goal and taking only four touches in our box.",
+    "score": 0.3339163,
+    "raw_content": null,
+    "id": "dbd368-04"
+   }
+  ],
+  "response_time": 2.42,
+  "request_id": "4a0fef0e-e46a-4013-adfe-e3dd601f661b"
+ }
+}
