@@ -37,8 +37,22 @@
 #   schema drift  required fields asserted on every fetch, with the missing
 #                 field named; an unknown status letter raises. Launch day is
 #                 the first drift fire-drill (master plan) -- fail loudly.
+#   build fetch   (2026-09-25) the deadline runner (eval/run_live_deadline.py)
+#                 stores ONE snapshot into the same archive at the start of every
+#                 build, named <utc-ts>.build_fetch.json.gz, so the deadline
+#                 gameweek is derived from data taken AT the build. The poller's
+#                 due-gate and change detection see poller files only
+#                 (list_raw(source="poller")): a build fetch never shifts the poll
+#                 schedule. build() sees every origin and stamps asof_source
+#                 'build_fetch' on rows it takes from one.
 #
-# NOT integrated into the model. Build, store, verify only.
+# INTEGRATED 2026-09-25: the deadline runner runs `--build --now <build time>`
+# before eval/merge_live_availability.py, so the live gameweek's rows come from
+# the newest snapshot at or before the build (the as-of rule of
+# eval/build_availability.py, applied to the live archive). Before that date
+# build() skipped every gameweek whose deadline had not passed, and the live
+# gameweek could only ever come from the fplcache-derived file (26 days stale
+# on the server's GW6 build of 2026-09-24).
 #
 # Usage:
 #   uv run python eval/poll_availability.py --status
@@ -50,6 +64,7 @@ import argparse
 import gzip
 import json
 import os
+import re
 from _replace_retry import replace_with_retry
 import sys
 import tempfile
@@ -149,9 +164,31 @@ def raw_dir(season):
     return p
 
 
-def store_raw(data, season, ts):
-    """Temp-then-rename: never a half-written archive file."""
-    out = raw_dir(season) / f"{ts.strftime('%Y%m%dT%H%M%SZ')}.json.gz"
+SOURCE_POLLER = "poller"
+SOURCE_BUILD = "build_fetch"
+
+
+def raw_name(ts, source=SOURCE_POLLER):
+    """<utc-ts>.json.gz for the poller (every file since 2026-08-20 keeps its name);
+    <utc-ts>.<source>.json.gz for any other origin, so the origin travels with the
+    file itself and list_raw() can tell them apart without a sidecar."""
+    stamp = ts.strftime("%Y%m%dT%H%M%SZ")
+    if source == SOURCE_POLLER:
+        return f"{stamp}.json.gz"
+    assert re.fullmatch(r"[a-z][a-z0-9_]*", source), f"bad snapshot source tag {source!r}"
+    return f"{stamp}.{source}.json.gz"
+
+
+def raw_source(path):
+    """The origin a raw file's name carries: 'poller' for <ts>.json.gz, else its tag."""
+    parts = Path(path).name.split(".")
+    return SOURCE_POLLER if len(parts) == 3 else parts[1]
+
+
+def store_raw(data, season, ts, source=SOURCE_POLLER):
+    """Temp-then-rename: never a half-written archive file, and NEVER an overwrite --
+    an existing file for the same second and origin is returned untouched."""
+    out = raw_dir(season) / raw_name(ts, source)
     if out.exists():
         return out
     fd, tmp = tempfile.mkstemp(dir=out.parent, suffix=".tmp")
@@ -166,14 +203,20 @@ def store_raw(data, season, ts):
     return out
 
 
-def list_raw(season):
+def list_raw(season, source=None):
+    """(utc_time, path) ascending. source=None -> every origin (what build() derives
+    from); source='poller' -> the poller's own polls only (what the due-gate and the
+    change detection must see, so a build fetch never shifts the poll schedule)."""
     d = LIVE / "bootstrap_raw" / season
     if not d.exists():
         return []
     out = []
     for p in sorted(d.glob("*.json.gz")):
+        if source is not None and raw_source(p) != source:
+            continue
         out.append((datetime.strptime(p.stem.split(".")[0], "%Y%m%dT%H%M%SZ")
                     .replace(tzinfo=timezone.utc), p))
+    out.sort()
     return out
 
 
@@ -226,7 +269,7 @@ def due(season, deadline, now=None):
     to_deadline = (deadline - now).total_seconds()
     if to_deadline > WINDOW_HOURS * 3600:
         return False, f"window opens at deadline-{WINDOW_HOURS:.0f}h"
-    snaps = list_raw(season)
+    snaps = list_raw(season, source=SOURCE_POLLER)
     if to_deadline <= 0:      # one post-deadline poll for the asof recovery
         have_post = any(ts >= deadline for ts, _ in snaps)
         return (not have_post), "post-deadline recovery poll" \
@@ -259,7 +302,7 @@ def tick(force=False):
           f"{label} ({why})")
     if not (is_due or force):
         return
-    snaps = list_raw(season)
+    snaps = list_raw(season, source=SOURCE_POLLER)
     path = store_raw(data, season, now)
     print(f"stored {path.name} ({len(data['elements'])} elements)")
     if snaps:                           # diff against the previous poll
@@ -270,16 +313,37 @@ def tick(force=False):
         print(f"change detection: {flagged}")
 
 
-def build(season=None):
+def fetch_and_store(season, now=None, source=SOURCE_BUILD):
+    """One fetch, stored into the archive under `source` (default: the build's own
+    snapshot). Returns (path, ts). Raises on ANY failure -- the caller (the deadline
+    runner) logs it and falls back to the newest archived snapshot, and the strict
+    preflight's MAX_AVAILABILITY_AGE then decides whether that is fresh enough."""
+    ts = now or _now()
+    data = fetch()
+    got = season_of(data)
+    if season and got != season:
+        raise RuntimeError(f"bootstrap-static serves season {got}, not {season}")
+    return store_raw(data, got, ts, source), ts
+
+
+def build(season=None, now=None):
     """(gw, element) table with the SAME columns and asof rule as
-    data/availability_{season}.parquet. Only gameweeks whose deadline has
-    passed AND that have at least one pre-deadline live poll are built."""
+    data/availability_{season}.parquet: for EVERY gameweek with at least one
+    snapshot strictly before its deadline, the newest such snapshot at or before
+    `now` -- the newest snapshot_time <= min(now, deadline), which is exactly the
+    selection eval/build_availability.py makes on fplcache (prior[-1] of the
+    snapshots dated < deadline). A gameweek whose deadline has NOT passed is built
+    from the newest snapshot at or before `now`; before 2026-09-25 it was skipped,
+    so the live gameweek could only ever come from the fplcache-derived file.
+    `now` defaults to the wall clock; the runner passes the build's own time, so a
+    snapshot stored after the build can never be used by it."""
+    now = now or _now()
     seasons = [season] if season else \
         [p.name for p in (LIVE / "bootstrap_raw").glob("*") if p.is_dir()]
     for s in seasons:
-        snaps = list_raw(s)
+        snaps = [(ts, p) for ts, p in list_raw(s) if ts <= now]
         if not snaps:
-            print(f"{s}: no raw polls")
+            print(f"{s}: no raw snapshots at or before {now:%Y-%m-%d %H:%M:%S}Z")
             continue
         ref = load_raw(snaps[-1][1])
         deadlines = {int(e["id"]): _ts(e["deadline_time"])
@@ -288,7 +352,7 @@ def build(season=None):
         for gw, deadline in sorted(deadlines.items()):
             prior = [(ts, p) for ts, p in snaps if ts < deadline]
             after = [(ts, p) for ts, p in snaps if ts >= deadline]
-            if not prior or deadline > _now():
+            if not prior:
                 continue
             snap_ts, snap_path = prior[-1]
             cur = elements_map(load_raw(snap_path))
@@ -309,11 +373,12 @@ def build(season=None):
                 src = late.get(el, e)
                 row.update({f"asof_{f}": src.get(f) for f in FIELDS})
                 row["asof_source"] = ("live_late_news" if el in late
+                                      else SOURCE_BUILD if raw_source(snap_path) == SOURCE_BUILD
                                       else "live_snapshot")
                 row["season"] = s
                 rows.append(row)
         if not rows:
-            print(f"{s}: no completed deadlines with pre-deadline polls yet")
+            print(f"{s}: no gameweek has a snapshot before its deadline")
             continue
         df = pd.DataFrame(rows)
         for c in ("news_added", "asof_news_added", "snapshot_time",
@@ -352,18 +417,20 @@ if __name__ == "__main__":
     ap.add_argument("--build", action="store_true")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--season", default=None)
+    ap.add_argument("--now", default=None,
+                    help="ISO-8601 UTC build time for --build (default: the wall clock)")
     a = ap.parse_args()
     if a.watch:
         watch()
     elif a.build:
-        build(a.season)
+        build(a.season, now=_ts(a.now) if a.now else None)
     elif a.once or a.force:
         tick(force=a.force)
     else:                               # --status (default)
         d = fetch()
         s = season_of(d)
         gw, dl = next_deadline(d)
-        n = len(list_raw(s))
+        n_all, n_poll = len(list_raw(s)), len(list_raw(s, source=SOURCE_POLLER))
         print(f"season {s}, next: GW{gw} deadline {dl:%Y-%m-%d %H:%M}Z, "
-              f"{n} raw poll(s) archived")
+              f"{n_all} raw snapshot(s) archived ({n_poll} poller)")
         print(f"due: {due(s, dl)}")

@@ -25,7 +25,7 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
-from config_roles import CONFIGS, PRODUCTION_CONFIG, SHADOW_CONFIG
+from config_roles import CONFIGS, PRODUCTION_CONFIG, SHADOW_CONFIG, MAX_AVAILABILITY_AGE
 import squad_store
 
 load_dotenv()
@@ -86,6 +86,66 @@ def _dp():
         sys.path.insert(0, str(REPO / "eval"))
     import dispatch_policy
     return dispatch_policy
+
+
+def _availability_freshness(run):
+    """The served build's availability data age against config_roles.MAX_AVAILABILITY_AGE
+    (2026-09-25). `asof` is the newest snapshot_time in the deadline gameweek's rows the
+    build read; runs stored before 2026-09-25 carry the merge's clock under the same key
+    and no sources list, so their age reads low -- the sources being None marks them.
+    The block is reporting; the DEGRADE decision is _availability_age_reasons: the age AT
+    BUILD past MAX_AVAILABILITY_AGE degrades, the time since the build never does (a
+    nightly build is expected to age until the next run)."""
+    k = run.get("knowledge")
+    if isinstance(k, str):
+        import json
+        try:
+            k = json.loads(k)
+        except ValueError:
+            k = None
+    k = k or {}
+    asof = k.get("availability_asof")
+    out = {"asof": asof, "sources": k.get("availability_sources"),
+           "age_at_build_hours": k.get("availability_age_at_build_h"),
+           "max_age_hours": round(MAX_AVAILABILITY_AGE.total_seconds() / 3600, 2),
+           "age_hours": None}
+    try:
+        t = datetime.fromisoformat(str(asof).replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        out["age_hours"] = round((datetime.now(timezone.utc) - t).total_seconds() / 3600, 2)
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
+def _availability_age_reasons(run):
+    """The served build scored on availability older than MAX_AVAILABILITY_AGE AT BUILD
+    (knowledge.availability_age_at_build_h, stamped by the runner from the deadline
+    gameweek's newest snapshot_time) -> one health reason naming the run, the age and the
+    threshold. NEVER on the time since the build: age_hours grows until the next run and
+    is reported, not a fault. Runs without availability_sources predate 2026-09-25 (their
+    stamp is the merge clock, which says nothing about the data) and are exempt. Pure;
+    the JSONB may arrive as a dict or a string; anything unreadable -> no reason."""
+    k = run.get("knowledge")
+    if isinstance(k, str):
+        import json
+        try:
+            k = json.loads(k)
+        except ValueError:
+            return []
+    if not isinstance(k, dict) or not k.get("availability_sources"):
+        return []
+    try:
+        age = float(k.get("availability_age_at_build_h"))
+    except (TypeError, ValueError):
+        return []
+    limit_h = MAX_AVAILABILITY_AGE.total_seconds() / 3600
+    if age > limit_h:
+        return [f"served build scored on stale availability: run {run.get('run_id')} (GW{run.get('gw')}) "
+                f"read availability {age:.1f} h old at build time, older than MAX_AVAILABILITY_AGE = "
+                f"{limit_h:.0f} h (asof {k.get('availability_asof')}, sources {k.get('availability_sources')})"]
+    return []
 
 
 def _freshness(run):
@@ -1519,6 +1579,8 @@ def health():
             freshness["players_live"] = {"rows": pl[0]["n"], "updated_at": str(pl[0]["u"])}
         except Exception:
             freshness["players_live"] = None
+        # the availability the served build scored on, and how old it is now (2026-09-25)
+        freshness["availability"] = _availability_freshness(last) if last else None
     frame_p = PROD_FRAME
     freshness["frame_on_volume"] = (
         str(datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc))
@@ -1579,6 +1641,9 @@ def health():
     # pushes it with the club and the lambda named (user decision 2026-09-16)
     if last:
         reasons.extend(_model_degraded_reasons(last))
+        # the served build scored on availability older than the floor AT BUILD (2026-09-25);
+        # the time since the build is reported in data_freshness_by_source.availability only
+        reasons.extend(_availability_age_reasons(last))
 
     if last_any and last_any["status"] != "SUCCESS":
         lk = last_any.get("kind") or "deadline"

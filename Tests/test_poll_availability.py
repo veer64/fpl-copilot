@@ -22,7 +22,9 @@ DEADLINE = datetime(2026, 9, 4, 17, 30, tzinfo=timezone.utc)
 
 
 def _snaps(monkeypatch, stamps):
-    monkeypatch.setattr(pa, "list_raw", lambda season: [(t, None) for t in stamps])
+    # the due-gate lists the poller's own polls (source="poller", 2026-09-25); the stub
+    # takes the keyword so the signature the gate calls with is the one it stubs
+    monkeypatch.setattr(pa, "list_raw", lambda season, source=None: [(t, None) for t in stamps])
 
 
 @pytest.mark.parametrize("hours_before,cadence", [(3.0, pa.NORMAL_CADENCE), (0.5, pa.FINAL_HOUR_CADENCE)])

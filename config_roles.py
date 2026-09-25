@@ -19,3 +19,12 @@ PRODUCTION_CONFIG = "baseline"
 SHADOW_CONFIG = None
 CONFIGS = tuple(c for c in (PRODUCTION_CONFIG, SHADOW_CONFIG) if c)
 LEVER_INPUTS_ACTIVE = "combined" in CONFIGS
+
+# MAX_AVAILABILITY_AGE -- how old the availability (FPL status / chance_of_playing / news)
+# that a LIVE deadline build scores on may be: min(build time, deadline) minus the newest
+# snapshot_time in the deadline gameweek's rows of data/availability_<season>.parquet. The
+# strict preflight (squad/live_deadline.py) RAISES past it; /health (model_tools.health)
+# reports the served build's age against it. USER DECISION 2026-09-25: 6 hours. ONE
+# definition, read by the builder and the read side alike -- never copied.
+from datetime import timedelta
+MAX_AVAILABILITY_AGE = timedelta(hours=6)

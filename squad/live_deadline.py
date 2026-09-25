@@ -46,6 +46,7 @@ import argparse
 import inspect
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -90,6 +91,14 @@ TOP_N = 30                    # decision partition for the crosswalk-coverage ch
 # coverage is 100% in every gameweek (min share 1.0), so any breach of 0.80 live is anomalous,
 # while 0.80 still tolerates one unpriced fixture in the smallest (7-fixture) gameweeks.
 PROPS_MIN_FIXTURE_COVERAGE = 0.80
+# Strict floor for availability AGE (user decision 2026-09-25, ONE definition in
+# config_roles.MAX_AVAILABILITY_AGE, read here and by model_tools.health): a LIVE build --
+# the deadline still ahead of `now` -- whose deadline-gameweek availability rows carry a
+# newest snapshot_time older than this, measured back from min(now, deadline), RAISES. For a
+# gameweek whose deadline has passed (every backtest, a post-deadline recovery build) the age
+# is a note only: its as-of snapshot is the newest one before the deadline by construction,
+# and that gap is the data, not a fault.
+from config_roles import MAX_AVAILABILITY_AGE  # noqa: E402
 ARM_STAMPS = ("arm", "props_active", "props_spec", "horizon_minutes_active", "horizon_levers")
 
 
@@ -115,6 +124,27 @@ def _availability_meta():
         for s, g in a.groupby("season")["gw"].max().items():
             meta[s] = max(int(g), meta.get(s, 0))
     return meta
+
+
+def _availability_asof(season, gw):
+    """(newest snapshot_time, deadline_time, sorted asof_source values) over the deadline
+    gameweek's rows in the model-visible availability files -- the same glob as
+    _availability_meta, so what is measured is what availability_features.load() reads.
+    (None, None, []) when no row exists. Read-only."""
+    d = REPO / "data"
+    paths = [p for p in sorted(d.glob("availability_*.parquet")) if "measurement" not in p.stem]
+    best, deadline, sources = None, None, set()
+    for p in paths:
+        a = pd.read_parquet(p, columns=["season", "gw", "snapshot_time", "deadline_time", "asof_source"])
+        a = a[(a["season"] == season) & (a["gw"].astype(int) == int(gw))]
+        if len(a) == 0:
+            continue
+        st = pd.to_datetime(a["snapshot_time"], utc=True).max().to_pydatetime()
+        best = st if best is None or st > best else best
+        dl = pd.to_datetime(a["deadline_time"], utc=True).max().to_pydatetime()
+        deadline = dl if deadline is None or dl > deadline else deadline
+        sources |= set(a["asof_source"].dropna().unique())
+    return best, deadline, sorted(str(x) for x in sources)
 
 
 def _minutes_ladder():
@@ -150,12 +180,14 @@ def props_fixture_coverage(season, gw):
     return priced, total
 
 
-def preflight(season, gw, strict=False, config="baseline", horizon=1):
+def preflight(season, gw, strict=False, config="baseline", horizon=1, now=None):
     """Input inventory BEFORE the build. Read-only. Returns finding strings;
     under strict every finding raises instead. horizon > 1 adds the checks a
     multi-step build needs (the horizon block at the end, plus the hmin refit
-    and per-target props coverage here)."""
+    and per-target props coverage here). `now` is the build's clock for the
+    availability-age floor (default: the wall clock); the runner passes its own."""
     findings = []
+    now = now or datetime.now(timezone.utc)
     tag = season.replace("-", "_")
     last_gw = min(int(gw) + int(horizon) - 1, 38)          # last target gameweek by the calendar
     target_gws = list(range(int(gw), last_gw + 1))
@@ -242,6 +274,34 @@ def preflight(season, gw, strict=False, config="baseline", horizon=1):
         _finding(findings, strict,
                  f"availability for {season} ends at GW{meta[season]} < GW{gw} -- rows at the "
                  f"deadline gameweek would silently fill UNKNOWN")
+    else:
+        # the AGE floor (2026-09-25): what the model would score on must be as-of the build
+        asof, deadline, sources = _availability_asof(season, gw)
+        if asof is None:
+            _finding(findings, strict,
+                     f"availability for {season} has NO rows at GW{gw} although the file reaches "
+                     f"GW{meta[season]} -- every player would silently fill UNKNOWN")
+        else:
+            live = deadline is not None and deadline > now
+            ref = min(now, deadline) if deadline is not None else now
+            age = ref - asof
+            hours = age.total_seconds() / 3600.0
+            limit_h = MAX_AVAILABILITY_AGE.total_seconds() / 3600.0
+            where = "the build time" if live else "the deadline"
+            if live and age > MAX_AVAILABILITY_AGE:
+                _finding(findings, strict,
+                         f"availability for {season} GW{gw} is STALE: newest snapshot_time "
+                         f"{asof:%Y-%m-%d %H:%M}Z is {hours:.1f} h before {where} "
+                         f"({ref:%Y-%m-%d %H:%M}Z), older than MAX_AVAILABILITY_AGE = {limit_h:.0f} h "
+                         f"(asof_source {sources}) -- the minutes model would score on out-of-date "
+                         f"status/chance/news. The deadline runner stores a build-time snapshot and runs "
+                         f"poll_availability.py --build then merge_live_availability.py; if the build-time "
+                         f"fetch failed, the run log's AVAILABILITY SNAPSHOT section says so")
+            else:
+                findings.append(f"note: availability age at GW{gw}: {hours:.1f} h before {where} "
+                                f"(newest snapshot_time {asof:%Y-%m-%d %H:%M}Z, asof_source {sources}; "
+                                f"MAX_AVAILABILITY_AGE = {limit_h:.0f} h"
+                                + ("" if live else "; deadline passed: reported, not enforced") + ")")
 
     # minutes.py hardcoded prior-season ladder (silent all-cold-start if absent)
     ladder = _minutes_ladder()
@@ -548,7 +608,8 @@ def postflight(frame, season, gw, strict=False, horizon=1):
     return findings
 
 
-def build_deadline_frame(season, gw, strict=False, verbose=False, config="baseline", horizon=1):
+def build_deadline_frame(season, gw, strict=False, verbose=False, config="baseline", horizon=1,
+                         now=None):
     """ONE deadline frame via the SHARED implementations, at any horizon.
     baseline  -> walkforward_season.walk_forward (the canonical builder) with
                  cutoffs=[gw] -- the code that built every canonical file.
@@ -561,7 +622,7 @@ def build_deadline_frame(season, gw, strict=False, verbose=False, config="baseli
                  path exists. Returns (frame, findings)."""
     assert config in ("baseline", "combined"), config
     horizon = int(horizon)
-    findings = preflight(season, gw, strict=strict, config=config, horizon=horizon)
+    findings = preflight(season, gw, strict=strict, config=config, horizon=horizon, now=now)
     if config == "baseline":
         frame = wfs.walk_forward(season, cutoffs=[int(gw)], horizon=horizon, verbose=verbose)
     else:

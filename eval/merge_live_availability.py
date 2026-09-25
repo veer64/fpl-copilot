@@ -13,10 +13,12 @@ samples every 10 minutes near the deadline and caught three status flips fplcach
 missed on GW2 -- and fplcache (~4x/day snapshots) fills every other key. Disagreements
 on overlapping keys are COUNTED per column and recorded in the provenance sidecar,
 never silently resolved; asof_source keeps the per-row provenance distinct by design
-('live_snapshot'/'live_late_news' = poller, 'snapshot'/'late_news' = fplcache).
+('live_snapshot'/'live_late_news' = poller polls, 'build_fetch' = the snapshot the deadline
+runner stores at the start of a build (2026-09-25), 'snapshot'/'late_news' = fplcache).
 
 The output is DERIVED state: fully regenerated from the two live archives on each run
-(idempotent; run after every deadline alongside the poller's --build). The archives
+(idempotent; the deadline runner runs it at EVERY build right after
+`poll_availability.py --build --now <build time>`, 2026-09-25). The archives
 themselves are never modified. Uniqueness on (season, element, gw) is asserted here
 and again by availability_features.attach()'s row-count guard.
 
@@ -69,7 +71,9 @@ def merge(season):
     prov = dict(season=season, built_at=datetime.now(timezone.utc).isoformat(),
                 rows=len(merged), poller_rows=len(poller), fplcache_only_rows=len(fpl_only),
                 overlap_keys=len(overlap), overlap_disagreements=disagreements,
-                authority="poller wins per (season, element, gw); fplcache fills the rest",
+                authority="live archive (poller polls + build fetches) wins per (season, element, gw); "
+                          "fplcache fills the rest",
+                asof_sources={str(k): int(v) for k, v in merged["asof_source"].value_counts().items()},
                 gws=sorted(int(g) for g in merged["gw"].unique()))
     out.with_suffix(".provenance.json").write_text(json.dumps(prov, indent=1), encoding="utf-8")
     print(f"-> {out.name}: {len(merged)} rows ({len(poller)} poller-authoritative + "

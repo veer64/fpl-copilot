@@ -23,7 +23,9 @@ def main():
         season = seasons[-1] if seasons else None
         if season is None:
             raise RuntimeError("no raw archive directory")
-        files = sorted((RAW / season).glob("*.json.gz"))
+        # the poller's OWN polls only: build fetches (<ts>.build_fetch.json.gz, 2026-09-25) share
+        # the archive but are not window polls, so they must not count toward the cadence verdict
+        files = [p for p in sorted((RAW / season).glob("*.json.gz")) if p.name.count(".") == 2]
         if not files:
             raise RuntimeError("no raw polls at all")
         # deadline from the newest raw file's events

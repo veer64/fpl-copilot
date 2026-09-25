@@ -46,10 +46,12 @@ REPO = Path(__file__).resolve().parent.parent
 PY = sys.executable
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "squad"))
+sys.path.insert(0, str(REPO / "eval"))
 # Which configs build, solve and land in Postgres, and whether the lever inputs
 # (props pull + crosswalk + consensus, hmin refit) run at all. ONE source:
 # config_roles.py (production = baseline since 2026-09-11; no shadow).
 import config_roles as cr  # noqa: E402
+import poll_availability as pa  # noqa: E402  (the raw archive: the build's own snapshot goes there)
 
 
 # ---- quantiles (Logs/quantiles_design_2026-09-18.md) -----------------------------
@@ -191,6 +193,33 @@ def archive_status(R, kind, started_at):
         pass
 
 
+def snapshot_at_build(R, season, now):
+    """Step 0 (2026-09-25): ONE bootstrap-static fetch stored into the raw archive as the
+    build's own snapshot (asof_source 'build_fetch'), so the deadline gameweek is derived
+    from data taken AT the build and not from whatever the poller last archived. A failed
+    fetch is LOGGED, never fatal: the build falls back to the newest archived snapshot and
+    the strict preflight's MAX_AVAILABILITY_AGE decides whether that is fresh enough.
+    Returns (build_time, note): build_time is the clock `poll_availability --build` and the
+    preflight use -- the fetch moment on success, `now` on failure."""
+    R.log(f"\n===== availability snapshot at build @ {utc_now()} =====")
+    try:
+        path, ts = pa.fetch_and_store(season, source=pa.SOURCE_BUILD)
+        note = f"stored {path.name} (asof_source {pa.SOURCE_BUILD}) at {ts:%Y-%m-%d %H:%M:%S}Z"
+        R.log(note)
+        return ts, note
+    except Exception as e:                                   # noqa: BLE001 -- by contract, never fatal
+        snaps = pa.list_raw(season)
+        newest = snaps[-1] if snaps else None
+        note = (f"BUILD-TIME FETCH FAILED ({type(e).__name__}: {e}); falling back to the newest "
+                f"archived snapshot "
+                + (f"{newest[0]:%Y-%m-%d %H:%M:%S}Z ({pa.raw_source(newest[1])}), "
+                   f"{(now - newest[0]).total_seconds() / 3600:.1f} h before this build"
+                   if newest else "-- and the archive is EMPTY")
+                + "; the strict preflight's MAX_AVAILABILITY_AGE decides")
+        R.log(note)
+        return now, note
+
+
 def _read_json(p):
     try:
         return json.loads(Path(p).read_text(encoding="utf-8"))
@@ -215,6 +244,15 @@ def knowledge_block(season, gw, frames, started_at, finished_at, kind, slot, att
     man = _read_json(live / "ingest_manifest_latest.json")
     avp = _read_json(REPO / "data" / f"availability_{short}.provenance.json")
     odp = _read_json(REPO / "data" / "history" / f"odds_live_pull_{tag}.provenance.json")
+    # availability_asof = the newest snapshot_time in the deadline gameweek's rows of the
+    # merged file the model read (2026-09-25; before that it was the merge's own clock,
+    # which said nothing about the data's age -- run 19 stamped 11:00:11Z over rows
+    # from 2026-08-29). Measured from the file, by the preflight's own reader.
+    try:
+        import live_deadline as _ld
+        av_asof, _av_deadline, av_sources = _ld._availability_asof(season, gw)
+    except Exception:                                        # noqa: BLE001 -- a stamp must never fail a run
+        av_asof, av_sources = None, None
     f = next(iter(frames.values())) if frames else None
     import config_roles as cr
     dl_at = None
@@ -233,7 +271,11 @@ def knowledge_block(season, gw, frames, started_at, finished_at, kind, slot, att
         "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
         "duration_s": round((finished_at - started_at).total_seconds(), 1),
         "history_through_gw": hist_gw, "history_ingested_at": man.get("written"),
-        "availability_asof": avp.get("built_at"),
+        "availability_asof": (av_asof.isoformat() if av_asof else None),
+        "availability_sources": av_sources,
+        "availability_age_at_build_h": (round((started_at - av_asof).total_seconds() / 3600, 2)
+                                        if av_asof else None),
+        "availability_merged_at": avp.get("built_at"),
         "odds_pulled_at": odp.get("pulled_at"), "credits_remaining": credits,
         "calendar_snapshot_at": started_at.isoformat(),      # the strict re-pull is in-build
         "frame_cutoff_gw": (int(f["cutoff"].min()) if f is not None and "cutoff" in f.columns else gw),
@@ -257,8 +299,17 @@ def _dc_fit_summary():
 def run(R, season, gw, started_at=None):
     import pandas as pd
 
+    started_at = started_at or datetime.now(timezone.utc)
+    # ---- 0. the build's own availability snapshot, never fatal (2026-09-25) ----
+    build_now, snap_note = snapshot_at_build(R, season, started_at)
+    R.section("AVAILABILITY SNAPSHOT", snap_note)
+
     # ---- 1. deadline-day refreshes, runbook order (no ingest, no skeleton) ----
     try:
+        # the live archive -> the deadline gameweek's rows at the newest snapshot <= build time
+        R.run_step("poll_availability --build",
+                   ["eval/poll_availability.py", "--build", "--season", season,
+                    "--now", build_now.isoformat()])
         R.run_step("merge_live_availability",
                    ["eval/merge_live_availability.py", "--season", season])
         odds_out = R.run_step("fetch_live_odds",
@@ -313,7 +364,7 @@ def run(R, season, gw, started_at=None):
     for config in cr.CONFIGS:
         try:
             frame, findings = ld.build_deadline_frame(
-                season, gw, strict=True, config=config, horizon=6)
+                season, gw, strict=True, config=config, horizon=6, now=build_now)
             frames[config] = frame
             findings_by[config] = list(findings)
             note = "\n".join(f"  - {f}" for f in findings) if findings else "  (no findings)"
