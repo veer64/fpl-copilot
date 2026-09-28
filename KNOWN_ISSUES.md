@@ -1536,3 +1536,17 @@ files in and nothing else from `live/`. Size added, measured on a copy of the se
 53-file archive: 8,182,316 bytes as tar.gz (the files are already gzipped, so the archive
 adds its raw size). Takes effect on the first 03:43Z backup after the deploy; until then
 the archive is still unprotected.
+
+## #27 -- manutd.com extraction captures the related-links sidebar instead of the article body (items 507, 508): club news for Man Utd may be empty -- OPEN 2026-09-28
+
+Found during the relevance-filter calibration (the user's gold-set note on item 508: "a
+duplicate"). Items 507 and 508 are different manutd.com URLs whose stored bodies are the same
+six related-link titles repeated ("Team news for United v Brighton", "Baleba trains at
+Carrington", "How to watch and follow ..."): the Tavily extract of manutd.com pages returns the
+sidebar, not the article, so the club's "news" carries no availability text and every judge
+drops it for lack of content. Measured over ALL club rows (2026-09-28, 66 rows, 9 clubs): a body
+under 400 characters or with at least half its lines repeated occurs in 8 of 8 Man Utd rows and
+in 0 of the 58 rows of the other eight clubs. Effect: Man Utd availability news from its own
+site is effectively absent; the FPL flag and the BBC feed still cover the club. Fix pending
+(the extractor needs a manutd.com-specific selector or a different fetch); not changed in the
+relevance-filter commit.

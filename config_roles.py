@@ -95,3 +95,43 @@ TEAM_ALIASES = {
     "Spurs": ["Tottenham", "Tottenham Hotspur", "THFC"],
     "Sunderland": ["SAFC", "Black Cats"],
 }
+
+# ---- the news relevance filter (relevance.py, 2026-09-26) -------------------------------------
+# RELEVANCE_MODEL -- the PRODUCTION stage-2 classifier (verdicts of other models sit beside it in
+# news_relevance; only this one feeds news_to_embed). USER DECISION 2026-09-28: Sonnet 5 on prompt
+# v3, chosen on keep recall 4/5 vs Haiku 1/5 and relevant agreement 37/40 vs 26/40 against the
+# 40-item gold set (n = 40, so 1-2 items is noise); the prompt was revised on those same 40 items,
+# so the GW6-9 shadow data (SHADOW_JUDGE_*) is the unbiased check. Output budget 1024
+# (RELEVANCE_MAX_TOKENS_BY_MODEL), no temperature parameter (MODELS_WITHOUT_TEMPERATURE).
+RELEVANCE_MODEL = "claude-sonnet-5"
+# PROMPT_VERSION -- the production prompt, stamped on every verdict; bump it when the prompt or
+# the stage-1 rules change and every item is judged again (old verdicts are kept; news_to_embed
+# reads only this version under RELEVANCE_MODEL). v2 (2026-09-26) grounds the model in FPL data:
+# the players named and the club squad as of the item's fetch time. v3 (2026-09-28) adds three
+# recency rules to point 2 (cup matches are not in the fixture list; 7-day news is current;
+# long-term injuries stay current) after the 40-item gold calibration. NOTE: v3 was written with
+# those 40 items in view, so its gold scores are optimistic; the GW6-9 shadow data is the check.
+PROMPT_VERSION = "relevance_v3"
+# MODELS_WITHOUT_TEMPERATURE -- models that reject the temperature parameter (HTTP 400 "temperature is
+# deprecated for this model", measured 2026-09-27 on both). llm.py omits it for these and sends
+# temperature=0 to every other model. Explicit list; add a model only when confirmed. There is no
+# retry-without-temperature on error (USER RULING 2026-09-27).
+MODELS_WITHOUT_TEMPERATURE = ("claude-sonnet-5", "claude-opus-5-5")
+# RELEVANCE_MAX_TOKENS_BY_MODEL -- output budget per model, overriding the prompt profile's value
+# (200 for relevance_*, 500 for reference_*). USER RULING 2026-09-27 after Sonnet 5 hit 200 on 17 of
+# 71 replies (its default reasoning block and its tokenizer both cost output): Haiku unchanged so
+# its requests stay byte-identical; thinking settings are never touched, each model runs as it
+# would in production. A model not listed keeps the profile value.
+RELEVANCE_MAX_TOKENS_BY_MODEL = {"claude-haiku-4-5-20251001": 200, "claude-sonnet-5": 1024, "claude-opus-5-5": 2048}
+# AMBIGUOUS_NAMES -- web_names that are also ordinary words or shared by several players; alone
+# they never make an item a keyword YES (stage 1 sends it to the LLM as BORDERLINE instead).
+# Names shared by 2+ current players are added from the bootstrap at run time.
+AMBIGUOUS_NAMES = ("Wood", "Son", "James", "Mason", "Gabriel", "Palmer", "King", "Hill", "White",
+                   "Young", "Rice", "Little")
+# RELEVANCE_SIGNALS -- availability words; whole-word, case- and accent-insensitive.
+RELEVANCE_SIGNALS = (
+    "injury", "injured", "hamstring", "knee", "ankle", "calf", "groin", "thigh", "knock", "illness",
+    "doubt", "doubtful", "ruled out", "sidelined", "fitness", "fit again", "back in training",
+    "returned to training", "recovery", "suspended", "suspension", "ban", "red card", "team news",
+    "available", "unavailable", "miss", "absent", "scan", "surgery", "operation",
+)

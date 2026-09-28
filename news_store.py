@@ -159,12 +159,92 @@ FROM (
         END AS embed_text
     FROM news_items
 ) t;
+
+-- ---- the relevance filter (relevance.py, 2026-09-26) ----------------------------------------
+-- One verdict per (news_items row, prompt version, MODEL), append-only: a new PROMPT_VERSION or
+-- another model judges everything again beside the old rows. stage: 'skipped' (fpl: trusted,
+-- no LLM), 'keyword' (stage 1 said NO: no player or club named), 'llm' (the model's answer).
+-- current is NULL for a keyword verdict (nobody judged it); players is what the LLM named.
+-- model is the model the run was made under, also on skipped / keyword rows, so every
+-- (prompt version, model) pair covers every item.
+CREATE TABLE IF NOT EXISTS news_relevance (
+    id              BIGSERIAL PRIMARY KEY,
+    news_item_id    BIGINT NOT NULL REFERENCES news_items (id) ON DELETE CASCADE,
+    prompt_version  TEXT NOT NULL,
+    stage           TEXT NOT NULL CHECK (stage IN ('skipped', 'keyword', 'llm')),
+    relevant        BOOLEAN NOT NULL,
+    current         BOOLEAN,
+    players         TEXT[] NOT NULL DEFAULT '{}',
+    reason          TEXT NOT NULL,
+    model           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- migration of the first cut (key without model; skipped / keyword rows had NULL model): every
+-- relevance_v1 row came from the Haiku run of 2026-09-26
+UPDATE news_relevance SET model = 'claude-haiku-4-5-20251001' WHERE model IS NULL;
+ALTER TABLE news_relevance ALTER COLUMN model SET NOT NULL;
+ALTER TABLE news_relevance DROP CONSTRAINT IF EXISTS news_relevance_news_item_id_prompt_version_key;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_news_relevance_item_prompt_model ON news_relevance (news_item_id, prompt_version, model);
+
+-- the production choice (one row), written by ensure_schema from config_roles.PROMPT_VERSION and
+-- RELEVANCE_MODEL; news_to_embed reads it so the view needs no literals
+CREATE TABLE IF NOT EXISTS relevance_production (
+    one             BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (one),
+    prompt_version  TEXT NOT NULL,
+    model           TEXT NOT NULL,
+    set_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- every LLM attempt (llm.py), one row per HTTP attempt including the retried ones
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id             BIGSERIAL PRIMARY KEY,
+    called_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    purpose        TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    input_tokens   INT,
+    output_tokens  INT,
+    ok             BOOLEAN NOT NULL,
+    error          TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_llm_calls_at ON llm_calls (called_at);
+-- whether the request carried temperature (config MODELS_WITHOUT_TEMPERATURE); NULL on rows older than the column
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS temperature_sent BOOLEAN;
+-- the reply as the API described it (ruling 2026-09-27): stop_reason ('end_turn', 'max_tokens', ...),
+-- the content block types in order (e.g. {thinking,text}), and the characters of thinking vs text --
+-- the API reports no token split, so the thinking share is measured in characters. A reply that
+-- stopped at max_tokens carries error 'truncated' (the request itself was ok).
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS stop_reason TEXT;
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS content_block_types TEXT[];
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS thinking_chars INT;
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS text_chars INT;
+-- which item and prompt version a call was for (ruling 2026-09-27: refusals are per item, so the
+-- run loop skips an item the API refused twice under the same model and prompt version)
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS news_item_id BIGINT;
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS prompt_version TEXT;
+CREATE INDEX IF NOT EXISTS ix_llm_calls_item ON llm_calls (news_item_id, model, prompt_version) WHERE news_item_id IS NOT NULL;
+
+-- What the embedding layer should take: every news_embed_text row whose verdict under the
+-- PRODUCTION prompt version and model says relevant, and not known to be stale (current IS NOT
+-- false). fpl rows carry a 'skipped' verdict (relevant, current) so they pass; rows without a
+-- production verdict yet are absent; other models' and reference verdicts never count.
+CREATE OR REPLACE VIEW news_to_embed AS
+SELECT e.id, e.source, e.guid, e.version, e.fetched_at, e.embed_text, e.char_count,
+       v.relevant, v.current, v.players, v.stage, v.prompt_version, v.model
+FROM news_embed_text e
+JOIN relevance_production p ON TRUE
+JOIN news_relevance v ON v.news_item_id = e.id AND v.prompt_version = p.prompt_version AND v.model = p.model
+WHERE v.relevant AND v.current IS NOT FALSE;
 """
 
 
 def ensure_schema(conn):
+    import config_roles
     with conn.cursor() as cur:
         cur.execute(DDL)
+        cur.execute("INSERT INTO relevance_production (one, prompt_version, model) VALUES (TRUE, %s, %s) "
+                    "ON CONFLICT (one) DO UPDATE SET prompt_version = EXCLUDED.prompt_version, model = EXCLUDED.model, set_at = now() "
+                    "WHERE relevance_production.prompt_version <> EXCLUDED.prompt_version OR relevance_production.model <> EXCLUDED.model",
+                    (config_roles.PROMPT_VERSION, config_roles.RELEVANCE_MODEL))
     conn.commit()
 
 

@@ -9,7 +9,8 @@ Usage:
                                                                         # backfill from a READ-ONLY copy
 
 Each run logs, per source: fetched, new, new versions, skipped, errors (and the HTTP
-status for BBC). Exit 1 on any exception; a 304 is a normal, quiet run.
+status for BBC), then runs the relevance filter (relevance.py) over every row still
+unjudged. Exit 1 on any exception; a 304 is a normal, quiet run.
 
 Cron (prepared 2026-09-25, NOT installed): every 4 hours at :37, off every existing tick
 (*/10 ticks, :17 ingest, 03:43 backup, 11:00 nightly):
@@ -26,12 +27,18 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "eval"))
 import db_write  # noqa: E402
 import news_store as ns  # noqa: E402
+import relevance as rv  # noqa: E402
 
 SOURCE_NEWS = "news_fetch"
 
 
 def log(msg):
     print(f"[{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}] {msg}", flush=True)
+
+
+def run_relevance(conn):
+    """the relevance filter over every row still unjudged for PROMPT_VERSION (relevance.py)"""
+    return rv.run_relevance(conn, log=log)
 
 
 def run_bbc(conn, now):
@@ -73,6 +80,7 @@ def main():
             run_bbc(conn, now)
         if not a.no_fpl:
             run_fpl(conn, a.season, store=not a.no_fpl_store and not a.archive, archive=a.archive)
+        run_relevance(conn)
         conn.close()
     except Exception:
         log("FAILED:\n" + traceback.format_exc()[-2000:])

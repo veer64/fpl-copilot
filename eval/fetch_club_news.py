@@ -31,6 +31,8 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(REPO / ".env")
 import db_write  # noqa: E402
 import club_news as cn  # noqa: E402
+import news_store as ns  # noqa: E402
+import relevance as rv  # noqa: E402
 from config_roles import CLUB_DOMAINS, CLUB_NEWS_CLUBS  # noqa: E402
 
 RAW_DIR = cn.RAW_DIR
@@ -42,6 +44,11 @@ def log(msg):
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+def run_relevance(conn):
+    """the relevance filter over every row still unjudged for PROMPT_VERSION (relevance.py)"""
+    return rv.run_relevance(conn, log=log)
 
 
 def make_tavily():
@@ -102,6 +109,17 @@ def main():
         else:
             log(f"outside window, next window opens {g['opens_at']:%Y-%m-%dT%H:%M:%SZ} "
                 f"(GW{g['gw']} deadline {g['deadline']:%Y-%m-%dT%H:%M:%SZ}); no calls made")
+        conn = None
+        try:
+            conn = db_write.connect()
+            ns.ensure_schema(conn)
+            run_relevance(conn)
+        except Exception:
+            log("relevance FAILED:\n" + traceback.format_exc()[-2000:])
+            sys.exit(1)
+        finally:
+            if conn is not None:
+                conn.close()
         sys.exit(0)
     log(f"inside window: GW{g['gw']} deadline {g['deadline']:%Y-%m-%dT%H:%M:%SZ}, window from {g['opens_at']:%Y-%m-%dT%H:%M:%SZ}")
     teams = load_teams()
@@ -119,6 +137,7 @@ def main():
         conn = db_write.connect()
         summary = cn.run(conn, clubs, tavily, now=now, seed=a.seed, raw_dir=raw_dir, log=log, http=http,
                          window=g["window"], opponents=opponents, aliases=aliases, replay=bool(a.replay))
+        run_relevance(conn)
     except cn.CreditLimit as e:
         log(f"REFUSED by the credit guard: {e}")
         sys.exit(2)

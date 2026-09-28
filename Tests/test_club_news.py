@@ -85,7 +85,7 @@ def conn(monkeypatch):
     monkeypatch.setenv("DB_NAME", TEST_DB)
     c = db_write.connect()
     with c.cursor() as cur:
-        cur.execute("DROP VIEW IF EXISTS news_embed_text; DROP TABLE IF EXISTS news_items; DROP TABLE IF EXISTS tavily_calls")
+        cur.execute("DROP VIEW IF EXISTS news_to_embed; DROP VIEW IF EXISTS news_embed_text; DROP TABLE IF EXISTS news_relevance; DROP TABLE IF EXISTS llm_calls; DROP TABLE IF EXISTS news_items; DROP TABLE IF EXISTS tavily_calls")
     c.commit()
     ns.ensure_schema(c)
     yield c
@@ -301,6 +301,7 @@ def test_runner_exits_non_zero_on_the_guard(conn, tmp_path, monkeypatch):
     monkeypatch.setattr(cn, "TAVILY_MONTHLY_LIMIT", 1)
     cn.record_call(conn, "search", "Spurs", "q", 5, 1, called_at=NOW)
     monkeypatch.setattr(runner, "make_tavily", lambda: FakeTavily())
+    monkeypatch.setattr(runner, "run_relevance", lambda conn: None)
     monkeypatch.setattr(runner, "make_http", lambda raw_dir: None)
     # v2 gate: give the runner a deadline one day ahead of its clock so the window is open
     monkeypatch.setattr(runner, "load_events", lambda: [{"id": 6, "deadline_time": (NOW + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"), "finished": False}])

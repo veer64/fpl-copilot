@@ -55,7 +55,7 @@ def conn(monkeypatch):
     monkeypatch.setenv("DB_NAME", TEST_DB)
     c = db_write.connect()
     with c.cursor() as cur:
-        cur.execute("DROP VIEW IF EXISTS news_embed_text; DROP TABLE IF EXISTS news_items; DROP TABLE IF EXISTS tavily_calls")
+        cur.execute("DROP VIEW IF EXISTS news_to_embed; DROP VIEW IF EXISTS news_embed_text; DROP TABLE IF EXISTS news_relevance; DROP TABLE IF EXISTS llm_calls; DROP TABLE IF EXISTS news_items; DROP TABLE IF EXISTS tavily_calls")
     c.commit()
     ns.ensure_schema(c)
     yield c
@@ -301,6 +301,7 @@ def test_runner_gate_outside_window(conn, tmp_path, monkeypatch, capsys):
     import fetch_club_news as runner
     tv = FakeTavily(SEARCHES, EXTRACTS)
     monkeypatch.setattr(runner, "make_tavily", lambda: tv)
+    monkeypatch.setattr(runner, "run_relevance", lambda conn: None)
     monkeypatch.setattr(runner, "make_http", lambda raw_dir: FakeHttp(PAGES))
     monkeypatch.setattr(runner, "load_events", lambda: EVENTS)
     monkeypatch.setattr(runner, "load_teams", lambda: TEAMS)
@@ -316,6 +317,7 @@ def test_runner_inside_window_searches_the_nine_clubs_only(conn, tmp_path, monke
     import fetch_club_news as runner
     tv = FakeTavily(SEARCHES, EXTRACTS)
     monkeypatch.setattr(runner, "make_tavily", lambda: tv)
+    monkeypatch.setattr(runner, "run_relevance", lambda conn: None)
     monkeypatch.setattr(runner, "make_http", lambda raw_dir: FakeHttp(PAGES))
     monkeypatch.setattr(runner, "load_events", lambda: EVENTS)
     monkeypatch.setattr(runner, "load_teams", lambda: TEAMS)
