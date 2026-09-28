@@ -8,6 +8,10 @@ Usage:
     uv run python eval/run_relevance.py --max-calls 150       # send at most 150 items to the LLM this run
     uv run python eval/run_relevance.py --model claude-sonnet-5                      # another model, beside production
     uv run python eval/run_relevance.py --model claude-opus-5-5 --prompt-version reference_v1   # the reference labels
+    uv run python eval/run_relevance.py --no-shadow                                  # production only, no shadow judge
+
+A plain run judges with the production model and prompt, then the shadow judge (config SHADOW_JUDGE_*)
+judges the same items; --model / --prompt-version / --dry-run / --no-shadow skip the shadow.
 """
 import argparse
 import sys
@@ -35,13 +39,17 @@ def main():
     ap.add_argument("--model", default=None, help="judge under this model instead of config RELEVANCE_MODEL (verdicts sit beside)")
     ap.add_argument("--prompt-version", default=None, help="judge under this prompt version instead of config PROMPT_VERSION")
     ap.add_argument("--ids", default=None, help="comma-separated news_items ids: judge only these (still only if unjudged)")
+    ap.add_argument("--no-shadow", action="store_true", help="production only; skip the shadow judge")
     a = ap.parse_args()
     conn = None
     try:
         conn = db_write.connect()
         ns.ensure_schema(conn)
         ids = [int(x) for x in a.ids.split(",") if x.strip()] if a.ids else None
-        rv.run_relevance(conn, a.limit, dry_run=a.dry_run, max_calls=a.max_calls, log=log, model=a.model, prompt_version=a.prompt_version, ids=ids)
+        if a.model or a.prompt_version or a.dry_run or a.no_shadow:
+            rv.run_relevance(conn, a.limit, dry_run=a.dry_run, max_calls=a.max_calls, log=log, model=a.model, prompt_version=a.prompt_version, ids=ids)
+        else:
+            rv.run_with_shadow(conn, a.limit, max_calls=a.max_calls, log=log, ids=ids)
     except Exception:
         log("FAILED:\n" + traceback.format_exc()[-2000:])
         sys.exit(1)

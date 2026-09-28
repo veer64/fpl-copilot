@@ -25,6 +25,11 @@ Routing
   under the same model and prompt version is skipped from then on ("refused twice"), and the one
   systemic guard is the rate: more than REFUSAL_WINDOW_MAX of the last REFUSAL_WINDOW calls refused
   -> "refusal rate too high, run stopped". ids=[...] restricts a run to listed items.
+
+The shadow judge (Part 9, 2026-09-28): run_with_shadow() runs production, then judges the same
+bbc/club items it sent to the LLM under config SHADOW_JUDGE_MODEL / SHADOW_JUDGE_PROMPT_VERSION,
+at most SHADOW_JUDGE_DAILY_CAP requests per UTC day. Shadow verdicts never reach news_to_embed
+(the view reads the production pointer only); any shadow failure is logged and production stands.
   Output budgets are per model (config RELEVANCE_MAX_TOKENS_BY_MODEL); thinking settings are
   never touched, each model runs with its defaults.
 
@@ -596,7 +601,7 @@ def run_relevance(conn, limit=None, *, client=None, bootstrap=None, snapshots=No
     items = unjudged(conn, prompt_version, model, limit, ids)
     s = {"items": len(items), "skipped": 0, "keyword_no": 0, "llm_calls": 0, "llm_ok": 0, "llm_failed": 0,
          "capped": 0, "would_call": 0, "truncated": 0, "truncated_replies": 0, "refused_replies": 0, "skipped_refused": 0,
-         "tokens_in": 0, "tokens_out": 0, "stage1": {},
+         "tokens_in": 0, "tokens_out": 0, "stage1": {}, "llm_item_ids": [],
          "verdicts": {"relevant": 0, "not_relevant": 0, "not_current": 0}, "model": model, "prompt_version": prompt_version}
     if not items:
         log(f"relevance: nothing to judge for {prompt_version} / {model}")
@@ -651,6 +656,7 @@ def run_relevance(conn, limit=None, *, client=None, bootstrap=None, snapshots=No
         trunc = len(it["body"] or "") > profile["body_chars"]
         s["truncated"] += int(trunc)
         s["llm_calls"] += 1
+        s["llm_item_ids"].append(it["id"])
         try:
             text, usage = llm.complete(PURPOSE, SYSTEM_PROMPT, user, model, max_tokens_for(model, profile), temperature=0,
                                        client=client, conn=conn, item_id=it["id"], prompt_version=prompt_version, **kw)
@@ -707,3 +713,43 @@ def run_relevance(conn, limit=None, *, client=None, bootstrap=None, snapshots=No
         f"tokens in/out {s['tokens_in']}/{s['tokens_out']}, stage1 {s['stage1']}"
         + (f", would call {s['would_call']} (dry run, nothing written)" if dry_run else ""))
     return s
+
+
+# ---- the shadow judge ----------------------------------------------------------------------------------
+
+def shadow_calls_today(conn, model, prompt_version):
+    """requests made to the shadow (model, prompt version) since 00:00 UTC today, every attempt counted"""
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM llm_calls WHERE model = %s AND prompt_version = %s "
+                    "AND called_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'", (model, prompt_version))
+        return int(cur.fetchone()[0])
+
+
+_CONTEXT_KW = ("bootstrap", "snapshots", "events", "matches", "sleep")
+
+
+def run_with_shadow(conn, limit=None, *, client=None, shadow_client=None, log=print, **kw):
+    """Production run_relevance, then the shadow judge over the same LLM items (config SHADOW_JUDGE_*).
+    Returns {"production": summary, "shadow": summary | None}. The shadow never raises: a failure is
+    logged and production stands; the daily cap bounds its calls; disabled -> no shadow at all."""
+    prod = run_relevance(conn, limit, client=client, log=log, **kw)
+    out = {"production": prod, "shadow": None}
+    if not config_roles.SHADOW_JUDGE_ENABLED or not prod.get("llm_item_ids"):
+        return out
+    model, pv, cap = config_roles.SHADOW_JUDGE_MODEL, config_roles.SHADOW_JUDGE_PROMPT_VERSION, config_roles.SHADOW_JUDGE_DAILY_CAP
+    try:
+        used = shadow_calls_today(conn, model, pv)
+        if used >= cap:
+            log(f"shadow: daily cap reached ({used} of {cap} requests today), no shadow calls; production verdicts stand")
+            return out
+        ctx = {k: v for k, v in kw.items() if k in _CONTEXT_KW}
+        out["shadow"] = run_relevance(conn, ids=prod["llm_item_ids"], model=model, prompt_version=pv, client=shadow_client,
+                                      max_calls=cap - used, log=log, **ctx)
+        sh = out["shadow"]
+        log(f"shadow: {pv} / {model}: judged {sh['llm_ok']} of {len(prod['llm_item_ids'])} production items, refused {sh['refused_replies']}, "
+            f"failed {sh['llm_failed'] - sh['refused_replies']}, capped {sh['capped']} (daily {used + sh['llm_calls']} of {cap})")
+    except Exception as e:                            # noqa: BLE001 -- the shadow must never take production down
+        conn.rollback()
+        out["shadow"] = None
+        log(f"shadow judge FAILED ({type(e).__name__}: {e}); production verdicts stand")
+    return out

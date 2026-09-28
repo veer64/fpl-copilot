@@ -24,6 +24,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "eval"))
+sys.path.insert(0, str(REPO / "eval" / "labels"))
 import psycopg2  # noqa: E402
 import db_write  # noqa: E402
 import config_roles  # noqa: E402
@@ -982,3 +983,202 @@ def test_v3_adds_the_recency_rules_and_v2_and_reference_do_not():
     for version, tokens in (("relevance_v2", 200), ("relevance_v3", 200), ("reference_v1", 500)):
         assert rv.profile_for(version)["max_tokens"] == tokens
     assert rv.profile_for("relevance_v9")["template"] is rv.profile_for("relevance_v3")["template"], "unknown later versions use the newest of the family"
+
+
+# ---- Part 9 (2026-09-28): the shadow judge in production ------------------------------------------------
+
+SHADOW_OK = json.dumps({"reasoning": "shadow says keep", "relevant": True, "current": True, "players": ["Palmer"]})
+SHADOW_NO = json.dumps({"reasoning": "shadow says drop", "relevant": False, "current": True, "players": []})
+
+
+def _embed(conn):
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM news_to_embed WHERE source <> 'fpl' ORDER BY id")
+        return [r[0] for r in cur.fetchall()]
+
+
+def _shadow(conn, prod_script, shadow_script, **kw):
+    prod, shadow = FakeClient(prod_script), FakeClient(shadow_script)
+    out = rv.run_with_shadow(conn, client=prod, shadow_client=shadow, bootstrap=BOOTSTRAP, events=EVENTS, matches=MATCHES,
+                             log=kw.pop("log", lambda m: None), **kw)
+    return out, prod, shadow
+
+
+def test_shadow_config_pins():
+    assert config_roles.SHADOW_JUDGE_MODEL == "claude-opus-5-5" and config_roles.SHADOW_JUDGE_PROMPT_VERSION == "reference_v1"
+    assert config_roles.SHADOW_JUDGE_ENABLED is True and config_roles.SHADOW_JUDGE_DAILY_CAP == 150
+
+
+def test_shadow_judges_the_same_items_and_never_touches_news_to_embed(conn):
+    _insert(conn, "fpl", "Palmer (CHE, MID)", "Knock")
+    _insert(conn, "bbc", "New stadium roof", "The roof was repaired.")                                              # keyword NO
+    _insert(conn, "club", "Alonso confirms team news", "Cole Palmer is a doubt with a knee injury.", club="Chelsea")   # production keeps
+    _insert(conn, "club", "Arteta on Saka", "Bukayo Saka has a hamstring injury.", club="Arsenal")                    # production drops
+    out, prod, shadow = _shadow(conn, [GOOD, json.dumps({"relevant": False, "current": True, "players": [], "reason": "no"})], [SHADOW_NO, SHADOW_OK])
+    assert len(prod.calls) == 2 and len(shadow.calls) == 2
+    assert [c["model"] for c in shadow.calls] == ["claude-opus-5-5"] * 2 and shadow.calls[0]["max_tokens"] == 2048
+    assert shadow.calls[0]["messages"][0]["content"].endswith(REFERENCE_TAIL)
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM news_items WHERE headline = 'Alonso confirms team news'")
+        kept_id = cur.fetchone()[0]
+        cur.execute("SELECT prompt_version, model, count(*) FROM news_relevance GROUP BY 1, 2 ORDER BY 1, 2")
+        rows = cur.fetchall()
+    # the shadow judged exactly the two LLM items; fpl and keyword rows belong to production only
+    assert rows == [("reference_v1", "claude-opus-5-5", 2), (config_roles.PROMPT_VERSION, config_roles.RELEVANCE_MODEL, 4)]
+    assert _embed(conn) == [kept_id], "the view follows production: the shadow's opposite verdicts change nothing"
+    assert out["production"]["llm_calls"] == 2 and out["shadow"]["llm_calls"] == 2
+
+
+def test_shadow_failure_leaves_production_standing(conn):
+    _insert(conn, "club", "Alonso confirms team news", "Cole Palmer is a doubt with a knee injury.", club="Chelsea")
+    lines = []
+    out, prod, shadow = _shadow(conn, [GOOD], [FakeStatusError(401, "API key is invalid.")], log=lines.append)
+    assert len(prod.calls) == 1 and len(shadow.calls) == 1
+    assert out["shadow"] is None and any("shadow judge FAILED" in ln for ln in lines)
+    assert len(_embed(conn)) == 1 and [(x[7], x[3]) for x in _verdicts(conn)] == [(config_roles.PROMPT_VERSION, True)]
+    # a per-item shadow failure (5xx, retried and given up) also leaves production alone and the run returns normally
+    _insert(conn, "club", "Arteta on Saka", "Bukayo Saka has a hamstring injury.", club="Arsenal")
+    out, prod, shadow = _shadow(conn, [GOOD], [FakeStatusError(500)] * 3, sleep=lambda s: None)
+    assert out["shadow"]["llm_failed"] == 1 and len(_embed(conn)) == 2
+
+
+def _shadow_rows_today(conn, n):
+    with conn.cursor() as cur:
+        for _ in range(n):
+            cur.execute("INSERT INTO llm_calls (purpose, model, prompt_version, ok, input_tokens, output_tokens, called_at) "
+                        "VALUES ('news_relevance', %s, %s, TRUE, 700, 50, now())", (config_roles.SHADOW_JUDGE_MODEL, config_roles.SHADOW_JUDGE_PROMPT_VERSION))
+    conn.commit()
+
+
+def test_shadow_daily_cap(conn):
+    _three_club_items(conn)
+    _shadow_rows_today(conn, 148)
+    lines = []
+    out, prod, shadow = _shadow(conn, [GOOD] * 4, [SHADOW_OK] * 4, log=lines.append)
+    assert len(prod.calls) == 4 and len(shadow.calls) == 2, "148 used today + 2 = the 150 cap; the other two wait"
+    assert out["shadow"]["capped"] == 2
+    _insert(conn, "club", "Pep on Haaland", "Erling Haaland is back in training.", club="Man City", guid="club:haaland2")
+    out, prod, shadow = _shadow(conn, [GOOD], [SHADOW_OK], log=lines.append)
+    assert len(prod.calls) == 1 and shadow.calls == [] and out["shadow"] is None
+    assert any("shadow: daily cap" in ln for ln in lines)
+
+
+def test_shadow_disabled_makes_no_calls(conn, monkeypatch):
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_ENABLED", False)
+    _insert(conn, "club", "Alonso confirms team news", "Cole Palmer is a doubt with a knee injury.", club="Chelsea")
+    out, prod, shadow = _shadow(conn, [GOOD], [SHADOW_OK])
+    assert len(prod.calls) == 1 and shadow.calls == [] and out["shadow"] is None
+
+
+def test_runners_and_cli_use_the_shadow_wrapper(conn, monkeypatch):
+    import fetch_news, fetch_club_news, run_relevance as cli
+    calls = []
+    monkeypatch.setattr(rv, "run_with_shadow", lambda c, *a, **k: calls.append(("shadow", k)) or {})
+    monkeypatch.setattr(rv, "run_relevance", lambda c, *a, **k: calls.append(("plain", k)) or {})
+    fetch_news.run_relevance(conn)
+    fetch_club_news.run_relevance(conn)
+    monkeypatch.setattr(sys, "argv", ["run_relevance.py"])
+    cli.main()
+    monkeypatch.setattr(sys, "argv", ["run_relevance.py", "--model", "claude-haiku-4-5-20251001"])
+    cli.main()
+    monkeypatch.setattr(sys, "argv", ["run_relevance.py", "--no-shadow"])
+    cli.main()
+    assert [c[0] for c in calls] == ["shadow", "shadow", "shadow", "plain", "plain"], "evaluation overrides and --no-shadow skip the shadow"
+
+
+# ---- Part 9: the weekly report and the gold append ---------------------------------------------------------
+
+REPORT_EVENTS = [{"id": 5, "deadline_time": "2026-09-18T17:30:00Z"}, {"id": 6, "deadline_time": "2026-10-10T10:00:00Z"},
+                 {"id": 7, "deadline_time": "2026-10-17T10:00:00Z"}]
+
+
+def _verdict(conn, item_id, pv, model, relevant, current, reason="r"):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO news_relevance (news_item_id, prompt_version, model, stage, relevant, current, players, reason) "
+                    "VALUES (%s, %s, %s, 'llm', %s, %s, '{}', %s)", (item_id, pv, model, relevant, current, f"stage1 YES | llm: {reason}"))
+    conn.commit()
+
+
+def _call(conn, item_id, pv, model, when, error=None, tokens=(700, 50)):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO llm_calls (purpose, model, prompt_version, news_item_id, ok, error, stop_reason, input_tokens, output_tokens, called_at) "
+                    "VALUES ('news_relevance', %s, %s, %s, TRUE, %s, %s, %s, %s, %s)",
+                    (model, pv, item_id, error, "refusal" if error == "refusal" else "end_turn", tokens[0], 0 if error == "refusal" else tokens[1], when))
+    conn.commit()
+
+
+def _report_fixture(conn):
+    """GW6 week = (2026-09-18 17:30, 2026-10-10 10:00]. Items: A kept by both; B shadow kept, production dropped;
+    C production kept, shadow dropped; D both dropped; E production dropped, shadow REFUSED; F outside the week."""
+    P, S = (config_roles.PROMPT_VERSION, config_roles.RELEVANCE_MODEL), (config_roles.SHADOW_JUDGE_PROMPT_VERSION, config_roles.SHADOW_JUDGE_MODEL)
+    t = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    spec = {"A": ("club", "Chelsea", True, True), "B": ("club", "Chelsea", False, True), "C": ("bbc", None, True, False),
+            "D": ("bbc", None, False, False), "E": ("club", "Arsenal", False, None)}
+    ids = {}
+    for name, (src, club, pkeep, skeep) in spec.items():
+        _insert(conn, src, f"Item {name} headline", f"Body of item {name}. " * 40, club=club, fetched_at=t, guid=f"{src}:{name}")
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM news_items WHERE guid = %s", (f"{src}:{name}",))
+            ids[name] = cur.fetchone()[0]
+        _verdict(conn, ids[name], *P, pkeep, True, reason=f"production on {name}")
+        _call(conn, ids[name], *P, t)
+        if skeep is None:
+            _call(conn, ids[name], *S, t, error="refusal")
+            _call(conn, ids[name], *S, t, error="refusal")
+        else:
+            _verdict(conn, ids[name], *S, skeep, True, reason=f"shadow on {name}")
+            _call(conn, ids[name], *S, t)
+    _insert(conn, "bbc", "Item F headline", "Outside the week.", fetched_at=datetime(2026, 9, 10, tzinfo=UTC), guid="bbc:F")
+    return ids
+
+
+def test_weekly_report_on_fixture_data(conn, tmp_path):
+    import relevance_report as rr
+    ids = _report_fixture(conn)
+    text, summary = rr.build_report(conn, 6, events=REPORT_EVENTS, seed=1)
+    assert summary["window"] == (datetime(2026, 9, 18, 17, 30, tzinfo=UTC), datetime(2026, 10, 10, 10, 0, tzinfo=UTC))
+    assert summary["collected"] == 5 and summary["kept_production"] == 2 and summary["kept_shadow"] == 2
+    assert summary["shadow_kept_production_dropped"] == [ids["B"]] and summary["production_kept_shadow_dropped"] == [ids["C"]]
+    assert summary["both_dropped_sample"] == [ids["D"]] and summary["dropped_and_refused"] == [ids["E"]]
+    assert summary["shadow_refusals"] == 2 and summary["shadow_requests"] == 6 and abs(summary["shadow_refusal_rate"] - 2 / 6) < 1e-9
+    assert summary["calls"]["production"]["calls"] == 5 and summary["calls"]["shadow"]["calls"] == 6
+    assert summary["calls"]["production"]["cost_usd"] > 0 and summary["calls"]["shadow"]["cost_usd"] > 0
+    for name in ("B", "C", "D", "E"):
+        assert f"### Item {ids[name]}" in text
+    assert f"### Item {ids['A']}" not in text and "Item F headline" not in text
+    assert text.count("RELEVANT (y/n):") == 4 and text.count("CURRENT (y/n):") == 4
+    assert "refused" in text.split(f"### Item {ids['E']}")[1].split("###")[0].lower()
+    assert "Chelsea" in text and "Arsenal" in text and "shadow refusal rate" in text.lower()
+    out = rr.write_report(conn, 6, out_dir=tmp_path, events=REPORT_EVENTS, seed=1)
+    assert out.name == "relevance_gw6.md" and out.read_text(encoding="utf-8") == text
+
+
+def _label_block(text, iid, rel, cur, note=""):
+    head = f"### Item {iid}"
+    before, after = text.split(head, 1)
+    block, rest = (after.split("### Item", 1) + [""])[:2] if "### Item" in after else (after, "")
+    block = block.replace("RELEVANT (y/n):", f"RELEVANT (y/n): {rel}", 1).replace("CURRENT (y/n):", f"CURRENT (y/n): {cur}", 1)
+    if note:
+        block = block.replace("NOTE:", f"NOTE: {note}", 1)
+    return before + head + block + ("### Item" + rest if rest else "")
+
+
+def test_append_gold_from_a_labelled_report(conn, tmp_path):
+    import relevance_report as rr
+    import append_gold as ag
+    ids = _report_fixture(conn)
+    report = rr.write_report(conn, 6, out_dir=tmp_path, events=REPORT_EVENTS, seed=1)
+    text = report.read_text(encoding="utf-8")
+    text = _label_block(text, ids["B"], "y", "y", "good catch")           # the user labels B and E, leaves C and D blank
+    text = _label_block(text, ids["E"], "n", "n")
+    report.write_text(text, encoding="utf-8")
+    csv_path = tmp_path / "labels.csv"
+    csv_path.write_text("item_id,source,url,headline,gold_relevant_original,gold_current_original,gold_relevant_final,gold_current_final,adjudicated,note,subset,gw\n"
+                        "1,bbc,https://x,old,n,n,n,n,n,,random,calibration\n", encoding="utf-8")
+    added = ag.append_labels(conn, report, csv_path, gw=6)
+    assert added["added"] == sorted([ids["B"], ids["E"]]) and set(added["skipped_blank"]) == {ids["C"], ids["D"]}
+    rows = csv_path.read_text(encoding="utf-8").splitlines()
+    assert len(rows) == 4
+    b_row = [r for r in rows if r.startswith(f"{ids['B']},")][0]
+    assert b_row.endswith(",good catch,review_gw6,6") and ",club," in b_row and ",y,y,y,y,n," in b_row
+    assert ag.append_labels(conn, report, csv_path, gw=6)["added"] == [], "already-appended items are not duplicated"

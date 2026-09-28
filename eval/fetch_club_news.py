@@ -47,8 +47,8 @@ def utcnow():
 
 
 def run_relevance(conn):
-    """the relevance filter over every row still unjudged for PROMPT_VERSION (relevance.py)"""
-    return rv.run_relevance(conn, log=log)
+    """the relevance filter over every row still unjudged for PROMPT_VERSION, then the shadow judge (relevance.py)"""
+    return rv.run_with_shadow(conn, log=log)
 
 
 def make_tavily():

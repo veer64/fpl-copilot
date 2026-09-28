@@ -36,3 +36,4 @@ tmp/
 # relevance evaluation: full article texts (copyright) and the review workbook stay local
 eval/labels/local/
 eval/reports/*.xlsx
+eval/reports/*.md

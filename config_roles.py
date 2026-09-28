@@ -123,6 +123,21 @@ MODELS_WITHOUT_TEMPERATURE = ("claude-sonnet-5", "claude-opus-5-5")
 # its requests stay byte-identical; thinking settings are never touched, each model runs as it
 # would in production. A model not listed keeps the profile value.
 RELEVANCE_MAX_TOKENS_BY_MODEL = {"claude-haiku-4-5-20251001": 200, "claude-sonnet-5": 1024, "claude-opus-5-5": 2048}
+# MODEL_PRICES_USD_PER_MTOK -- (input, output) list prices used by the reports for cost lines only.
+# Source: platform.claude.com/docs/en/about-claude/pricing, read 2026-09-26. Not a billing record.
+MODEL_PRICES_USD_PER_MTOK = {"claude-haiku-4-5-20251001": (1.0, 5.0), "claude-sonnet-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0)}
+
+# ---- the shadow judge (Part 9, 2026-09-28) --------------------------------------------------------
+# After production judges new bbc/club items, the SAME items are judged again by the shadow model on
+# the reference prompt (Opus 5.5 / reference_v1: the reference labeller of the calibration). Shadow
+# verdicts sit in news_relevance beside the others and NEVER feed news_to_embed; they exist to check
+# production on GW6-9 data the prompt was not tuned on (eval/relevance_report.py, weekly, by hand).
+# A shadow failure of any kind is logged and production stands. At most SHADOW_JUDGE_DAILY_CAP shadow
+# requests per UTC day (Opus refuses ~18% of items outright; the report lists them).
+SHADOW_JUDGE_ENABLED = True
+SHADOW_JUDGE_MODEL = "claude-opus-5-5"
+SHADOW_JUDGE_PROMPT_VERSION = "reference_v1"
+SHADOW_JUDGE_DAILY_CAP = 150
 # AMBIGUOUS_NAMES -- web_names that are also ordinary words or shared by several players; alone
 # they never make an item a keyword YES (stage 1 sends it to the LLM as BORDERLINE instead).
 # Names shared by 2+ current players are added from the bootstrap at run time.
