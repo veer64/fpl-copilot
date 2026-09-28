@@ -106,6 +106,11 @@ UPDATE news_items SET date_source = CASE
     END
 WHERE date_source IS NULL AND source IN ('bbc', 'fpl');
 CREATE INDEX IF NOT EXISTS ix_news_items_club ON news_items (club) WHERE club IS NOT NULL;
+-- body_source (2026-09-28, KNOWN_ISSUES #27): where a club row's body came from -- 'tavily_extract' or, when
+-- the extract was only a link list, the page we fetched: 'page_jsonld' | 'page_embedded' | 'page_html'.
+-- Existing club rows were all extracts; bbc / fpl rows are not Tavily and stay NULL.
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS body_source TEXT;
+UPDATE news_items SET body_source = 'tavily_extract' WHERE source = 'club' AND body_source IS NULL;
 
 -- every Tavily call, with the credits it cost by Tavily's published rule (club_news.py's
 -- credit guard sums this month's rows before any call)
@@ -337,7 +342,7 @@ def parse_rss(xml_bytes):
 # ---- the versioned store ----------------------------------------------------------------
 
 _COLS = ("source", "guid", "version", "url", "headline", "body", "published_at", "fetched_at",
-         "content_hash", "raw_ref", "element_id", "status", "chance", "club", "date_source")
+         "content_hash", "raw_ref", "element_id", "status", "chance", "club", "date_source", "body_source")
 _DEFAULT_DATE_SOURCE = {"bbc": "feed"}          # fpl is decided per row: source_field when it has a claim, else first_seen
 
 
@@ -368,7 +373,8 @@ def upsert_versions(conn, source, candidates):
                 ("source_field" if c.get("published_at") is not None else "first_seen")
             row = (source, c["guid"], version, c.get("url"), c["headline"], c.get("body") or "",
                    c.get("published_at"), c["fetched_at"], c["content_hash"], c["raw_ref"],
-                   c.get("element_id"), c.get("status"), c.get("chance"), c.get("club"), date_source)
+                   c.get("element_id"), c.get("status"), c.get("chance"), c.get("club"), date_source,
+                   c.get("body_source") or ("tavily_extract" if source == "club" else None))
             cur.execute(f"INSERT INTO news_items ({', '.join(_COLS)}) VALUES ({', '.join(['%s'] * len(_COLS))}) "
                         f"ON CONFLICT (source, guid, version) DO NOTHING RETURNING id", row)
             if cur.fetchone() is None:

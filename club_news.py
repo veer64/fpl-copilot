@@ -29,6 +29,7 @@ gzipped under data/news/raw/tavily/ (backed up: outside data/live/) before anyth
 parsed; raw_ref is the extract file.
 """
 import gzip
+import html as html_mod
 import json
 import math
 import os
@@ -549,6 +550,148 @@ class PageFetcher:
             return None, url, ""
 
 
+
+# ---- the page-derived article body (2026-09-28, KNOWN_ISSUES #27) ---------------------------------
+# Tavily's Extract of some club pages returns only the related-links sidebar (manutd.com: 8 of 8
+# rows). The page we already fetched for the date chain, with our own User-Agent, is the only
+# other allowed source. Priority, by the user's rule: JSON-LD articleBody > the article document
+# embedded in that page's own script payload (Next.js flight rows holding Contentful rich text under
+# "bodyCopy") > the main-content text. Used ONLY when the extract fails looks_like_link_list(), and
+# only if the page-derived text passes the same check. news_items.body_source records which won.
+LINK_LIST_MIN_CHARS = 400
+LINK_LIST_REPEATS = 3
+TITLE_LINE_MAX = 70
+_BODY_KEYS = ("bodyCopy", "articleBody", "body")
+_FLIGHT = re.compile(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', re.S)
+_JSON_SCRIPT = re.compile(r'<script[^>]+type=["\']application/json["\'][^>]*>(.*?)</script>', re.I | re.S)
+_BLOCK_TAGS = re.compile(r"(?i)</?(p|div|br|li|ul|ol|h[1-6]|section|article|blockquote|tr|td|th|figcaption)\b[^>]*>")
+_TAG_ANY = re.compile(r"<[^>]+>")
+
+
+def looks_like_link_list(body):
+    """(True, reasons) when a stored body is a navigation residue rather than an article: under
+    LINK_LIST_MIN_CHARS characters, a line repeated LINK_LIST_REPEATS+ times, or more than half of
+    its lines short title-like lines (no terminal punctuation)."""
+    text = body or ""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    reasons = []
+    if len(text) < LINK_LIST_MIN_CHARS:
+        reasons.append(f"short (<{LINK_LIST_MIN_CHARS} chars)")
+    counts = {}
+    for ln in lines:
+        counts[ln] = counts.get(ln, 0) + 1
+    if counts and max(counts.values()) >= LINK_LIST_REPEATS:
+        reasons.append(f"a line repeated {LINK_LIST_REPEATS}+ times")
+    titleish = [ln for ln in lines if len(ln) < TITLE_LINE_MAX and not ln.endswith((".", "!", "?", '"', "\u201d", ":"))]
+    if lines and len(titleish) > len(lines) / 2:
+        reasons.append("more than half the lines are short title-like lines")
+    return bool(reasons), "; ".join(reasons)
+
+
+def _jsonld_article_body(html):
+    best = ""
+    for m in _JSONLD.finditer(html or ""):
+        try:
+            d = json.loads(m.group(1).strip())
+        except ValueError:
+            continue
+        stack = [d]
+        while stack:
+            x = stack.pop()
+            if isinstance(x, dict):
+                v = x.get("articleBody")
+                if isinstance(v, str) and len(v.strip()) > len(best):
+                    best = v.strip()
+                stack.extend(x.values())
+            elif isinstance(x, list):
+                stack.extend(x)
+    return best
+
+
+def _flight_text(html):
+    """the joined, JS-unescaped self.__next_f.push rows of a Next.js page, plus any application/json script"""
+    parts = []
+    for m in _FLIGHT.finditer(html or ""):
+        try:
+            parts.append(json.loads('"' + m.group(1) + '"'))
+        except ValueError:
+            continue
+    for m in _JSON_SCRIPT.finditer(html or ""):
+        parts.append(m.group(1))
+    return "\n".join(parts)
+
+
+_BLOCK_NODES = {"paragraph", "heading-1", "heading-2", "heading-3", "heading-4", "heading-5", "heading-6", "list-item", "blockquote"}
+
+
+def _rich_text(node):
+    """Contentful rich text -> text: block nodes end a line, hyperlinks stay inline, embeds vanish"""
+    if isinstance(node, list):
+        return "".join(_rich_text(n) for n in node)
+    if not isinstance(node, dict):
+        return ""
+    t = node.get("nodeType")
+    if t == "text":
+        return node.get("value") or ""
+    inner = "".join(_rich_text(c) for c in node.get("content") or [])
+    return inner + ("\n" if t in _BLOCK_NODES else "")
+
+
+def _embedded_article_body(html):
+    """the longest article document found under a body key in the page's script payload"""
+    text = _flight_text(html)
+    if not text:
+        return ""
+    dec = json.JSONDecoder()
+    best = ""
+    for key in _BODY_KEYS:
+        for m in re.finditer(r'"%s":' % key, text):
+            i = m.end()
+            while i < len(text) and text[i] in " \t\r\n":
+                i += 1
+            try:
+                obj, _ = dec.raw_decode(text, i)
+            except ValueError:
+                continue
+            doc = obj.get("json") if isinstance(obj, dict) and isinstance(obj.get("json"), dict) else obj
+            if isinstance(doc, dict) and doc.get("nodeType") == "document":
+                cand = _rich_text(doc)
+            elif isinstance(doc, str):
+                cand = _WS_LINES.sub("\n", _TAG_ANY.sub(" ", _BLOCK_TAGS.sub("\n", doc)))
+            else:
+                continue
+            cand = "\n".join(ln.strip() for ln in cand.splitlines() if ln.strip())
+            if len(cand) > len(best):
+                best = cand
+    return best
+
+
+_WS_LINES = re.compile(r"\n\s*\n+")
+
+
+def _html_main_text(html):
+    """text of the longest <article>, else <main> without nav / aside / header / footer / scripts"""
+    h = re.sub(r"(?is)<(script|style|noscript|nav|aside|header|footer)\b[^>]*>.*?</\1>", " ", html or "")
+    arts = [m.group(1) for m in re.finditer(r"(?is)<article\b[^>]*>(.*?)</article>", h)]
+    frag = max(arts, key=len) if arts else ""
+    if len(_TAG_ANY.sub("", frag).strip()) < LINK_LIST_MIN_CHARS:
+        m = re.search(r"(?is)<main\b[^>]*>(.*?)</main>", h)
+        frag = m.group(1) if m else ""
+    text = html_mod.unescape(_TAG_ANY.sub(" ", _BLOCK_TAGS.sub("\n", frag)))
+    lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in text.splitlines()]
+    return "\n".join(ln for ln in lines if ln)
+
+
+def page_article_body(html):
+    """(text, source) from the fetched page: the first of page_jsonld, page_embedded, page_html whose
+    text passes looks_like_link_list(); ("", None) when none does."""
+    for source, fn in (("page_jsonld", _jsonld_article_body), ("page_embedded", _embedded_article_body), ("page_html", _html_main_text)):
+        text = fn(html)
+        if text and not looks_like_link_list(text)[0]:
+            return text, source
+    return "", None
+
+
 def _page_name(guid):
     import hashlib
     return hashlib.sha1(guid.encode("utf-8")).hexdigest() + ".json.gz"
@@ -674,7 +817,7 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
                 save_raw(raw_dir / "pages", _page_name(g),
                          {"url": r["url"], "guid": g, "final_url": final, "status": status, "fetched_at": now.isoformat(), "html": html})
             mdt, tag = hidden_date(html)
-            meta[g] = (mdt, tag, status)
+            meta[g] = (mdt, tag, status, html)
             # the search snippet is Markdown-ish with the same menu residue as the page: clean it
             # first, so a dateline lands in the first lines exactly as it does in the stored body
             snippet = clean_markdown(f"{r.get('title') or ''}\n{r.get('content') or ''}")
@@ -711,9 +854,19 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
                 log(f"  extract FAILED [{club}]: {r['url']}")
                 continue
             body = clean_markdown(er.get("raw_content") or "")
+            body_source = "tavily_extract"
+            bad, why = looks_like_link_list(body)
+            if bad:
+                page_html = meta.get(g, (None, None, None, ""))[3] if v2 else ""
+                alt, alt_src = page_article_body(page_html) if page_html else ("", None)
+                if alt:
+                    log(f"  body from {alt_src} [{club}] (extract was {why}): {r['url']}")
+                    body, body_source = alt, alt_src
+                else:
+                    log(f"  extract body is a link list [{club}] ({why}), no page-derived body, kept as is: {r['url']}")
             headline = trim_headline(r.get("title") or er.get("title") or "") or g
             if v2:
-                mdt = meta.get(g, (None, None, None))[0]
+                mdt = meta.get(g, (None, None, None, ""))[0]
                 dt, src = best_date(mdt, r["url"], body, now)
                 if src == "first_seen" and seed:
                     src = "backlog"
@@ -723,7 +876,8 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
                 src = "backlog" if seed else ("url" if d else "first_seen")
             cands.append({"guid": g, "url": r["url"], "headline": headline, "body": body, "published_at": dt,
                           "fetched_at": now, "raw_ref": raw_ref or f"replay:{raw_dir.name}",
-                          "content_hash": ns.content_hash(headline, body), "club": club, "date_source": src})
+                          "content_hash": ns.content_hash(headline, body), "club": club, "date_source": src,
+                          "body_source": body_source})
             summary["clubs"][club]["extracted"] += 1
         ns.upsert_versions(conn, "club", cands)
         summary["extracted"] += len(cands)

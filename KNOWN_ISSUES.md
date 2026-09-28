@@ -1537,7 +1537,7 @@ files in and nothing else from `live/`. Size added, measured on a copy of the se
 adds its raw size). Takes effect on the first 03:43Z backup after the deploy; until then
 the archive is still unprotected.
 
-## #27 -- manutd.com extraction captures the related-links sidebar instead of the article body (items 507, 508): club news for Man Utd may be empty -- OPEN 2026-09-28
+## #27 -- manutd.com extraction captures the related-links sidebar instead of the article body (items 507, 508): club news for Man Utd may be empty -- RESOLVED, PENDING DEPLOY 2026-09-28
 
 Found during the relevance-filter calibration (the user's gold-set note on item 508: "a
 duplicate"). Items 507 and 508 are different manutd.com URLs whose stored bodies are the same
@@ -1550,3 +1550,22 @@ in 0 of the 58 rows of the other eight clubs. Effect: Man Utd availability news 
 site is effectively absent; the FPL flag and the BBC feed still cover the club. Fix pending
 (the extractor needs a manutd.com-specific selector or a different fetch); not changed in the
 relevance-filter commit.
+
+**RESOLVED in the working tree, PENDING DEPLOY (2026-09-28, later the same day).** Measured on the
+saved HTML of all 8 Man Utd pages (no new request): no JSON-LD articleBody; `<article>` 80-130
+chars and `<main>` only the sidebar; but the page is a Next.js server-components site whose script
+payload (`self.__next_f.push` rows) carries the Contentful rich-text article under `"bodyCopy"`,
+beside boilerplate accordion sections. Fix: `club_news.page_article_body()` -- JSON-LD articleBody,
+else that embedded document, else the main-content text -- used only when the Tavily extract fails
+`club_news.looks_like_link_list()` (under 400 chars, a line repeated 3+ times, or more than half the
+lines short title-like lines) and only if the page text passes the same check; the page is the one
+already fetched with our own User-Agent for the date chain. `news_items.body_source` records
+'tavily_extract' | 'page_jsonld' | 'page_embedded' | 'page_html'. Re-derived from the saved pages
+(`eval/rederive_club_bodies.py`, zero credits): 8 of 8 Man Utd bodies recovered as new versions,
+211-297 chars -> 1,213-3,557 chars, all from page_embedded; the link-list check over every club
+row is now 0 suspects for Man Utd. One false positive of the heuristic elsewhere: Spurs item 511, a
+Q&A-style piece of 3,161 chars flagged for short lines; at ingest that only means the page is
+consulted, and a page that yields nothing better leaves the extract in place. Tests:
+Tests/test_page_body.py on synthetic fixtures copying the measured structures (no publisher text
+in the repo). Gold items 507 and 508 were judged on the sidebar bodies and are excluded from the
+gold set (eval/labels/relevance_gold_v1_labels.csv, `excluded`).

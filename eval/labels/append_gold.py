@@ -48,7 +48,10 @@ def append_labels(conn, report_path, csv_path, gw):
             rows = list(csv.DictReader(f))
         existing = {int(r["item_id"]) for r in rows}
         header = list(rows[0].keys()) if rows else FIELDS
-        assert header == FIELDS, f"unexpected columns in {csv_path}: {header}"
+        missing = [f for f in FIELDS if f not in header]
+        assert not missing, f"{csv_path} lacks columns {missing}"          # extra columns (adjudication rounds, excluded) are kept
+    else:
+        header = FIELDS
     result = {"added": [], "skipped_blank": [], "skipped_existing": []}
     todo = []
     for iid in sorted(labels):
@@ -63,16 +66,27 @@ def append_labels(conn, report_path, csv_path, gw):
         with conn.cursor() as cur:
             cur.execute("SELECT id, source, url, headline FROM news_items WHERE id = ANY(%s)", (todo,))
             info = {r[0]: r for r in cur.fetchall()}
+        new_file = not csv_path.exists() or not csv_path.stat().st_size
         with csv_path.open("a", encoding="utf-8", newline="") as f:
-            w = csv.writer(f)
-            if not csv_path.stat().st_size:
-                w.writerow(FIELDS)
+            w = csv.DictWriter(f, fieldnames=header)
+            if new_file:
+                w.writeheader()
             for iid in todo:
                 if iid not in info:
                     continue
                 lab = labels[iid]
                 rel, cu = "y" if lab["relevant"] else "n", "y" if lab["current"] else "n"
-                w.writerow([iid, info[iid][1], info[iid][2], info[iid][3], rel, cu, rel, cu, "n", lab["note"], f"review_gw{int(gw)}", int(gw)])
+                row = {k: "" for k in header}
+                row.update({"item_id": iid, "source": info[iid][1], "url": info[iid][2], "headline": info[iid][3],
+                            "gold_relevant_original": rel, "gold_current_original": cu, "gold_relevant_final": rel, "gold_current_final": cu,
+                            "adjudicated": "n", "note": lab["note"], "subset": f"review_gw{int(gw)}", "gw": int(gw)})
+                for k in ("gold_relevant_adj1",):
+                    if k in row: row[k] = rel
+                for k in ("gold_current_adj1",):
+                    if k in row: row[k] = cu
+                for k in ("excluded", "adjudicated2"):
+                    if k in row: row[k] = "n"
+                w.writerow(row)
                 result["added"].append(iid)
     return result
 
