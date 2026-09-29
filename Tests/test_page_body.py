@@ -175,3 +175,49 @@ def test_body_source_column_and_backfill(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT source, body_source FROM news_items ORDER BY source")
         assert cur.fetchall() == [("bbc", None), ("club", "tavily_extract")], "existing club rows are extracts; feeds are not Tavily"
+
+
+# ---- parse corrections (2026-09-28): the original fetched_at, and the view skips the superseded defect ----
+
+def _insert_version(conn, guid, version, body, body_source, fetched_at, club="Man Utd"):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO news_items (source, guid, version, url, headline, body, fetched_at, content_hash, raw_ref, club, date_source, body_source) "
+                    "VALUES ('club', %s, %s, 'https://www.manutd.com/en/news/x', 'Headline', %s, %s, %s, 'r', %s, 'backlog', %s) RETURNING id",
+                    (guid, version, body, fetched_at, f"h{guid}{version}", club, body_source))
+        iid = cur.fetchone()[0]
+        cur.execute("INSERT INTO news_relevance (news_item_id, prompt_version, model, stage, relevant, current, players, reason) "
+                    "VALUES (%s, %s, %s, 'llm', TRUE, TRUE, '{}', 'keep')", (iid, config_roles.PROMPT_VERSION, config_roles.RELEVANCE_MODEL))
+    conn.commit()
+    return iid
+
+
+def test_rederive_keeps_the_original_fetched_at(conn, tmp_path):
+    import gzip, hashlib, json
+    import rederive_club_bodies as rd
+    fetched = datetime(2026, 9, 18, 17, 30, tzinfo=UTC)
+    guid = "manutd.com/en/news/team-news-for-united-v-fulham-injury-update"
+    old_id = _insert_version(conn, guid, 1, SIDEBAR_EXTRACT, "tavily_extract", fetched)
+    pages = tmp_path / "pages"; pages.mkdir()
+    (pages / (hashlib.sha1(guid.encode()).hexdigest() + ".json.gz")).write_bytes(gzip.compress(json.dumps({"url": "u", "guid": guid, "html": STADION}).encode()))
+    r = rd.rederive(conn, club="Man Utd", page_dirs=[pages], log=lambda m: None)
+    assert [x[0] for x in r["rederived"]] == [old_id]
+    with conn.cursor() as cur:
+        cur.execute("SELECT version, fetched_at, body_source FROM news_items WHERE guid = %s ORDER BY version", (guid,))
+        rows = cur.fetchall()
+    assert [(v, s) for v, _, s in rows] == [(1, "tavily_extract"), (2, "page_embedded")]
+    assert rows[1][1] == rows[0][1] == fetched, "a parse correction describes what we knew when the page was fetched"
+
+
+def test_news_to_embed_skips_a_version_superseded_by_a_parse_correction(conn):
+    t = datetime(2026, 9, 18, 17, 30, tzinfo=UTC)
+    defect = _insert_version(conn, "g-defect", 1, SIDEBAR_EXTRACT, "tavily_extract", t)                       # like 507
+    fixed = _insert_version(conn, "g-defect", 2, REAL_EXTRACT, "page_embedded", t)                             # like 513
+    change1 = _insert_version(conn, "g-change", 1, REAL_EXTRACT, "tavily_extract", t)                          # a normal edit
+    change2 = _insert_version(conn, "g-change", 2, REAL_EXTRACT + "\nUpdated line.", "tavily_extract", t)
+    solo = _insert_version(conn, "g-solo", 1, REAL_EXTRACT, "page_jsonld", t)                                  # a correction with no predecessor
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM news_to_embed ORDER BY id")
+        ids = [r[0] for r in cur.fetchall()]
+    assert defect not in ids and fixed in ids, "the superseded defect version is out, its correction is in"
+    assert change1 in ids and change2 in ids, "a normal content-change version is not a parse correction"
+    assert solo in ids

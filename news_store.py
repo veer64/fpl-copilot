@@ -231,14 +231,19 @@ CREATE INDEX IF NOT EXISTS ix_llm_calls_item ON llm_calls (news_item_id, model, 
 -- What the embedding layer should take: every news_embed_text row whose verdict under the
 -- PRODUCTION prompt version and model says relevant, and not known to be stale (current IS NOT
 -- false). fpl rows carry a 'skipped' verdict (relevant, current) so they pass; rows without a
--- production verdict yet are absent; other models' and reference verdicts never count.
+-- production verdict yet are absent; other models' and reference verdicts never count. A version
+-- superseded by a PARSE CORRECTION (a later version of the same guid with body_source page_jsonld /
+-- page_embedded / page_html, 2026-09-28) is out: its body was never the article. A later version
+-- that is a normal content change (tavily_extract) supersedes nothing here; each version stands.
 CREATE OR REPLACE VIEW news_to_embed AS
 SELECT e.id, e.source, e.guid, e.version, e.fetched_at, e.embed_text, e.char_count,
        v.relevant, v.current, v.players, v.stage, v.prompt_version, v.model
 FROM news_embed_text e
 JOIN relevance_production p ON TRUE
 JOIN news_relevance v ON v.news_item_id = e.id AND v.prompt_version = p.prompt_version AND v.model = p.model
-WHERE v.relevant AND v.current IS NOT FALSE;
+WHERE v.relevant AND v.current IS NOT FALSE
+  AND NOT EXISTS (SELECT 1 FROM news_items n2 WHERE n2.source = e.source AND n2.guid = e.guid AND n2.version > e.version
+                  AND n2.body_source IN ('page_jsonld', 'page_embedded', 'page_html'));
 """
 
 
