@@ -25,7 +25,13 @@
 
 services:
   fpl-postgres:
-    image: postgres:16-alpine
+    # Since 2026-09-29 the database image is built here: docker/postgres/Dockerfile is the
+    # server's postgres:16-alpine pinned by digest plus pgvector v0.8.6, nothing else. The
+    # deploy workflow never builds or recreates this service (`--no-deps fpl-copilot`); the
+    # swap is done by hand: `docker compose build fpl-postgres && docker compose up -d
+    # fpl-postgres`, after a pg_dump and a volume tar.
+    build: ./docker/postgres
+    image: fpl-postgres-pgvector:16.14-0.8.6
     container_name: fpl-postgres
     restart: unless-stopped
     environment:

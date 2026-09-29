@@ -18,11 +18,20 @@ jobs:
             set -e
             cd fpl-copilot
             git pull
-            # Compose owns the whole stack: builds the app image, keeps
-            # fpl-postgres up (named volume fpl_pgdata), and recreates only
-            # what changed. Both services share the project network, so the
+            # The deploy builds and restarts the APP only. It never touches
+            # fpl-postgres: since 2026-09-29 that service has its own build
+            # (docker/postgres, pgvector on the pinned base), and a plain
+            # `docker compose up -d --build` would rebuild its image and
+            # recreate the database container on every push. The database
+            # image is built and swapped by hand, in a planned window, with
+            # a backup first. `--no-deps` keeps `up` from recreating
+            # fpl-postgres when its compose definition differs from the
+            # running container (it starts dependencies otherwise).
+            # fpl-scheduler needs no build of its own: it runs the fpl-copilot
+            # image this step builds (`docker compose run --rm fpl-scheduler`
+            # from cron). Both app services share the project network, so the
             # app reaches the DB by service name with NO manual
-            # `docker network connect` -- the step the old script depended on
-            # implicitly and nothing performed after a restart.
-            docker compose up -d --build --remove-orphans
+            # `docker network connect`.
+            docker compose build fpl-copilot
+            docker compose up -d --no-deps --remove-orphans fpl-copilot
             docker compose ps
