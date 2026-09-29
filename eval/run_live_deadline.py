@@ -193,6 +193,23 @@ def archive_status(R, kind, started_at):
         pass
 
 
+def availability_map(av):
+    """{element: (status, chance, news)} for players_live from the deadline gameweek's as-of rows.
+    chance is asof_chance_of_playing_NEXT_round (2026-09-28): the "<N>% chance of playing" in the
+    news text equals next_round for 29 of 29 flagged players on the 2026-09-28 snapshot and
+    this_round for 6 (this_round is the round already under way: 100 for a player who played).
+    Display only -- the minutes model keeps both asof_* rounds as features, as in training."""
+    out = {}
+    for _, r in av.iterrows():
+        ch = r.get("asof_chance_of_playing_next_round")
+        try:
+            ch = None if ch is None or float(ch) != float(ch) else int(ch)     # NaN -> None
+        except (TypeError, ValueError):
+            ch = None
+        out[int(r["element"])] = (r.get("asof_status"), ch, str(r.get("asof_news") or ""))
+    return out
+
+
 def snapshot_at_build(R, season, now):
     """Step 0 (2026-09-25): ONE bootstrap-static fetch stored into the raw archive as the
     build's own snapshot (asof_source 'build_fetch'), so the deadline gameweek is derived
@@ -438,9 +455,7 @@ def run(R, season, gw, started_at=None):
     # availability lookup for sanity flags (the deadline gameweek's as-of view)
     av = pd.read_parquet(REPO / "data" / f"availability_{season[2:4]}{season[5:7]}.parquet")
     av = av[av["gw"] == gw]
-    avmap = {int(r["element"]): (r.get("asof_status"), r.get("asof_chance_of_playing_this_round"),
-                                 str(r.get("asof_news") or ""))
-             for _, r in av.iterrows()}
+    avmap = availability_map(av)
 
     teams = {}
     for config, frame in frames.items():

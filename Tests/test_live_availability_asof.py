@@ -447,3 +447,24 @@ def test_health_wires_the_availability_age_reason_on_the_latest_run():
     src = inspect.getsource(mt.health)
     assert "reasons.extend(_availability_age_reasons(last))" in src, (
         "health() does not add the availability-age reason for the served run")
+
+
+# ---- players_live.chance reads next_round (2026-09-28) --------------------------------------------------
+# Measured on the 2026-09-28 build_fetch snapshot: the "<N>% chance of playing" in the news text equals
+# chance_of_playing_next_round for 29 of 29 flagged players and this_round for 6. players_live is a
+# display table (chat / tools); the minutes model keeps both asof_* rounds as features, exactly as
+# in training (squad/availability_features.py av_cop_this / av_cop_next), so only the display changes.
+
+def test_players_live_chance_is_next_round():
+    import run_live_deadline as rld
+    av = pd.DataFrame([
+        {"element": 1, "asof_status": "d", "asof_chance_of_playing_this_round": 100, "asof_chance_of_playing_next_round": 75,
+         "asof_news": "Muscular injury - 75% chance of playing"},
+        {"element": 2, "asof_status": "d", "asof_chance_of_playing_this_round": None, "asof_chance_of_playing_next_round": 75,
+         "asof_news": "Hamstring injury - 75% chance of playing"},
+        {"element": 3, "asof_status": "a", "asof_chance_of_playing_this_round": None, "asof_chance_of_playing_next_round": None, "asof_news": ""},
+    ])
+    m = rld.availability_map(av)
+    assert m[1] == ("d", 75, "Muscular injury - 75% chance of playing"), "Palmer's case: this_round 100 after he played, next_round 75"
+    assert m[2] == ("d", 75, "Hamstring injury - 75% chance of playing"), "Havertz's case: this_round null, next_round 75"
+    assert m[3] == ("a", None, "")

@@ -57,7 +57,7 @@ def main():
 
     av = pd.read_parquet(REPO / "data" / f"availability_{season[2:4]}{season[5:7]}.parquet")
     av = av[av["gw"] == gw]
-    avmap = {int(r["element"]): (r.get("asof_status"), r.get("asof_chance_of_playing_this_round"),
+    avmap = {int(r["element"]): (r.get("asof_status"), r.get("asof_chance_of_playing_next_round"),   # next_round, as run_live_deadline.availability_map (2026-09-28)
                                  str(r.get("asof_news") or "")) for _, r in av.iterrows()}
 
     teams = {}
