@@ -150,3 +150,36 @@ RELEVANCE_SIGNALS = (
     "returned to training", "recovery", "suspended", "suspension", "ban", "red card", "team news",
     "available", "unavailable", "miss", "absent", "scan", "surgery", "operation",
 )
+
+# ---- news embeddings (chunking.py, embeddings.py, embed_pipeline.py, 2026-09-30) -------------------
+# EMBED_MODEL / EMBED_DIM -- the Voyage model and output_dimension every news_chunks row is stamped
+# with (the unique key carries the model; a new model or chunker version sits beside the old rows).
+# voyage-4: 32,000-token context, output_dimension 256/512/1024/2048, 1024 the default
+# (docs.voyageai.com/docs/embeddings, read 2026-09-30). Documents are embedded with input_type
+# "document", searches with "query".
+EMBED_MODEL = "voyage-4"
+EMBED_DIM = 1024
+# Per-request caps from the docs (reference/embeddings-api): at most 1,000 texts and, for voyage-4,
+# 320K tokens per request. The adapter also never sends more than EMBED_TPM tokens in one request.
+EMBED_MAX_TEXTS_PER_REQUEST = 1000
+EMBED_MAX_TOKENS_PER_REQUEST = 320_000
+# EMBED_RPM / EMBED_TPM -- THIS ACCOUNT's rate limits, measured 2026-09-30 from the x-api-warning
+# header of one test call: no payment method on file, so 3 requests and 10K tokens per minute
+# (the docs' Tier 1, 2000 RPM / 8M TPM, applies once a payment method is added; raise these then).
+EMBED_RPM = 3
+EMBED_TPM = 10_000
+# EMBED_CHARS_PER_TOKEN -- the conservative estimate used to size batches and pace requests BEFORE
+# the reply's usage.total_tokens is known (English prose runs about 4 characters per token; 3
+# over-estimates, so a batch never overshoots a cap). The ledger records the API's count.
+EMBED_CHARS_PER_TOKEN = 3
+# EMBED_TOKENS_PER_TEXT -- the fixed per-text overhead the API counts (its input_type prefix): the
+# first real run (2026-09-30) fitted usage = chars/4.44 + 21.5 per text over four requests, and a
+# 223-text request estimated at 9,961 by chars/3 alone cost 11,412 and got three 429s. USER RULING
+# 2026-09-30: 24 per text on top of chars/3, and EMBED_REQUEST_TPM_SHARE: a request is sized to at
+# most this share of EMBED_TPM, never the whole minute.
+EMBED_TOKENS_PER_TEXT = 24
+EMBED_REQUEST_TPM_SHARE = 0.8
+# EMBED_PRICE_USD_PER_MTOK / EMBED_FREE_TOKENS -- docs.voyageai.com/docs/pricing, read 2026-09-30:
+# voyage-4 $0.06 per million tokens, the first 200M tokens free per account. Cost lines only.
+EMBED_PRICE_USD_PER_MTOK = 0.06
+EMBED_FREE_TOKENS = 200_000_000

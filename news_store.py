@@ -228,6 +228,21 @@ ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS news_item_id BIGINT;
 ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS prompt_version TEXT;
 CREATE INDEX IF NOT EXISTS ix_llm_calls_item ON llm_calls (news_item_id, model, prompt_version) WHERE news_item_id IS NOT NULL;
 
+-- every Voyage embedding request (embeddings.py), one row per HTTP attempt: purpose, model, the
+-- input_type sent (kind), how many texts, the API's usage.total_tokens, ok, and the error text
+CREATE TABLE IF NOT EXISTS embedding_calls (
+    id         BIGSERIAL PRIMARY KEY,
+    called_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    purpose    TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    kind       TEXT NOT NULL,                       -- 'document' | 'query'
+    n_texts    INT NOT NULL,
+    tokens     INT,
+    ok         BOOLEAN NOT NULL,
+    error      TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_embedding_calls_at ON embedding_calls (called_at);
+
 -- What the embedding layer should take: every news_embed_text row whose verdict under the
 -- PRODUCTION prompt version and model says relevant, and not known to be stale (current IS NOT
 -- false). fpl rows carry a 'skipped' verdict (relevant, current) so they pass; rows without a
@@ -247,6 +262,47 @@ WHERE v.relevant AND v.current IS NOT FALSE
 """
 
 
+# The chunk store (2026-09-30, embed_pipeline.py): one row per chunk of a news_to_embed item, with its
+# vector and its keyword vector. Created ONLY when the vector extension is installed in this database
+# (CREATE EXTENSION vector is a by-hand step on the pgvector image; ensure_schema never creates it):
+# without it there is no table and the embed step logs "pgvector not installed, embedding skipped".
+# The dimension is config EMBED_DIM. UNIQUE on (item, index, chunker version, model): a new chunker or
+# model re-chunks beside the old rows. No vector index (exact scan; about 10k rows a season).
+# tsv: to_tsvector('fpl_english', chunk_text) set in the INSERT -- unaccent is not IMMUTABLE, so it
+# cannot be a generated column. fpl_english = the english configuration with unaccent in front of
+# the stemmer, so "odegaard" matches "Ødegaard"; GIN index on tsv.
+CHUNKS_DDL = """
+CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE TABLE IF NOT EXISTS news_chunks (
+    id               BIGSERIAL PRIMARY KEY,
+    news_item_id     BIGINT NOT NULL REFERENCES news_items (id),
+    chunk_index      INT NOT NULL,
+    chunker_version  TEXT NOT NULL,
+    embed_model      TEXT NOT NULL,
+    chunk_text       TEXT NOT NULL,
+    char_count       INT NOT NULL,
+    embedding        vector({dim}) NOT NULL,
+    tsv              tsvector NOT NULL,
+    embedded_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (news_item_id, chunk_index, chunker_version, embed_model)
+);
+CREATE INDEX IF NOT EXISTS ix_news_chunks_tsv ON news_chunks USING gin (tsv);
+CREATE INDEX IF NOT EXISTS ix_news_chunks_item ON news_chunks (news_item_id, chunker_version, embed_model);
+"""
+FPL_ENGLISH_DDL = """
+CREATE TEXT SEARCH CONFIGURATION fpl_english (COPY = english);
+ALTER TEXT SEARCH CONFIGURATION fpl_english ALTER MAPPING FOR hword, hword_part, word WITH unaccent, english_stem;
+"""
+
+
+def vector_installed(conn):
+    """True when the pgvector extension is created in this database (pg_extension), the guard
+    for news_chunks and the embed step."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
+        return cur.fetchone() is not None
+
+
 def ensure_schema(conn):
     import config_roles
     with conn.cursor() as cur:
@@ -255,6 +311,11 @@ def ensure_schema(conn):
                     "ON CONFLICT (one) DO UPDATE SET prompt_version = EXCLUDED.prompt_version, model = EXCLUDED.model, set_at = now() "
                     "WHERE relevance_production.prompt_version <> EXCLUDED.prompt_version OR relevance_production.model <> EXCLUDED.model",
                     (config_roles.PROMPT_VERSION, config_roles.RELEVANCE_MODEL))
+        if vector_installed(conn):
+            cur.execute(CHUNKS_DDL.format(dim=config_roles.EMBED_DIM))
+            cur.execute("SELECT 1 FROM pg_ts_config WHERE cfgname = 'fpl_english'")
+            if cur.fetchone() is None:
+                cur.execute(FPL_ENGLISH_DDL)
     conn.commit()
 
 

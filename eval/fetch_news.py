@@ -28,6 +28,7 @@ sys.path.insert(0, str(REPO / "eval"))
 import db_write  # noqa: E402
 import news_store as ns  # noqa: E402
 import relevance as rv  # noqa: E402
+import embed_pipeline as ep  # noqa: E402
 
 SOURCE_NEWS = "news_fetch"
 
@@ -39,6 +40,11 @@ def log(msg):
 def run_relevance(conn):
     """the relevance filter over every row still unjudged for PROMPT_VERSION, then the shadow judge (relevance.py)"""
     return rv.run_with_shadow(conn, log=log)
+
+
+def run_embed(conn):
+    """chunk + embed every news_to_embed item still without chunks (embed_pipeline.py); skipped without pgvector"""
+    return ep.embed_pending(conn, log=log)
 
 
 def run_bbc(conn, now):
@@ -81,6 +87,7 @@ def main():
         if not a.no_fpl:
             run_fpl(conn, a.season, store=not a.no_fpl_store and not a.archive, archive=a.archive)
         run_relevance(conn)
+        run_embed(conn)
         conn.close()
     except Exception:
         log("FAILED:\n" + traceback.format_exc()[-2000:])
