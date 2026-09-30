@@ -127,7 +127,7 @@ def free_pacer():
 def test_config_pins():
     assert config_roles.EMBED_MODEL == "voyage-4" and config_roles.EMBED_DIM == 1024
     assert config_roles.EMBED_MAX_TEXTS_PER_REQUEST == 1000 and config_roles.EMBED_MAX_TOKENS_PER_REQUEST == 320_000
-    assert config_roles.EMBED_RPM == 3 and config_roles.EMBED_TPM == 10_000          # this account, measured 2026-09-30
+    assert config_roles.EMBED_RPM == 1000 and config_roles.EMBED_TPM == 4_000_000  # Tier 1 halved (ruling 2026-09-30)
     assert config_roles.EMBED_PRICE_USD_PER_MTOK == 0.06 and config_roles.EMBED_FREE_TOKENS == 200_000_000
     assert config_roles.EMBED_CHARS_PER_TOKEN == 3 and config_roles.EMBED_TOKENS_PER_TEXT == 24      # ruling 2026-09-30
     assert config_roles.EMBED_REQUEST_TPM_SHARE == 0.8
@@ -198,7 +198,8 @@ def test_estimate_is_never_below_the_measured_formula():
         assert est >= actual
 
 
-def test_the_failed_fpl_group_now_splits_under_80_percent_of_the_budget():
+def test_the_failed_fpl_group_now_splits_under_80_percent_of_the_budget(monkeypatch):
+    monkeypatch.setattr(config_roles, "EMBED_TPM", 10_000)                      # the account limit of the 2026-09-30 run
     texts = synthetic_texts(223, 29426)                                         # the group that got three 429s
     assert sum(em.estimate_tokens(t) for t in texts) > config_roles.EMBED_TPM   # it no longer fits one request
     groups = em.batches(texts, config_roles.EMBED_MAX_TEXTS_PER_REQUEST, em.request_token_budget(),

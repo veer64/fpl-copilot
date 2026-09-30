@@ -163,11 +163,12 @@ EMBED_DIM = 1024
 # 320K tokens per request. The adapter also never sends more than EMBED_TPM tokens in one request.
 EMBED_MAX_TEXTS_PER_REQUEST = 1000
 EMBED_MAX_TOKENS_PER_REQUEST = 320_000
-# EMBED_RPM / EMBED_TPM -- THIS ACCOUNT's rate limits, measured 2026-09-30 from the x-api-warning
-# header of one test call: no payment method on file, so 3 requests and 10K tokens per minute
-# (the docs' Tier 1, 2000 RPM / 8M TPM, applies once a payment method is added; raise these then).
-EMBED_RPM = 3
-EMBED_TPM = 10_000
+# EMBED_RPM / EMBED_TPM -- this account's rate limits. Measured 2026-09-30 03:00Z from the x-api-warning
+# header of one test call: no payment method on file, 3 requests and 10K tokens per minute. At 22:12Z the same
+# day the header came back EMPTY (the warning text gone) after the payment method was added; USER RULING:
+# then run at the docs' Tier 1 (2000 RPM / 8M TPM) halved for safety. Lower these again if 429s return.
+EMBED_RPM = 1000
+EMBED_TPM = 4_000_000
 # EMBED_CHARS_PER_TOKEN -- the conservative estimate used to size batches and pace requests BEFORE
 # the reply's usage.total_tokens is known (English prose runs about 4 characters per token; 3
 # over-estimates, so a batch never overshoots a cap). The ledger records the API's count.
