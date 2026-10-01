@@ -184,3 +184,17 @@ EMBED_REQUEST_TPM_SHARE = 0.8
 # voyage-4 $0.06 per million tokens, the first 200M tokens free per account. Cost lines only.
 EMBED_PRICE_USD_PER_MTOK = 0.06
 EMBED_FREE_TOKENS = 200_000_000
+
+# ---- search_news (news_search.py, Piece 7, 2026-09-30) ------------------------------------------------
+# Reciprocal-rank fusion of the dense and keyword lists: score = 1/(k + r_dense) + w_kw/(k + r_kw), a
+# missing rank counts 0. k = 60 is the usual RRF constant; w_kw = 1 weighs the two routes equally.
+SEARCH_RRF_K = 60
+SEARCH_KW_WEIGHT = 1.0
+# Each route returns this many candidates, the fused top list has this many, the tool returns
+# SEARCH_TOP_N of them after the recency boost, the per-article cap and the player gate.
+SEARCH_CANDIDATES = 20
+SEARCH_TOP_N = 5
+SEARCH_MAX_PER_ARTICLE = 2
+# RECENCY_HALF_LIFE_DAYS -- the fused score is multiplied by 0.5 ** (age_days / this); team news is
+# stale within a week, so a three-day-old piece counts half.
+RECENCY_HALF_LIFE_DAYS = 3

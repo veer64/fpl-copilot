@@ -13,7 +13,8 @@ tools_schema = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "The player's name or partial name"}
+                "name": {"type": "string", "description": "The player's name or partial name"},
+                "club": {"type": "string", "description": "Optional: narrow to one club when a name matches several players"}
             },
             "required": ["name"]
         }
@@ -299,6 +300,27 @@ tools_schema = [
             },
             "required": ["team"]
         }
+    },
+    {
+        "name": "search_news",
+        "description": ("Search the stored team news (FPL's official flags, BBC Sport, the clubs' own sites) for a player "
+                        "or a club. Use it for injury, fitness, availability, suspension and team-news questions. Always pass "
+                        "the player names in `players`; always also check the player's FPL status (get_player_card) and "
+                        "answer in the order the AVAILABILITY ANSWERS rules give. Results carry an id (c<number>) to cite, "
+                        "the source, the date and its basis, the age, whether the result is about a requested player, and "
+                        "the text. `no_news_for` lists requested players with no news; `ambiguous_players` lists names that "
+                        "match several players, with labels to ask the user about."),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The question in plain words, e.g. 'Is Saka fit for the weekend?'"},
+                "players": {"type": "array", "items": {"type": "string"},
+                            "description": "The player names the question is about (web name or full name); always pass them"},
+                "clubs": {"type": "array", "items": {"type": "string"},
+                          "description": "Club names when the question is about a club's news rather than one player"}
+            },
+            "required": ["query"]
+        }
     }
 ]
 
@@ -311,6 +333,8 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_my_xi, propose_transfers, explain_prediction,
                          compare_predictions, compare_runs, get_fixtures,
                          get_price_movements, get_league_table, get_match_stats)
+import uuid
+from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -340,6 +364,24 @@ def call_tool(tool_name, tool_input):
 
 # A lookup so we can call the right Python function by name,
 # once Claude tells us which tool it wants
+def search_news(query, players=None, clubs=None):
+    """The agent-facing search (news_search.py): the server sets as_of = now; no other parameter is exposed."""
+    return _search_news(query, players or [], clubs or [])
+
+
+def _citation_check(turn_id, text, returned_ids):
+    """Part 5 (log only, 2026-09-30): every c<id> the reply cites must be an id search_news returned in
+    THIS turn. Logged to citation_checks; the reply is never altered; a logging failure is printed."""
+    cited = cited_ids(text)
+    violations = citation_violations(cited, returned_ids)
+    try:
+        record_citation_check(turn_id, cited, returned_ids, violations)
+    except Exception as e:  # noqa: BLE001 -- the check must never take the reply down
+        print(f"  [citation check not logged: {type(e).__name__}: {str(e)[:200]}]")
+    if violations:
+        print(f"  [citation check: {len(violations)} cited id(s) not returned this turn: {violations}]")
+
+
 available_functions = {
     "resolve_player": resolve_player,
     "get_player_card": get_player_card,
@@ -360,6 +402,7 @@ available_functions = {
     "get_price_movements": get_price_movements,
     "get_league_table": get_league_table,
     "get_match_stats": get_match_stats,
+    "search_news": search_news,
 }
 
 def run_agent(user_message: str, messages: list = None):
@@ -367,6 +410,8 @@ def run_agent(user_message: str, messages: list = None):
         messages = []
 
     messages.append({"role": "user", "content": user_message})
+    turn_id = uuid.uuid4().hex                       # Piece 7: one id per reply, for citation_checks
+    returned_ids = []                                # every result id search_news returned in THIS turn
 
     while True:
         response = client.messages.create(
@@ -382,6 +427,7 @@ def run_agent(user_message: str, messages: list = None):
         if response.stop_reason != "tool_use":
             for block in response.content:
                 if block.type == "text":
+                    _citation_check(turn_id, block.text, returned_ids)
                     return block.text, messages
 
         tool_results = []
@@ -394,6 +440,8 @@ def run_agent(user_message: str, messages: list = None):
                 print(f"  [calling tool: {tool_name}({tool_input})]")
 
                 result = call_tool(tool_name, tool_input)
+                if tool_name == "search_news" and isinstance(result, dict):
+                    returned_ids.extend(str(r.get("id")) for r in (result.get("results") or []) if isinstance(r, dict) and r.get("id"))
                 if isinstance(result, dict) and "error" in result:
                     print(f"  [tool error: {tool_name}: {str(result['error'])[:200]}]")
 

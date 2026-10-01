@@ -555,7 +555,7 @@ def club_matches(season, teams):
 
 # ---- the run ------------------------------------------------------------------------------------------
 
-_SELECT = ("SELECT n.id, n.source, n.club, n.url, n.headline, n.body, n.published_at, n.fetched_at, n.date_source "
+_SELECT = ("SELECT n.id, n.source, n.club, n.url, n.headline, n.body, n.published_at, n.fetched_at, n.date_source, n.element_id "
            "FROM news_items n WHERE NOT EXISTS (SELECT 1 FROM news_relevance r WHERE r.news_item_id = n.id "
            "AND r.prompt_version = %s AND r.model = %s)")
 
@@ -568,16 +568,77 @@ def unjudged(conn, prompt_version, model, limit=None, ids=None):
     sql += " ORDER BY n.id" + (f" LIMIT {int(limit)}" if limit else "")
     with conn.cursor() as cur:
         cur.execute(sql, params)
-        cols = ("id", "source", "club", "url", "headline", "body", "published_at", "fetched_at", "date_source")
+        cols = ("id", "source", "club", "url", "headline", "body", "published_at", "fetched_at", "date_source", "element_id")
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-def _write(conn, item_id, prompt_version, model, stage, relevant, current, players, reason):
+def _write(conn, item_id, prompt_version, model, stage, relevant, current, players, reason, player_ids=None):
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO news_relevance (news_item_id, prompt_version, model, stage, relevant, current, players, reason) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (news_item_id, prompt_version, model) DO NOTHING",
-                    (item_id, prompt_version, model, stage, relevant, current, list(players), reason))
+        cur.execute("INSERT INTO news_relevance (news_item_id, prompt_version, model, stage, relevant, current, players, reason, player_ids) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (news_item_id, prompt_version, model) DO NOTHING",
+                    (item_id, prompt_version, model, stage, relevant, current, list(players), reason,
+                     None if player_ids is None else [int(p) for p in player_ids]))
     conn.commit()
+
+
+def _player_ids_for(item, names, snaps, log, cache=None):
+    """The verdict's names -> FPL element ids (player_names.py) against the squad as of the item's
+    fetched_at, the item's club as context. Unmapped and ambiguous names are logged and left out."""
+    import player_names as pn
+    key, boot = snaps.get(_utc(item["fetched_at"]))
+    cache = cache if cache is not None else {}
+    if key not in cache:
+        cache[key] = pn.candidates_from_bootstrap(boot)
+    m = pn.map_names(names, cache[key], item.get("club"))
+    if m["unmapped"] or m["ambiguous"]:
+        log(f"relevance: #{item['id']} players unmapped {m['unmapped']}, ambiguous {m['ambiguous']}")
+    return m
+
+
+def backfill_player_ids(conn, snapshots=None, log=print, dry_run=False):
+    """player_ids for every news_relevance row that has none (Piece 7): FPL rows get [element_id],
+    the others their players list mapped as _player_ids_for does. No LLM calls. Returns the counts
+    and every unmapped / ambiguous example; dry_run counts and writes nothing."""
+    import player_names as pn
+    snaps = _as_snapshots(snapshots=snapshots) if snapshots is not None else load_context()[0]
+    with conn.cursor() as cur:
+        cur.execute("SELECT r.id, r.news_item_id, n.source, n.club, n.fetched_at, n.element_id, r.players FROM news_relevance r "
+                    "JOIN news_items n ON n.id = r.news_item_id WHERE r.player_ids IS NULL ORDER BY r.id")
+        rows = cur.fetchall()
+    stats = {"verdicts": len(rows), "fpl_rows": 0, "names_seen": 0, "mapped": 0, "unmapped": 0, "ambiguous": 0,
+             "examples": {"unmapped": [], "ambiguous": []}}
+    cache, updates = {}, []
+    for rid, item_id, source, club, fetched_at, element_id, players in rows:
+        if source == "fpl":
+            stats["fpl_rows"] += 1
+            ids = [int(element_id)] if element_id is not None else []
+        else:
+            names = list(players or [])
+            item = {"id": item_id, "fetched_at": fetched_at, "club": club}
+            key, boot = snaps.get(_utc(fetched_at))
+            if key not in cache:
+                cache[key] = pn.candidates_from_bootstrap(boot)
+            for name in names:
+                hits = pn.match_players(name, cache[key], club)
+                stats["names_seen"] += 1
+                if len(hits) == 1:
+                    stats["mapped"] += 1
+                elif not hits:
+                    stats["unmapped"] += 1
+                    stats["examples"]["unmapped"].append({"name": name, "item_id": item_id, "source": source, "club": club})
+                else:
+                    stats["ambiguous"] += 1
+                    stats["examples"]["ambiguous"].append({"name": name, "item_id": item_id, "source": source, "club": club,
+                                                           "candidates": [pn.label(c) for c in hits]})
+            ids = _player_ids_for(item, names, snaps, lambda m: None, cache)["ids"]
+        updates.append((ids, rid))
+    if not dry_run and updates:
+        with conn.cursor() as cur:
+            cur.executemany("UPDATE news_relevance SET player_ids = %s WHERE id = %s", updates)
+        conn.commit()
+    log(f"relevance: player_ids backfill: verdicts {stats['verdicts']} (fpl {stats['fpl_rows']}), names {stats['names_seen']}, "
+        f"mapped {stats['mapped']}, unmapped {stats['unmapped']}, ambiguous {stats['ambiguous']}" + (" (dry run)" if dry_run else ""))
+    return stats
 
 
 def refusal_counts(conn, prompt_version, model):
@@ -613,6 +674,7 @@ def run_relevance(conn, limit=None, *, client=None, bootstrap=None, snapshots=No
         events, matches = events if events is not None else e, matches if matches is not None else m
     kw = {} if sleep is None else {"sleep": sleep}
     streak = [None, 0]                                   # [signature, consecutive count]
+    pid_cache = {}                                       # bootstrap key -> player_names candidates (Piece 7)
     refusals = refusal_counts(conn, prompt_version, model) if not dry_run else {}
     recent = []                                          # the last REFUSAL_WINDOW calls: True = refused
 
@@ -627,7 +689,8 @@ def run_relevance(conn, limit=None, *, client=None, bootstrap=None, snapshots=No
         if it["source"] == "fpl":
             s["skipped"] += 1
             if not dry_run:
-                _write(conn, it["id"], prompt_version, model, "skipped", True, True, [], "fpl: the official availability flag, trusted")
+                _write(conn, it["id"], prompt_version, model, "skipped", True, True, [], "fpl: the official availability flag, trusted",
+                       player_ids=[it["element_id"]] if it.get("element_id") is not None else [])
             continue
         _, ents = snaps.entities(_utc(it["fetched_at"]))
         r = stage1(f"{it['headline'] or ''}\n{it['body'] or ''}", ents)
@@ -637,7 +700,7 @@ def run_relevance(conn, limit=None, *, client=None, bootstrap=None, snapshots=No
         if r["outcome"] == "NO":
             s["keyword_no"] += 1
             if not dry_run:
-                _write(conn, it["id"], prompt_version, model, "keyword", False, None, [], reason)
+                _write(conn, it["id"], prompt_version, model, "keyword", False, None, [], reason, player_ids=[])
             continue
         if dry_run:
             s["would_call"] += 1
@@ -702,7 +765,9 @@ def run_relevance(conn, limit=None, *, client=None, bootstrap=None, snapshots=No
         s["llm_ok"] += 1
         key = "relevant" if v["relevant"] and v["current"] else ("not_current" if v["relevant"] else "not_relevant")
         s["verdicts"][key] += 1
-        _write(conn, it["id"], prompt_version, model, "llm", v["relevant"], v["current"], v["players"], f"{reason} | llm: {v['reason']}")
+        pids = _player_ids_for(it, v["players"], snaps, log, pid_cache)["ids"]
+        _write(conn, it["id"], prompt_version, model, "llm", v["relevant"], v["current"], v["players"], f"{reason} | llm: {v['reason']}",
+               player_ids=pids)
         log(f"relevance: #{it['id']} {it['source']} {r['outcome']} -> llm relevant={v['relevant']} current={v['current']} "
             f"players={v['players']} tokens {usage.get('input_tokens')}/{usage.get('output_tokens')}"
             f"{' body truncated to ' + str(profile['body_chars']) + ' of ' + str(len(it['body'] or '')) if trunc else ''}"

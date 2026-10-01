@@ -243,6 +243,42 @@ CREATE TABLE IF NOT EXISTS embedding_calls (
 );
 CREATE INDEX IF NOT EXISTS ix_embedding_calls_at ON embedding_calls (called_at);
 
+-- player_ids (2026-09-30, Piece 7): the verdict's players list mapped to FPL element ids by code
+-- (player_names.py, the squad as of the item's fetched_at, the article's club as context); FPL rows
+-- carry their element_id. NULL = not mapped yet (eval/backfill_player_ids.py); [] = nothing mapped.
+ALTER TABLE news_relevance ADD COLUMN IF NOT EXISTS player_ids INT[];
+
+-- every search_news call (news_search.py): what was asked, what was resolved, the fused candidates
+-- with their scores, what was returned, and the timings
+CREATE TABLE IF NOT EXISTS search_log (
+    id            BIGSERIAL PRIMARY KEY,
+    called_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    query         TEXT NOT NULL,
+    players       TEXT[],
+    clubs         TEXT[],
+    resolved_ids  INT[],
+    as_of         TIMESTAMPTZ,
+    search_mode   TEXT,
+    candidates    JSONB,
+    returned_ids  INT[],
+    embed_ms      INT,
+    sql_ms        INT,
+    total_ms      INT,
+    error         TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_search_log_at ON search_log (called_at);
+
+-- the citation check after every agent reply (agent.py, Part 5, log only): the c<id> ids the reply
+-- cites, the ids search_news returned in that turn, and the cited ids that were not returned
+CREATE TABLE IF NOT EXISTS citation_checks (
+    id          BIGSERIAL PRIMARY KEY,
+    checked_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    turn_id     TEXT NOT NULL,
+    cited       TEXT[],
+    returned    TEXT[],
+    violations  TEXT[]
+);
+
 -- What the embedding layer should take: every news_embed_text row whose verdict under the
 -- PRODUCTION prompt version and model says relevant, and not known to be stale (current IS NOT
 -- false). fpl rows carry a 'skipped' verdict (relevant, current) so they pass; rows without a

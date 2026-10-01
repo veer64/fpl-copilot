@@ -106,7 +106,7 @@ def test_prompt_carries_the_rules_verbatim(agent):
         "must come from a tool result in this conversation turn",
         "Never invent a fixture, an opponent, a kickoff time or a deadline",
         "six gameweeks from the run's cutoff",
-        "You have no source for team news",
+        "Your only source of team news is the `search_news` tool",
         "FPL's availability flag as of <built time>",
         "IMMEDIATELY after it, before any reasoning",
         "Never preview and apply in the same turn",

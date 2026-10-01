@@ -176,13 +176,23 @@ def _run_meta(run, config=PRODUCTION_CONFIG):
 
 
 # ---------------------------------------------------------------- reference
-def resolve_player(name: str):
-    rows = _q("""SELECT element AS player_id, name, position, team, price_tenths,
-                        status FROM players_live
-                 WHERE name ILIKE %s ORDER BY name LIMIT 6""", (f"%{name}%",))
+STATUS_WORDS = {"a": "available", "d": "doubtful", "i": "injured", "s": "suspended", "u": "unavailable", "n": "not in squad"}
+
+
+def resolve_player(name: str, club: str = None):
+    """Players whose name contains `name` (ILIKE), at most 6, by name. `club` (2026-09-30, Piece 7)
+    narrows to one team, ILIKE on players_live.team; omitted, the behaviour is unchanged."""
+    sql = """SELECT element AS player_id, name, position, team, price_tenths,
+                    status FROM players_live
+             WHERE name ILIKE %s"""
+    params = [f"%{name}%"]
+    if club:
+        sql += " AND team ILIKE %s"
+        params.append(f"%{club}%")
+    rows = _q(sql + " ORDER BY name LIMIT 6", tuple(params))
     for r in rows:
         r["price"] = (r.pop("price_tenths") or 0) / 10
-    return rows or {"error": f"no current player matches '{name}'"}
+    return rows or {"error": f"no current player matches '{name}'" + (f" at a club matching '{club}'" if club else "")}
 
 
 def list_players(team: str = None, position: str = None):
@@ -208,6 +218,13 @@ def get_player_card(player_id: int):
     card = p[0]
     card["price"] = (card.pop("price_tenths") or 0) / 10
     card["player_id"] = card.pop("element")
+    # availability (2026-09-30, Piece 7): FPL's own flag as one labelled block with its as-of time --
+    # players_live is written by the build from the bootstrap it fetched at its start, so updated_at
+    # is when that data was taken; chance is chance_of_playing_NEXT_round (fix 5f6636d)
+    card["availability"] = {"status": card.get("status"), "status_word": STATUS_WORDS.get(card.get("status"), card.get("status")),
+                            "chance_of_playing_next_round": card.get("chance"), "news": card.get("news"),
+                            "as_of": str(card.get("updated_at")),
+                            "source": "FPL's availability flag (players_live, taken by the build at updated_at)"}
     pred = get_prediction(player_id)
     if "error" not in pred:
         card["prediction"] = pred
