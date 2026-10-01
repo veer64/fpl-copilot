@@ -16,8 +16,11 @@ played = minutes > 0. right_source: if played, FIT beats DOUBT beats OUT; if not
 FIT; the source with the better bucket is right, equal buckets tie. LIMITATION: not playing can mean
 rotation, not injury; a fit player left out counts as 'not played'.
 
-update_conflict_log(conn) builds comparisons for every passed deadline that lacks them and fills
-outcomes where results now exist; idempotent; fetch_news.py calls it every 4 hours.
+update_conflict_log(conn) builds comparisons for every passed deadline that lacks them, REBUILDS a
+gameweek (delete + rebuild its rows, then refill outcomes) whenever a claim inside its window was created
+after the gameweek's built_at (availability_builds, one record per gameweek), leaves it untouched otherwise,
+and fills outcomes where results now exist; idempotent; fetch_news.py calls it every 4 hours. The claims
+read are those of the current extraction prompt version and model (extraction.PROMPT_VERSION, model()).
 """
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -78,10 +81,11 @@ def build_comparisons(conn, gw, deadline, snapshots):
     if got is None:
         return 0
     snap_ts, state = got
+    pv, m = _claim_version()
     with conn.cursor() as cur:
         cur.execute("SELECT DISTINCT ON (element_id) id, element_id, status, item_published_at, item_fetched_at FROM availability_claims "
-                    "WHERE item_fetched_at <= %s AND item_fetched_at > %s ORDER BY element_id, item_fetched_at DESC, id DESC",
-                    (deadline, deadline - WINDOW))
+                    "WHERE item_fetched_at <= %s AND item_fetched_at > %s AND prompt_version = %s AND model = %s "
+                    "ORDER BY element_id, item_fetched_at DESC, id DESC", (deadline, deadline - WINDOW, pv, m))
         claims = cur.fetchall()
         n = 0
         for cid, element, status, pub, fetched in claims:
@@ -152,9 +156,48 @@ def passed_deadlines(events, now):
     return sorted(out)
 
 
+def _claim_version():
+    """(prompt_version, model) of the claims the log reads: the current extraction configuration."""
+    import extraction
+    return extraction.PROMPT_VERSION, extraction.model()
+
+
+def _record_build(conn, gw, deadline, n_rows):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO availability_builds (gw, deadline, built_at, n_rows) VALUES (%s, %s, now(), %s) "
+                    "ON CONFLICT (gw) DO UPDATE SET deadline = EXCLUDED.deadline, built_at = now(), n_rows = EXCLUDED.n_rows",
+                    (gw, deadline, n_rows))
+    conn.commit()
+
+
+def new_claims_since_build(conn, gw, deadline):
+    """How many claims of the current version inside the gameweek's window were created after its build."""
+    pv, m = _claim_version()
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM availability_claims a, availability_builds b WHERE b.gw = %s "
+                    "AND a.item_fetched_at <= %s AND a.item_fetched_at > %s AND a.prompt_version = %s AND a.model = %s "
+                    "AND a.created_at > b.built_at", (gw, deadline, _utc(deadline) - WINDOW, pv, m))
+        return int(cur.fetchone()[0])
+
+
+def rebuild_gameweek(conn, gw, deadline, snapshots, results_loader=None):
+    """Delete the gameweek's rows, build them again as of the deadline, record the build, refill outcomes.
+    A rebuild with no new claims gives identical rows (the derived content, not the surrogate ids)."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM availability_comparisons WHERE gw = %s", (gw,))
+    conn.commit()
+    n = build_comparisons(conn, gw, deadline, snapshots)
+    _record_build(conn, gw, deadline, n)
+    results = (results_loader or results_for_gw)(gw)
+    if results:
+        fill_outcomes(conn, gw, results)
+    return n
+
+
 def update_conflict_log(conn, *, snapshots=None, events=None, results_loader=None, now=None, log=print):
-    """Build comparisons for every passed deadline that lacks them; fill outcomes where results exist.
-    Idempotent. Returns {"built": {gw: rows}, "filled": {gw: rows}}."""
+    """For every passed deadline: build it if it has no build record; rebuild it if any claim inside its
+    window was created after its built_at; else leave it; then fill outcomes where results exist.
+    Idempotent. Returns {"built": {gw: rows}, "rebuilt": {gw: rows}, "filled": {gw: rows}}."""
     now = _utc(now) if now is not None else datetime.now(UTC)
     if snapshots is None or events is None:
         import sys
@@ -165,21 +208,41 @@ def update_conflict_log(conn, *, snapshots=None, events=None, results_loader=Non
         snapshots = snapshots or idx
         events = events if events is not None else ev
     results_loader = results_loader or results_for_gw
-    built, filled = {}, {}
+    built, rebuilt, filled = {}, {}, {}
     for gw, deadline in passed_deadlines(events, now):
         with conn.cursor() as cur:
-            cur.execute("SELECT count(*), count(*) FILTER (WHERE outcome_filled_at IS NULL) FROM availability_comparisons WHERE gw = %s", (gw,))
-            have, open_rows = cur.fetchone()
-        if have == 0:
+            cur.execute("SELECT built_at FROM availability_builds WHERE gw = %s", (gw,))
+            record = cur.fetchone()
+        if record is None:
+            with conn.cursor() as cur:
+                cur.execute("SELECT count(*) FROM availability_comparisons WHERE gw = %s", (gw,))
+                stale = cur.fetchone()[0]
+            if stale:                                 # rows from before the build record existed: rebuild, never top up
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM availability_comparisons WHERE gw = %s", (gw,))
+                conn.commit()
             n = build_comparisons(conn, gw, deadline, snapshots)
-            if n:
+            _record_build(conn, gw, deadline, n)
+            if stale:
+                rebuilt[gw] = n
+            elif n:
                 built[gw] = n
-                open_rows = n
+        elif new_claims_since_build(conn, gw, deadline):
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM availability_comparisons WHERE gw = %s", (gw,))
+            conn.commit()
+            n = build_comparisons(conn, gw, deadline, snapshots)
+            _record_build(conn, gw, deadline, n)
+            rebuilt[gw] = n
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM availability_comparisons WHERE gw = %s AND outcome_filled_at IS NULL", (gw,))
+            open_rows = cur.fetchone()[0]
         if open_rows:
             results = results_loader(gw)
             if results:
                 n = fill_outcomes(conn, gw, results)
                 if n:
                     filled[gw] = n
-    log(f"conflict_log: built {built or 'nothing'}, outcomes filled {filled or 'nothing'} (as of {now:%Y-%m-%dT%H:%M:%SZ})")
-    return {"built": built, "filled": filled}
+    log(f"conflict_log: built {built or 'nothing'}, rebuilt {rebuilt or 'nothing'}, outcomes filled {filled or 'nothing'} "
+        f"(as of {now:%Y-%m-%dT%H:%M:%SZ})")
+    return {"built": built, "rebuilt": rebuilt, "filled": filled}

@@ -27,7 +27,7 @@ import conflict_log as cl  # noqa: E402
 
 UTC = timezone.utc
 TEST_DB = "fpl_news_test"
-DROP_ALL = ("DROP TABLE IF EXISTS availability_comparisons; DROP TABLE IF EXISTS availability_claims; "
+DROP_ALL = ("DROP TABLE IF EXISTS availability_builds; DROP TABLE IF EXISTS availability_comparisons; DROP TABLE IF EXISTS availability_claims; "
             "DROP TABLE IF EXISTS availability_extractions; DROP TABLE IF EXISTS citation_checks; DROP TABLE IF EXISTS search_log; "
             "DROP TABLE IF EXISTS news_chunks; DROP TABLE IF EXISTS embedding_calls; "
             "DROP VIEW IF EXISTS news_to_embed; DROP VIEW IF EXISTS news_embed_text; "
@@ -89,9 +89,10 @@ def add_claim(conn, element_id, status, fetched, *, published=None, headline=Non
                     "VALUES ('club', %s, 1, %s, 'body', %s, %s, %s, 'test', %s, 'first_seen') RETURNING id",
                     (f"club:{headline}", headline, published, fetched, ns.content_hash(headline, fetched), club))
         item = cur.fetchone()[0]
+        import extraction
         cur.execute("INSERT INTO availability_claims (news_item_id, element_id, status, return_hint, basis, evidence, prompt_version, model, "
-                    "item_fetched_at, item_published_at) VALUES (%s, %s, %s, %s, %s, %s, 'extract_v1', %s, %s, %s) RETURNING id",
-                    (item, element_id, status, return_hint, basis, evidence, config_roles.RELEVANCE_MODEL, fetched, published))
+                    "item_fetched_at, item_published_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    (item, element_id, status, return_hint, basis, evidence, extraction.PROMPT_VERSION, extraction.model(), fetched, published))
         cid = cur.fetchone()[0]
     conn.commit()
     return cid
@@ -223,3 +224,84 @@ def test_results_loader_reads_the_history_parquet(tmp_path):
     assert cl.results_for_gw(5, path=p) == {1: {"minutes": 90, "started": True}, 3: {"minutes": 0, "started": False}}   # double gameweek summed
     assert cl.results_for_gw(6, path=p) is None
     assert cl.results_for_gw(5, path=tmp_path / "missing.parquet") is None
+
+
+# ---- Part A (2026-10-01): rebuild a gameweek when new claims arrive inside its window -----------------------------
+
+def built_at(conn, gw):
+    with conn.cursor() as cur:
+        cur.execute("SELECT built_at, n_rows FROM availability_builds WHERE gw = %s", (gw,))
+        return cur.fetchone()
+
+
+def content_rows(conn, gw=5):
+    """the derived content of a gameweek's rows, without the surrogate id and the build timestamps"""
+    with conn.cursor() as cur:
+        cur.execute("SELECT gw, deadline, element_id, fpl_status, fpl_chance_next_round, fpl_snapshot_time, claim_id, club_status, "
+                    "claim_published_at, claim_fetched_at, bucket_fpl, bucket_club, agree, minutes, started, played, right_source "
+                    "FROM availability_comparisons WHERE gw = %s ORDER BY element_id", (gw,))
+        return cur.fetchall()
+
+
+def _loader(results):
+    return lambda gw: results.get(gw)
+
+
+def test_a_late_claim_inside_the_window_triggers_a_rebuild_that_includes_it(conn):
+    add_claim(conn, 1, "available", D5 - timedelta(hours=3))
+    results = {5: {1: {"minutes": 90, "started": True}, 3: {"minutes": 0, "started": False}}}
+    now = datetime(2026, 9, 20, tzinfo=UTC)
+    out = cl.update_conflict_log(conn, snapshots=SNAPS, events=EVENTS, results_loader=_loader(results), now=now, log=lambda m: None)
+    assert out["built"] == {5: 1} and out["rebuilt"] == {} and [r[2] for r in rows(conn)] == [1]
+    first = built_at(conn, 5)
+    assert first is not None and first[1] == 1
+    add_claim(conn, 3, "returning", D5 - timedelta(days=1), club="Chelsea")          # arrives after the build, inside the window
+    out2 = cl.update_conflict_log(conn, snapshots=SNAPS, events=EVENTS, results_loader=_loader(results), now=now, log=lambda m: None)
+    assert out2["rebuilt"] == {5: 2} and out2["built"] == {} and [r[2] for r in rows(conn)] == [1, 3]
+    second = built_at(conn, 5)
+    assert second[0] > first[0] and second[1] == 2
+    saka, palmer = rows(conn)
+    assert saka[16] == "club" and palmer[16] == "fpl" and all(r[13] is not None for r in (saka, palmer))   # outcomes refilled
+
+
+def test_a_claim_outside_the_window_does_not_trigger_a_rebuild(conn):
+    add_claim(conn, 1, "available", D5 - timedelta(hours=3))
+    results = {5: {1: {"minutes": 90, "started": True}}}
+    now = datetime(2026, 9, 20, tzinfo=UTC)
+    cl.update_conflict_log(conn, snapshots=SNAPS, events=EVENTS, results_loader=_loader(results), now=now, log=lambda m: None)
+    first, before = built_at(conn, 5), content_rows(conn)
+    add_claim(conn, 3, "out", D5 + timedelta(minutes=1), club="Chelsea")               # after the deadline
+    add_claim(conn, 8, "out", D5 - timedelta(days=20), club="Chelsea")                 # older than every passed gameweek's window
+    out = cl.update_conflict_log(conn, snapshots=SNAPS, events=EVENTS, results_loader=_loader(results), now=now, log=lambda m: None)
+    assert out["rebuilt"] == {} and out["built"] == {} and built_at(conn, 5) == first and content_rows(conn) == before
+
+
+def test_rows_without_a_build_record_are_rebuilt_not_topped_up(conn):
+    """rows built before availability_builds existed (the laptop's GW5) carry no record: the first run must
+    rebuild them from the current claims, never keep stale rows beside new ones"""
+    old = add_claim(conn, 1, "available", D5 - timedelta(hours=3))
+    cl.build_comparisons(conn, 5, D5, SNAPS)                                       # rows, no build record
+    with conn.cursor() as cur:
+        cur.execute("UPDATE availability_claims SET status = 'out' WHERE id = %s", (old,))   # the claim changed under the row
+    conn.commit()
+    add_claim(conn, 3, "returning", D5 - timedelta(days=1), club="Chelsea")
+    results = {5: {1: {"minutes": 0, "started": False}, 3: {"minutes": 0, "started": False}}}
+    out = cl.update_conflict_log(conn, snapshots=SNAPS, events=EVENTS, results_loader=_loader(results),
+                                 now=datetime(2026, 9, 20, tzinfo=UTC), log=lambda m: None)
+    assert out["rebuilt"] == {5: 2} and out["built"] == {}
+    got = rows(conn)
+    assert [(r[2], r[7]) for r in got] == [(1, "out"), (3, "returning")]              # the stale row was replaced
+    assert built_at(conn, 5)[1] == 2 and all(r[13] is not None for r in got)
+
+
+def test_a_rebuild_with_no_new_claims_gives_identical_rows(conn):
+    add_claim(conn, 1, "available", D5 - timedelta(hours=3))
+    add_claim(conn, 3, "returning", D5 - timedelta(days=1), club="Chelsea")
+    results = {5: {1: {"minutes": 90, "started": True}, 3: {"minutes": 0, "started": False}}}
+    now = datetime(2026, 9, 20, tzinfo=UTC)
+    cl.update_conflict_log(conn, snapshots=SNAPS, events=EVENTS, results_loader=_loader(results), now=now, log=lambda m: None)
+    before, first = content_rows(conn), built_at(conn, 5)
+    n = cl.rebuild_gameweek(conn, 5, D5, SNAPS, results_loader=_loader(results))
+    assert n == 2 and content_rows(conn) == before and built_at(conn, 5)[0] > first[0]
+    out = cl.update_conflict_log(conn, snapshots=SNAPS, events=EVENTS, results_loader=_loader(results), now=now, log=lambda m: None)
+    assert out["rebuilt"] == {} and out["built"] == {} and content_rows(conn) == before

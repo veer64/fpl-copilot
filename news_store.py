@@ -335,6 +335,15 @@ CREATE TABLE IF NOT EXISTS availability_comparisons (
     UNIQUE (gw, element_id)
 );
 
+-- per-gameweek build record of the conflict log (Part A, 2026-10-01): update_conflict_log rebuilds a
+-- gameweek whenever a claim inside its window was created after built_at; otherwise it leaves it alone
+CREATE TABLE IF NOT EXISTS availability_builds (
+    gw        INT PRIMARY KEY,
+    deadline  TIMESTAMPTZ NOT NULL,
+    built_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    n_rows    INT NOT NULL
+);
+
 -- What the embedding layer should take: every news_embed_text row whose verdict under the
 -- PRODUCTION prompt version and model says relevant, and not known to be stale (current IS NOT
 -- false). fpl rows carry a 'skipped' verdict (relevant, current) so they pass; rows without a
