@@ -1690,10 +1690,18 @@ def health():
                           freshness=_freshness(last),
                           next_run_expected=(state or {}).get("expected_next"))
 
+    # news version order (2026-10-01): FPL guids whose highest version number is an older row than
+    # another version; reported, never a degrade reason (the rebuild must leave it at 0)
+    try:
+        from news_store import FPL_VERSION_ORDER_SQL
+        mismatches = int(_q(FPL_VERSION_ORDER_SQL)[0]["count"])
+    except Exception:  # noqa: BLE001 -- no news tables yet, or the DB is down: reported as unknown
+        mismatches = None
     return {"status": "ok" if db_ok and not reasons else "degraded",
             "git_sha": sha, "model_versions": model_versions,
             "data_freshness_by_source": freshness, "db_ok": db_ok,
             "last_run": last_block,
+            "news_version_order_mismatches": mismatches,
             "reasons": reasons}
 
 

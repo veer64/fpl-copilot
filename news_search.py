@@ -12,8 +12,10 @@ Steps:
      two players share (Palmer) is not searched; it comes back in "ambiguous_players" with labels.
      An unknown name is not searched either and counts as "no_news_for".
   2. The query is embedded (embeddings.embed, kind "query"). Any failure -> keyword-only.
-  3. One SQL statement: live_items = the newest version of each (source, guid) fetched at or before
-     as_of; candidates = their chunks for config EMBED_MODEL and chunking.CHUNKER_VERSION that are in
+  3. One SQL statement: live_items = the newest row IN TIME of each (source, guid) fetched at or before
+     as_of (fetched_at DESC, then version DESC -- never by version number alone, since 2026-10-01:
+     the server's version numbers once ran against time); candidates = their chunks for config
+     EMBED_MODEL and chunking.CHUNKER_VERSION that are in
      news_to_embed; dense = top SEARCH_CANDIDATES by cosine distance (skipped without a vector);
      kw = top SEARCH_CANDIDATES by ts_rank_cd over tsv @@ (plainto_tsquery of every name form of the
      resolved players -- web_name, first_name, second_name -- OR the clubs' names and aliases; skipped
@@ -162,7 +164,9 @@ def club_terms(clubs):
 def _sql(has_vector, n_terms):
     k, w = "%(k)s", "%(w)s"
     parts = ["WITH live AS (SELECT DISTINCT ON (n.source, n.guid) n.id FROM news_items n WHERE n.fetched_at <= %(as_of)s "
-             "ORDER BY n.source, n.guid, n.version DESC), "
+             "ORDER BY n.source, n.guid, n.fetched_at DESC, n.version DESC), "       # newest in TIME, then by number (2026-10-01)
+             ]
+    parts += [
              "cand AS (SELECT c.id, c.embedding, c.tsv FROM news_chunks c JOIN live ON live.id = c.news_item_id "
              "JOIN news_to_embed e ON e.id = c.news_item_id WHERE c.chunker_version = %(cv)s AND c.embed_model = %(model)s)"]
     lists = []

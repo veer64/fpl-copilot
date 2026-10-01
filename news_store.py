@@ -607,21 +607,48 @@ def fpl_candidates(doc, fetched_at, raw_ref):
     return flagged, reported
 
 
-def _latest_fpl_state(conn):
-    """guid -> active? from the newest stored version (active = not a cleared version)."""
+def _latest_fpl_state(conn, as_of=None):
+    """guid -> active? from the newest stored version AS OF a snapshot time (active = not a cleared
+    version). The as-of matters (defect of 2026-09-26): every run re-walks the whole archive, and
+    judged by the newest version overall, a player first flagged after the archive began looked
+    "active" at the archive's first snapshot, so a cleared row stamped with that old time was
+    written as a new version number (122 guids on the server). Judged as of the snapshot, no
+    version exists yet and nothing is written."""
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT ON (guid) guid, body, status FROM news_items "
-                    "WHERE source = 'fpl' ORDER BY guid, version DESC")
+        if as_of is None:
+            cur.execute("SELECT DISTINCT ON (guid) guid, body, status FROM news_items "
+                        "WHERE source = 'fpl' ORDER BY guid, fetched_at DESC, version DESC")
+        else:
+            cur.execute("SELECT DISTINCT ON (guid) guid, body, status FROM news_items "
+                        "WHERE source = 'fpl' AND fetched_at <= %s ORDER BY guid, fetched_at DESC, version DESC", (as_of,))
         return {g: not (b == "" and s == "a") for g, b, s in cur.fetchall()}
 
 
-def derive_fpl(conn, snapshot_dir, season):
-    """Walk every snapshot in the archive directory in time order and store the versions
-    it implies. raw_ref is the snapshot's canonical archive path
-    data/live/bootstrap_raw/<season>/<file>, whatever directory the copy is read from.
+# guids whose highest version number is not their newest row in time: the version numbers follow
+# insertion order, so this is 0 whenever the archive was walked in snapshot-time order
+FPL_VERSION_ORDER_SQL = ("SELECT count(*) FROM (SELECT guid, (array_agg(fetched_at ORDER BY version DESC))[1] AS latest_fetched, "
+                         "max(fetched_at) AS max_fetched FROM news_items WHERE source = 'fpl' GROUP BY guid) v "
+                         "WHERE latest_fetched < max_fetched")
+
+
+def fpl_version_order_mismatches(conn):
+    """How many FPL guids have a higher version number on an older row (see FPL_VERSION_ORDER_SQL);
+    /health reports it, the rebuild of 2026-10-01 must leave it at 0."""
+    with conn.cursor() as cur:
+        cur.execute(FPL_VERSION_ORDER_SQL)
+        return int(cur.fetchone()[0])
+
+
+def derive_fpl(conn, snapshot_dir, season, files=None):
+    """Walk every snapshot in the archive directory -- or the given files -- in SNAPSHOT-TIME order,
+    whatever order they are listed or stored in, and store the versions they imply. raw_ref is the
+    snapshot's canonical archive path data/live/bootstrap_raw/<season>/<file>, whatever directory
+    the copy is read from. The cleared-flag candidates are judged as of each snapshot's time, so a
+    re-walk of an archive already stored adds nothing.
     Returns {snapshots, fetched, new, new_versions, skipped, errors}."""
     d = Path(snapshot_dir)
-    files = sorted((snapshot_time(p.name), p.name, p) for p in d.glob("*.json.gz"))
+    paths = [Path(p) for p in files] if files is not None else list(d.glob("*.json.gz"))
+    files = sorted((snapshot_time(p.name), p.name, p) for p in paths)
     counts = {"snapshots": 0, "fetched": 0, "new": 0, "new_versions": 0, "skipped": 0, "errors": 0}
     for ts, name, path in files:
         try:
@@ -632,7 +659,7 @@ def derive_fpl(conn, snapshot_dir, season):
         raw_ref = f"data/live/bootstrap_raw/{season}/{name}"
         flagged, reported = fpl_candidates(doc, ts, raw_ref)
         cands = list(flagged.values())
-        for guid, active in _latest_fpl_state(conn).items():
+        for guid, active in _latest_fpl_state(conn, ts).items():
             if active and guid not in flagged and guid in reported:
                 status, chance, headline = reported[guid]
                 cands.append({"guid": guid, "url": None, "headline": headline, "body": "",

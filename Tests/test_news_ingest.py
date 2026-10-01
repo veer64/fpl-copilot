@@ -420,3 +420,63 @@ def test_chance_is_next_round_and_part_of_the_hash(conn, tmp_path):
     got = _view(conn, "guid = 'fpl:400'")
     assert got[0][5].endswith("Status: doubtful. 75% chance of playing. Calf injury - 75% chance of playing")
     assert got[1][5].endswith("Status: doubtful. 50% chance of playing. Calf injury - 75% chance of playing")
+
+
+# ---- 2026-10-01: the derivation is snapshot-time ordered and a re-walk never writes a spurious cleared row ----
+
+def _fpl_rows_no_ids(conn):
+    with conn.cursor() as cur:
+        cur.execute("SELECT guid, version, headline, body, published_at, fetched_at, content_hash, raw_ref, element_id, status, chance "
+                    "FROM news_items WHERE source = 'fpl' ORDER BY guid, version")
+        return cur.fetchall()
+
+
+def test_fpl_derivation_is_snapshot_time_ordered_whatever_the_listing_order(conn, tmp_path):
+    d = _archive(tmp_path)
+    ns.derive_fpl(conn, d, season="2026-27")
+    ordered = _fpl_rows_no_ids(conn)
+    assert len(ordered) == 5
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM news_items WHERE source = 'fpl'")
+    conn.commit()
+    files = sorted(d.glob("*.json.gz"))
+    shuffled = [files[2], files[0], files[1]]                                  # t3, t1, t2
+    counts = ns.derive_fpl(conn, d, season="2026-27", files=shuffled)
+    assert counts["snapshots"] == 3 and _fpl_rows_no_ids(conn) == ordered
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM news_items WHERE source = 'fpl'")
+    conn.commit()
+    ns.derive_fpl(conn, d, season="2026-27", files=list(reversed(files)))
+    assert _fpl_rows_no_ids(conn) == ordered
+
+
+def test_rewalk_never_writes_a_cleared_row_before_the_first_flag(conn, tmp_path):
+    """the server defect of 2026-09-26: a player first flagged AFTER the archive began got, on the
+    next walk, a 'cleared' row stamped with the archive's first snapshot time (122 guids)"""
+    d = tmp_path / "bootstrap_raw" / "2026-27"
+    d.mkdir(parents=True)
+    docs = {f"{T1:%Y%m%dT%H%M%SZ}.json.gz": _doc([_el(7, "Saka", 1, 3, "a", None, "", None), _el(1, "Raya", 1, 1, "a", None, "", None)]),
+            f"{T2:%Y%m%dT%H%M%SZ}.json.gz": _doc([_el(7, "Saka", 1, 3, "d", 75, "Knock - 75% chance of playing", ADDED), _el(1, "Raya", 1, 1, "a", None, "", None)]),
+            f"{T3:%Y%m%dT%H%M%SZ}.json.gz": _doc([_el(7, "Saka", 1, 3, "d", 75, "Knock - 75% chance of playing", ADDED), _el(1, "Raya", 1, 1, "a", None, "", None)])}
+    for name, doc in docs.items():
+        (d / name).write_bytes(gzip.compress(json.dumps(doc).encode("utf-8")))
+    first = ns.derive_fpl(conn, d, season="2026-27")
+    assert first["new"] == 1 and first["new_versions"] == 0
+    rows = _fpl_rows_no_ids(conn)
+    assert [(r[0], r[1], r[5]) for r in rows] == [("fpl:7", 1, T2)]
+    second = ns.derive_fpl(conn, d, season="2026-27")
+    assert second["new"] == 0 and second["new_versions"] == 0, "a re-walk must add nothing"
+    assert _fpl_rows_no_ids(conn) == rows
+    assert ns.fpl_version_order_mismatches(conn) == 0
+
+
+def test_fpl_version_order_mismatches_counts_inverted_guids(conn):
+    assert ns.fpl_version_order_mismatches(conn) == 0
+    with conn.cursor() as cur:
+        for guid, version, fetched, body, status in (("fpl:26", 1, T2, "Hamstring injury", "d"), ("fpl:26", 2, T1, "", "a"),
+                                                     ("fpl:7", 1, T1, "Knock", "d"), ("fpl:7", 2, T2, "", "a")):
+            cur.execute("INSERT INTO news_items (source, guid, version, headline, body, fetched_at, content_hash, raw_ref, element_id, status) "
+                        "VALUES ('fpl', %s, %s, 'x', %s, %s, %s, 'test', %s, %s)",
+                        (guid, version, body, fetched, ns.content_hash(status, body, None), int(guid[4:]), status))
+    conn.commit()
+    assert ns.fpl_version_order_mismatches(conn) == 1                          # fpl:26 only; fpl:7 is in order
