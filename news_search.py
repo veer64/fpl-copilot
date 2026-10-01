@@ -113,6 +113,44 @@ def citation_violations(cited, returned):
     return [c for c in cited if c not in ok]
 
 
+_CITE_TOKEN = re.compile(r"\(?\[?\bc(\d+)\b\]?\)?")
+
+
+def render_citations(text, results):
+    """Part C (2026-10-01): the reply with every c<id> replaced by a numbered marker [1], [2], ... in order
+    of first appearance (a repeated id keeps its number) and a "Sources" section appended, every value
+    taken from THIS turn's search results, never from the model's text:
+        [n] <source label> · "<headline>" · <date> · <url>     (club and bbc items; the url when there is one)
+        [n] FPL official notice · <date>                        (FPL rows: no headline, no url)
+    An id the turn did not return renders as [unverified] and is not listed (citation_checks records it).
+    A reply without citations comes back unchanged."""
+    by_id = {str(r.get("id")): r for r in (results or []) if isinstance(r, dict) and r.get("id")}
+    order = []
+
+    def repl(m):
+        cid = "c" + m.group(1)
+        if cid not in by_id:
+            return "[unverified]"
+        if cid not in order:
+            order.append(cid)
+        return f"[{order.index(cid) + 1}]"
+
+    rendered = _CITE_TOKEN.sub(repl, text or "")
+    if not order:
+        return rendered
+    lines = []
+    for i, cid in enumerate(order, 1):
+        r = by_id[cid]
+        if r.get("source") == "FPL official":
+            lines.append(f"[{i}] FPL official notice · {r.get('date')}")
+        else:
+            parts = [str(r.get("source")), f"\"{r.get('headline') or ''}\"", str(r.get("date"))]
+            if r.get("url"):
+                parts.append(str(r["url"]))
+            lines.append(f"[{i}] " + " · ".join(parts))
+    return rendered.rstrip() + "\n\nSources\n" + "\n".join(lines)
+
+
 # ---- resolution --------------------------------------------------------------------------------------
 
 def _load_snapshots():
@@ -227,8 +265,8 @@ def _result(row, as_of, about):
     players = list(row.get("players") or [])
     if row["source"] == "fpl" and not players:
         players = [str(row.get("headline") or "").split(" (")[0]]
-    return {"id": f"c{row['id']}", "source": source_label(row["source"], row.get("club")), "url": row.get("url"),
-            "date": when.strftime("%Y-%m-%d"), "date_basis": basis, "age": human_age(as_of - when),
+    return {"id": f"c{row['id']}", "source": source_label(row["source"], row.get("club")), "headline": row.get("headline") or "",
+            "url": row.get("url"), "date": when.strftime("%Y-%m-%d"), "date_basis": basis, "age": human_age(as_of - when),
             "about_requested_player": bool(about), "players": players, "text": row["chunk_text"]}
 
 

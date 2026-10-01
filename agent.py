@@ -334,7 +334,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          compare_predictions, compare_runs, get_fixtures,
                          get_price_movements, get_league_table, get_match_stats)
 import uuid
-from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check
+from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -412,6 +412,7 @@ def run_agent(user_message: str, messages: list = None):
     messages.append({"role": "user", "content": user_message})
     turn_id = uuid.uuid4().hex                       # Piece 7: one id per reply, for citation_checks
     returned_ids = []                                # every result id search_news returned in THIS turn
+    returned_results = []                            # the result dicts themselves, for the rendered citations (Part C)
 
     while True:
         response = client.messages.create(
@@ -428,7 +429,10 @@ def run_agent(user_message: str, messages: list = None):
             for block in response.content:
                 if block.type == "text":
                     _citation_check(turn_id, block.text, returned_ids)
-                    return block.text, messages
+                    rendered = render_citations(block.text, returned_results)      # Part C: [1], [2] + Sources
+                    if rendered != block.text:
+                        print(f"  [raw reply with c-ids: {block.text}]")           # the raw reply stays in the logs
+                    return rendered, messages
 
         tool_results = []
         for block in response.content:
@@ -441,7 +445,9 @@ def run_agent(user_message: str, messages: list = None):
 
                 result = call_tool(tool_name, tool_input)
                 if tool_name == "search_news" and isinstance(result, dict):
-                    returned_ids.extend(str(r.get("id")) for r in (result.get("results") or []) if isinstance(r, dict) and r.get("id"))
+                    hits = [r for r in (result.get("results") or []) if isinstance(r, dict) and r.get("id")]
+                    returned_ids.extend(str(r.get("id")) for r in hits)
+                    returned_results.extend(hits)
                 if isinstance(result, dict) and "error" in result:
                     print(f"  [tool error: {tool_name}: {str(result['error'])[:200]}]")
 

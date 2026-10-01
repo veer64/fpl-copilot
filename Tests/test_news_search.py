@@ -387,7 +387,7 @@ def test_output_shape_golden_and_search_log_row(conn):
     out = search(conn, "Is Saka fit?", players=["Saka"])
     assert out == {
         "as_of": "2026-09-18T17:30:00Z", "search_mode": "hybrid", "no_news_for": [], "ambiguous_players": {},
-        "results": [{"id": f"c{cid}", "source": "FPL official", "url": None, "date": "2026-09-17", "date_basis": "FPL",
+        "results": [{"id": f"c{cid}", "source": "FPL official", "headline": "Saka (ARS, MID)", "url": None, "date": "2026-09-17", "date_basis": "FPL",
                      "age": "1 day ago", "about_requested_player": True, "players": ["Saka"],
                      "text": "[FPL official | 2026-09-17 11:00Z] Saka (ARS, MID)\nStatus: doubtful. 75% chance of playing. Knock - 75% chance of playing"}]}
     with conn.cursor() as cur:
@@ -513,15 +513,47 @@ def _agent(monkeypatch):
     return ag
 
 
-def test_valid_citations_pass_and_an_invented_id_is_logged_without_altering_the_reply(conn, monkeypatch):
+RESULTS = [{"id": "c12", "source": "Arsenal official site", "headline": "Team news: Saka a doubt", "date": "2026-09-15",
+            "url": "https://www.arsenal.com/news/x", "text": "[Arsenal official site | 2026-09-15] Team news: Saka a doubt\n..."},
+           {"id": "c7", "source": "FPL official", "headline": "Saka (ARS, MID)", "date": "2026-09-17", "url": None,
+            "text": "[FPL official | 2026-09-17 11:00Z] Saka (ARS, MID)\n..."},
+           {"id": "c3", "source": "BBC Sport", "headline": "Palmer a doubt for Chelsea", "date": "2026-09-16",
+            "url": "https://www.bbc.co.uk/sport/x", "text": "[BBC Sport | 2026-09-16 09:00Z] Palmer a doubt for Chelsea\n..."}]
+
+
+def test_render_citations_numbers_by_first_appearance_and_a_repeated_id_keeps_its_number():
+    text = "FPL lists him as doubtful (c7). The club says a knock (c12) and again c12; also c7 and [c3]."
+    out = nsr.render_citations(text, RESULTS)
+    body, sources = out.split("\n\nSources\n")
+    assert body == "FPL lists him as doubtful [1]. The club says a knock [2] and again [2]; also [1] and [3]."
+    assert sources.split("\n") == ["[1] FPL official notice · 2026-09-17",
+                                   "[2] Arsenal official site · \"Team news: Saka a doubt\" · 2026-09-15 · https://www.arsenal.com/news/x",
+                                   "[3] BBC Sport · \"Palmer a doubt for Chelsea\" · 2026-09-16 · https://www.bbc.co.uk/sport/x"]
+
+
+def test_render_citations_unverified_and_no_citations():
+    assert nsr.render_citations("No news (c99).", RESULTS) == "No news [unverified]."
+    assert nsr.render_citations("plain reply", RESULTS) == "plain reply"
+    assert nsr.render_citations("", RESULTS) == ""
+    out = nsr.render_citations("Doubtful (c7) and (c99).", RESULTS)
+    assert out == "Doubtful [1] and [unverified].\n\nSources\n[1] FPL official notice · 2026-09-17"
+    club_only = nsr.render_citations("See c12.", [r for r in RESULTS if r["id"] == "c12"])
+    assert club_only.endswith("[1] Arsenal official site · \"Team news: Saka a doubt\" · 2026-09-15 · https://www.arsenal.com/news/x")
+
+
+def test_valid_citations_pass_an_invented_id_is_logged_and_chat_gets_the_rendered_reply(conn, monkeypatch):
     ag = _agent(monkeypatch)
     fake_result = {"as_of": "x", "search_mode": "hybrid", "no_news_for": [], "ambiguous_players": {},
-                   "results": [{"id": "c1", "text": "a"}, {"id": "c2", "text": "b"}]}
+                   "results": [{"id": "c1", "source": "Arsenal official site", "headline": "Team news", "date": "2026-09-15",
+                                "url": "https://www.arsenal.com/news/x", "text": "a"},
+                               {"id": "c2", "source": "FPL official", "headline": "Saka (ARS, MID)", "date": "2026-09-17", "url": None, "text": "b"}]}
     monkeypatch.setitem(ag.available_functions, "search_news", lambda **kw: fake_result)
     reply = "FPL lists Saka as doubtful. The Arsenal site agrees (c1). Also c99."
     monkeypatch.setattr(ag, "client", types.SimpleNamespace(messages=_FakeMessages(reply)))
-    answer, _ = ag.run_agent("Is Saka fit?")
-    assert answer == reply                                                     # never altered
+    answer, messages = ag.run_agent("Is Saka fit?")
+    assert answer == ("FPL lists Saka as doubtful. The Arsenal site agrees [1]. Also [unverified].\n\nSources\n"
+                      "[1] Arsenal official site · \"Team news\" · 2026-09-15 · https://www.arsenal.com/news/x")
+    assert messages[-1]["content"][0].text == reply                            # the raw reply with c-ids stays in the conversation
     with conn.cursor() as cur:
         cur.execute("SELECT turn_id, cited, returned, violations FROM citation_checks ORDER BY id DESC LIMIT 1")
         turn_id, cited, returned, violations = cur.fetchone()
