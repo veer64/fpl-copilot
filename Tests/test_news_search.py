@@ -40,7 +40,8 @@ import news_search as nsr  # noqa: E402
 
 UTC = timezone.utc
 TEST_DB = "fpl_news_test"
-DROP_ALL = ("DROP TABLE IF EXISTS citation_checks; DROP TABLE IF EXISTS search_log; "
+DROP_ALL = ("DROP TABLE IF EXISTS availability_comparisons; DROP TABLE IF EXISTS availability_claims; "
+            "DROP TABLE IF EXISTS availability_extractions; DROP TABLE IF EXISTS citation_checks; DROP TABLE IF EXISTS search_log; "
             "DROP TABLE IF EXISTS news_chunks; DROP TABLE IF EXISTS embedding_calls; "
             "DROP VIEW IF EXISTS news_to_embed; DROP VIEW IF EXISTS news_embed_text; "
             "DROP TABLE IF EXISTS news_relevance; DROP TABLE IF EXISTS llm_calls; "
@@ -464,6 +465,10 @@ def test_prompt_carries_the_availability_rules_verbatim(monkeypatch):
             "only if they appear in a tool result.") in p
     section = p[p.index("# 2e."):p.index("# 3. Freshness")]
     assert "Never pick one yourself." in section and "only if they appear in a tool result." in section
+    # Piece 9 (2026-10-01): the official status comes from the player card, never from a search result
+    assert ("The player's official FPL status always comes from the player card\n"
+            "tool (its availability block and as-of time), never from news search\n"
+            "results, even when a search result is an FPL notice.") in section
 
 
 # ---- Part 5: the citation check -----------------------------------------------------------------------------------

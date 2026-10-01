@@ -34,6 +34,7 @@ import club_news as cn  # noqa: E402
 import news_store as ns  # noqa: E402
 import relevance as rv  # noqa: E402
 import embed_pipeline as ep  # noqa: E402
+import extraction as ex  # noqa: E402
 from config_roles import CLUB_DOMAINS, CLUB_NEWS_CLUBS  # noqa: E402
 
 RAW_DIR = cn.RAW_DIR
@@ -50,6 +51,11 @@ def utcnow():
 def run_relevance(conn):
     """the relevance filter over every row still unjudged for PROMPT_VERSION, then the shadow judge (relevance.py)"""
     return rv.run_with_shadow(conn, log=log)
+
+
+def run_extract(conn):
+    """one structured availability claim per player per club / bbc item still unextracted (extraction.py); record only (D9)"""
+    return ex.run_extract(conn, log=log)
 
 
 def run_embed(conn):
@@ -120,6 +126,7 @@ def main():
             conn = db_write.connect()
             ns.ensure_schema(conn)
             run_relevance(conn)
+            run_extract(conn)
             run_embed(conn)
         except Exception:
             log("relevance FAILED:\n" + traceback.format_exc()[-2000:])
@@ -145,6 +152,7 @@ def main():
         summary = cn.run(conn, clubs, tavily, now=now, seed=a.seed, raw_dir=raw_dir, log=log, http=http,
                          window=g["window"], opponents=opponents, aliases=aliases, replay=bool(a.replay))
         run_relevance(conn)
+        run_extract(conn)
         run_embed(conn)
     except cn.CreditLimit as e:
         log(f"REFUSED by the credit guard: {e}")

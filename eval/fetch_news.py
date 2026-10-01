@@ -29,6 +29,8 @@ import db_write  # noqa: E402
 import news_store as ns  # noqa: E402
 import relevance as rv  # noqa: E402
 import embed_pipeline as ep  # noqa: E402
+import extraction as ex  # noqa: E402
+import conflict_log as cl  # noqa: E402
 
 SOURCE_NEWS = "news_fetch"
 
@@ -40,6 +42,16 @@ def log(msg):
 def run_relevance(conn):
     """the relevance filter over every row still unjudged for PROMPT_VERSION, then the shadow judge (relevance.py)"""
     return rv.run_with_shadow(conn, log=log)
+
+
+def run_extract(conn):
+    """one structured availability claim per player per club / bbc item still unextracted (extraction.py); record only (D9)"""
+    return ex.run_extract(conn, log=log)
+
+
+def run_conflict_log(conn):
+    """build the club-vs-FPL comparisons for every passed deadline and fill outcomes where results exist (conflict_log.py)"""
+    return cl.update_conflict_log(conn, log=log)
 
 
 def run_embed(conn):
@@ -87,7 +99,9 @@ def main():
         if not a.no_fpl:
             run_fpl(conn, a.season, store=not a.no_fpl_store and not a.archive, archive=a.archive)
         run_relevance(conn)
+        run_extract(conn)
         run_embed(conn)
+        run_conflict_log(conn)
         conn.close()
     except Exception:
         log("FAILED:\n" + traceback.format_exc()[-2000:])

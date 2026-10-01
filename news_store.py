@@ -279,6 +279,62 @@ CREATE TABLE IF NOT EXISTS citation_checks (
     violations  TEXT[]
 );
 
+-- Piece 9 (2026-10-01), record and measure only (D9): one structured availability claim per player per
+-- club / bbc article (extraction.py, prompt extract_v1, the production judge model). Append-only; the
+-- evidence phrase lives here and never in git.
+CREATE TABLE IF NOT EXISTS availability_claims (
+    id                 BIGSERIAL PRIMARY KEY,
+    news_item_id       BIGINT NOT NULL REFERENCES news_items (id),
+    element_id         INT NOT NULL,
+    status             TEXT NOT NULL CHECK (status IN ('out', 'suspended', 'doubtful', 'returning', 'available')),
+    return_hint        TEXT,
+    basis              TEXT NOT NULL CHECK (basis IN ('manager_quote', 'club_statement', 'report')),
+    evidence           TEXT NOT NULL,
+    prompt_version     TEXT NOT NULL,
+    model              TEXT NOT NULL,
+    item_fetched_at    TIMESTAMPTZ NOT NULL,
+    item_published_at  TIMESTAMPTZ,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (news_item_id, element_id, prompt_version, model)
+);
+CREATE INDEX IF NOT EXISTS ix_availability_claims_element ON availability_claims (element_id, item_fetched_at);
+-- the items already extracted under (prompt_version, model), with their claim count, so an item whose
+-- reply had no claims is never sent again
+CREATE TABLE IF NOT EXISTS availability_extractions (
+    id              BIGSERIAL PRIMARY KEY,
+    news_item_id    BIGINT NOT NULL REFERENCES news_items (id),
+    prompt_version  TEXT NOT NULL,
+    model           TEXT NOT NULL,
+    n_claims        INT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (news_item_id, prompt_version, model)
+);
+-- the conflict log (conflict_log.py): club claim vs FPL's flag as of each deadline, the outcome from the
+-- repo's results data, and who was right
+CREATE TABLE IF NOT EXISTS availability_comparisons (
+    id                     BIGSERIAL PRIMARY KEY,
+    gw                     INT NOT NULL,
+    deadline               TIMESTAMPTZ NOT NULL,
+    element_id             INT NOT NULL,
+    fpl_status             TEXT,
+    fpl_chance_next_round  INT,
+    fpl_snapshot_time      TIMESTAMPTZ NOT NULL,
+    claim_id               BIGINT NOT NULL REFERENCES availability_claims (id),
+    club_status            TEXT NOT NULL,
+    claim_published_at     TIMESTAMPTZ,
+    claim_fetched_at       TIMESTAMPTZ NOT NULL,
+    bucket_fpl             TEXT,
+    bucket_club            TEXT NOT NULL,
+    agree                  BOOLEAN,
+    minutes                INT,
+    started                BOOLEAN,
+    played                 BOOLEAN,
+    outcome_filled_at      TIMESTAMPTZ,
+    right_source           TEXT CHECK (right_source IN ('fpl', 'club', 'tie')),
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (gw, element_id)
+);
+
 -- What the embedding layer should take: every news_embed_text row whose verdict under the
 -- PRODUCTION prompt version and model says relevant, and not known to be stale (current IS NOT
 -- false). fpl rows carry a 'skipped' verdict (relevant, current) so they pass; rows without a

@@ -85,7 +85,7 @@ def conn(monkeypatch):
     monkeypatch.setenv("DB_NAME", TEST_DB)
     c = db_write.connect()
     with c.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS news_chunks; DROP TABLE IF EXISTS embedding_calls; DROP VIEW IF EXISTS news_to_embed; DROP VIEW IF EXISTS news_embed_text; DROP TABLE IF EXISTS news_relevance; DROP TABLE IF EXISTS llm_calls; DROP TABLE IF EXISTS news_items; DROP TABLE IF EXISTS tavily_calls")
+        cur.execute("DROP TABLE IF EXISTS availability_comparisons; DROP TABLE IF EXISTS availability_claims; DROP TABLE IF EXISTS availability_extractions; DROP TABLE IF EXISTS news_chunks; DROP TABLE IF EXISTS embedding_calls; DROP VIEW IF EXISTS news_to_embed; DROP VIEW IF EXISTS news_embed_text; DROP TABLE IF EXISTS news_relevance; DROP TABLE IF EXISTS llm_calls; DROP TABLE IF EXISTS news_items; DROP TABLE IF EXISTS tavily_calls")
     c.commit()
     ns.ensure_schema(c)
     yield c
