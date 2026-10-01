@@ -469,6 +469,10 @@ def test_prompt_carries_the_availability_rules_verbatim(monkeypatch):
     assert ("The player's official FPL status always comes from the player card\n"
             "tool (its availability block and as-of time), never from news search\n"
             "results, even when a search result is an FPL notice.") in section
+    # citation formatting fix (2026-10-01): cite as [c<id>] only
+    assert ("Cite news as [c<id>] only. The reply's\n"
+            "Sources list gives each source's name, date and link, so do not\n"
+            "repeat them inside the citation.") in section
 
 
 # ---- Part 5: the citation check -----------------------------------------------------------------------------------
@@ -525,18 +529,29 @@ def test_render_citations_numbers_by_first_appearance_and_a_repeated_id_keeps_it
     text = "FPL lists him as doubtful (c7). The club says a knock (c12) and again c12; also c7 and [c3]."
     out = nsr.render_citations(text, RESULTS)
     body, sources = out.split("\n\nSources\n")
-    assert body == "FPL lists him as doubtful [1]. The club says a knock [2] and again [2]; also [1] and [3]."
+    assert body == "FPL lists him as doubtful ([1]). The club says a knock ([2]) and again [2]; also [1] and [3]."
     assert sources.split("\n") == ["[1] FPL official notice · 2026-09-17",
                                    "[2] Arsenal official site · \"Team news: Saka a doubt\" · 2026-09-15 · https://www.arsenal.com/news/x",
                                    "[3] BBC Sport · \"Palmer a doubt for Chelsea\" · 2026-09-16 · https://www.bbc.co.uk/sport/x"]
 
 
 def test_render_citations_unverified_and_no_citations():
-    assert nsr.render_citations("No news (c99).", RESULTS) == "No news [unverified]."
+    assert nsr.render_citations("No news (c99).", RESULTS) == "No news ([unverified])."
     assert nsr.render_citations("plain reply", RESULTS) == "plain reply"
     assert nsr.render_citations("", RESULTS) == ""
     out = nsr.render_citations("Doubtful (c7) and (c99).", RESULTS)
-    assert out == "Doubtful [1] and [unverified].\n\nSources\n[1] FPL official notice · 2026-09-17"
+    assert out == "Doubtful ([1]) and ([unverified]).\n\nSources\n[1] FPL official notice · 2026-09-17"
+
+
+def test_render_citations_replaces_only_the_token_and_keeps_punctuation():
+    """2026-10-01: "(c914, FPL official, 24 Sep)" once rendered as "[1], FPL official, 24 Sep)"; only the id is replaced"""
+    r = [{"id": "c914", "source": "FPL official", "headline": "Havertz (ARS, MID)", "date": "2026-09-24", "url": None, "text": "x"}]
+    body = lambda s: nsr.render_citations(s, r).split("\n\nSources\n")[0]
+    assert body("The only news result (c914, FPL official, 24 Sep) confirms it.") == "The only news result ([1], FPL official, 24 Sep) confirms it."
+    assert body("Confirmed by [c914].") == "Confirmed by [1]."
+    assert body("c914 says the same thing.") == "[1] says the same thing."
+    assert body("The flag is doubtful per c914.") == "The flag is doubtful per [1]."
+    assert body("See (c914); also [c914], then c914!") == "See ([1]); also [1], then [1]!"
     club_only = nsr.render_citations("See c12.", [r for r in RESULTS if r["id"] == "c12"])
     assert club_only.endswith("[1] Arsenal official site · \"Team news: Saka a doubt\" · 2026-09-15 · https://www.arsenal.com/news/x")
 
@@ -551,7 +566,7 @@ def test_valid_citations_pass_an_invented_id_is_logged_and_chat_gets_the_rendere
     reply = "FPL lists Saka as doubtful. The Arsenal site agrees (c1). Also c99."
     monkeypatch.setattr(ag, "client", types.SimpleNamespace(messages=_FakeMessages(reply)))
     answer, messages = ag.run_agent("Is Saka fit?")
-    assert answer == ("FPL lists Saka as doubtful. The Arsenal site agrees [1]. Also [unverified].\n\nSources\n"
+    assert answer == ("FPL lists Saka as doubtful. The Arsenal site agrees ([1]). Also [unverified].\n\nSources\n"
                       "[1] Arsenal official site · \"Team news\" · 2026-09-15 · https://www.arsenal.com/news/x")
     assert messages[-1]["content"][0].text == reply                            # the raw reply with c-ids stays in the conversation
     with conn.cursor() as cur:

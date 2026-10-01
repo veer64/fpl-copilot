@@ -113,13 +113,14 @@ def citation_violations(cited, returned):
     return [c for c in cited if c not in ok]
 
 
-_CITE_TOKEN = re.compile(r"\(?\[?\bc(\d+)\b\]?\)?")
+_CITE_TOKEN = re.compile(r"\[c(\d+)\]|\bc(\d+)\b")       # "[c914]" as a unit, else the bare token; punctuation around it stays
 
 
 def render_citations(text, results):
-    """Part C (2026-10-01): the reply with every c<id> replaced by a numbered marker [1], [2], ... in order
-    of first appearance (a repeated id keeps its number) and a "Sources" section appended, every value
-    taken from THIS turn's search results, never from the model's text:
+    """Part C (2026-10-01): the reply with every c<id> token replaced by a numbered marker [1], [2], ... in
+    order of first appearance (a repeated id keeps its number) and a "Sources" section appended, every value
+    taken from THIS turn's search results, never from the model's text. Only the token itself is replaced
+    ("(c914, FPL official, 24 Sep)" -> "([1], FPL official, 24 Sep)"); a "[c914]" unit becomes "[1]":
         [n] <source label> · "<headline>" · <date> · <url>     (club and bbc items; the url when there is one)
         [n] FPL official notice · <date>                        (FPL rows: no headline, no url)
     An id the turn did not return renders as [unverified] and is not listed (citation_checks records it).
@@ -128,7 +129,7 @@ def render_citations(text, results):
     order = []
 
     def repl(m):
-        cid = "c" + m.group(1)
+        cid = "c" + (m.group(1) or m.group(2))
         if cid not in by_id:
             return "[unverified]"
         if cid not in order:

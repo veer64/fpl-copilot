@@ -97,6 +97,9 @@ only if they appear in a tool result.
 The player's official FPL status always comes from the player card
 tool (its availability block and as-of time), never from news search
 results, even when a search result is an FPL notice.
+Cite news as [c<id>] only. The reply's
+Sources list gives each source's name, date and link, so do not
+repeat them inside the citation.
 
 # 3. Freshness: right after the answer, before the reasoning
 
