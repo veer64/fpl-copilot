@@ -260,7 +260,7 @@ def test_run_writes_claims_and_is_idempotent_including_empty_replies(conn):
         (a, 5, "available", None, "manager_quote", "Joao Pedro remains in contention"),
         (a, 8, "out", "until 2027", "manager_quote", "Caicedo is out until 2027")]
     assert all(r[6] == "extract_v1" and r[7] == "claude-sonnet-5" and r[8] == datetime(2026, 9, 17, 15, 7, tzinfo=UTC) for r in rows)
-    assert fake.calls[0]["model"] == "claude-sonnet-5" and "temperature" not in fake.calls[0] and fake.calls[0]["max_tokens"] == 1024
+    assert fake.calls[0]["model"] == "claude-sonnet-5" and "temperature" not in fake.calls[0] and fake.calls[0]["max_tokens"] == 3072
     assert fake.calls[0]["system"] == ex.SYSTEM_PROMPT
     fake2 = FakeClient()
     again = ex.run_extract(conn, client=fake2, bootstrap=BOOTSTRAP, events=EVENTS, matches=MATCHES, log=lambda m: None)
@@ -269,6 +269,28 @@ def test_run_writes_claims_and_is_idempotent_including_empty_replies(conn):
         cur.execute("SELECT purpose, model, prompt_version, news_item_id, ok FROM llm_calls ORDER BY id")
         assert cur.fetchall() == [("availability_extract", "claude-sonnet-5", "extract_v1", a, True),
                                   ("availability_extract", "claude-sonnet-5", "extract_v1", b, True)]
+
+
+def test_extraction_budget_is_its_own_and_relevance_keeps_1024():
+    """ruling on D2 (2026-10-01): 4 of 19 demo items truncated at 1,024; extraction gets 3,072 for Sonnet"""
+    import relevance as rv
+    assert config_roles.EXTRACT_MAX_TOKENS_BY_MODEL == {"claude-sonnet-5": 3072}
+    assert ex.max_tokens() == 3072
+    assert rv.max_tokens_for("claude-sonnet-5", rv.profile_for("relevance_v3")) == 1024
+    assert config_roles.RELEVANCE_MAX_TOKENS_BY_MODEL["claude-sonnet-5"] == 1024
+
+
+def test_truncated_extraction_reply_still_writes_nothing(conn):
+    a = add_item(conn, "club", "Team news", "Caicedo is out.", fetched=datetime(2026, 9, 17, 15, 7, tzinfo=UTC), club="Chelsea", players=["Caicedo"])
+    out = ex.run_extract(conn, client=FakeClient([_Resp('{"claims": [', stop_reason="max_tokens")]),
+                         bootstrap=BOOTSTRAP, events=EVENTS, matches=MATCHES, log=lambda m: None)
+    assert out["truncated_replies"] == 1 and claims(conn) == []
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM availability_extractions")
+        assert cur.fetchone()[0] == 0                                          # retried next run
+    out2 = ex.run_extract(conn, client=FakeClient(['{"claims": [{"player": "Caicedo", "status": "out", "return_hint": null, "basis": "report", "evidence": "Caicedo is out."}]}']),
+                          bootstrap=BOOTSTRAP, events=EVENTS, matches=MATCHES, log=lambda m: None)
+    assert out2["claims_written"] == 1 and [(r[1], r[2]) for r in claims(conn)] == [(8, "out")]
 
 
 def test_invalid_reply_and_failed_call_write_nothing_and_retry_next_run(conn):

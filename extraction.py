@@ -83,7 +83,12 @@ def model():
 
 
 def max_tokens():
-    return int(config_roles.RELEVANCE_MAX_TOKENS_BY_MODEL.get(model(), MAX_TOKENS))
+    """config EXTRACT_MAX_TOKENS_BY_MODEL (ruling 2026-10-01: 3,072 for Sonnet, D2) wins; a model not listed
+    there keeps the relevance table's value, else the profile's. A reply that still stops at max_tokens is a
+    failure: nothing written, retried next run."""
+    m = model()
+    extract = getattr(config_roles, "EXTRACT_MAX_TOKENS_BY_MODEL", {}) or {}
+    return int(extract.get(m, config_roles.RELEVANCE_MAX_TOKENS_BY_MODEL.get(m, MAX_TOKENS)))
 
 
 # ---- the prompt --------------------------------------------------------------------------------------

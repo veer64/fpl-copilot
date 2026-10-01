@@ -123,6 +123,12 @@ MODELS_WITHOUT_TEMPERATURE = ("claude-sonnet-5", "claude-opus-5-5")
 # its requests stay byte-identical; thinking settings are never touched, each model runs as it
 # would in production. A model not listed keeps the profile value.
 RELEVANCE_MAX_TOKENS_BY_MODEL = {"claude-haiku-4-5-20251001": 200, "claude-sonnet-5": 1024, "claude-opus-5-5": 2048}
+# EXTRACT_MAX_TOKENS_BY_MODEL -- the output budget of the availability extraction (extraction.py, prompt
+# extract_v1), separate from the relevance judge's: a reply lists one claim per player and Sonnet spends
+# output tokens on its thinking block first, so 4 of 19 laptop items truncated at 1,024 on 2026-10-01.
+# USER RULING 2026-10-01 (D2): 3,072 for Sonnet. A model not listed keeps the relevance table's value.
+# A truncated extraction reply is still a failure: nothing is written and the item is retried next run.
+EXTRACT_MAX_TOKENS_BY_MODEL = {"claude-sonnet-5": 3072}
 # MODEL_PRICES_USD_PER_MTOK -- (input, output) list prices used by the reports for cost lines only.
 # Source: platform.claude.com/docs/en/about-claude/pricing, read 2026-09-26. Not a billing record.
 MODEL_PRICES_USD_PER_MTOK = {"claude-haiku-4-5-20251001": (1.0, 5.0), "claude-sonnet-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0)}
