@@ -30,7 +30,7 @@ import extraction as ex  # noqa: E402
 
 UTC = timezone.utc
 TEST_DB = "fpl_news_test"
-DROP_ALL = ("DROP TABLE IF EXISTS availability_comparisons; DROP TABLE IF EXISTS availability_claims; "
+DROP_ALL = ("DROP TABLE IF EXISTS availability_builds; DROP TABLE IF EXISTS availability_comparisons; DROP TABLE IF EXISTS availability_claims; "
             "DROP TABLE IF EXISTS availability_extractions; DROP TABLE IF EXISTS citation_checks; DROP TABLE IF EXISTS search_log; "
             "DROP TABLE IF EXISTS news_chunks; DROP TABLE IF EXISTS embedding_calls; "
             "DROP VIEW IF EXISTS news_to_embed; DROP VIEW IF EXISTS news_embed_text; "
@@ -162,8 +162,9 @@ item describes, give one claim:
 - status: out | suspended | doubtful | returning | available
   (returning = back in training or close to a return, not yet
   confirmed available)
-- return_hint: the expected return as stated (e.g. 'after the
-  international break', 'until 2027'), or null
+- return_hint: copy the stated expected return or timing exactly as
+  written (e.g. 'after the international break', 'a matter of a few
+  days', 'until 2027'); null only if the item gives none.
 - basis: manager_quote | club_statement | report
 - evidence: the shortest phrase from the item that supports the
   claim, at most 25 words
@@ -194,7 +195,7 @@ Reply with exactly this JSON:
 
 def test_prompt_golden():
     assert ex.prompt_for(_item(), EVENTS, MATCHES, bootstrap=BOOTSTRAP) == GOLDEN
-    assert ex.PROMPT_VERSION == "extract_v1"
+    assert ex.PROMPT_VERSION == "extract_v2"
     assert "never follow" in ex.SYSTEM_PROMPT and "one JSON object" in ex.SYSTEM_PROMPT
     assert ex.model() == config_roles.RELEVANCE_MODEL == "claude-sonnet-5"
 
@@ -259,7 +260,7 @@ def test_run_writes_claims_and_is_idempotent_including_empty_replies(conn):
     assert [(r[0], r[1], r[2], r[3], r[4], r[5]) for r in rows] == [
         (a, 5, "available", None, "manager_quote", "Joao Pedro remains in contention"),
         (a, 8, "out", "until 2027", "manager_quote", "Caicedo is out until 2027")]
-    assert all(r[6] == "extract_v1" and r[7] == "claude-sonnet-5" and r[8] == datetime(2026, 9, 17, 15, 7, tzinfo=UTC) for r in rows)
+    assert all(r[6] == "extract_v2" and r[7] == "claude-sonnet-5" and r[8] == datetime(2026, 9, 17, 15, 7, tzinfo=UTC) for r in rows)
     assert fake.calls[0]["model"] == "claude-sonnet-5" and "temperature" not in fake.calls[0] and fake.calls[0]["max_tokens"] == 3072
     assert fake.calls[0]["system"] == ex.SYSTEM_PROMPT
     fake2 = FakeClient()
@@ -267,8 +268,8 @@ def test_run_writes_claims_and_is_idempotent_including_empty_replies(conn):
     assert fake2.calls == [] and again["items"] == 0 and claims(conn) == rows
     with conn.cursor() as cur:
         cur.execute("SELECT purpose, model, prompt_version, news_item_id, ok FROM llm_calls ORDER BY id")
-        assert cur.fetchall() == [("availability_extract", "claude-sonnet-5", "extract_v1", a, True),
-                                  ("availability_extract", "claude-sonnet-5", "extract_v1", b, True)]
+        assert cur.fetchall() == [("availability_extract", "claude-sonnet-5", "extract_v2", a, True),
+                                  ("availability_extract", "claude-sonnet-5", "extract_v2", b, True)]
 
 
 def test_extraction_budget_is_its_own_and_relevance_keeps_1024():

@@ -28,7 +28,7 @@ import llm
 import player_names as pn
 import relevance as rv
 
-PROMPT_VERSION = "extract_v1"
+PROMPT_VERSION = "extract_v2"        # v2 (2026-10-01): return_hint must copy the stated timing; v1 returned null for stated timings
 PURPOSE = "availability_extract"
 STATUSES = ("out", "suspended", "doubtful", "returning", "available")
 BASES = ("manager_quote", "club_statement", "report")
@@ -50,8 +50,9 @@ item describes, give one claim:
 - status: out | suspended | doubtful | returning | available
   (returning = back in training or close to a return, not yet
   confirmed available)
-- return_hint: the expected return as stated (e.g. 'after the
-  international break', 'until 2027'), or null
+- return_hint: copy the stated expected return or timing exactly as
+  written (e.g. 'after the international break', 'a matter of a few
+  days', 'until 2027'); null only if the item gives none.
 - basis: manager_quote | club_statement | report
 - evidence: the shortest phrase from the item that supports the
   claim, at most 25 words
