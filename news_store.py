@@ -279,6 +279,21 @@ CREATE TABLE IF NOT EXISTS citation_checks (
     violations  TEXT[]
 );
 
+-- the numeric grounding check after every agent reply (agent.py + numeric_grounding.py, 2026-10-02, LOG ONLY):
+-- how many numbers the raw reply states, how many are found among this turn's user messages and tool results
+-- (as themselves, x100 or /10, rounded to the claim's decimals), the ungrounded ones [{text, value, context}],
+-- and `error` when the checker itself raised. The same turn_id as citation_checks. The reply is never altered.
+CREATE TABLE IF NOT EXISTS numeric_checks (
+    id             BIGSERIAL PRIMARY KEY,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    turn_id        TEXT NOT NULL,
+    numbers_found  INT,
+    grounded       INT,
+    ungrounded     JSONB,
+    notebook_size  INT,
+    error          TEXT
+);
+
 -- Piece 9 (2026-10-01), record and measure only (D9): one structured availability claim per player per
 -- club / bbc article (extraction.py, prompt extract_v1, the production judge model). Append-only; the
 -- evidence phrase lives here and never in git.

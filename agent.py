@@ -335,6 +335,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_price_movements, get_league_table, get_match_stats)
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
+from numeric_grounding import check as numeric_check, record_numeric_check
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -380,6 +381,27 @@ def _citation_check(turn_id, text, returned_ids):
         print(f"  [citation check not logged: {type(e).__name__}: {str(e)[:200]}]")
     if violations:
         print(f"  [citation check: {len(violations)} cited id(s) not returned this turn: {violations}]")
+
+
+def _numeric_check(turn_id, text, messages):
+    """Numeric grounding (log only, 2026-10-02): which numbers the raw reply states and whether each is found among
+    the numbers the model could see this turn (numeric_grounding.check over `messages`). Logged to numeric_checks
+    under the reply's turn id; the reply is never altered; a checker exception is caught and logged as the row's
+    error; a logging failure is printed."""
+    result, error = None, None
+    try:
+        result = numeric_check(text, messages)
+    except Exception as e:  # noqa: BLE001 -- the check must never take the reply down
+        error = f"{type(e).__name__}: {str(e)[:200]}"
+    try:
+        record_numeric_check(turn_id, result, error)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [numeric check not logged: {type(e).__name__}: {str(e)[:200]}]")
+    if error:
+        print(f"  [numeric check failed: {error}]")
+    elif result and result["ungrounded"]:
+        print(f"  [numeric check: {len(result['ungrounded'])} of {result['numbers_found']} numbers ungrounded: "
+              f"{[u['text'] for u in result['ungrounded']]}]")
 
 
 available_functions = {
@@ -429,6 +451,7 @@ def run_agent(user_message: str, messages: list = None):
             for block in response.content:
                 if block.type == "text":
                     _citation_check(turn_id, block.text, returned_ids)
+                    _numeric_check(turn_id, block.text, messages)                  # log only; never alters the reply
                     rendered = render_citations(block.text, returned_results)      # Part C: [1], [2] + Sources
                     if rendered != block.text:
                         print(f"  [raw reply with c-ids: {block.text}]")           # the raw reply stays in the logs
