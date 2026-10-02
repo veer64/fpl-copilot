@@ -447,9 +447,21 @@ def _match_line(m):
     return "none in our data" if m is None else f"{m[1]} v {m[2]} on {m[0]:%Y-%m-%d}"
 
 
+_ARTICLE_TAG = re.compile(r"<(/?)(article)", re.I)
+
+
+def escape_article_tags(s):
+    """Outside text can never close the prompt's <article> wrapper (canaries v1, 2026-10-02): "<article" and
+    "</article" in a body or a headline, any case, become "&lt;article" / "&lt;/article" (the rest of the tag
+    kept as written). Applied to the body AND the headline in relevance.py and extraction.py before formatting.
+    Measured 2026-10-02 over every local bbc/club item: 0 prompts changed."""
+    return _ARTICLE_TAG.sub(r"&lt;\1\2", s or "")
+
+
 def render_user(item, ctx, s1, squad, profile=None):
     """The user prompt from the pieces: fixture context, the stage-1 result (players named)
-    and the club's squad list (club items). profile: PROFILES entry (default: production)."""
+    and the club's squad list (club items). profile: PROFILES entry (default: production).
+    The headline and the (truncated) body pass through escape_article_tags."""
     profile = profile or PROFILES["relevance"]
     as_of = ctx["as_of"]
     gw_line = (f"GW{ctx['gw']}, deadline {ctx['deadline']:%Y-%m-%d %H:%MZ}" if ctx["gw"] is not None
@@ -458,11 +470,11 @@ def render_user(item, ctx, s1, squad, profile=None):
     if item["source"] == "club":
         club_context = CLUB_TEMPLATE.format(club=item.get("club") or "Club", last=_match_line(ctx["last"]),
                                             next=_match_line(ctx["next"]), squad=", ".join(squad or []) or "none listed")
-    body = (item.get("body") or "")[:profile["body_chars"]]
+    body = escape_article_tags((item.get("body") or "")[:profile["body_chars"]])
     return profile["template"].format(as_of_date=f"{as_of:%Y-%m-%d}", weekday=WEEKDAYS[as_of.weekday()], gw_line=gw_line,
                                       players_line=players_line(s1), club_context=club_context,
                                       source_label=source_label(item), date_label=date_label(item),
-                                      headline=item.get("headline") or "", body=body)
+                                      headline=escape_article_tags(item.get("headline") or ""), body=body)
 
 
 def prompt_for(item, events, matches, bootstrap=None, snapshots=None, prompt_version=None):

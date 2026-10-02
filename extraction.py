@@ -104,8 +104,8 @@ def render(item, ctx, s1, squad):
                                                next=rv._match_line(ctx["next"]), squad=", ".join(squad or []) or "none listed")
     return TEMPLATE.format(as_of_date=f"{as_of:%Y-%m-%d}", weekday=rv.WEEKDAYS[as_of.weekday()], gw_line=gw_line,
                            players_line=rv.players_line(s1), club_context=club_context, source_label=rv.source_label(item),
-                           date_label=rv.date_label(item), headline=item.get("headline") or "",
-                           body=(item.get("body") or "")[:BODY_CHARS])
+                           date_label=rv.date_label(item), headline=rv.escape_article_tags(item.get("headline") or ""),
+                           body=rv.escape_article_tags((item.get("body") or "")[:BODY_CHARS]))   # canaries v1 lock 1
 
 
 def prompt_for(item, events, matches, bootstrap=None, snapshots=None):

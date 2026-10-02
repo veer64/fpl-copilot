@@ -114,6 +114,24 @@ def citation_violations(cited, returned):
 
 
 _CITE_TOKEN = re.compile(r"\[c(\d+)\]|\bc(\d+)\b")       # "[c914]" as a unit, else the bare token; punctuation around it stays
+_SOURCE_WS = re.compile(r"[\r\n\t]")                     # canaries v1 lock 2 (2026-10-02): the Sources list prints stored text
+_SOURCE_STRIP = re.compile(r"[\[\]<>]")
+_SOURCE_URL = re.compile(r"^https?://\S+$")
+SOURCE_HEADLINE_MAX = 200
+
+
+def source_headline(s):
+    """A stored headline as the Sources list prints it: newlines, carriage returns and tabs become one space each,
+    [ ] < > are removed (no fake citation markers or tags), at most SOURCE_HEADLINE_MAX characters.
+    Measured 2026-10-02 over every local item: 0 headlines changed."""
+    return _SOURCE_STRIP.sub("", _SOURCE_WS.sub(" ", str(s or "")))[:SOURCE_HEADLINE_MAX]
+
+
+def source_url(u):
+    """The stored url when it is a bare http(s) url with no whitespace, else None (the line carries no url).
+    Measured 2026-10-02 over every local item: 0 urls changed."""
+    u = str(u or "")
+    return u if _SOURCE_URL.match(u) else None
 
 
 def render_citations(text, results):
@@ -124,7 +142,8 @@ def render_citations(text, results):
         [n] <source label> · "<headline>" · <date> · <url>     (club and bbc items; the url when there is one)
         [n] FPL official notice · <date>                        (FPL rows: no headline, no url)
     An id the turn did not return renders as [unverified] and is not listed (citation_checks records it).
-    A reply without citations comes back unchanged."""
+    A reply without citations comes back unchanged. The headline goes through source_headline and the url
+    through source_url (canaries v1 lock 2, 2026-10-02): publisher text cannot break the list's shape."""
     by_id = {str(r.get("id")): r for r in (results or []) if isinstance(r, dict) and r.get("id")}
     order = []
 
@@ -145,9 +164,10 @@ def render_citations(text, results):
         if r.get("source") == "FPL official":
             lines.append(f"[{i}] FPL official notice · {r.get('date')}")
         else:
-            parts = [str(r.get("source")), f"\"{r.get('headline') or ''}\"", str(r.get("date"))]
-            if r.get("url"):
-                parts.append(str(r["url"]))
+            parts = [str(r.get("source")), f"\"{source_headline(r.get('headline'))}\"", str(r.get("date"))]
+            url = source_url(r.get("url"))
+            if url:
+                parts.append(url)
             lines.append(f"[{i}] " + " · ".join(parts))
     return rendered.rstrip() + "\n\nSources\n" + "\n".join(lines)
 

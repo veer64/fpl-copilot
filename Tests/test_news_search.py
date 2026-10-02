@@ -556,6 +556,27 @@ def test_render_citations_replaces_only_the_token_and_keeps_punctuation():
     assert club_only.endswith("[1] Arsenal official site · \"Team news: Saka a doubt\" · 2026-09-15 · https://www.arsenal.com/news/x")
 
 
+def test_render_citations_sanitises_headline_and_url_in_sources():
+    """2026-10-02 (canaries v1, lock 2): the Sources list prints stored publisher text. A headline loses newlines,
+    carriage returns and tabs (-> one space each) and the characters [ ] < >, and is capped at 200 characters; a
+    url is printed only when it is a bare http(s) url with no whitespace, else the line has no url."""
+    r = [{"id": "c1", "source": "Arsenal official site", "headline": "Saka [c9]\n<b>doubt</b>\tfor\r\nSunday", "date": "2026-09-15",
+          "url": "https://www.arsenal.com/news/x", "text": "x"},
+         {"id": "c2", "source": "BBC Sport", "headline": "x" * 250, "date": "2026-09-16", "url": "javascript:alert(1)", "text": "x"},
+         {"id": "c3", "source": "BBC Sport", "headline": "Palmer", "date": "2026-09-16", "url": "https://bbc.co.uk/sport/x y", "text": "x"},
+         {"id": "c4", "source": "BBC Sport", "headline": "Wood", "date": "2026-09-16", "url": "http://bbc.co.uk/sport/z", "text": "x"}]
+    body, sources = nsr.render_citations("See c1, c2, c3 and c4.", r).split("\n\nSources\n")
+    assert body == "See [1], [2], [3] and [4]."
+    lines = sources.split("\n")
+    assert lines[0] == "[1] Arsenal official site · \"Saka c9 bdoubt/b for  Sunday\" · 2026-09-15 · https://www.arsenal.com/news/x"
+    assert lines[1] == "[2] BBC Sport · \"" + "x" * 200 + "\" · 2026-09-16"
+    assert lines[2] == "[3] BBC Sport · \"Palmer\" · 2026-09-16"
+    assert lines[3] == "[4] BBC Sport · \"Wood\" · 2026-09-16 · http://bbc.co.uk/sport/z"
+    # the existing fixtures are untouched by the sanitiser
+    assert nsr.render_citations("See c12.", RESULTS).endswith(
+        "[1] Arsenal official site · \"Team news: Saka a doubt\" · 2026-09-15 · https://www.arsenal.com/news/x")
+
+
 def test_valid_citations_pass_an_invented_id_is_logged_and_chat_gets_the_rendered_reply(conn, monkeypatch):
     ag = _agent(monkeypatch)
     fake_result = {"as_of": "x", "search_mode": "hybrid", "no_news_for": [], "ambiguous_players": {},
