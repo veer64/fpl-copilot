@@ -1569,3 +1569,16 @@ consulted, and a page that yields nothing better leaves the extract in place. Te
 Tests/test_page_body.py on synthetic fixtures copying the measured structures (no publisher text
 in the repo). Gold items 507 and 508 were judged on the sidebar bodies and are excluded from the
 gold set (eval/labels/relevance_gold_v1_labels.csv, `excluded`).
+
+## #28 -- the stage-1 keyword pass matches name tokens inside hyphenated web_names: "Lewis-Potter" (BRE) pulled "Lewis (MCI)" into the judge's CONTEXT -- OPEN 2026-10-02 (not fixed)
+
+Stage-1 keyword pass matches name tokens inside hyphenated web_names: 'Lewis-Potter' (BRE)
+pulled 'Lewis (MCI)' into the judge's CONTEXT. Impact low (context only; the verdict is
+unaffected). Found by canaries v1, 2026-10-02. Not fixed.
+
+Mechanism: `relevance._word_re` treats `-` as a word boundary, so the Man City web_name "Lewis"
+matches inside "Lewis-Potter" and the "Players named in this item (per FPL)" line lists both
+players. Measured 2026-10-02 on the canary article (`eval/run_canaries.py --dry-run`): players
+line "Lewis-Potter (BRE), Lewis (MCI), Schade (BRE)"; the canary placeholders exclude hyphenated
+web_names for that reason (eval/run_canaries.py `resolve_placeholders`). The judge's verdict on
+that article was not measured with the artefact present (the run used Schade instead).
