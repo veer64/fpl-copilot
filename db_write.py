@@ -337,10 +337,43 @@ def git_sha():
         return None
 
 
+def sync_sequences(conn):
+    """Move every sequence that is BEHIND its table's maximum up to it; leave the rest
+    alone. Returns [(table, column, last_value_before, max_id)] for the ones moved.
+
+    Rows copied or restored with explicit ids do not advance the sequence that fills that
+    column, so the next default id is one that already exists and the insert dies on the
+    primary key. Measured on the laptop 2026-10-03: model_transfer_plans held 14 rows with
+    MAX(proposal_id) 14 while its sequence stood at 13, and model_transfers held 74 rows
+    with a sequence never called at all -- so every propose_transfers call failed with
+    "duplicate key value violates unique constraint model_transfer_plans_pkey". A restore
+    can happen again, so the repair lives beside the schema rather than in a one-off script.
+    Idempotent: on a healthy database it moves nothing and returns []."""
+    fixed = []
+    with conn.cursor() as cur:
+        cur.execute("""SELECT table_name, column_name,
+                              pg_get_serial_sequence(quote_ident(table_name), column_name)
+                       FROM information_schema.columns
+                       WHERE table_schema = 'public' AND column_default LIKE 'nextval(%'
+                       ORDER BY table_name, column_name""")
+        targets = [(t, c, s) for t, c, s in cur.fetchall() if s]
+        for table, col, seq in targets:
+            cur.execute(f'SELECT COALESCE(MAX({col}), 0) FROM "{table}"')
+            top = cur.fetchone()[0] or 0
+            cur.execute("SELECT pg_sequence_last_value(%s::regclass)", (seq,))
+            last = cur.fetchone()[0]
+            if top > 0 and (last is None or last < top):
+                cur.execute("SELECT setval(%s::regclass, %s, true)", (seq, top))
+                fixed.append((table, col, last, top))
+    conn.commit()
+    return fixed
+
+
 def ensure_schema(conn):
     with conn.cursor() as cur:
         cur.execute(DDL)
     conn.commit()
+    sync_sequences(conn)
 
 
 PLAN_COLS = ["source", "user_id", "season", "gw", "squad_version_id", "run_id", "config",
