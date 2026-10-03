@@ -204,3 +204,23 @@ SEARCH_MAX_PER_ARTICLE = 2
 # RECENCY_HALF_LIFE_DAYS -- the fused score is multiplied by 0.5 ** (age_days / this); team news is
 # stale within a week, so a three-day-old piece counts half.
 RECENCY_HALF_LIFE_DAYS = 3
+
+# ---- DEFAULT_USER_ID (2026-10-02) ---------------------------------------------------------------
+# WHOSE squad the squad tools answer for when the caller names nobody. ONE source, read at CALL
+# time from the env var FPL_USER_ID so a process can point itself at a test user without touching
+# code or a schema: the agent eval runner sets FPL_USER_ID=9001 for its own process only. A module
+# constant would not do -- it is evaluated once at import, and so is a default argument, which is
+# why every tool takes user_id=None and resolves it in the body.
+#
+# Production is unaffected: the server's .env carries no FPL_USER_ID, so the server stays on user 1.
+# An absent, empty or unparseable value falls back to 1 rather than raising: a malformed env var
+# must not take the app down, and the fallback is the value production already used.
+import os
+
+
+def DEFAULT_USER_ID():                                  # noqa: N802 -- named as the config knob
+    """The default squad owner: int(FPL_USER_ID) if it parses, else 1."""
+    try:
+        return int(os.environ.get("FPL_USER_ID", "") or 1)
+    except (TypeError, ValueError):
+        return 1

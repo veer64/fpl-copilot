@@ -95,6 +95,7 @@ from pathlib import Path
 import pandas as pd
 import psycopg2.extras
 
+import config_roles
 import db_write
 
 _SQUAD_DIR = str(Path(__file__).resolve().parent / "squad")
@@ -433,9 +434,10 @@ def active_from_rows(rows, user_id):
     return rec
 
 
-def read_active(user_id=1, conn=None):
+def read_active(user_id=None, conn=None):
     """The user's active squad version, or SquadStateError. A missing table
     raises psycopg2's UndefinedTable -- also loud, also not a fallback."""
+    user_id = config_roles.DEFAULT_USER_ID() if user_id is None else user_id
     own = conn is None
     if own:
         conn = db_write.connect()
@@ -1053,7 +1055,7 @@ def old_names(doc):
     return {p["element"]: p["name"] for p in doc["players"]}
 
 
-def write_version(active, new_doc, gw, note, confirm, conn=None, user_id=1):
+def write_version(active, new_doc, gw, note, confirm, conn=None, user_id=None):
     """Supersede `active` with `new_doc` in ONE transaction: flip the old row's
     is_active (the only update the trigger permits), then insert the new row
     with supersedes = the old version_id. If the old row is no longer active
@@ -1063,6 +1065,7 @@ def write_version(active, new_doc, gw, note, confirm, conn=None, user_id=1):
     exercises the real write path (trigger included) without changing state;
     the returned row says committed=False and its version_id is provisional
     (sequence values are consumed either way, so ids may have gaps)."""
+    user_id = config_roles.DEFAULT_USER_ID() if user_id is None else user_id
     validate_document(new_doc)
     own = conn is None
     if own:

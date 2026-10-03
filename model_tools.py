@@ -25,7 +25,8 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
-from config_roles import CONFIGS, PRODUCTION_CONFIG, SHADOW_CONFIG, MAX_AVAILABILITY_AGE
+from config_roles import (CONFIGS, PRODUCTION_CONFIG, SHADOW_CONFIG, MAX_AVAILABILITY_AGE,
+                          DEFAULT_USER_ID)
 import squad_store
 
 load_dotenv()
@@ -505,7 +506,7 @@ def _current_gw():
     return int(nd[0])
 
 
-def get_my_squad(user_id: int = 1):
+def get_my_squad(user_id: int = None):
     """The user's OWN squad -- the active row of squad_versions (master plan
     1.4 / 5.4), NOT the model's free-pick solve. The fifteen with role,
     purchase price, current price and sell price (squad_state's rule), bank,
@@ -516,6 +517,7 @@ def get_my_squad(user_id: int = 1):
     convention the other tools use so the model reports it -- and never a
     substitute squad. squad_store.read_active is the raising form for code
     paths (the transfer MIP) that must not proceed without state."""
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
         record = squad_store.read_active(user_id)
     except squad_store.SquadStateError as e:
@@ -534,7 +536,7 @@ def get_my_squad(user_id: int = 1):
                                scores=scores)
 
 
-def get_my_xi(user_id: int = 1):
+def get_my_xi(user_id: int = None):
     """THIS WEEK's best XI, captain, vice and bench order over the fifteen the
     user owns, solved from the current production frame on the model volume
     (the frame the latest deadline run wrote) -- the same single-gameweek MIP
@@ -546,6 +548,7 @@ def get_my_xi(user_id: int = 1):
     from the frame are injected at e_points 0 (the production blank-week
     rule) and listed. Nothing is written: to adopt the XI, call set_my_squad
     with adopt_with and confirm=true."""
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
         record = squad_store.read_active(user_id)
     except squad_store.SquadStateError as e:
@@ -618,7 +621,7 @@ def get_my_xi(user_id: int = 1):
 
 
 def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_ids: list,
-                 gw: int = None, note: str = None, confirm: bool = False, user_id: int = 1,
+                 gw: int = None, note: str = None, confirm: bool = False, user_id: int = None,
                  proposal_id: int = None):
     """Write a NEW version of the user's squad (and supersede the active one).
     The caller states the fifteen and the roles; the money is derived: the
@@ -631,6 +634,7 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
     confirm=False (default) is a PREVIEW: the write runs and is rolled back;
     the response shows exactly what confirm=True would record. gw defaults
     to the next deadline's gameweek."""
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
         active = squad_store.read_active(user_id)
     except squad_store.SquadStateError as e:
@@ -957,7 +961,7 @@ def _load_pool(gw=None):
 
 # ------------------------------------------------------- the six-week MIP
 def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player_ids: list = None,
-                      user_id: int = 1, source: str = "chat"):
+                      user_id: int = None, source: str = "chat"):
     """The six-week transfer plan for the user's OWN squad (transfer_mip via
     simulator.decide_gameweek_mip -- the production decision path; H=6,
     decay 0.45, HIT_COST 4; TWO real solves since 2026-09-18 -- the move plan and
@@ -981,6 +985,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     user request is always 'chat') or 'proof' for a maintainer's verification
     run -- proof rows are marked so the track record never starts with
     synthetic entries."""
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
     if source not in ("chat", "proof", "deadline_run"):
         return {"error": f"source must be chat | proof | deadline_run, got {source!r}"}
     import db_write
@@ -1831,7 +1836,7 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
     return out
 
 
-def get_price_movements(window_days: int = 7, user_id: int = 1, include_squad: bool = True):
+def get_price_movements(window_days: int = 7, user_id: int = None, include_squad: bool = True):
     """Risers and fallers from the poller's stored snapshots, and what your own players sell
     for right now under the asymmetric rule (purchase plus half the rise rounded down; falls
     in full), via squad_state.sell_price -- the same function the transfer MIP uses.
@@ -1840,6 +1845,7 @@ def get_price_movements(window_days: int = 7, user_id: int = 1, include_squad: b
     unit is net change between two observations, and both timestamps travel with the answer.
     It does not forecast and must not be read as forecasting.
     """
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
     import prices_tool as pt
     squad = None
     if include_squad:
