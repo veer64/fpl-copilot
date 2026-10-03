@@ -1,0 +1,546 @@
+"""Run the agent-eval question set and grade each answer on the tools it called.
+
+    uv run python eval/run_agent_evals.py --core
+    uv run python eval/run_agent_evals.py --sheet list_players --dry-run
+    uv run python eval/run_agent_evals.py --ids "resolve_player:2,limits:1"
+
+INPUT  eval/agent_evals/tool_questions_v2.1.xlsx -- one sheet per tool plus
+       "routing" and "limits", columns: # | question | exploits | must call |
+       must NOT call | setup turn | needs squad | core | bug.
+OUTPUT eval/agent_evals/results/run_<UTC ts>.jsonl (one line per question) and
+       a markdown report beside it. Both directories are gitignored.
+
+WHAT IS GRADED. Only the QUESTION turn's tool calls -- a setup turn is context,
+not evidence. "must call" is a chain:
+
+    a > b       b must come after a, because b consumes a's output
+    a + b       both must come after the previous step, in any order
+    a|b         either satisfies that slot
+    none        no tool call at all
+    tool(k=v)   that tool, called with that argument
+
+Extra calls never fail a question; "must NOT call" lists what may never appear.
+PASS / FAIL is the grade, ERROR means the RUN broke (exception, API error, cap),
+and the question's known-bug id travels with the line so a FAIL on a defect we
+already measured is visible without cross-referencing.
+
+HOW IT TALKS TO THE APP. Through main.app's /chat route with a TestClient, the
+same path a browser takes, so the system prompt, the history and the citation /
+numeric checks are all the production ones. Three things are wrapped FOR THIS
+PROCESS ONLY, never in the app: agent.call_tool (to record calls),
+agent.client (to count Anthropic attempts and tokens) and embeddings.embed (to
+count Voyage calls). No production file is modified.
+
+THE SQUAD. Every question marked "needs squad" is answered against ONE recorded
+squad: the active version of user FPL_USER_ID (9001) when the run starts. If a
+question writes a new version -- which is a finding, not an error -- the next
+question that needs the squad gets the original document back, written as a new
+version through squad_store.write_version (squad_versions is append-only, so a
+restore is a new row, not an UPDATE).
+"""
+import argparse
+import json
+import os
+import sys
+import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+for p in (str(REPO), str(REPO / "squad")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+SHEET_FILE = REPO / "eval" / "agent_evals" / "tool_questions_v2.1.xlsx"
+RESULTS_DIR = REPO / "eval" / "agent_evals" / "results"
+COLUMNS = ["num", "question", "exploits", "must_call", "must_not", "setup",
+           "needs_squad", "core", "bug"]
+
+# claude-sonnet-4-6, the model agent.py sends to: $3.00 / $15.00 per million tokens
+# (Anthropic first-party API rates, read from the claude-api skill's model table
+# 2026-10-02). Cost lines only -- nothing here depends on the price being exact.
+USD_IN_PER_MTOK = 3.00
+USD_OUT_PER_MTOK = 15.00
+
+
+# --------------------------------------------------------------- the grammar
+def split_top(spec, sep):
+    return [s.strip() for s in spec.split(sep) if s.strip()]
+
+
+def parse_chain(spec):
+    """"a > b|c + d" -> [[{"a"}], [{"b","c"}, {"d"}]]: steps in order, each a
+    list of slots, each slot a set of acceptable tool specs."""
+    spec = (spec or "").strip()
+    if not spec or spec.lower() == "none":
+        return []
+    steps = []
+    for step in split_top(spec, ">"):
+        steps.append([set(split_top(slot, "|")) for slot in split_top(step, "+")])
+    return steps
+
+
+def parse_tool_spec(text):
+    """"set_my_squad(confirm=false)" -> ("set_my_squad", ("confirm", "false"))."""
+    text = text.strip()
+    if "(" in text and text.endswith(")"):
+        name, _, rest = text.partition("(")
+        key, _, value = rest[:-1].partition("=")
+        return name.strip(), (key.strip(), value.strip().lower())
+    return text, None
+
+
+# A tool argument the schema documents a default for: an omitted argument means
+# the default, so "set_my_squad(confirm=false)" matches a preview call that left
+# confirm out entirely -- which is what the agent usually does.
+ARG_DEFAULTS = {("set_my_squad", "confirm"): "false"}
+
+
+def call_matches(call, spec):
+    name, arg = parse_tool_spec(spec)
+    if call["tool"] != name:
+        return False
+    if arg is None:
+        return True
+    key, want = arg
+    args = call.get("args") or {}
+    if key in args:
+        got = args[key]
+        got = str(got).lower() if not isinstance(got, bool) else ("true" if got else "false")
+    else:
+        got = ARG_DEFAULTS.get((name, key))
+        if got is None:
+            return False
+    return got == want
+
+
+def grade_must_call(spec, calls):
+    """(ok, reason) for the "must call" column against this turn's calls."""
+    steps = parse_chain(spec)
+    if not steps:                                   # "none": no call may be made
+        if calls:
+            return False, f"expected no tool call, got {', '.join(c['tool'] for c in calls)}"
+        return True, ""
+    pos = 0
+    for n, step in enumerate(steps, start=1):
+        found = []
+        for slot in step:
+            hit = next((i for i in range(pos, len(calls))
+                        if any(call_matches(calls[i], s) for s in slot)), None)
+            if hit is None:
+                return False, (f"missing {'|'.join(sorted(slot))}"
+                               + (f" after step {n - 1}" if n > 1 else ""))
+            found.append(hit)
+        pos = max(found) + 1
+    return True, ""
+
+
+def grade_must_not(spec, calls):
+    """(ok, reason): none of the listed tools (or tool(arg=value)) was called."""
+    for item in split_top(spec or "", ","):
+        for c in calls:
+            if call_matches(c, item):
+                return False, f"called {item}, which this question forbids"
+    return True, ""
+
+
+def grade(q, calls):
+    ok, reason = grade_must_call(q["must_call"], calls)
+    if not ok:
+        return "FAIL", reason
+    ok, reason = grade_must_not(q["must_not"], calls)
+    if not ok:
+        return "FAIL", reason
+    return "PASS", ""
+
+
+# ------------------------------------------------------------------- budget
+class BudgetExceeded(RuntimeError):
+    pass
+
+
+class Budget:
+    def __init__(self, max_calls, max_usd, max_voyage):
+        self.max_calls, self.max_usd, self.max_voyage = max_calls, max_usd, max_voyage
+        self.calls = self.voyage = 0
+        self.tok_in = self.tok_out = 0
+        self.usd = 0.0
+
+    def claim_anthropic(self):
+        if self.calls + 1 > self.max_calls:
+            raise BudgetExceeded(f"Anthropic call cap {self.max_calls} reached")
+        if self.usd >= self.max_usd:
+            raise BudgetExceeded(f"USD cap {self.max_usd} reached (spent {self.usd:.2f})")
+        self.calls += 1
+
+    def claim_voyage(self):
+        if self.voyage + 1 > self.max_voyage:
+            raise BudgetExceeded(f"Voyage call cap {self.max_voyage} reached")
+        self.voyage += 1
+
+    def add_usage(self, usage):
+        i = int(getattr(usage, "input_tokens", 0) or 0)
+        o = int(getattr(usage, "output_tokens", 0) or 0)
+        self.tok_in += i
+        self.tok_out += o
+        self.usd += i / 1e6 * USD_IN_PER_MTOK + o / 1e6 * USD_OUT_PER_MTOK
+
+    def snapshot(self):
+        return {"anthropic_calls": self.calls, "voyage_calls": self.voyage,
+                "input_tokens": self.tok_in, "output_tokens": self.tok_out,
+                "usd": round(self.usd, 4)}
+
+
+class CountingMessages:
+    def __init__(self, inner, budget):
+        self.inner, self.budget = inner, budget
+
+    def create(self, **kw):
+        self.budget.claim_anthropic()
+        resp = self.inner.create(**kw)
+        if getattr(resp, "usage", None) is not None:
+            self.budget.add_usage(resp.usage)
+        return resp
+
+
+class CountingClient:
+    def __init__(self, inner, budget):
+        self.messages = CountingMessages(inner.messages, budget)
+
+
+# ------------------------------------------------------------- the question set
+def load_questions(path=SHEET_FILE):
+    from openpyxl import load_workbook
+    wb = load_workbook(path, data_only=True)
+    out = []
+    for sheet in wb.sheetnames:
+        for row in wb[sheet].iter_rows(min_row=2, values_only=True):
+            if row[1] is None:
+                continue
+            q = {"sheet": sheet}
+            for i, name in enumerate(COLUMNS):
+                v = row[i] if i < len(row) else None
+                q[name] = "" if v is None else (v if name == "num" else str(v).strip())
+            q["id"] = f"{sheet}:{q['num']}"
+            out.append(q)
+    return out
+
+
+def select(questions, args):
+    if args.ids:
+        want = {s.strip() for s in args.ids.split(",") if s.strip()}
+        return [q for q in questions if q["id"] in want]
+    out = questions
+    if args.sheet:
+        out = [q for q in out if q["sheet"] in set(args.sheet)]
+    if args.core:
+        out = [q for q in out if q["core"].upper() == "Y"]
+    if args.non_core:
+        out = [q for q in out if q["core"].upper() != "Y"]
+    return out
+
+
+# ------------------------------------------------------------------- the squad
+class SquadKeeper:
+    """Holds the run's reference squad document and puts it back when a question
+    has changed it. Append-only: a restore is a new version."""
+
+    def __init__(self, user_id, conn):
+        import squad_store
+        self.ss, self.user_id, self.conn = squad_store, user_id, conn
+        rec = squad_store.read_active(user_id, conn=conn)
+        self.doc = rec["squad_json"]
+        self.gw = rec["gw"]
+        self.version = rec["version_id"]
+        self.restores = []
+
+    def fingerprint(self, doc):
+        return json.dumps([[p["element"], p["role"], p["bench_order"]]
+                           for p in sorted(doc["players"], key=lambda x: x["element"])],
+                          sort_keys=True)
+
+    def active(self):
+        return self.ss.read_active(self.user_id, conn=self.conn)
+
+    def max_version(self):
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT COALESCE(MAX(version_id), 0) FROM squad_versions "
+                        "WHERE user_id = %s", (self.user_id,))
+            return cur.fetchone()[0]
+
+    def ensure(self, qid):
+        """Reference document active before the question. Returns (ok, note)."""
+        try:
+            rec = self.active()
+        except Exception as e:                       # noqa: BLE001 -- reported, never fatal
+            return False, f"could not read the squad: {type(e).__name__}: {e}"
+        if self.fingerprint(rec["squad_json"]) == self.fingerprint(self.doc):
+            return True, ""
+        row = self.ss.write_version(rec, self.doc, self.gw,
+                                    f"agent eval restore before {qid}", True,
+                                    conn=self.conn, user_id=self.user_id)
+        self.restores.append({"before": qid, "new_version": row["version_id"]})
+        return True, f"restored as version {row['version_id']}"
+
+
+# -------------------------------------------------------------------- the run
+def new_ids(conn, table, after):
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT id FROM {table} WHERE id > %s ORDER BY id", (after,))
+        return [r[0] for r in cur.fetchall()]
+
+
+def max_id(conn, table):
+    with conn.cursor() as cur:
+        try:
+            cur.execute(f"SELECT COALESCE(MAX(id), 0) FROM {table}")
+            return cur.fetchone()[0]
+        except Exception:                           # noqa: BLE001 -- table may not exist
+            conn.rollback()
+            return None
+
+
+def run_one(q, client, agent, recorder, budget, keeper, conn):
+    """One question (with its setup turn, if any). Returns the result record."""
+    rec = {"id": q["id"], "sheet": q["sheet"], "num": q["num"], "question": q["question"],
+           "must_call": q["must_call"], "must_not": q["must_not"], "setup": q["setup"],
+           "needs_squad": q["needs_squad"], "core": q["core"], "bug": q["bug"],
+           "started_at": datetime.now(timezone.utc).isoformat()}
+
+    if q["needs_squad"].upper() == "Y":
+        ok, note = keeper.ensure(q["id"])
+        rec["squad_ready"] = ok
+        rec["squad_restored"] = note
+        if not ok:
+            rec.update(result="ERROR", reason=note)
+            return rec
+    version_before = keeper.max_version() if keeper else None
+    cit_before, num_before = max_id(conn, "citation_checks"), max_id(conn, "numeric_checks")
+
+    client.post("/reset")
+    turns = []
+    try:
+        for kind, text in ([("setup", q["setup"])] if q["setup"] else []) + \
+                          [("question", q["question"])]:
+            recorder.clear()
+            t0 = time.time()
+            before = budget.snapshot()
+            r = client.post("/chat", json={"message": text})
+            after = budget.snapshot()
+            if r.status_code != 200:
+                raise RuntimeError(f"/chat returned {r.status_code}: {r.text[:200]}")
+            turns.append({"kind": kind, "message": text,
+                          "reply": r.json().get("answer", ""),
+                          "calls": recorder.dump(),
+                          "latency_s": round(time.time() - t0, 2),
+                          "anthropic_calls": after["anthropic_calls"] - before["anthropic_calls"],
+                          "input_tokens": after["input_tokens"] - before["input_tokens"],
+                          "output_tokens": after["output_tokens"] - before["output_tokens"],
+                          "usd": round(after["usd"] - before["usd"], 4)})
+    except BudgetExceeded as e:
+        rec.update(result="NOT RUN", reason=str(e), turns=turns)
+        raise BudgetExceeded(str(e)) from e
+    except Exception as e:                          # noqa: BLE001 -- an ERROR, by definition
+        rec.update(result="ERROR", reason=f"{type(e).__name__}: {str(e)[:300]}", turns=turns)
+        return rec
+
+    qturn = turns[-1]
+    rec["turns"] = turns
+    rec["calls"] = qturn["calls"]
+    rec["raw_reply"] = agent.LAST_RAW.get("text", "")
+    rec["rendered_reply"] = qturn["reply"]
+    rec["latency_s"] = qturn["latency_s"]
+    rec["anthropic_calls"] = sum(t["anthropic_calls"] for t in turns)
+    rec["input_tokens"] = sum(t["input_tokens"] for t in turns)
+    rec["output_tokens"] = sum(t["output_tokens"] for t in turns)
+    rec["usd"] = round(sum(t["usd"] for t in turns), 4)
+    rec["citation_check_ids"] = new_ids(conn, "citation_checks", cit_before) if cit_before is not None else []
+    rec["numeric_check_ids"] = new_ids(conn, "numeric_checks", num_before) if num_before is not None else []
+    rec["tool_errors"] = [{"tool": c["tool"], "error": c["error"]}
+                          for c in qturn["calls"] if c.get("error")]
+    if keeper:
+        after_v = keeper.max_version()
+        rec["wrote_squad_version"] = bool(version_before is not None and after_v > version_before)
+        rec["squad_versions_after"] = after_v
+    res, reason = grade(q, qturn["calls"])
+    rec["result"], rec["reason"] = res, reason
+    rec["actual_calls"] = " > ".join(c["tool"] for c in qturn["calls"]) or "(none)"
+    return rec
+
+
+class Recorder:
+    def __init__(self):
+        self.calls = []
+
+    def clear(self):
+        self.calls = []
+
+    def dump(self):
+        return list(self.calls)
+
+
+def wrap_dispatcher(agent, recorder):
+    """Record every tool call the agent makes, in order. Runner-local: the
+    production dispatcher is called unchanged and its result passed straight
+    back, so nothing the agent sees differs from production."""
+    original = agent.call_tool
+
+    def recording_call_tool(tool_name, tool_input):
+        out = original(tool_name, tool_input)
+        err = out.get("error") if isinstance(out, dict) else None
+        recorder.calls.append({"tool": tool_name, "args": tool_input or {},
+                               "error": (str(err)[:300] if err else None)})
+        return out
+
+    agent.call_tool = recording_call_tool
+    return original
+
+
+def wrap_raw_reply(agent):
+    """The rendered reply comes back from /chat; the RAW model text does not, so
+    keep the last one the citation check saw (it is handed the raw text)."""
+    agent.LAST_RAW = {}
+    original = agent._citation_check
+
+    def capture(turn_id, text, returned_ids):
+        agent.LAST_RAW["text"] = text
+        return original(turn_id, text, returned_ids)
+
+    agent._citation_check = capture
+    return original
+
+
+def wrap_voyage(budget):
+    import embeddings
+    original = embeddings.embed
+
+    def counting_embed(*a, **kw):
+        budget.claim_voyage()
+        return original(*a, **kw)
+
+    embeddings.embed = counting_embed
+    return original
+
+
+# ------------------------------------------------------------------ reporting
+def write_report(path, records, args, budget, keeper, started, finished):
+    by_sheet = {}
+    for r in records:
+        s = by_sheet.setdefault(r["sheet"], {"PASS": 0, "FAIL": 0, "ERROR": 0, "NOT RUN": 0})
+        s[r.get("result", "ERROR")] = s.get(r.get("result", "ERROR"), 0) + 1
+    tot = {k: sum(s.get(k, 0) for s in by_sheet.values())
+           for k in ("PASS", "FAIL", "ERROR", "NOT RUN")}
+    lines = [f"# Agent eval run {started}", "",
+             f"- questions: {len(records)}  |  PASS {tot['PASS']}  FAIL {tot['FAIL']}  "
+             f"ERROR {tot['ERROR']}  NOT RUN {tot['NOT RUN']}",
+             f"- selection: {' '.join(sys.argv[1:]) or '(all)'}",
+             f"- started {started}, finished {finished}",
+             f"- Anthropic calls {budget.calls}, Voyage calls {budget.voyage}, "
+             f"tokens {budget.tok_in} in / {budget.tok_out} out, ${budget.usd:.2f}",
+             f"- squad restores: {len(keeper.restores) if keeper else 0}", "",
+             "## Per sheet", "", "| sheet | PASS | FAIL | ERROR | NOT RUN |", "|---|---|---|---|---|"]
+    for s in sorted(by_sheet):
+        c = by_sheet[s]
+        lines.append(f"| {s} | {c.get('PASS',0)} | {c.get('FAIL',0)} | "
+                     f"{c.get('ERROR',0)} | {c.get('NOT RUN',0)} |")
+    lines += ["", "## FAIL and ERROR", "",
+              "| id | question | expected | actual calls | bug | reason |", "|---|---|---|---|---|---|"]
+    for r in records:
+        if r.get("result") in ("FAIL", "ERROR", "NOT RUN"):
+            lines.append(f"| {r['id']} | {r['question'][:70]} | {r.get('must_call','')} | "
+                         f"{r.get('actual_calls','(n/a)')} | {r.get('bug','')} | "
+                         f"{r.get('reason','')[:120]} |")
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--core", action="store_true")
+    ap.add_argument("--non-core", action="store_true", dest="non_core")
+    ap.add_argument("--sheet", action="append")
+    ap.add_argument("--ids")
+    ap.add_argument("--max-calls", type=int, default=900)
+    ap.add_argument("--max-usd", type=float, default=40.0)
+    ap.add_argument("--max-voyage", type=int, default=200)
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--user-id", type=int, default=9001)
+    ap.add_argument("--out")
+    a = ap.parse_args(argv)
+
+    questions = select(load_questions(), a)
+    if a.dry_run:
+        print(f"{len(questions)} question(s) would run:")
+        for q in questions:
+            print(f"  {q['id']:28s} needs_squad={q['needs_squad']} core={q['core']} "
+                  f"setup={'Y' if q['setup'] else 'N'} must_call={q['must_call']}")
+        return 0
+
+    os.environ["FPL_USER_ID"] = str(a.user_id)
+    os.environ.setdefault("APP_API_KEY", uuid.uuid4().hex)
+    import db_write
+    import agent
+    import main as app_main
+    from fastapi.testclient import TestClient
+
+    budget = Budget(a.max_calls, a.max_usd, a.max_voyage)
+    recorder = Recorder()
+    wrap_dispatcher(agent, recorder)
+    wrap_raw_reply(agent)
+    wrap_voyage(budget)
+    agent.client = CountingClient(agent.client, budget)
+
+    conn = db_write.connect()
+    conn.autocommit = True
+    keeper = SquadKeeper(a.user_id, conn)
+    print(f"reference squad: user {a.user_id}, version {keeper.version}, gw {keeper.gw}")
+
+    client = TestClient(app_main.app, headers={"x-api-key": os.environ["APP_API_KEY"]})
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+    out = Path(a.out) if a.out else RESULTS_DIR / f"run_{started}.jsonl"
+    records, stopped = [], None
+    # Stop the run on a provider that is not going to recover: a 401/403 at once,
+    # or the same error three times in a row. Everything after is NOT RUN.
+    streak = {"reason": None, "n": 0}
+    with out.open("w", encoding="utf-8") as fh:
+        for i, q in enumerate(questions, start=1):
+            if stopped:
+                rec = {"id": q["id"], "sheet": q["sheet"], "num": q["num"],
+                       "question": q["question"], "bug": q["bug"], "core": q["core"],
+                       "must_call": q["must_call"], "result": "NOT RUN", "reason": stopped}
+            else:
+                try:
+                    rec = run_one(q, client, agent, recorder, budget, keeper, conn)
+                except BudgetExceeded as e:
+                    stopped = str(e)
+                    rec = {"id": q["id"], "sheet": q["sheet"], "num": q["num"],
+                           "question": q["question"], "bug": q["bug"], "core": q["core"],
+                           "must_call": q["must_call"], "result": "NOT RUN", "reason": stopped}
+            if rec.get("result") == "ERROR":
+                r = rec.get("reason", "")
+                streak["n"] = streak["n"] + 1 if r == streak["reason"] else 1
+                streak["reason"] = r
+                if "401" in r or "403" in r or "authentication" in r.lower():
+                    stopped = f"provider refused the credentials: {r[:120]}"
+                elif streak["n"] >= 3:
+                    stopped = f"the same error three times in a row: {r[:120]}"
+            else:
+                streak["reason"], streak["n"] = None, 0
+            records.append(rec)
+            fh.write(json.dumps(rec, default=str) + "\n")
+            fh.flush()
+            print(f"[{i}/{len(questions)}] {rec['id']:28s} {rec.get('result'):8s} "
+                  f"{rec.get('reason','')[:70]}", flush=True)
+    finished = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+    report = out.with_suffix(".md")
+    write_report(report, records, a, budget, keeper, started, finished)
+    print(f"\njsonl:  {out}\nreport: {report}")
+    print(f"Anthropic {budget.calls} calls, Voyage {budget.voyage}, "
+          f"tokens {budget.tok_in}/{budget.tok_out}, ${budget.usd:.2f}")
+    conn.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

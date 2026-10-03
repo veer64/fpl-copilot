@@ -37,3 +37,6 @@ tmp/
 eval/labels/local/
 eval/reports/*.xlsx
 eval/reports/*.md
+
+# agent eval runs: one jsonl + md per run, regenerated on demand and often large
+eval/agent_evals/results/
