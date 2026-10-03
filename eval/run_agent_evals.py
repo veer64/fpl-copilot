@@ -145,8 +145,21 @@ def grade_must_not(spec, calls):
     return True, ""
 
 
-def grade(q, calls):
-    ok, reason = grade_must_call(q["must_call"], calls)
+def grade(q, calls, setup_calls=None):
+    """PASS / FAIL for one question.
+
+    "must call" is graded over the whole conversation -- the setup turn's calls
+    followed by the question turn's -- because the chain spans turns: an agent that
+    resolved a player in the setup turn and used the id in the question turn has
+    done exactly the right thing, and resolving twice would be the defect.
+
+    "must NOT call" is graded over the QUESTION turn only: a tool the setup turn
+    legitimately used cannot condemn the answer that follows it.
+    """
+    # "none" is a statement about THIS question -- the setup turn is allowed to have
+    # called tools, and usually had to -- so it is graded on the question turn alone.
+    chain = list(calls) if not parse_chain(q["must_call"]) else list(setup_calls or []) + list(calls)
+    ok, reason = grade_must_call(q["must_call"], chain)
     if not ok:
         return "FAIL", reason
     ok, reason = grade_must_not(q["must_not"], calls)
@@ -364,17 +377,12 @@ def run_one(q, client, agent, recorder, budget, keeper, conn):
         after_v = keeper.max_version()
         rec["wrote_squad_version"] = bool(version_before is not None and after_v > version_before)
         rec["squad_versions_after"] = after_v
-    res, reason = grade(q, qturn["calls"])
+    earlier = [c for t in turns[:-1] for c in t["calls"]]
+    res, reason = grade(q, qturn["calls"], setup_calls=earlier)
     rec["result"], rec["reason"] = res, reason
     rec["actual_calls"] = " > ".join(c["tool"] for c in qturn["calls"]) or "(none)"
-    # A question with a setup turn can fail only because the step it needed was
-    # already taken in the setup turn (the agent kept resolve_player's candidates
-    # rather than asking twice). Grading stays on the question turn, by spec; this
-    # records how many of the FAILs are of that shape instead of hiding them.
-    if res == "FAIL" and len(turns) > 1:
-        earlier = [c for t in turns[:-1] for c in t["calls"]]
+    if turns[:-1]:
         rec["setup_calls"] = " > ".join(c["tool"] for c in earlier) or "(none)"
-        rec["would_pass_with_setup_calls"] = grade(q, earlier + qturn["calls"])[0] == "PASS"
     return rec
 
 

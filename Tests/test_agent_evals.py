@@ -122,6 +122,29 @@ def test_the_same_api_error_is_recognised_across_differing_request_ids():
     assert not rae.fatal_error("RuntimeError: /chat returned 429: rate limit")
 
 
+def test_a_step_taken_in_the_setup_turn_counts_towards_must_call():
+    """The chain spans the conversation: an agent that resolved a player in the
+    setup turn and used the id in the question turn has done the right thing, and
+    asking it to resolve twice would be the defect."""
+    q = {"must_call": "resolve_player > get_prediction", "must_not": "",
+         "sheet": "resolve_player", "num": 10}
+    res, reason = rae.grade(q, calls("get_prediction"), setup_calls=calls("resolve_player"))
+    assert res == "PASS", reason
+    # without the setup turn it is still a miss
+    res, _ = rae.grade(q, calls("get_prediction"))
+    assert res == "FAIL"
+
+
+def test_must_not_call_ignores_the_setup_turn():
+    """must NOT call is about THIS question: a tool the setup turn legitimately
+    used cannot condemn the answer that follows it."""
+    q = {"must_call": "none", "must_not": "get_prediction", "sheet": "s", "num": 1}
+    res, reason = rae.grade(q, [], setup_calls=calls("get_prediction"))
+    assert res == "PASS", reason
+    res, _ = rae.grade(q, calls("get_prediction"), setup_calls=calls("get_prediction"))
+    assert res == "FAIL"
+
+
 def test_grade_combines_both_columns_and_names_the_failure():
     q = {"must_call": "resolve_player > get_prediction",
          "must_not": "get_player_card", "sheet": "s", "num": 1}
