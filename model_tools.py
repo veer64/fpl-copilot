@@ -278,20 +278,88 @@ def resolve_player(name: str, club: str = None):
     return out
 
 
+LIST_CAP = 25                       # how many players a listing carries, as before
+# Every word a person uses for a position -> the code players_live stores (GK / DEF / MID /
+# FWD, measured). The old code took position[:3] and matched it with ILIKE, so "GKP" found
+# nothing at all and "Goalkeeper", "keeper", "Forward" and "striker" were cut to "Goa",
+# "kee", "For" and "str" and found nothing either (B1, B2). Keys are normalised through
+# player_names.norm, so case, accents and hyphens are already handled: "Centre-Back" arrives
+# as "centre back".
+POSITION_WORDS = {
+    "GK": ("gk", "gkp", "goalkeeper", "goalkeepers", "keeper", "keepers", "goalie"),
+    "DEF": ("def", "defender", "defenders", "defence", "defense", "centre back",
+            "center back", "full back", "fullback"),
+    "MID": ("mid", "midfielder", "midfielders", "midfield"),
+    "FWD": ("fwd", "fw", "forward", "forwards", "striker", "strikers", "attacker",
+            "attackers"),
+}
+_POSITION_BY_WORD = {w: code for code, words in POSITION_WORDS.items() for w in words}
+
+
 def list_players(team: str = None, position: str = None):
+    """Players filtered by club and/or position.
+
+    The position accepts the stored code or the words people use for it (see
+    POSITION_WORDS); anything else is an error listing them, never a silent empty list. The
+    club goes through `_resolve_team`, the alias resolver `get_fixtures` uses, so
+    "Tottenham" finds Spurs and "Man" is refused by name instead of quietly merging Man City
+    with Man Utd.
+
+    Returns {players, total_matches, truncated, note}: the cap is unchanged, but the count
+    behind it travels with the answer, and an empty result says which filter emptied it."""
+    import player_names as pn
+    code = None
+    if position is not None and str(position).strip():
+        code = _POSITION_BY_WORD.get(pn.norm(position))
+        if code is None:
+            return {"error": f"position {position!r} is not a position I know. Use a code "
+                             f"({', '.join(sorted(POSITION_WORDS))}) or a word: goalkeeper, "
+                             f"keeper, goalie, defender, defence, centre-back, full-back, "
+                             f"midfielder, midfield, forward, striker, attacker."}
+    club = None
+    if team is not None and str(team).strip():
+        known = sorted({r["team"] for r in _q("SELECT DISTINCT team FROM players_live "
+                                              "WHERE team IS NOT NULL") if r["team"]})
+        club, err = _resolve_team(team, known)
+        if err:
+            # _resolve_team names the candidates when a fragment matches several clubs; that
+            # message is the answer. Its other message is "not a club in this season's
+            # calendar", which here is simply no such club in the game.
+            if " matches [" in err:
+                return {"error": err, "known_clubs": known}
+            return {"error": f"no club matches {team!r}", "known_clubs": known}
+
     sql = """SELECT element AS player_id, name, position, team, price_tenths, status
              FROM players_live WHERE 1=1"""
     params = []
-    if team:
-        sql += " AND team ILIKE %s"
-        params.append(f"%{team}%")
-    if position:
-        sql += " AND position ILIKE %s"
-        params.append(f"%{position[:3]}%")
-    rows = _q(sql + " ORDER BY price_tenths DESC NULLS LAST LIMIT 25", tuple(params))
-    for r in rows:
+    if club:
+        sql += " AND team = %s"
+        params.append(club)
+    if code:
+        sql += " AND position = %s"
+        params.append(code)
+    rows = _q(sql + " ORDER BY price_tenths DESC NULLS LAST, name", tuple(params))
+    total = len(rows)
+    players = []
+    for r in rows[:LIST_CAP]:
         r["price"] = (r.pop("price_tenths") or 0) / 10
-    return rows
+        players.append(r)
+
+    note = None
+    if total == 0:
+        if club and code:
+            note = f"{club} has no players at position {code}"
+        elif club:
+            note = f"{club} has no players in the pool"
+        elif code:
+            note = f"no player in the pool has position {code}"
+        else:
+            note = "players_live holds no players"
+    elif total > LIST_CAP:
+        note = (f"{total} players match; the {LIST_CAP} most expensive are listed "
+                f"(this tool orders by price)")
+    return {"players": players, "total_matches": total, "truncated": total > LIST_CAP,
+            "note": note}
 
 
 def _element_id(value):

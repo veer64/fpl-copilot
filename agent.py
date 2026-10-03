@@ -185,7 +185,7 @@ tools_schema = [
     },
     {
         "name": "list_players",
-        "description": "List players filtered by team and/or position (e.g. 'who plays for Chelsea', 'list all defenders'). Do NOT use resolve_player for these.",
+        "description": "List players filtered by team and/or position (e.g. 'who plays for Chelsea', 'list all defenders'). Do NOT use resolve_player for these. Returns `players` with `total_matches`, `truncated` and a `note` that names the filter when nothing matched; the position takes GK, DEF, MID or FWD or a word like goalkeeper, keeper, goalie, defender, centre-back, full-back, midfielder, forward, striker or attacker, and the club takes aliases such as Tottenham for Spurs.",
         "input_schema": {
             "type": "object",
             "properties": {
