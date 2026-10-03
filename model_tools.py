@@ -294,7 +294,32 @@ def list_players(team: str = None, position: str = None):
     return rows
 
 
+def _element_id(value):
+    """`value` as a whole-number element id, or None if it is not one.
+
+    The id is checked BEFORE any query because psycopg2 reports a bad one by quoting the
+    statement back -- "invalid input syntax for type integer: 'Saka'" followed by the SELECT
+    and a caret -- and that text used to travel to the model (B15, measured 2026-10-03).
+    A digit string is accepted: the model sends arguments as JSON and sometimes quotes them."""
+    if isinstance(value, bool) or isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str):
+        t = value.strip()
+        if t and (t[1:] if t[0] in "+-" else t).isdigit():
+            return int(t)
+    return None
+
+
+BAD_ELEMENT_ID = "player_id must be a number; use resolve_player to find it"
+
+
 def get_player_card(player_id: int):
+    element = _element_id(player_id)
+    if element is None:
+        return {"error": BAD_ELEMENT_ID}
+    player_id = element
     p = _q("SELECT * FROM players_live WHERE element = %s", (player_id,))
     if not p:
         return {"error": f"no player with id {player_id}"}
@@ -2432,5 +2457,5 @@ def get_match_stats(team: str, opponent: str = None, stats: list = None, seasons
     out = _run_meta(run)
     out.update({"as_of": {"cutoff": f"{cutoff:%Y-%m-%d %H:%M:%S}", "source": source, "rule": AS_OF_RULE}})
     out.update(ms.build(resolved, opp, names, side, venue, last_n_matches, keys, rows, tables, coverage,
-                        all_null, post_cutoff, sources))
+                        all_null, post_cutoff, sources, as_of=f"{cutoff:%Y-%m-%d}"))
     return out

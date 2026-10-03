@@ -134,7 +134,15 @@ def club_rows(matches, team):
             d[f"{n}_against"] = g[opp_col].values if opp_col in g.columns else float("nan")
         parts.append(d)
     if not parts:
-        return pd.DataFrame(columns=["season", "date", "opponent", "venue"])
+        # Every column the non-empty path below produces, so a window with no admitted
+        # match is an EMPTY TABLE rather than a differently shaped one. head_to_head reads
+        # rows["result"] and aggregate reads <stat>_for / <stat>_against; before 2026-10-03
+        # the empty frame carried four columns and the first of those reads raised
+        # KeyError 'result', which took the whole tool down (B35).
+        cols = ["season", "date", "opponent", "venue"]
+        for n in per_match:
+            cols += [f"{n}_for", f"{n}_against"]
+        return pd.DataFrame(columns=cols + ["result"])
     rows = pd.concat(parts, ignore_index=True)
     gf, ga = rows["goals_for"], rows["goals_against"]
     rows["result"] = ["W" if f > a else ("L" if f < a else "D") for f, a in zip(gf, ga)]
@@ -182,17 +190,29 @@ def aggregate(rows, stat, side, last_n):
     return out
 
 
-def head_to_head(rows, team, opponent):
+def head_to_head(rows, team, opponent, window=None):
+    """`window` (seasons, as_of, last_n, matches_in_window) names what was asked, so a zero
+    says which window it is a zero FOR -- including the case where the team has no admitted
+    match in it at all, which used to crash the tool (B35)."""
     rec = {"won": int((rows["result"] == "W").sum()), "drawn": int((rows["result"] == "D").sum()),
            "lost": int((rows["result"] == "L").sum())}
     meetings = [{"season": r.season, "date": f"{pd.Timestamp(r.date):%Y-%m-%d}", "venue": r.venue,
                  "score": f"{int(r.goals_for)}-{int(r.goals_against)}", "result": r.result}
                 for r in rows.itertuples(index=False)]
-    st = (f"no meeting between {team} and {opponent} in the seasons and window requested, as of "
-          f"the cutoff -- a stated zero, not an empty result" if not meetings else
+    w = window or {}
+    where = ", ".join(str(s) for s in (w.get("seasons") or [])) or "the seasons requested"
+    asof = f" as of {w.get('as_of')}" if w.get("as_of") else " as of the cutoff"
+    span = ""
+    if w.get("matches_in_window") == 0:
+        span = f"; {team} has no match in that window at all, so this is a window with no data"
+    st = (f"no meeting between {team} and {opponent} in {where}{asof} -- a stated zero, not an "
+          f"empty result{span}" if not meetings else
           f"{len(meetings)} meeting(s), most recent first; the record is {team}'s")
-    return {"opponent": opponent, "record": rec, "meetings": meetings, "matches_counted": len(meetings),
-            "statement": st}
+    out = {"opponent": opponent, "record": rec, "meetings": meetings,
+           "matches_counted": len(meetings), "statement": st}
+    if window:
+        out["window"] = {k: w.get(k) for k in ("seasons", "as_of", "last_n", "matches_in_window")}
+    return out
 
 
 # ------------------------------------------------------------------ season aggregates (FBref)
@@ -249,7 +269,7 @@ def season_figure(stat, spec, tables, season, team, side, all_null_cols, post_cu
 # ------------------------------------------------------------------ assembly
 
 def build(team, opponent, names, side, venue, last_n, seasons, rows, tables, coverage,
-          all_null_cols, post_cutoff, sources):
+          all_null_cols, post_cutoff, sources, as_of=None):
     """PURE. `rows` = club_rows(...) of the ADMITTED matches; `tables` = FBref frames keyed by
     stack season; `coverage` = {source: {stat or "*": [seasons]}} measured by the IO layer."""
     scoped = select(rows, opponent=opponent, venue=venue, last_n=last_n)
@@ -298,5 +318,8 @@ def build(team, opponent, names, side, venue, last_n, seasons, rows, tables, cov
                           "cannot be windowed, split by venue or restricted to an opponent"),
            "not_advice": NOT_ADVICE}
     if opponent is not None:
-        out["head_to_head"] = head_to_head(scoped, team, opponent)
+        out["head_to_head"] = head_to_head(
+            scoped, team, opponent,
+            window={"seasons": seasons, "as_of": as_of, "last_n": last_n,
+                    "matches_in_window": int(len(rows))})
     return out

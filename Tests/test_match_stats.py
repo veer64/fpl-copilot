@@ -266,6 +266,32 @@ def test_zero_meetings_is_a_stated_answer_not_an_empty_one(mt):
     assert _stat(out, "goals")["window"]["matches_counted"] == 0
 
 
+def test_an_empty_window_with_an_opponent_answers_instead_of_crashing(mt):
+    """B35, measured 2026-10-03: a cutoff before the archive's first match left club_rows
+    with an empty frame carrying only season/date/opponent/venue, so head_to_head's
+    rows["result"] raised KeyError 'result' and the tool died. An empty window is an
+    answer -- no meetings, and the window it was asked about."""
+    out = mt.get_match_stats(team="Arsenal", opponent="Everton", stats=["goals"],
+                             seasons=1, as_of="2025-01-01T00:00:00")
+    assert "error" not in out, out.get("error")
+    h2h = out["head_to_head"]
+    assert h2h["meetings"] == [] and h2h["matches_counted"] == 0
+    assert h2h["record"] == {"won": 0, "drawn": 0, "lost": 0}
+    assert "no meeting" in h2h["statement"]
+    assert "2025-01-01" in h2h["statement"], h2h["statement"]        # the window's date
+    assert _stat(out, "goals")["window"]["matches_counted"] == 0
+    assert _stat(out, "goals")["for"]["total"] is None
+
+
+def test_an_empty_window_without_an_opponent_also_answers(mt):
+    out = mt.get_match_stats(team="Arsenal", stats=["goals", "shots"], seasons=1,
+                             as_of="2025-01-01T00:00:00")
+    assert "error" not in out, out.get("error")
+    assert "head_to_head" not in out
+    for name in ("goals", "shots"):
+        assert _stat(out, name)["window"]["matches_counted"] == 0
+
+
 def test_home_plus_away_sums_to_both_on_every_counter(mt):
     kw = dict(team="Arsenal", stats=["goals", "shots", "corners"], seasons=2, side="both")
     both = mt.get_match_stats(**kw)

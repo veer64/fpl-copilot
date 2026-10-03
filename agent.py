@@ -360,8 +360,20 @@ def call_tool(tool_name, tool_input):
     try:
         return fn(**(tool_input or {}))
     except Exception as e:  # noqa: BLE001 -- the contract: surface, never 500
-        return {"error": f"tool {tool_name} failed: {type(e).__name__}: {str(e)[:600]}",
+        return {"error": f"tool {tool_name} failed: {type(e).__name__}: {_exc_text(e)}",
                 "tool": tool_name, "input": tool_input}
+
+
+def _exc_text(e):
+    """The exception's message, trimmed. A psycopg2 error keeps only its FIRST line:
+    the lines after it are the statement and a caret -- "LINE 1: SELECT * FROM
+    players_live WHERE element = 'Saka'" -- and the schema has no business in the
+    conversation (B15, measured 2026-10-03). Every other exception keeps its message,
+    because a tool's own multi-line explanation is information the model needs."""
+    msg = str(e)
+    if type(e).__module__.split(".")[0] == "psycopg2":
+        msg = msg.splitlines()[0] if msg.splitlines() else msg
+    return msg[:600].strip()
 
 # A lookup so we can call the right Python function by name,
 # once Claude tells us which tool it wants
