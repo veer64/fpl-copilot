@@ -9,7 +9,7 @@
 tools_schema = [
     {
         "name": "resolve_player",
-        "description": "Search for a player by name (partial matches allowed). Returns candidates with player_id, team, position, price.",
+        "description": "Search for a player by name: accents, hyphens and FPL's own short name all work, and matching is on whole words. Returns `matches` (player_id, name, web_name, team, position, price, status), `total_matches`, `truncated` when more matched than are listed, `ambiguous` (more than one player answers to that name -- ask which, never pick one), `note` (for example that the player is at a different club from the one you named), and `suggestions` when nothing matched at all.",
         "input_schema": {
             "type": "object",
             "properties": {

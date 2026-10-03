@@ -263,13 +263,21 @@ def live(conn):
     return conn
 
 
-def test_resolve_player_unchanged_without_club_and_narrowed_with_it(live):
+def test_resolve_player_narrows_by_club_and_says_so_when_it_cannot(live, monkeypatch):
+    """The club is a PREFERENCE from 2026-10-03: it narrows when the name is found there,
+    and when the name is only at other clubs the answer is those players plus a note --
+    refusing to answer because the user attached the wrong club was worse than answering
+    with the club named. The web_name map is emptied so this pins the stored names only."""
     import model_tools as mt
+    monkeypatch.setattr(mt, "_web_names", lambda: {})
     both = mt.resolve_player("Palmer")
-    assert [r["player_id"] for r in both] == [3, 4]
-    assert [r["player_id"] for r in mt.resolve_player("Palmer", club="Chelsea")] == [3]
-    assert [r["player_id"] for r in mt.resolve_player("Palmer", club="hull")] == [4]
-    assert "error" in mt.resolve_player("Palmer", club="Arsenal")
+    assert [r["player_id"] for r in both["matches"]] == [3, 4]
+    assert both["ambiguous"] is True and both["total_matches"] == 2
+    assert [r["player_id"] for r in mt.resolve_player("Palmer", club="Chelsea")["matches"]] == [3]
+    assert [r["player_id"] for r in mt.resolve_player("Palmer", club="hull")["matches"]] == [4]
+    wrong = mt.resolve_player("Palmer", club="Arsenal")
+    assert [r["player_id"] for r in wrong["matches"]] == [3, 4]
+    assert "not Arsenal" in (wrong["note"] or ""), wrong["note"]
 
 
 def test_player_card_carries_the_availability_block_with_its_as_of(live):

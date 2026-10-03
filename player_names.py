@@ -81,3 +81,57 @@ def map_names(names, candidates, club=None):
         else:
             ambiguous[name] = [label(c) for c in hits]
     return {"ids": ids, "unmapped": unmapped, "ambiguous": ambiguous}
+
+
+# ---- ranked matching for the agent's resolve_player (2026-10-03) ---------------------------------
+# match_players above answers "which player does this name denote?" for the news path, where a wrong
+# id corrupts a stored verdict, so it is deliberately all-or-nothing. The agent's resolver wants the
+# opposite: an ORDER over everything the name could mean, so the agent can show candidates and ask.
+# Same norm(), one normalisation in the project; the ranks are:
+#   0  the query IS the name FPL displays (web_name) -- "Palmer", "Gibbs-White", "Joao Pedro"
+#   1  every word of the query is a word of the web_name or of "first_name second_name"
+#      -- "Bruno Fernandes" against web "B.Fernandes" + full "Bruno Borges Fernandes"
+#   2  a single query word of 4+ letters prefixes one of those words -- "Gibb" -> Gibbs-White
+# Word equality, never substring: "Son" used to return Alisson, Robertson and Patterson, none of whom
+# is called Son. Four letters, because three-letter prefixes match most of the league.
+PREFIX_MIN = 4
+
+
+def name_words(candidate):
+    """The words a query may match: the displayed name's and the full name's."""
+    web = norm(candidate.get("web_name"))
+    full = norm(f"{candidate.get('first_name', '')} {candidate.get('second_name', '')}")
+    return web, set(web.split()) | set(full.split())
+
+
+def rank_matches(name, candidates):
+    """[(rank, candidate)] for every candidate the name could mean, best rank first and
+    element id within a rank, so the order is deterministic. [] when nothing matches."""
+    n = norm(name)
+    if not n:
+        return []
+    words = n.split()
+    out = []
+    for c in candidates:
+        web, pool = name_words(c)
+        if n == web and web:
+            out.append((0, c))
+        elif words and all(w in pool for w in words):
+            out.append((1, c))
+        elif (len(words) == 1 and len(words[0]) >= PREFIX_MIN
+              and any(p.startswith(words[0]) for p in pool)):
+            out.append((2, c))
+    out.sort(key=lambda rc: (rc[0], int(rc[1].get("id") or 0)))
+    return out
+
+
+def close_names(name, candidates, n=3):
+    """Up to n display names closest to `name`, for a query that matched nothing."""
+    import difflib
+    pool = {}
+    for c in candidates:
+        for form in (c.get("web_name"), f"{c.get('first_name', '')} {c.get('second_name', '')}".strip()):
+            if form:
+                pool.setdefault(norm(form), form)
+    hits = difflib.get_close_matches(norm(name), list(pool), n=n, cutoff=0.6)
+    return [pool[h] for h in hits]

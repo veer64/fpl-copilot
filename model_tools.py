@@ -180,20 +180,102 @@ def _run_meta(run, config=PRODUCTION_CONFIG):
 STATUS_WORDS = {"a": "available", "d": "doubtful", "i": "injured", "s": "suspended", "u": "unavailable", "n": "not in squad"}
 
 
+RESOLVE_CAP = 6                     # how many candidates an answer carries, as before
+_WEB_NAMES = {"at": 0.0, "value": None}
+WEB_NAME_TTL_S = 300.0
+MATCH_WORDS = ("display name", "all words", "name prefix")
+
+
+def _web_names():
+    """{element: web_name} from the NEWEST bootstrap snapshot on the volume.
+
+    players_live stores only "first_name second_name", so the name FPL itself shows --
+    "B.Fernandes", "Joao Pedro", "Palmer" -- is not in the database at all, and a user
+    typing it matched nothing (measured 2026-10-03). The snapshot archive has it, is
+    local, and is the same archive prices_tool reads; its paths come from that module so
+    there is one globber. Cached for five minutes. If the archive cannot be read the map
+    is empty and matching falls back to the full name, which is the old behaviour."""
+    if _WEB_NAMES["value"] is not None and time.time() - _WEB_NAMES["at"] < WEB_NAME_TTL_S:
+        return _WEB_NAMES["value"]
+    out = {}
+    try:
+        import gzip
+        import json
+        import prices_tool as pt
+        snaps = pt.snapshots()
+        if snaps:
+            with gzip.open(snaps[-1][1], "rt", encoding="utf-8") as fh:
+                doc = json.load(fh)
+            for e in doc.get("elements") or []:
+                try:
+                    out[int(e["id"])] = str(e.get("web_name") or "")
+                except (KeyError, TypeError, ValueError):
+                    continue
+    except Exception:                               # noqa: BLE001 -- the full name still matches
+        out = {}
+    _WEB_NAMES.update(at=time.time(), value=out)
+    return out
+
+
 def resolve_player(name: str, club: str = None):
-    """Players whose name contains `name` (ILIKE), at most 6, by name. `club` (2026-09-30, Piece 7)
-    narrows to one team, ILIKE on players_live.team; omitted, the behaviour is unchanged."""
-    sql = """SELECT element AS player_id, name, position, team, price_tenths,
-                    status FROM players_live
-             WHERE name ILIKE %s"""
-    params = [f"%{name}%"]
+    """Rank every current player the name could mean (player_names.rank_matches: the
+    displayed name, then all words, then a 4+ letter prefix -- on accent-folded WORDS, so
+    "Son" no longer returns Alisson and Robertson).
+
+    `club` is a PREFERENCE, not a filter, and is read through the same alias resolver
+    get_fixtures uses: the players at that club if the name matches there, otherwise the
+    matches it did find, with a note saying where they play. Refusing to answer because
+    the user attached the wrong club was worse than answering with the club named.
+
+    One dict: matches (up to RESOLVE_CAP), total_matches, truncated, ambiguous (more than
+    one player in the best rank -- ask, never pick), note, and suggestions when nothing
+    matched at all."""
+    import player_names as pn
+    rows = _q("""SELECT element, name, position, team, price_tenths, status
+                 FROM players_live""")
+    web = _web_names()
+    cands = [{"id": r["element"], "web_name": web.get(r["element"], ""),
+              "first_name": "", "second_name": r["name"], "team": r["team"],
+              "short": "", "row": r} for r in rows]
+    ranked = pn.rank_matches(name, cands)
+
+    notes = []
     if club:
-        sql += " AND team ILIKE %s"
-        params.append(f"%{club}%")
-    rows = _q(sql + " ORDER BY name LIMIT 6", tuple(params))
-    for r in rows:
-        r["price"] = (r.pop("price_tenths") or 0) / 10
-    return rows or {"error": f"no current player matches '{name}'" + (f" at a club matching '{club}'" if club else "")}
+        resolved, err = _resolve_team(club, sorted({c["team"] for c in cands if c["team"]}))
+        if err:
+            notes.append(f"the club you named was not used: {err}")
+        elif ranked:
+            at_club = [rc for rc in ranked if rc[1]["team"] == resolved]
+            if at_club:
+                ranked = at_club
+            else:
+                where = ", ".join(sorted({rc[1]["team"] for rc in ranked}))
+                notes.append(f"found at {where}, not {resolved}")
+
+    total = len(ranked)
+    best = ranked[0][0] if ranked else None
+    n_best = sum(1 for r, _ in ranked if r == best)
+    matches = []
+    for r, c in ranked[:RESOLVE_CAP]:
+        row = dict(c["row"])
+        row["player_id"] = row.pop("element")
+        row["price"] = (row.pop("price_tenths") or 0) / 10
+        row["web_name"] = c["web_name"] or None
+        row["matched_on"] = MATCH_WORDS[r]
+        matches.append(row)
+    out = {"matches": matches, "total_matches": total, "truncated": total > RESOLVE_CAP,
+           "ambiguous": n_best > 1, "note": None}
+    if total == 0:
+        out["suggestions"] = pn.close_names(name, cands)
+        notes.append(f"no current player matches {name!r}"
+                     + (f" (club {club!r} was named)" if club else ""))
+    elif n_best > 1:
+        who = "; ".join(f"{m['name']} ({m['team']})" for m in matches if m["matched_on"] == MATCH_WORDS[best])
+        notes.append(f"{n_best} players answer to that name -- ask which: {who}")
+    if total > RESOLVE_CAP:
+        notes.append(f"{total} players match; the closest {RESOLVE_CAP} are listed")
+    out["note"] = "; ".join(notes) or None
+    return out
 
 
 def list_players(team: str = None, position: str = None):
