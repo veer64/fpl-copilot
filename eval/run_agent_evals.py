@@ -318,6 +318,7 @@ def run_one(q, client, agent, recorder, budget, keeper, conn):
     version_before = keeper.max_version() if keeper else None
     cit_before, num_before = max_id(conn, "citation_checks"), max_id(conn, "numeric_checks")
 
+    reset_rate_limit()
     client.post("/reset")
     turns = []
     try:
@@ -366,7 +367,51 @@ def run_one(q, client, agent, recorder, budget, keeper, conn):
     res, reason = grade(q, qturn["calls"])
     rec["result"], rec["reason"] = res, reason
     rec["actual_calls"] = " > ".join(c["tool"] for c in qturn["calls"]) or "(none)"
+    # A question with a setup turn can fail only because the step it needed was
+    # already taken in the setup turn (the agent kept resolve_player's candidates
+    # rather than asking twice). Grading stays on the question turn, by spec; this
+    # records how many of the FAILs are of that shape instead of hiding them.
+    if res == "FAIL" and len(turns) > 1:
+        earlier = [c for t in turns[:-1] for c in t["calls"]]
+        rec["setup_calls"] = " > ".join(c["tool"] for c in earlier) or "(none)"
+        rec["would_pass_with_setup_calls"] = grade(q, earlier + qturn["calls"])[0] == "PASS"
     return rec
+
+
+_ID_NOISE = ("req_", "request_id")
+# A provider error that will not clear by retrying: no amount of waiting buys credit,
+# and bad credentials do not fix themselves. Measured 2026-10-03: a credit outage
+# carried a fresh request_id on every attempt, so comparing raw strings never saw a
+# repeat and the run kept calling a dead API for 85 questions.
+FATAL_MARKS = ("credit balance is too low", "401", "403", "authentication_error",
+               "permission_error", "invalid x-api-key")
+
+
+def error_shape(reason):
+    """The error with its per-attempt noise removed, for "same error again" tests."""
+    import re
+    s = re.sub(r"req_[A-Za-z0-9]+", "req_X", reason or "")
+    s = re.sub(r"\d+", "N", s)
+    return s[:200]
+
+
+def fatal_error(reason):
+    low = (reason or "").lower()
+    return any(m.lower() in low for m in FATAL_MARKS)
+
+
+def reset_rate_limit():
+    """Clear the app's PROCESS-LOCAL /chat rate-limit counters (main.py allows 30
+    calls per client and 60 in total per hour). That ceiling exists to bound what
+    an outside caller can spend; this run's spend is bounded by --max-calls and
+    --max-usd instead, and a 179-question eval cannot fit in 60 calls an hour.
+    Runner-local: the limiter itself is untouched, so the deployed app keeps it."""
+    try:
+        import main as app_main
+        app_main._hits_global.clear()
+        app_main._hits_by_ip.clear()
+    except Exception as e:                           # noqa: BLE001 -- never fatal
+        print(f"  [rate-limit reset skipped: {type(e).__name__}: {e}]")
 
 
 class Recorder:
@@ -519,10 +564,11 @@ def main(argv=None):
                            "must_call": q["must_call"], "result": "NOT RUN", "reason": stopped}
             if rec.get("result") == "ERROR":
                 r = rec.get("reason", "")
-                streak["n"] = streak["n"] + 1 if r == streak["reason"] else 1
-                streak["reason"] = r
-                if "401" in r or "403" in r or "authentication" in r.lower():
-                    stopped = f"provider refused the credentials: {r[:120]}"
+                shape = error_shape(r)
+                streak["n"] = streak["n"] + 1 if shape == streak["reason"] else 1
+                streak["reason"] = shape
+                if fatal_error(r):
+                    stopped = f"the provider cannot serve this run: {r[:140]}"
                 elif streak["n"] >= 3:
                     stopped = f"the same error three times in a row: {r[:120]}"
             else:

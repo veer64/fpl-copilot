@@ -105,6 +105,23 @@ def test_an_argument_bound_tool_matches_on_that_argument():
     assert not bad
 
 
+def test_the_same_api_error_is_recognised_across_differing_request_ids():
+    """A provider error repeats with a new request_id and new token counts every
+    time, so the stop rule has to compare the error's SHAPE. Measured 2026-10-03:
+    85 questions kept calling a credit-exhausted API because the raw strings all
+    differed by request_id."""
+    a = ("BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': "
+         "'invalid_request_error', 'message': 'Your credit balance is too low to "
+         "access the Anthropic API.'}, 'request_id': 'req_011CfeSwrJLKWwix5RFK6gk9'}")
+    b = a.replace("req_011CfeSwrJLKWwix5RFK6gk9", "req_011ZZZZZZZZZZZZZZZZZZZZZ")
+    assert rae.error_shape(a) == rae.error_shape(b)
+    assert rae.error_shape(a) != rae.error_shape("RuntimeError: /chat returned 429: rate limit")
+    # and a cause we must never keep hammering is recognised outright
+    assert rae.fatal_error(a)
+    assert rae.fatal_error("RuntimeError: /chat returned 401: no")
+    assert not rae.fatal_error("RuntimeError: /chat returned 429: rate limit")
+
+
 def test_grade_combines_both_columns_and_names_the_failure():
     q = {"must_call": "resolve_player > get_prediction",
          "must_not": "get_player_card", "sheet": "s", "num": 1}
