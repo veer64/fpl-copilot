@@ -36,6 +36,16 @@ def main_mod(monkeypatch):
     main = importlib.reload(main)     # API_KEY is read at import time
     main._hits_by_ip.clear()
     main._hits_global.clear()
+    # /health's body is model_tools.health(), and that is slow for real reasons: measured
+    # 2026-10-04, one call takes 26.5 s -- 14.6 s in the tool-surface check (a real
+    # prediction read) and 1.3 s fetching the FPL bootstrap, plus the backup and ingest
+    # status files. These tests assert only that the GATE let /health through, never what it
+    # answers (see this module's docstring), so the function is stubbed and the route, the
+    # middleware and every assertion stay exactly as they were. Without this the three
+    # health cases cost ~80 s of the suite, and one of them absorbed 3402 s under load.
+    import model_tools
+    monkeypatch.setattr(model_tools, "health",
+                        lambda: {"status": "stubbed by Tests/test_api_gate.py"})
     yield main
     main._hits_by_ip.clear()
     main._hits_global.clear()
