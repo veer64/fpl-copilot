@@ -180,6 +180,119 @@ def _run_meta(run, config=PRODUCTION_CONFIG):
 STATUS_WORDS = {"a": "available", "d": "doubtful", "i": "injured", "s": "suspended", "u": "unavailable", "n": "not in squad"}
 
 
+# ---- availability: the codes that mean he cannot play for this club (B14, 2026-10-04) ----
+# Measured in players_live: a 458, d 29, i 71, s 4, u 105, and 'u' reads "Has joined Al Hilal
+# permanently" or "Has joined Borussia Dortmund on loan for the rest of the season" -- the
+# player is not at the club he is listed under and cannot be picked. Before this flag every
+# tool answered with a price and a full six-gameweek forecast (Watkins: 1.8 points) and said
+# nothing; the only signal was a status letter. 'n' ("not in squad" in STATUS_WORDS) is
+# included for the same reason; no row carries it in this data, so it is untested against a
+# live row. i / d / s are temporary and are NOT flagged: a doubtful player can still play.
+UNAVAILABLE_STATUSES = ("u", "n")
+
+
+def _availability_for(elements):
+    """{element: {available: False, availability_note: FPL's own words}} for the elements that
+    cannot play for their club; elements that can are absent. A failed lookup returns {} --
+    a flag must never break a prediction read, the rule get_prediction's club lookup follows."""
+    ids = [int(e) for e in (elements or [])]
+    if not ids:
+        return {}
+    try:
+        rows = _q("""SELECT element, status, news FROM players_live
+                     WHERE element = ANY(%s) AND status = ANY(%s)""",
+                  (ids, list(UNAVAILABLE_STATUSES)))
+        # The status is checked again HERE, and every field is read with .get: the SQL filters,
+        # the code verifies. A row without these keys, or with a status this flag is not about,
+        # must leave the answer alone -- building the map inside the try is the difference
+        # between a missing flag and a dead tool.
+        return {int(r["element"]): {"available": False,
+                                    "availability_note": (r.get("news") or "").strip()
+                                    or STATUS_WORDS.get(r.get("status"), r.get("status"))}
+                for r in rows if r.get("status") in UNAVAILABLE_STATUSES}
+    except Exception:                               # noqa: BLE001 -- cosmetic, never fatal
+        return {}
+
+
+def _lead_with_availability(result, element, flags):
+    """`result` with the availability flag FIRST, when there is one. The order is the point:
+    the agent reads the result as text, so the reason he cannot play has to come before the
+    price and the prediction, not after them."""
+    flag = flags.get(int(element)) if flags else None
+    return {**flag, **result} if flag else result
+
+
+# ---- the horizon: one answer for a gameweek outside the run's range (B20, 2026-10-04) ----
+# A run predicts its own gameweek and five ahead (run 24: GW6-11). Every gameweek outside
+# that -- played, too far ahead, or not a gameweek at all -- used to come back as the same
+# sentence, "no prediction rows for player 12 in run 24 (not in the pool at that cutoff)",
+# which says nothing about which of the three it is.
+GW_MIN, GW_MAX = 1, 38
+_DEADLINES = {"at": 0.0, "value": None}
+
+
+def _gw_deadlines():
+    """{gw: 'YYYY-MM-DD'} from the newest bootstrap snapshot on the volume, cached. Local
+    file only -- no network for a date. {} when the archive cannot be read."""
+    if _DEADLINES["value"] is not None and time.time() - _DEADLINES["at"] < 3600:
+        return _DEADLINES["value"]
+    out = {}
+    try:
+        import gzip
+        import json
+        import prices_tool as pt
+        snaps = pt.snapshots()
+        if snaps:
+            with gzip.open(snaps[-1][1], "rt", encoding="utf-8") as fh:
+                doc = json.load(fh)
+            for e in doc.get("events") or []:
+                dl = str(e.get("deadline_time") or "")
+                if dl:
+                    out[int(e["id"])] = dl[:10]
+    except Exception:                               # noqa: BLE001 -- the date is optional
+        out = {}
+    _DEADLINES.update(at=time.time(), value=out)
+    return out
+
+
+def _horizon_check(gw, lo, hi, run_id):
+    """None when `gw` is inside [lo, hi]; otherwise the error dict to return, carrying
+    error_kind: invalid_gw | already_played | too_far_ahead."""
+    try:
+        x = int(gw)
+    except (TypeError, ValueError):
+        return {"error": f"gw must be a gameweek number from {GW_MIN} to {GW_MAX}, got {gw!r}",
+                "error_kind": "invalid_gw"}
+    if x < GW_MIN or x > GW_MAX:
+        return {"error": f"GW{x} is not a gameweek: a season runs from GW{GW_MIN} to GW{GW_MAX}",
+                "error_kind": "invalid_gw"}
+    if lo is None or hi is None:
+        return None
+    if x < int(lo):
+        return {"error": (f"GW{x} has already been played. This run predicts GW{lo}-{hi}. "
+                          "Actual results for past gameweeks aren't available yet."),
+                "error_kind": "already_played"}
+    if x > int(hi):
+        span = int(hi) - int(lo)
+        when = _gw_deadlines().get(x)
+        return {"error": (f"Run {run_id} covers GW{lo}-{hi}. GW{x} is too far ahead to predict "
+                          f"yet. It comes into range once runs reach about GW{x - span}; check "
+                          "back nearer then."
+                          + (f" GW{x}'s deadline is {when}." if when else "")),
+                "error_kind": "too_far_ahead"}
+    return None
+
+
+def _run_horizon(run):
+    """(first, last) gameweek the run actually wrote predictions for, or (None, None)."""
+    try:
+        r = _q("""SELECT min(gw) lo, max(gw) hi FROM model_predictions
+                  WHERE run_id = %s AND config = %s""", (run["run_id"], PRODUCTION_CONFIG))
+        return (r[0]["lo"], r[0]["hi"]) if r else (None, None)
+    except Exception:                               # noqa: BLE001
+        return (None, None)
+
+
 RESOLVE_CAP = 6                     # how many candidates an answer carries, as before
 _WEB_NAMES = {"at": 0.0, "value": None}
 WEB_NAME_TTL_S = 300.0
@@ -255,6 +368,7 @@ def resolve_player(name: str, club: str = None):
     total = len(ranked)
     best = ranked[0][0] if ranked else None
     n_best = sum(1 for r, _ in ranked if r == best)
+    flags = _availability_for([c["row"]["element"] for _, c in ranked[:RESOLVE_CAP]])
     matches = []
     for r, c in ranked[:RESOLVE_CAP]:
         row = dict(c["row"])
@@ -262,7 +376,7 @@ def resolve_player(name: str, club: str = None):
         row["price"] = (row.pop("price_tenths") or 0) / 10
         row["web_name"] = c["web_name"] or None
         row["matched_on"] = MATCH_WORDS[r]
-        matches.append(row)
+        matches.append(_lead_with_availability(row, row["player_id"], flags))
     out = {"matches": matches, "total_matches": total, "truncated": total > RESOLVE_CAP,
            "ambiguous": n_best > 1, "note": None}
     if total == 0:
@@ -394,6 +508,7 @@ def get_player_card(player_id: int):
     card = p[0]
     card["price"] = (card.pop("price_tenths") or 0) / 10
     card["player_id"] = card.pop("element")
+    card = _lead_with_availability(card, player_id, _availability_for([player_id]))
     # availability (2026-09-30, Piece 7): FPL's own flag as one labelled block with its as-of time --
     # players_live is written by the build from the bootstrap it fetched at its start, so updated_at
     # is when that data was taken; chance is chance_of_playing_NEXT_round (fix 5f6636d)
@@ -480,6 +595,11 @@ def get_prediction(player_id: int, gw: int = None):
     if gw is not None:
         sql += " AND gw = %s"
         params.append(gw)
+    if gw is not None:
+        lo, hi = _run_horizon(run)
+        outside = _horizon_check(gw, lo, hi, run["run_id"])
+        if outside:
+            return outside
     rows = _q(sql + " ORDER BY gw", tuple(params))
     if not rows:
         return {"error": f"no prediction rows for player {player_id} in run "
@@ -505,7 +625,7 @@ def get_prediction(player_id: int, gw: int = None):
                            if k not in PRED_INTERNAL_COLS and k != "team"} for r in rows]
     out["horizon_e_points_sum"] = round(sum(r["e_points"] or 0 for r in rows), 2)
     out["quantiles"] = _quantile_block(rows)
-    return out
+    return _lead_with_availability(out, player_id, _availability_for([player_id]))
 
 
 def _quantile_block(rows):
@@ -593,17 +713,21 @@ def compare_players(player_id_a: int, player_id_b: int):
         "SELECT element, name FROM players_live WHERE element IN (%s, %s)",
         (player_id_a, player_id_b))}
 
+    flags = _availability_for([player_id_a, player_id_b])
+
     def brief(p):
         first = p["predictions"][0]
         # The first row is the RUN's own gameweek -- between deadlines that is the one just
         # played, not "next". The gameweek travels with the number (2026-09-14: an answer
         # called GW4's figures "next gameweek" while GW5 was the next deadline).
-        return {"player_id": p["player_id"], "name": names.get(p["player_id"]),
-                "first_gw": first["gw"],
-                "first_gw_e_points": first["e_points"],
-                "first_gw_p_start": first["p_start"],
-                "horizon_e_points_sum": p["horizon_e_points_sum"],
-                "horizon_gws": [r["gw"] for r in p["predictions"]]}
+        return _lead_with_availability(
+            {"player_id": p["player_id"], "name": names.get(p["player_id"]),
+             "first_gw": first["gw"],
+             "first_gw_e_points": first["e_points"],
+             "first_gw_p_start": first["p_start"],
+             "horizon_e_points_sum": p["horizon_e_points_sum"],
+             "horizon_gws": [r["gw"] for r in p["predictions"]]},
+            p["player_id"], flags)
     out = {"model_version": a["model_version"], "built_at": a["built_at"], "built": a.get("built"),
            "next_run_expected": a.get("next_run_expected"),
            "recovered_post_deadline": a["recovered_post_deadline"],
@@ -933,9 +1057,13 @@ def _frame_raw():
 
 def _explain_row(df, cutoff, player_id, target):
     """One (element, gw) row of the raw frame and its gameweek slice, or an error dict."""
+    lo, hi = int(df["gw"].min()), int(df["gw"].max())
+    run = _latest_run(gw=cutoff)
+    outside = _horizon_check(target, lo, hi, run["run_id"] if run else "?")
+    if outside:
+        return None, None, outside
     step = df[df["gw"] == int(target)]
     if step.empty:
-        lo, hi = int(df["gw"].min()), int(df["gw"].max())
         return None, None, {"error": f"the frame on the volume has no predictions for GW{target}: it covers "
                                      f"GW{lo}-GW{hi} as seen from cutoff GW{cutoff}"}
     row = step[step["element"] == int(player_id)]
@@ -1003,7 +1131,11 @@ def _explain_from_run(run_id, player_id, gw):
     except ValueError as e:
         return None, None, {"error": str(e)}
     if step is None:
-        return None, None, {"error": f"run {run_id} (GW{run['gw']}) has no rows for GW{gw}: outside its six-week horizon"}
+        lo, hi = _run_horizon(run)
+        outside = _horizon_check(gw, lo, hi, run_id)
+        return None, None, (outside or
+                            {"error": f"run {run_id} (GW{run['gw']}) has no rows for GW{gw}: "
+                                      "outside its six-week horizon"})
     row = step[step["element"] == int(player_id)]
     if row.empty:
         return None, None, {"error": f"no row for player {player_id} in GW{gw} of run {run_id}"}
@@ -1048,6 +1180,7 @@ def explain_prediction(player_id: int, gw: int = None, run_id: int = None):
     bd = explain.breakdown(row, step)
     out = {**bd, "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
            "frame_built_at": str(built), **_frame_built(cutoff)}
+    out = _lead_with_availability(out, player_id, _availability_for([player_id]))
     note = _stale_note(target, cutoff, built)
     if note:
         out["note_stale"] = note
@@ -1099,11 +1232,15 @@ def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
     if err:
         return err
     a, b = explain.breakdown(ra, step), explain.breakdown(rb, step)
+    flags = _availability_for([player_id_a, player_id_b])
     out = {**explain.compare(a, b), "breakdown_a": a, "breakdown_b": b,
            "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
            "frame_built_at": str(built), **_frame_built(cutoff)}
     if not out["reconciles"]:
         out["finding"] = "at least one of the two rows does not reconcile -- see the breakdowns' `finding`; do not present the comparison as sound"
+    for side, pid in (("a", player_id_a), ("b", player_id_b)):
+        if isinstance(out.get(side), dict):
+            out[side] = _lead_with_availability(out[side], pid, flags)
     note = _stale_note(target, cutoff, built)
     if note:
         out["note_stale"] = note

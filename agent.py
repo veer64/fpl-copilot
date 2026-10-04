@@ -9,7 +9,7 @@
 tools_schema = [
     {
         "name": "resolve_player",
-        "description": "Search for a player by name: accents, hyphens and FPL's own short name all work, and matching is on whole words. Returns `matches` (player_id, name, web_name, team, position, price, status), `total_matches`, `truncated` when more matched than are listed, `ambiguous` (more than one player answers to that name -- ask which, never pick one), `note` (for example that the player is at a different club from the one you named), and `suggestions` when nothing matched at all.",
+        "description": "Search for a player by name: accents, hyphens and FPL's own short name all work, and matching is on whole words. Returns `matches` (player_id, name, web_name, team, position, price, status), `total_matches`, `truncated` when more matched than are listed, `ambiguous` (more than one player answers to that name -- ask which, never pick one), `note` (for example that the player is at a different club from the one you named), and `suggestions` when nothing matched at all. available=false means the player cannot play for his club; lead with availability_note.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -21,7 +21,7 @@ tools_schema = [
     },
     {
         "name": "get_player_card",
-        "description": "Full details for one player: identity, price, availability status, and the production model's predictions for the coming gameweeks.",
+        "description": "Full details for one player: identity, price, availability status, and the production model's predictions for the coming gameweeks. available=false means the player cannot play for his club; lead with availability_note.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -32,7 +32,7 @@ tools_schema = [
     },
     {
         "name": "get_prediction",
-        "description": "The production model's predicted points for a player: one target gameweek if gw is given, else the whole six-gameweek horizon of the latest run. Includes e_points, expected minutes, start probability, and the provenance: `built` says when the run was built and what it knew, `next_run_expected` when the next run lands -- quote both and tell the user when to check back.",
+        "description": "The production model's predicted points for a player: one target gameweek if gw is given, else the whole six-gameweek horizon of the latest run. Includes e_points, expected minutes, start probability, and the provenance: `built` says when the run was built and what it knew, `next_run_expected` when the next run lands -- quote both and tell the user when to check back. available=false means the player cannot play for his club; lead with availability_note. A gameweek outside the run's range comes back as an error with error_kind: already_played, too_far_ahead or invalid_gw.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -44,7 +44,7 @@ tools_schema = [
     },
     {
         "name": "compare_players",
-        "description": "Compare two players under the production model over the latest run's six-gameweek horizon: the horizon sum (the verdict's basis) and the figures for the run's FIRST gameweek (first_gw -- between deadlines that is the gameweek just played, not the next one; note_stale says so). For 'X or Y this week' prefer compare_predictions, which defaults to the next deadline's gameweek and names the terms behind the gap. Whatever you quote, name its gameweek.",
+        "description": "Compare two players under the production model over the latest run's six-gameweek horizon: the horizon sum (the verdict's basis) and the figures for the run's FIRST gameweek (first_gw -- between deadlines that is the gameweek just played, not the next one; note_stale says so). For 'X or Y this week' prefer compare_predictions, which defaults to the next deadline's gameweek and names the terms behind the gap. Whatever you quote, name its gameweek. available=false means the player cannot play for his club; lead with availability_note.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -114,7 +114,7 @@ tools_schema = [
     },
     {
         "name": "explain_prediction",
-        "description": "WHY the model gives a player its expected points for a gameweek: the nine lines the model actually sums (appearance, goals with a penalties sub-line, assists, clean sheet, defensive contribution, saves, goals conceded, cards, bonus), each with the inputs it was made from and one of three source words -- model (a fitted model for this player/fixture), constant (a fixed value standing in for a model the project has not built or has switched off), rule (FPL's scoring rule applied to a model output) -- plus the fixture line and one summary sentence. Quote the `summary` and the labelled lines as the tool gives them (the `rendered` block is quotable verbatim); the three words are the tool's, do not editorialise about the constants. If `reconciles` is false the result carries a `finding`: report the finding, do not present the breakdown. Between deadlines the frame is one gameweek stale (note_stale, stale_by_gameweeks) -- say so. Use for 'why is X predicted N', 'what is behind X's score', 'is that a model or a guess'.",
+        "description": "WHY the model gives a player its expected points for a gameweek: the nine lines the model actually sums (appearance, goals with a penalties sub-line, assists, clean sheet, defensive contribution, saves, goals conceded, cards, bonus), each with the inputs it was made from and one of three source words -- model (a fitted model for this player/fixture), constant (a fixed value standing in for a model the project has not built or has switched off), rule (FPL's scoring rule applied to a model output) -- plus the fixture line and one summary sentence. Quote the `summary` and the labelled lines as the tool gives them (the `rendered` block is quotable verbatim); the three words are the tool's, do not editorialise about the constants. If `reconciles` is false the result carries a `finding`: report the finding, do not present the breakdown. Between deadlines the frame is one gameweek stale (note_stale, stale_by_gameweeks) -- say so. Use for 'why is X predicted N', 'what is behind X's score', 'is that a model or a guess'. available=false means the player cannot play for his club; lead with availability_note. A gameweek outside the run's range comes back as an error with error_kind: already_played, too_far_ahead or invalid_gw.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -141,7 +141,7 @@ tools_schema = [
     },
     {
         "name": "compare_predictions",
-        "description": "WHY two players' expected points differ for a gameweek: both breakdowns (see explain_prediction) on the same gameweek at the same cutoff, the per-term difference a minus b ranked by size, one sentence naming the terms that account for at least 80% of the gap, and flags where a term is a constant on one side against a model value on the other (say those out loud). The `rendered` block is quotable verbatim. Same stale-by-one labelling and identity checks. Use for 'why is X above Y', 'what separates X and Y', 'X or Y and why'.",
+        "description": "WHY two players' expected points differ for a gameweek: both breakdowns (see explain_prediction) on the same gameweek at the same cutoff, the per-term difference a minus b ranked by size, one sentence naming the terms that account for at least 80% of the gap, and flags where a term is a constant on one side against a model value on the other (say those out loud). The `rendered` block is quotable verbatim. Same stale-by-one labelling and identity checks. Use for 'why is X above Y', 'what separates X and Y', 'X or Y and why'. available=false means the player cannot play for his club; lead with availability_note. A gameweek outside the run's range comes back as an error with error_kind: already_played, too_far_ahead or invalid_gw.",
         "input_schema": {
             "type": "object",
             "properties": {
