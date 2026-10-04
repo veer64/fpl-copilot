@@ -69,10 +69,22 @@ def test_a_double_gameweek_is_two_fixtures_not_one():
 
 
 def test_a_blank_gameweek_says_so_rather_than_vanishing(cal):
+    """A REAL blank: this calendar runs GW6-7 and Coventry City has no GW7 fixture."""
     mapping, n = cal
-    out = ft.build([_row("Newcastle", 6)], mapping, n, team="Newcastle", gw=9)
+    out = ft.build([_row("Coventry City", 6)], mapping, n, team="Coventry City", gw=7)
     e = out["fixtures"][0]
     assert e["blank_gameweek"] is True and e["fixtures"] == []
+
+
+def test_a_gameweek_the_calendar_never_held_is_not_called_a_blank(cal):
+    """GW9 is outside this calendar's GW6-7. Until 2026-10-04 it answered "no fixture for this
+    team in this gameweek (a blank)", which reads as "they are not playing" when the file simply
+    stops earlier (B21)."""
+    mapping, n = cal
+    out = ft.build([_row("Newcastle", 6)], mapping, n, team="Newcastle", gw=9)
+    assert out["error_kind"] == "out_of_range"
+    assert "fixtures loaded cover GW6-7" in out["error"]
+    assert out["fixtures"] == []
 
 
 def test_difficulty_is_two_quantities_and_neither_is_a_composite(cal):

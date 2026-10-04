@@ -147,7 +147,20 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
     model_gws = sorted({int(r["gw"]) for r in rows})
     horizon = max(1, min(int(horizon), MAX_HORIZON))
 
+    cal_gws = sorted({k[1] for k in cal})
     if gw is not None:
+        # A gameweek the FILE does not cover is not a blank gameweek. Before 2026-10-04 every
+        # one of them answered "no fixture for this team in this gameweek (a blank)", which
+        # reads as "they are not playing" when the truth is that the calendar stops there --
+        # the forward skeleton starts at the ingest's gameweek and ends at 38 (B21).
+        if cal_gws and not (cal_gws[0] <= int(gw) <= cal_gws[-1]):
+            return {"error": (f"GW{int(gw)} is not in the fixture calendar: fixtures loaded "
+                              f"cover GW{cal_gws[0]}-{cal_gws[-1]}. A gameweek outside that is "
+                              "missing from the file, which is not the same as a blank "
+                              "gameweek."),
+                    "error_kind": "out_of_range",
+                    "fixtures": [], "gameweeks": [int(gw)],
+                    "calendar_covers": {"first_gw": cal_gws[0], "last_gw": cal_gws[-1]}}
         want_gws = [int(gw)]
     else:
         start = model_gws[0] if model_gws else min((k[1] for k in cal), default=1)
@@ -216,7 +229,28 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                         "n_fixtures": len(entries),
                         "double_gameweek": len(entries) > 1})
 
+    compact = team is None
+    if compact:
+        # 20 clubs x 5 gameweeks was 100 entries and 190,162 characters, because every entry
+        # repeated the same four paragraphs about the two difficulty numbers (B25). The rule is
+        # said once, below, and each row carries the six facts a reader is actually scanning.
+        rows = []
+        for e in out:
+            if e.get("blank_gameweek"):
+                rows.append({"team": e["team"], "gw": e["gw"], "opponent": None,
+                             "home": None, "attacking": None, "defensive": None,
+                             "blank": True})
+                continue
+            for f in e["fixtures"]:
+                d = f.get("difficulty") or {}
+                rows.append({"team": e["team"], "gw": e["gw"], "opponent": f.get("opponent"),
+                             "home": f.get("home"),
+                             "attacking": (d.get("attacking") or {}).get("value"),
+                             "defensive": (d.get("defensive") or {}).get("value")})
+        out = rows
+
     return {
+        "compact": compact,
         "fixtures": out,
         "teams_requested": teams,
         "unknown_teams": unknown,
@@ -233,6 +267,10 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                        "build path for something that rarely changes."),
             "team_names_resolved": n_team_names,
         },
+        "compact_columns": ("attacking = expected goals FOR this team in this fixture "
+                            "(higher is easier to score in); defensive = clean-sheet "
+                            "probability (higher is easier to keep one). Ask for one club to "
+                            "get the lambdas, the provenance and the runaway flags."),
         "difficulty_is_two_numbers": ("attacking and defensive difficulty are reported "
                                       "separately and must not be averaged into one FDR-like "
                                       "score -- that would discard the distinction this model "

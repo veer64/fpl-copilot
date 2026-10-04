@@ -203,7 +203,7 @@ tools_schema = [
             "easy a clean sheet is) -- because they routinely disagree and that disagreement is "
             "the point. Never average them into one score. Use for 'who does X play', 'how are "
             "Arsenal's next five fixtures', 'is this a good run'. Each fixture says whether it "
-            "is market-priced or pure Dixon-Coles, and flags a runaway strength."),
+            "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek; with no team the answer is compact rows (team, gw, opponent, home, attacking, defensive) and the two-numbers rule is stated once at the top."),
         "input_schema": {
             "type": "object",
             "properties": {
