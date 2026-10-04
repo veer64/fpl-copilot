@@ -441,7 +441,9 @@ def list_players(team: str = None, position: str = None):
             # calendar", which here is simply no such club in the game.
             if " matches [" in err:
                 return {"error": err, "known_clubs": known}
-            return {"error": f"no club matches {team!r}", "known_clubs": known}
+            # keep the "no club matches" wording and carry the resolver's detail -- the season
+            # it checked and the close names it found -- instead of dropping it (B23)
+            return {"error": f"no club matches {team!r}: {err}", "known_clubs": known}
 
     sql = """SELECT element AS player_id, name, position, team, price_tenths, status
              FROM players_live WHERE 1=1"""
@@ -2049,24 +2051,117 @@ FIXTURE_TEAM_ALIASES = {"spurs": "Spurs", "tottenham": "Spurs", "man utd": "Man 
                         "wolves": "Wolves", "newcastle": "Newcastle", "spurs fc": "Spurs"}
 
 
+_CLUB_SHORTS = {"at": 0.0, "value": None}
+_CLUB_HISTORY = {"at": 0.0, "value": None}
+
+
+def _club_short_names():
+    """{club name: short_name} from the newest bootstrap snapshot -- "Spurs" -> "TOT". Local
+    file only, cached an hour, {} when the archive cannot be read."""
+    if _CLUB_SHORTS["value"] is not None and time.time() - _CLUB_SHORTS["at"] < 3600:
+        return _CLUB_SHORTS["value"]
+    out = {}
+    try:
+        import gzip
+        import json
+        import prices_tool as pt
+        snaps = pt.snapshots()
+        if snaps:
+            with gzip.open(snaps[-1][1], "rt", encoding="utf-8") as fh:
+                doc = json.load(fh)
+            for t in doc.get("teams") or []:
+                if t.get("name"):
+                    out[str(t["name"])] = str(t.get("short_name") or "")
+    except Exception:                               # noqa: BLE001 -- optional
+        out = {}
+    _CLUB_SHORTS.update(at=time.time(), value=out)
+    return out
+
+
+def _clubs_known_to_history():
+    """Every club name the match archive holds, across seasons: the clubs that exist but may
+    not be in THIS division. Lets "Wolves" be answered with a fact instead of "unknown"."""
+    if _CLUB_HISTORY["value"] is not None and time.time() - _CLUB_HISTORY["at"] < 3600:
+        return _CLUB_HISTORY["value"]
+    out = set()
+    try:
+        for clubs in (_ms_club_sets() or {}).values():
+            out |= set(clubs)
+    except Exception:                               # noqa: BLE001 -- optional
+        out = set()
+    _CLUB_HISTORY.update(at=time.time(), value=out)
+    return out
+
+
+def _season_label():
+    run = _latest_run()
+    return (run or {}).get("season") or "this season"
+
+
 def _resolve_team(name, known):
-    """Match a club the way a person types it, or say it is unknown. Never a fuzzy
-    best-effort: naming the wrong club's fixtures is worse than declining."""
+    """Match a club the way a person types it, or say what is wrong. Never a fuzzy
+    best-effort: naming the wrong club's fixtures is worse than declining.
+
+    Accepted, all on player_names.norm words so case, accents, punctuation and "FC" do not
+    matter (B23, 2026-10-04): the stored name; the bootstrap's short_name ("TOT"); any entry of
+    FIXTURE_TEAM_ALIASES; and a longer name whose words CONTAIN a known one, which is how
+    "Tottenham Hotspur" reaches Spurs and "Brighton and Hove Albion" reaches Brighton. A club
+    the archives know but this division does not is told so by name; anything else gets up to
+    three close club names, the way resolve_player offers suggestions."""
     if name is None:
         return None, None
+    import player_names as pn
     raw = str(name).strip()
+    n = pn.norm(raw)
+    if not n:
+        return None, None
+    words = [w for w in n.split() if w not in ("fc", "afc")]
+    nw = " ".join(words)
+
+    # 1. the stored name, exactly
     for k in known:
-        if k.lower() == raw.lower():
+        if pn.norm(k) == n or pn.norm(k) == nw:
             return k, None
-    alias = FIXTURE_TEAM_ALIASES.get(raw.lower())
-    if alias and alias in known:
-        return alias, None
-    hits = [k for k in known if raw.lower() in k.lower()]
+    # 2. the bootstrap's short name, and the alias table
+    shorts = {pn.norm(v): k for k, v in (_club_short_names() or {}).items() if v}
+    if nw in shorts and shorts[nw] in known:
+        return shorts[nw], None
+    aliases = {pn.norm(k): v for k, v in FIXTURE_TEAM_ALIASES.items()}
+    if nw in aliases and aliases[nw] in known:
+        return aliases[nw], None
+    # 3. a longer name that CONTAINS a known name or alias ("tottenham hotspur" -> tottenham)
+    wordset = set(words)
+    contains = {k for k in known if set(pn.norm(k).split()) <= wordset}
+    for key, club in aliases.items():
+        if club in known and set(key.split()) <= wordset:
+            contains.add(club)
+    if len(contains) == 1:
+        return contains.pop(), None
+    if len(contains) > 1:
+        return None, f"{raw!r} matches {sorted(contains)} -- name one"
+    # 4. a fragment of one stored name
+    hits = [k for k in known if nw and nw in pn.norm(k)]
     if len(hits) == 1:
         return hits[0], None
     if len(hits) > 1:
         return None, f"{raw!r} matches {sorted(hits)} -- name one"
-    return None, f"{raw!r} is not a club in this season's calendar"
+    # 5. a real club, wrong division
+    for club in sorted(_clubs_known_to_history() or set()):
+        if pn.norm(club) == nw or set(pn.norm(club).split()) <= wordset:
+            if club not in known:
+                return None, f"{club} is not in the {_season_label()} Premier League"
+    # 6. nothing: offer the closest club names
+    import difflib
+    pool = {pn.norm(k): k for k in known}
+    pool.update({pn.norm(a): c for a, c in aliases.items() if c in known})
+    close = [pool[h] for h in difflib.get_close_matches(nw, list(pool), n=3, cutoff=0.6)]
+    seen, suggest = set(), []
+    for c in close:
+        if c not in seen:
+            seen.add(c)
+            suggest.append(c)
+    return None, (f"{raw!r} is not a club in the {_season_label()} Premier League"
+                  + (f" -- did you mean {', '.join(suggest)}?" if suggest else ""))
 
 
 def _team_gw_rows(run_id, skel):
