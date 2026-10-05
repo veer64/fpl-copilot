@@ -274,11 +274,14 @@ def _horizon_check(gw, lo, hi, run_id):
                 "error_kind": "already_played"}
     if x > int(hi):
         span = int(hi) - int(lo)
-        when = _gw_deadlines().get(x)
+        into = x - span
+        # The useful date is when the gameweek comes INTO range -- the deadline of the run that
+        # will first price it -- not its own deadline, which is weeks later (B20 wording fix).
+        when = _gw_deadlines().get(into)
         return {"error": (f"Run {run_id} covers GW{lo}-{hi}. GW{x} is too far ahead to predict "
-                          f"yet. It comes into range once runs reach about GW{x - span}; check "
-                          "back nearer then."
-                          + (f" GW{x}'s deadline is {when}." if when else "")),
+                          f"yet. It comes into range around GW{into}"
+                          + (f" (deadline {when})" if when else "")
+                          + "; check back nearer then."),
                 "error_kind": "too_far_ahead"}
     return None
 
@@ -1329,6 +1332,9 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         return {"error": f"horizon must be 1..6, got {horizon}"}
     lock = sorted({int(x) for x in (lock_player_ids or [])})
     ban = sorted({int(x) for x in (ban_player_ids or [])})
+    bad = _check_lock_ban(lock, ban)
+    if bad:
+        return bad
 
     doc = record["squad_json"]
     state = squad_store.to_state(doc)
@@ -1634,6 +1640,46 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     }
 
 
+def _check_lock_ban(lock, ban, pool_elements=None):
+    """None when every id is usable, else the error dict to return.
+
+    Two refusals, measured 2026-10-04. An id that matches no player: a lock on 999999 came out
+    of the solver as ValueError("Locked element 999999 not found in GW data.") and reached the
+    model as a generic tool failure, while a BAN on it solved happily and said nothing (B42). A
+    lock on a player who cannot play for his club: optimise(lock_player_ids=[55]) put Ollie
+    Watkins in the fifteen, whose own FPL note reads "Has joined Al Hilal permanently" --
+    banning him is still fine, because banning a player who cannot play changes nothing."""
+    ids = sorted({int(x) for x in list(lock or []) + list(ban or [])})
+    if not ids:
+        return None
+    try:
+        rows = _q("SELECT element, name FROM players_live WHERE element = ANY(%s)", (ids,))
+    except Exception:                               # noqa: BLE001 -- never block on the lookup
+        return None
+    names = {int(r["element"]): r["name"] for r in rows}
+    unknown = [i for i in ids if i not in names]
+    if unknown:
+        return {"error": (f"player id(s) {', '.join(str(i) for i in unknown)} match no player; "
+                          "use resolve_player"),
+                "error_kind": "unknown_player_id"}
+    locked = sorted({int(x) for x in (lock or [])})
+    flags = _availability_for(locked)
+    blocked = [(i, names[i], flags[i]["availability_note"]) for i in locked if i in flags]
+    if blocked:
+        parts = [f"{n.split()[-1]} cannot be locked: {note}" for _, n, note in blocked]
+        return {"error": "; ".join(parts) + ". Ban him instead, or lock someone else.",
+                "error_kind": "locked_player_unavailable"}
+    if pool_elements is not None:
+        missing = [i for i in locked if i not in set(int(e) for e in pool_elements)]
+        if missing:
+            return {"error": (f"player id(s) {', '.join(str(i) for i in missing)} "
+                              f"({', '.join(names[i] for i in missing)}) are in the game but not "
+                              "in this run's frame, so the optimiser cannot be made to pick "
+                              "them -- a blank gameweek, or they joined after the cutoff"),
+                    "error_kind": "locked_player_not_in_frame"}
+    return None
+
+
 def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
              budget: float = None):
     """Run the production MIP (gapRel=0) on the latest frame from the model
@@ -1648,6 +1694,9 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
         pool, cutoff, frame_mtime = _load_pool()
     except (FileNotFoundError, RuntimeError) as e:
         return {"error": str(e)}
+    bad = _check_lock_ban(lock_player_ids, ban_player_ids, pool_elements=pool["element"])
+    if bad:
+        return bad
     prob, sol = solve_mip(pool,
                           locked_elements=list(lock_player_ids or []),
                           banned_elements=list(ban_player_ids or []),

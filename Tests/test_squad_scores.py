@@ -286,8 +286,11 @@ def test_summary_total_points_come_from_scores_not_the_document():
     assert out["total_points"] == 109 and out["total_points_recorded"] == 0
     assert [s["gw"] for s in out["scored_gameweeks"]] == [4, 5]
     assert "rule 1" in out["total_points_meaning"]
+    # An empty table means the season has not been scored, which is not a total of zero: it
+    # read "0" for a squad with no scored gameweek at all (B45, 2026-10-04).
     out0 = squad_store.summary(rec, {}, current_gw=6, scores=[])
-    assert out0["total_points"] == 0 and out0["scored_gameweeks"] == []
+    assert out0["total_points"] is None and out0["scored_gameweeks"] == []
+    assert "not scored yet" in out0["total_points_note"]
     outn = squad_store.summary(rec, {}, current_gw=6)
     assert outn["total_points"] is None
 

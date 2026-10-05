@@ -104,7 +104,7 @@ if _SQUAD_DIR not in sys.path:
 
 from optimize import FORMATION, MAX_PER_CLUB, POSITION_LIMITS, SQUAD_SIZE, XI_SIZE  # noqa: E402
 from scoring import HIT_COST  # noqa: E402  -- FPL's real charge per paid transfer (4)
-from squad_state import MAX_FREE_TRANSFERS, SquadState  # noqa: E402
+from squad_state import MAX_FREE_TRANSFERS, SquadState, money  # noqa: E402
 
 SCHEMA_VERSION = 1
 ROLES = ("CAPTAIN", "VICE", "start", "bench")
@@ -552,8 +552,16 @@ def summary(record, prices, latest_run=None, current_gw=None, current_gw_error=N
         ft_now, ft_err = free_transfers_at(record, current_gw), None
     else:
         ft_now, ft_err = None, (current_gw_error or "current gameweek unknown")
+    # An empty squad_scores means the season has not been scored yet, which is not the same as
+    # a season of nothing: user 9001 read "total_points 0" with no row in the table at all
+    # (B45, measured 2026-10-04). None plus a note, and the note is dropped once there is a row.
+    total_note = None
     if scores is None:
         total, scored = None, None
+    elif not scores:
+        total, scored = None, []
+        total_note = ("not scored yet: no gameweek of this season has been scored for this "
+                      "squad, so there is no total to give -- this is not a total of zero")
     else:
         total = int(sum(int(s["points_net"]) for s in scores))
         scored = [{"gw": int(s["gw"]), "points_net": int(s["points_net"]), "hit": int(s["hit"]),
@@ -598,6 +606,7 @@ def summary(record, prices, latest_run=None, current_gw=None, current_gw_error=N
         "free_transfers_now_as_of_gw": current_gw,
         "free_transfers_error": ft_err,
         "total_points": total,
+        "total_points_note": total_note,
         "scored_gameweeks": scored,
         "total_points_recorded": doc["total_points"],
         "total_points_meaning": ("total_points = sum of squad_scores.points_net (hits deducted); "
@@ -995,11 +1004,12 @@ def plan_change(active, player_ids, captain_id, vice_id, bench_order_ids, gw, li
     proceeds = sum(sold_for.values())
     purchases = sum(prices[i] for i in ins)
     if state.bank != bank_before + proceeds - purchases:
-        raise RuntimeError(f"money conservation violated: bank {state.bank} != {bank_before} + "
-                           f"{proceeds} - {purchases}")
+        raise RuntimeError(f"money conservation violated: bank {money(state.bank)} != "
+                           f"{money(bank_before)} + {money(proceeds)} - {money(purchases)}")
     wealth_after = state.sell_value(prices) + state.bank
     if wealth_after != wealth_before:
-        raise RuntimeError(f"money conservation violated: wealth {wealth_before} -> {wealth_after}")
+        raise RuntimeError(f"money conservation violated: wealth {money(wealth_before)} -> "
+                           f"{money(wealth_after)}")
 
     ft_before = state.free_transfers
     paid = state.spend_transfers(len(pairs))

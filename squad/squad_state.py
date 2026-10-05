@@ -46,6 +46,19 @@ SQUAD_SIZE = 15
 STARTING_BUDGET = 1000      # £100.0m in tenths
 
 
+def money(tenths):
+    """Tenths of a million as FPL writes it: 4 -> "£0.4m", -61 -> "-£6.1m".
+
+    Prices are stored in tenths and the refusals used to print them raw -- "bank 4 + 54 - 119
+    = -61" reads as pounds-millions to anyone who has ever opened the game, so a user short by
+    £6.1m was told "-61" (B40, measured 2026-10-04). One formatter, used by every money
+    sentence a caller can see."""
+    if tenths is None:
+        return "unknown"
+    v = int(tenths) / 10
+    return f"-£{abs(v):.1f}m" if v < 0 else f"£{v:.1f}m"
+
+
 def sell_price(purchase_price, current_price):
     """What you actually receive for selling a player.
 
@@ -135,8 +148,8 @@ class SquadState:
         new_bank = self.bank + received - paid
         if new_bank < 0:
             raise ValueError(
-                f"transfer unaffordable: bank {self.bank} + {received} - {paid} "
-                f"= {new_bank}"
+                f"transfer unaffordable: bank {money(self.bank)} + {money(received)} "
+                f"- {money(paid)} = {money(new_bank)}"
             )
 
         out_pos = self.squad.loc[self.squad["element"] == out_element, "position"].iloc[0]
@@ -205,8 +218,8 @@ class SquadState:
         new_bank = self.bank + received - paid
         if new_bank < 0:
             raise ValueError(
-                f"transfer set unaffordable: bank {self.bank} + {received} "
-                f"- {paid} = {new_bank}"
+                f"transfer set unaffordable: bank {money(self.bank)} + "
+                f"{money(received)} - {money(paid)} = {money(new_bank)}"
             )
 
         keep = self.squad[~self.squad["element"].isin(outs)]

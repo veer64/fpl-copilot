@@ -70,9 +70,10 @@ def test_a_gameweek_inside_the_horizon_passes(gw):
 def test_a_gameweek_after_the_horizon_says_when_it_comes_into_range(gw, about):
     out = mt._horizon_check(gw, 6, 11, 24)
     assert out["error_kind"] == "too_far_ahead", out
-    assert f"Run 24 covers GW6-11" in out["error"]
+    assert "Run 24 covers GW6-11" in out["error"]
     assert f"GW{gw} is too far ahead" in out["error"]
-    assert f"about GW{about}" in out["error"], out["error"]
+    # the gameweek that first prices it, not the one asked about
+    assert f"around GW{about}" in out["error"], out["error"]
 
 
 def test_a_gameweek_before_the_horizon_says_it_was_played():
@@ -91,11 +92,15 @@ def test_a_number_that_is_not_a_gameweek_is_refused(gw):
 
 
 def test_the_deadline_is_named_when_local_data_holds_it(monkeypatch):
-    monkeypatch.setattr(mt, "_gw_deadlines", lambda: {20: "2027-01-05"})
-    assert "2027-01-05" in mt._horizon_check(20, 6, 11, 24)["error"]
+    """The date is the INTO-RANGE gameweek's deadline (GW15 for a GW20 question), because that
+    is when an answer becomes possible; GW20's own deadline is weeks later and no use here."""
+    monkeypatch.setattr(mt, "_gw_deadlines", lambda: {15: "2026-12-12", 20: "2027-01-05"})
+    out = mt._horizon_check(20, 6, 11, 24)
+    assert "around GW15 (deadline 2026-12-12)" in out["error"], out["error"]
+    assert "2027-01-05" not in out["error"]
     monkeypatch.setattr(mt, "_gw_deadlines", lambda: {})
     out = mt._horizon_check(20, 6, 11, 24)
-    assert out["error_kind"] == "too_far_ahead" and "2027" not in out["error"]
+    assert out["error_kind"] == "too_far_ahead" and "deadline" not in out["error"]
 
 
 # ---- the three tools -----------------------------------------------------------------
