@@ -34,6 +34,8 @@ because a partial expectation against a full points total is exactly the masquer
 count exists to prevent. Descriptive of past matches only -- never a forecast, never
 extrapolated, never ours.
 """
+import re
+
 import pandas as pd
 
 from team_map import TEAM_MAP, fpl_name   # noqa: F401  (TEAM_MAP re-exported for callers/tests)
@@ -128,16 +130,31 @@ def odds_attribution(provenance):
 
 # ------------------------------------------------------------------ the cutoff and the calendar
 
+AS_OF_FORMAT = "YYYY-MM-DD (a date), or YYYY-MM-DDTHH:MM:SS for a moment inside a day"
+# Only these two shapes. pd.Timestamp alone accepted anything it could coerce, and the coercions
+# were wrong or arbitrary (B33, measured 2026-10-04): "01/02/2026" came back as 2 January --
+# month-first -- while the match archive's own dates are parsed day-first, so the same string
+# meant two different days on the two sides of the comparison; "now" and "today" bound an
+# answer to the wall clock, which is not reproducible; "2030" and "2026" were read as 1 January.
+_AS_OF_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_AS_OF_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?"
+                          r"(Z|[+-]\d{2}:?\d{2})?$")
+
+
 def parse_as_of(as_of):
     """(naive UTC Timestamp, None) or (None, reason). A tz-aware input is converted to UTC and
     stripped, so it compares with the archive's naive dates the way the walk-forward's cutoff
-    does (tz_localize(None))."""
+    does (tz_localize(None)). The shape is checked FIRST: see AS_OF_FORMAT."""
+    text = str(as_of).strip() if as_of is not None else ""
+    if not (_AS_OF_DATE.match(text) or _AS_OF_STAMP.match(text)):
+        return None, (f"as_of {as_of!r} is not a date I will guess at. Use {AS_OF_FORMAT}.")
     try:
-        ts = pd.Timestamp(as_of)
+        ts = pd.Timestamp(text)
     except (ValueError, TypeError) as e:
-        return None, f"as_of {as_of!r} is not a timestamp I can read ({type(e).__name__}: {e})"
+        return None, (f"as_of {as_of!r} is not a date I can read ({type(e).__name__}: {e}). "
+                      f"Use {AS_OF_FORMAT}.")
     if pd.isna(ts):
-        return None, f"as_of {as_of!r} is not a timestamp I can read"
+        return None, f"as_of {as_of!r} is not a date I can read. Use {AS_OF_FORMAT}."
     if ts.tzinfo is not None:
         ts = ts.tz_convert("UTC").tz_localize(None)
     return ts, None

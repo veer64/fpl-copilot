@@ -2753,6 +2753,25 @@ def get_match_stats(team: str, opponent: str = None, stats: list = None, seasons
                   "saved_at": {s: (fprov["seasons"].get(_fbref_folder(s)) or {}).get("saved_at") for s in keys},
                   "grain": "season_aggregate"},
     }
+    # ONE spelling across seasons, BEFORE the join (B36, measured 2026-10-04). _to_season above
+    # puts each season's rows into that season's own club names, which is what the unmapped check
+    # needs -- but club_rows filters on a single name, so Ipswich's 2024-25 rows (stored
+    # "Ipswich") were invisible to a question about "Ipswich Town" and the tool reported
+    # "0 meetings ... a stated zero". The canonical form is the one the CURRENT league uses, and
+    # it comes from the archive alias map that is already the single source for these pairs.
+    # Only the clubs this question names, and only their own alias partner, so a season whose
+    # own spelling IS the archive's ("Ipswich" in 2024-25) keeps working in both directions.
+    rev = {v: k for k, v in ARCHIVE_NAME_ALIAS.items() if v and k}
+    rename = {}
+    for want in (resolved, opp):
+        if not want:
+            continue
+        for partner in (ARCHIVE_NAME_ALIAS.get(want), rev.get(want)):
+            if partner and partner != want:
+                rename[partner] = want
+    if rename:
+        known = known.assign(home=known["home"].replace(rename),
+                             away=known["away"].replace(rename))
     rows = ms.club_rows(known, resolved)
     out = _run_meta(run)
     out.update({"as_of": {"cutoff": f"{cutoff:%Y-%m-%d %H:%M:%S}", "source": source, "rule": AS_OF_RULE}})

@@ -92,6 +92,23 @@ def read_snapshot(path):
     return out
 
 
+def _widened(window_days, t0, t1):
+    """True when the two observations are further apart than the window asked for."""
+    asked = float(window_days or 0) * 24.0
+    actual = (t1 - t0).total_seconds() / 3600.0
+    return bool(asked > 0 and actual > asked * 1.05)
+
+
+def _widened_note(window_days, t0, t1):
+    if not _widened(window_days, t0, t1):
+        return None
+    actual_days = (t1 - t0).total_seconds() / 86400.0
+    asked = int(window_days)
+    return (f"asked for {asked} day{'s' if asked != 1 else ''}; widened to "
+            f"{round(actual_days, 1)} days because price snapshots are sparse -- these are the "
+            "two nearest observations, and every number here is the net change between them")
+
+
 def bracket(window_days=DEFAULT_WINDOW_DAYS, now=None, directory=None):
     """The two snapshots that bracket the window: the last one at or before its start, and the
     most recent one. O(1) reads instead of scanning the archive, which matters because the
@@ -132,6 +149,11 @@ def movements(window_days=DEFAULT_WINDOW_DAYS, squad=None, directory=None, now=N
         "window_hours_actual": round((t1 - t0).total_seconds() / 3600.0, 1),
         "snapshots_in_window": len(inside),
         "largest_gap_hours": _gaps(inside),
+        # The snapshots are burst-sampled, 6-8 days apart, so a short window silently becomes a
+        # long one: window_days_requested 1 sat beside window_hours_actual 153.8 with nothing
+        # reconciling them, and "who rose in the last day?" was answered off six days (B27).
+        "window_widened": _widened(window_days, t0, t1),
+        "window_widened_note": _widened_note(window_days, t0, t1),
         "sampling": ("the snapshots are BURST-SAMPLED around builds, not daily. A move that "
                      "happened and reversed inside a gap is invisible here, and 'no change' "
                      "means 'no NET change between these two observations', not 'the price "

@@ -253,7 +253,7 @@ tools_schema = [
             "type": "object",
             "properties": {
                 "as_of": {"type": "string",
-                          "description": "ISO timestamp cutoff (UTC); omit for the latest run's cutoff"},
+                          "description": "ISO timestamp cutoff (UTC); omit for the latest run's cutoff. as_of takes YYYY-MM-DD, or YYYY-MM-DDTHH:MM:SS for a moment inside a day, and nothing else: a slash date, a bare year or 'now' is refused rather than guessed at."},
                 "team": {"type": "string", "description": "Club name; omit for the full table"},
                 "form_last_n": {"type": "integer",
                                 "description": "How many recent matches the form fields cover (default 5)"},
@@ -296,7 +296,7 @@ tools_schema = [
                 "last_n_matches": {"type": "integer", "description": "Form window over the most recent admitted matches (per-match stats only)"},
                 "venue": {"type": "string", "enum": ["home", "away"], "description": "Restrict to home or away; omit for both"},
                 "side": {"type": "string", "enum": ["for", "against", "both"], "description": "The team's own numbers, the opponents', or both (default for)"},
-                "as_of": {"type": "string", "description": "ISO timestamp cutoff (UTC); omit for the latest run's cutoff"}
+                "as_of": {"type": "string", "description": "ISO timestamp cutoff (UTC); omit for the latest run's cutoff. as_of takes YYYY-MM-DD, or YYYY-MM-DDTHH:MM:SS for a moment inside a day, and nothing else: a slash date, a bare year or 'now' is refused rather than guessed at."}
             },
             "required": ["team"]
         }

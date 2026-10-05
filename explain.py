@@ -307,10 +307,18 @@ def breakdown(row, step_rows=None):
     rec = reconcile(row)
     consts = [(l["term"], l["constant"]) for l in lines if l["source"] == "constant"]
     known = ["appearance carries a flat 0.30 sub chance"]
-    if lines and any(l["term"] == "goals" and l.get("penalties", {}).get("source") == "constant" for l in lines):
-        consts.append(("penalties", CONSTANT_LABELS["pen_fallback"]))
+    # The penalties fallback is a SUB-LINE inside goals, not a tenth line, and counting it made
+    # the census overstate itself -- "4 of 9 lines are constants" when three of the nine were
+    # (B39, measured on Nicolas Jackson's GW6 breakdown 2026-10-04). It is named after the
+    # count instead, so nothing about it is hidden.
+    pen_const = bool(lines and any(l["term"] == "goals"
+                                  and l.get("penalties", {}).get("source") == "constant"
+                                  for l in lines))
     summary = (f"{len(consts)} of 9 lines are constants standing in for models ("
-               + "; ".join(f"{t.replace('_', ' ')}: {c}" for t, c in consts) + ") -- the rest are model outputs under FPL's rules; "
+               + "; ".join(f"{t.replace('_', ' ')}: {c}" for t, c in consts) + ")"
+               + (f", and the penalties sub-line inside goals is a constant too "
+                  f"({CONSTANT_LABELS['pen_fallback']})" if pen_const else "")
+               + " -- the rest are model outputs under FPL's rules; "
                + " and ".join(known)
                + (f"; the fixture strength at this step is {fx_const}" if fx_const else "")
                + (" -- and a strength parameter ran off (KNOWN_ISSUES #25)" if runaway else "") + ".")

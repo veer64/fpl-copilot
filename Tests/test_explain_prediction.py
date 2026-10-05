@@ -113,7 +113,11 @@ def test_positional_dc_fallback_and_position_prior_and_penalty_fallback_are_dete
     assert by["goals"]["source"] == "constant" and by["goals"]["constant"] == "position prior"
     assert by["assists"]["constant"] == "position prior"
     assert by["goals"]["penalties"]["source"] == "constant" and by["goals"]["penalties"]["constant"] == "fallback 0.05"
-    assert "penalties: fallback 0.05" in bd["summary"]
+    # the penalties fallback is named in the summary, but as the SUB-LINE it is: counting it
+    # among the nine lines made the census overstate itself (B39, 2026-10-04)
+    assert "penalties sub-line inside goals is a constant too (fallback 0.05)" in bd["summary"]
+    n_const_lines = sum(1 for l in bd["lines"] if l["source"] == "constant")
+    assert f"{n_const_lines} of 9 lines are constants" in bd["summary"]
     real = _row(position="MID", p_dc_hit=0.21)
     by2 = {l["term"]: l for l in explain.breakdown(real, _step([real]))["lines"]}
     assert by2["defensive_contribution"]["source"] == "model" and by2["goals"]["source"] == "model"
