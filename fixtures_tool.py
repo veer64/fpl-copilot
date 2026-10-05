@@ -154,11 +154,17 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
         # reads as "they are not playing" when the truth is that the calendar stops there --
         # the forward skeleton starts at the ingest's gameweek and ends at 38 (B21).
         if cal_gws and not (cal_gws[0] <= int(gw) <= cal_gws[-1]):
-            return {"error": (f"GW{int(gw)} is not in the fixture calendar: fixtures loaded "
-                              f"cover GW{cal_gws[0]}-{cal_gws[-1]}. A gameweek outside that is "
-                              "missing from the file, which is not the same as a blank "
-                              "gameweek."),
-                    "error_kind": "out_of_range",
+            covers = f"fixtures loaded cover GW{cal_gws[0]}-{cal_gws[-1]}"
+            if 1 <= int(gw) < cal_gws[0]:
+                # the same words get_prediction uses for a gameweek behind the run's horizon,
+                # so one question asked of two tools does not get two different explanations
+                err, kind = f"GW{int(gw)} has already been played; {covers}.", "already_played"
+            else:
+                err = (f"GW{int(gw)} is not in the fixture calendar: {covers}. A gameweek "
+                       "outside that is missing from the file, which is not the same as a "
+                       "blank gameweek.")
+                kind = "out_of_range"
+            return {"error": err, "error_kind": kind,
                     "fixtures": [], "gameweeks": [int(gw)],
                     "calendar_covers": {"first_gw": cal_gws[0], "last_gw": cal_gws[-1]}}
         want_gws = [int(gw)]

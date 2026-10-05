@@ -262,7 +262,9 @@ def test_head_to_head_is_hand_checked_against_the_known_results(mt):
 def test_zero_meetings_is_a_stated_answer_not_an_empty_one(mt):
     out = mt.get_match_stats(team="Arsenal", opponent="Everton", stats=["goals"], seasons=1,
                              as_of="2026-08-25T00:00:00")
-    assert out["head_to_head"]["meetings"] == [] and "no meeting" in out["head_to_head"]["statement"]
+    st = out["head_to_head"]["statement"]
+    assert out["head_to_head"]["meetings"] == []
+    assert st.startswith("No meetings between Arsenal and Everton"), st
     assert _stat(out, "goals")["window"]["matches_counted"] == 0
 
 
@@ -277,8 +279,10 @@ def test_an_empty_window_with_an_opponent_answers_instead_of_crashing(mt):
     h2h = out["head_to_head"]
     assert h2h["meetings"] == [] and h2h["matches_counted"] == 0
     assert h2h["record"] == {"won": 0, "drawn": 0, "lost": 0}
-    assert "no meeting" in h2h["statement"]
-    assert "2025-01-01" in h2h["statement"], h2h["statement"]        # the window's date
+    st = h2h["statement"]
+    assert st.startswith("No meetings between Arsenal and Everton"), st
+    assert "2025-01-01" in st, st                                    # the window's date
+    assert "played no matches in that window" in st, st              # nothing at all in it
     assert _stat(out, "goals")["window"]["matches_counted"] == 0
     assert _stat(out, "goals")["for"]["total"] is None
 

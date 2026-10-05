@@ -202,11 +202,13 @@ def head_to_head(rows, team, opponent, window=None):
     w = window or {}
     where = ", ".join(str(s) for s in (w.get("seasons") or [])) or "the seasons requested"
     asof = f" as of {w.get('as_of')}" if w.get("as_of") else " as of the cutoff"
-    span = ""
-    if w.get("matches_in_window") == 0:
-        span = f"; {team} has no match in that window at all, so this is a window with no data"
-    st = (f"no meeting between {team} and {opponent} in {where}{asof} -- a stated zero, not an "
-          f"empty result{span}" if not meetings else
+    # One sentence, and a second only when it adds a fact: that the club played nothing at all
+    # in the window. The old wording ("a stated zero, not an empty result ... a window with no
+    # data") explained the implementation instead of answering the question.
+    empty_window = w.get("matches_in_window") == 0
+    st = (f"No meetings between {team} and {opponent} in {where}{asof}"
+          + (f"; {team} played no matches in that window." if empty_window else ".")
+          if not meetings else
           f"{len(meetings)} meeting(s), most recent first; the record is {team}'s")
     out = {"opponent": opponent, "record": rec, "meetings": meetings,
            "matches_counted": len(meetings), "statement": st}

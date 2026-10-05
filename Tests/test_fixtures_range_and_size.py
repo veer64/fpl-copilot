@@ -47,12 +47,21 @@ def rows_of():
 
 
 # ---- B21 -------------------------------------------------------------------------------
-@pytest.mark.parametrize("gw", [1, 5, 9, 39, 100, 0])
+@pytest.mark.parametrize("gw", [9, 39, 100, 0])
 def test_a_gameweek_the_calendar_does_not_hold_is_out_of_range(gw):
+    """After the loaded range, or not a gameweek at all."""
     out = ft.build(rows_of(), cal_of(), 3, team="Arsenal", gw=gw)
     assert out.get("error_kind") == "out_of_range", (gw, out)
     assert "fixtures loaded cover GW6-8" in out["error"], out["error"]
     assert "fixtures" not in out or not out["fixtures"]
+
+
+@pytest.mark.parametrize("gw", [1, 5])
+def test_a_gameweek_before_the_loaded_range_says_it_was_played(gw):
+    """Same words get_prediction uses for a gameweek behind the run's horizon."""
+    out = ft.build(rows_of(), cal_of(), 3, team="Arsenal", gw=gw)
+    assert out.get("error_kind") == "already_played", (gw, out)
+    assert out["error"] == f"GW{gw} has already been played; fixtures loaded cover GW6-8."
 
 
 def test_a_real_blank_inside_the_range_stays_a_blank():
