@@ -431,7 +431,7 @@ def test_search_news_is_the_twentieth_tool_with_the_required_description(monkeyp
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
     import agent
     names = [t["name"] for t in agent.tools_schema]
-    assert names[-1] == "search_news" and len(names) == 20 and set(names) == set(agent.available_functions)
+    assert names[-1] == "search_news" and len(names) == 22 and set(names) == set(agent.available_functions)
     d = next(t for t in agent.tools_schema if t["name"] == "search_news")["description"].lower()
     for must in ("injury", "fitness", "availability", "suspension", "team-news", "always pass the player names", "fpl status"):
         assert must in d, must

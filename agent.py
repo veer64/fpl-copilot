@@ -56,7 +56,7 @@ tools_schema = [
     },
     {
         "name": "get_picks",
-        "description": "The solved squad from the latest pipeline run: the fifteen, starting XI, captain, vice-captain, and bench in order. Use for 'who should I captain', 'what team should I field'. shadow=true returns the baseline config's squad (the tracked comparison), never shown as the recommendation.",
+        "description": "The solved squad from the latest pipeline run: the fifteen, starting XI, captain, vice-captain, and bench in order. Use for 'who should I captain', 'what team should I field'. shadow=true returns the baseline config's squad (the tracked comparison), never shown as the recommendation. Optional gw asks for another gameweek of the run's horizon: the stored solve exists only for the next deadline's gameweek, so another one is computed with the same optimiser and comes back with computed=true and a planning-view note.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -79,7 +79,7 @@ tools_schema = [
     },
     {
         "name": "optimise",
-        "description": "Run the production optimiser on the latest model frame with constraints: force players in, ban players, or change the budget. A real MIP solve -- takes seconds. Returns fifteen + XI + captain + vice. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead).",
+        "description": "Run the production optimiser on the latest model frame with constraints: force players in, ban players, or change the budget. A real MIP solve -- takes seconds. Returns fifteen + XI + captain + vice. Builds a squad from scratch with a full budget. For the user's own squad ('my team'), use propose_transfers or get_my_xi instead. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -103,7 +103,7 @@ tools_schema = [
     },
     {
         "name": "get_my_xi",
-        "description": "The NEXT DEADLINE's best starting XI, captain, vice-captain and bench order over the fifteen the user owns, solved by the production optimiser from the current model run's predictions (a real solve, about a second). Between deadlines the frame belongs to the previous deadline, so the predictions are labelled as of that cutoff (note_stale, stale_by_gameweeks) -- say so when present. Use for 'who should I start', 'who should I captain', 'what is my best XI', 'should X or Y start'. It also reports how the recorded roles differ and the expected points they leave on the table (recorded_roles.expected_gain_vs_recorded). Nothing is written: to record this XI, pass adopt_with to set_my_squad (preview first, then confirm=true when the user says so).",
+        "description": "The NEXT DEADLINE's best starting XI, captain, vice-captain and bench order over the fifteen the user owns, solved by the production optimiser from the current model run's predictions (a real solve, about a second). Between deadlines the frame belongs to the previous deadline, so the predictions are labelled as of that cutoff (note_stale, stale_by_gameweeks) -- say so when present. Use for 'who should I start', 'who should I captain', 'what is my best XI', 'should X or Y start'. Optional gw solves the XI for another gameweek of the run's horizon; that answer is a planning view and carries a note saying so. It also reports how the recorded roles differ and the expected points they leave on the table (recorded_roles.expected_gain_vs_recorded). Nothing is written: to record this XI, pass adopt_with to set_my_squad (preview first, then confirm=true when the user says so).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -302,6 +302,29 @@ tools_schema = [
         }
     },
     {
+        "name": "get_actual_points",
+        "description": "What a player ACTUALLY scored in a finished gameweek of THIS season, with FPL's own breakdown (minutes, goals, assists, clean sheet, bonus, bps, cards, saves, defensive contribution), when the data was fetched, and whether FPL had finished checking it. Pass gw for one gameweek; omit gw for every finished gameweek plus the season total. It also carries the model's own pre-deadline prediction for that gameweek when a run covered it (predicted, predicted_minus_actual) -- runs exist from a GW3 cutoff onward, so GW1 and GW2 have no prediction to compare and the tool says so. Use for 'how many points did X score', 'how did X do in GW3', 'was the model right about X'. A gameweek not played yet is refused with error_kind not_played_yet; for what the model expects, use get_prediction. This season only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "player_id": {"type": "integer", "description": "FPL element id (resolve_player gives it)"},
+                "gw": {"type": "integer", "description": "a finished gameweek; omit for all of them"}
+            },
+            "required": ["player_id"]
+        }
+    },
+    {
+        "name": "get_my_points",
+        "description": "The user's OWN team score for a finished gameweek of THIS season: the squad version that was active at that gameweek's deadline, scored by FPL's rules as this project implements them -- the XI after automatic substitutions, the captain doubled (the vice instead if the captain did not play), minus 4 points per transfer beyond the free allowance. Returns points_net (what FPL would credit), points_raw, hit, captain_bonus, who was doubled and whether it was the captain or the vice, the substitutions made, and bench points (reported, never scored). Pass gw for one gameweek; omit gw for every gameweek the squad existed for plus the total. Chips are not modelled, so a gameweek a chip was played in scores as an ordinary one -- say so if it matters. No squad recorded at that deadline is refused with error_kind no_squad_for_gw; a gameweek not played yet with not_played_yet. Use for 'how many points did I get', 'how did my team do in GW3', 'what is my season total'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "gw": {"type": "integer", "description": "a finished gameweek; omit for all of them"}
+            },
+            "required": []
+        }
+    },
+    {
         "name": "search_news",
         "description": ("Search the stored team news (FPL's official flags, BBC Sport, the clubs' own sites) for a player "
                         "or a club. Use it for injury, fitness, availability, suspension and team-news questions. Always pass "
@@ -332,7 +355,8 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
                          get_my_xi, propose_transfers, explain_prediction,
                          compare_predictions, compare_runs, get_fixtures,
-                         get_price_movements, get_league_table, get_match_stats)
+                         get_price_movements, get_league_table, get_match_stats,
+                         get_actual_points, get_my_points)
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
@@ -436,6 +460,8 @@ available_functions = {
     "get_price_movements": get_price_movements,
     "get_league_table": get_league_table,
     "get_match_stats": get_match_stats,
+    "get_actual_points": get_actual_points,
+    "get_my_points": get_my_points,
     "search_news": search_news,
 }
 
