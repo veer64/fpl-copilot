@@ -752,15 +752,80 @@ def compare_players(player_id_a: int, player_id_b: int):
     return out
 
 
+
+def _planning_note(target, next_gw):
+    """The sentence every answer for a gameweek past the next deadline carries, or None.
+
+    A solve for GW9 off today's frame is a plan, not a team: that fixture has no odds, no
+    lineup and no team news behind it yet (section 1b of the prompt). Saying so beside the
+    number is the difference between a planning view and a recommendation.
+    """
+    if next_gw is None or int(target) == int(next_gw):
+        return None
+    return (f"Planning view for GW{int(target)} from today's predictions; availability and "
+            "predictions will change before then.")
+
+
+def _solver_gw(gw):
+    """(target gameweek, None) or (None, error dict) for the three solver tools.
+
+    gw None keeps each tool's own default, which is the next deadline's gameweek; an
+    explicit gw is checked against the latest run's horizon with the SAME helper
+    get_prediction uses, so one question asked of four tools gets one vocabulary.
+    """
+    run = _latest_run()
+    if run is None:
+        return None, {"error": "no successful pipeline run in the database yet"}
+    try:
+        next_gw = _current_gw()
+    except RuntimeError as e:
+        return None, {"error": str(e)}
+    if gw is None:
+        return next_gw, None
+    lo, hi = _run_horizon(run)
+    bad = _horizon_check(gw, lo, hi, run.get("run_id"))
+    if bad:
+        return None, bad
+    return int(gw), None
+
+
 # -------------------------------------------------------------------- picks
 def get_picks(gw: int = None, shadow: bool = False):
-    """The solved squad of the latest successful run (optionally for a given
-    gw): XI, captain, vice, bench in order. shadow=True returns the baseline
-    config's squad and how it differs -- the season-long comparison."""
-    run = _latest_run(gw=gw)
+    """The solved squad for a gameweek: XI, captain, vice, bench in order.
+    shadow=True returns the baseline config's squad and how it differs -- the
+    season-long comparison.
+
+    A STORED solve exists only for the run's own gameweek, which is the next
+    deadline's. Asked for another gameweek inside the horizon, this computes one
+    with the same solver optimise uses and says it was computed, not stored.
+    """
+    run = _latest_run()
     if run is None:
-        return {"error": f"no successful pipeline run{f' for GW{gw}' if gw else ''} "
-                         "in the database yet"}
+        return {"error": "no successful pipeline run in the database yet"}
+    if gw is not None and int(gw) != int(run.get("gw") or -1):
+        # no stored solve for that gameweek: compute it, through the one solver entry
+        # point, and reshape optimise's answer into this tool's contract
+        if shadow:
+            return {"error": (f"there is no stored solve for GW{int(gw)} and no shadow "
+                              "configuration to compute one with; ask for the production "
+                              "picks instead")}
+        got = optimise(gw=gw)
+        if "error" in got:
+            return got
+        rows = [{"player_id": r["player_id"], "name": r["name"], "position": r["position"],
+                 "team": None, "role": r["role"], "price": r["price"],
+                 "e_points": r["e_points"]} for r in got["squad"]]
+        out = {k: got[k] for k in ("gw", "solve_seconds", "frame_built_at", "built")
+               if k in got}
+        out.update({"config": PRODUCTION_CONFIG + " (production)",
+                    "stored": False, "computed": True,
+                    "captain": got.get("captain"), "vice": got.get("vice"),
+                    "xi": [r for r in rows if r["role"] != "bench"],
+                    "bench_in_order": [r for r in rows if r["role"] == "bench"],
+                    "squad_cost": got.get("squad_cost")})
+        if got.get("note"):
+            out["note"] = got["note"]
+        return out
     if shadow and SHADOW_CONFIG is None:
         return {"error": "no shadow configuration is run (production = "
                          f"{PRODUCTION_CONFIG} since 2026-09-11; config_roles.py)"}
@@ -776,6 +841,8 @@ def get_picks(gw: int = None, shadow: bool = False):
         r["e_points"] = float(r["e_points"])
     out = _run_meta(run, config)
     out["config"] = config + (" (shadow)" if shadow else " (production)")
+    if gw is not None:
+        out["stored"] = True            # asked for explicitly; the no-gw answer must not move
     out["captain"] = next((r["name"] for r in rows if r["role"] == "CAPTAIN"), None)
     out["vice"] = next((r["name"] for r in rows if r["role"] == "VICE"), None)
     out["xi"] = [r for r in rows if r["role"] != "bench"]
@@ -842,7 +909,7 @@ def get_my_squad(user_id: int = None):
                                scores=scores)
 
 
-def get_my_xi(user_id: int = None):
+def get_my_xi(user_id: int = None, gw: int = None):
     """THIS WEEK's best XI, captain, vice and bench order over the fifteen the
     user owns, solved from the current production frame on the model volume
     (the frame the latest deadline run wrote) -- the same single-gameweek MIP
@@ -853,16 +920,30 @@ def get_my_xi(user_id: int = None):
     expected points the recorded XI leaves on the table. Owned players absent
     from the frame are injected at e_points 0 (the production blank-week
     rule) and listed. Nothing is written: to adopt the XI, call set_my_squad
-    with adopt_with and confirm=true."""
+    with adopt_with and confirm=true.
+
+    gw selects which gameweek of the run's horizon to solve the XI for. Omitted,
+    it is the next deadline's gameweek, which is what this tool has always done;
+    another gameweek inside the horizon is a planning view and says so."""
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
         record = squad_store.read_active(user_id)
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
-    try:
-        target = _current_gw()
-    except RuntimeError as e:
-        return {"error": str(e)}
+    if gw is None:
+        try:
+            target = _current_gw()
+        except RuntimeError as e:
+            return {"error": str(e)}
+        xi_note = None
+    else:
+        target, bad = _solver_gw(gw)
+        if bad:
+            return bad
+        try:
+            xi_note = _planning_note(target, _current_gw())
+        except RuntimeError:
+            xi_note = None
     try:
         pool, cutoff, built = _load_pool(gw=target)
     except (FileNotFoundError, RuntimeError) as e:
@@ -917,6 +998,8 @@ def get_my_xi(user_id: int = None):
         out["note_missing"] = (f"{len(missing)} owned player(s) have no row for GW{target} in the "
                                f"frame (blank gameweek or absent at cutoff GW{cutoff}) and were "
                                "solved at 0 expected points, per the production blank-week rule")
+    if xi_note:
+        out["note"] = xi_note
     if target != cutoff:
         out["note_stale"] = (f"the frame on the volume is GW{cutoff}'s (built {built:%Y-%m-%d %H:%M}Z); "
                              f"GW{target}'s predictions here are as seen from cutoff GW{cutoff}, "
@@ -1683,19 +1766,40 @@ def _check_lock_ban(lock, ban, pool_elements=None):
 
 
 def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
-             budget: float = None):
+             budget: float = None, gw: int = None):
     """Run the production MIP (gapRel=0) on the latest frame from the model
     volume, with constraints. Returns the fifteen + XI + captain + vice.
-    This is a real solve: it takes seconds and blocks this chat turn."""
+    This is a real solve: it takes seconds and blocks this chat turn.
+
+    gw selects which gameweek of the run's horizon to solve. Omitted, it is
+    the frame's own gameweek, which is what this tool has always solved;
+    another gameweek inside the horizon is a planning view and says so."""
     import pulp
     import simulator as sim
     from optimize import optimize_squad as solve_mip
 
     t0 = time.time()
-    try:
-        pool, cutoff, frame_mtime = _load_pool()
-    except (FileNotFoundError, RuntimeError) as e:
-        return {"error": str(e)}
+    note = None
+    if gw is None:
+        try:
+            pool, cutoff, frame_mtime = _load_pool()
+        except (FileNotFoundError, RuntimeError) as e:
+            return {"error": str(e)}
+    else:
+        target, bad = _solver_gw(gw)
+        if bad:
+            return bad
+        try:
+            pool, cutoff, frame_mtime = _load_pool(gw=target)
+        except (FileNotFoundError, RuntimeError) as e:
+            return {"error": str(e)}
+        except ValueError as e:
+            return {"error": f"the frame on the volume has no predictions for GW{target}: {e}"}
+        try:
+            note = _planning_note(target, _current_gw())
+        except RuntimeError:
+            note = None
+        cutoff = target
     bad = _check_lock_ban(lock_player_ids, ban_player_ids, pool_elements=pool["element"])
     if bad:
         return bad
@@ -1708,6 +1812,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
                          "constraints may be infeasible (e.g. budget too low)"}
     team = sim.solution_to_squad(pool, sol)
     return {"gw": cutoff, "solve_seconds": round(time.time() - t0, 1),
+            **({"note": note} if note else {}),
             "frame_built_at": str(frame_mtime), **_frame_built(cutoff),
             "constraints": {"locked": lock_player_ids or [], "banned": ban_player_ids or [],
                             "budget": budget or 100.0},
