@@ -17,6 +17,7 @@ not evidence. "must call" is a chain:
     a + b       both must come after the previous step, in any order
     a|b         either satisfies that slot
     none        no tool call at all
+    any         no must-call requirement (must NOT call still applies)
     tool(k=v)   that tool, called with that argument
 
 Extra calls never fail a question; "must NOT call" lists what may never appear.
@@ -69,6 +70,11 @@ def split_top(spec, sep):
     return [s.strip() for s in spec.split(sep) if s.strip()]
 
 
+def is_any(spec):
+    """True for the "any" must-call spec, whatever its case or padding."""
+    return (spec or "").strip().lower() == "any"
+
+
 def parse_chain(spec):
     """"a > b|c + d" -> [[{"a"}], [{"b","c"}, {"d"}]]: steps in order, each a
     list of slots, each slot a set of acceptable tool specs."""
@@ -116,7 +122,15 @@ def call_matches(call, spec):
 
 
 def grade_must_call(spec, calls):
-    """(ok, reason) for the "must call" column against this turn's calls."""
+    """(ok, reason) for the "must call" column against this turn's calls.
+
+    "any" means the question has NO required chain -- answer it with one tool, four, or
+    none. It is not "none", which forbids calling anything. The distinction matters because
+    25 v2.1 rows had a correct answer failed by a chain the question never needed, and the
+    fix must not become "stop grading": "must NOT call" still applies to every row.
+    """
+    if is_any(spec):
+        return True, ""
     steps = parse_chain(spec)
     if not steps:                                   # "none": no call may be made
         if calls:

@@ -75,6 +75,40 @@ def test_none_means_no_tool_call_at_all():
     assert not bad and "get_picks" in reason
 
 
+def test_any_means_there_is_no_must_call_requirement():
+    """A spec of "any" says the question has no required chain: the model may answer from
+    one tool, four, or none. It is NOT "none", which forbids calling anything at all.
+    Added 2026-10-06, because 25 v2.1 rows had a correct answer failed by a chain the
+    question never needed."""
+    ok, reason = rae.grade_must_call("any", [])
+    assert ok, reason
+    for shape in (("get_my_squad",), ("get_my_squad", "get_my_xi"),
+                  ("resolve_player", "get_player_card", "get_prediction")):
+        ok, reason = rae.grade_must_call("any", calls(*shape))
+        assert ok, (shape, reason)
+    # case and padding must not change the meaning
+    for spell in ("ANY", " any ", "Any"):
+        ok, _ = rae.grade_must_call(spell, calls("get_picks"))
+        assert ok, spell
+
+
+def test_any_still_enforces_the_must_not_call_column():
+    """The whole point of relaxing must-call is that the forbidden list keeps its teeth."""
+    q = {"must_call": "any", "must_not": "set_my_squad(confirm=true)", "sheet": "s", "num": 1}
+    res, reason = rae.grade(q, [])
+    assert res == "PASS", reason
+    res, reason = rae.grade(q, calls("get_my_squad", "get_my_xi"))
+    assert res == "PASS", reason
+    res, reason = rae.grade(q, calls(("set_my_squad", {"confirm": True})))
+    assert res == "FAIL" and "set_my_squad(confirm=true)" in reason
+
+
+def test_any_is_not_none():
+    """They differ on exactly one case: a call was made."""
+    assert rae.grade_must_call("any", calls("get_picks"))[0] is True
+    assert rae.grade_must_call("none", calls("get_picks"))[0] is False
+
+
 def test_extra_calls_are_allowed():
     ok, _ = rae.grade_must_call("get_my_xi", calls("resolve_player", "get_my_squad", "get_my_xi"))
     assert ok
