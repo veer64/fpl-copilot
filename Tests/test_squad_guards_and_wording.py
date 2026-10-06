@@ -191,7 +191,9 @@ def _cal():
 def test_a_gameweek_before_the_loaded_range_says_it_was_played():
     out = ft.build([], _cal(), 1, team="Arsenal", gw=3)
     assert out["error_kind"] == "already_played", out
-    assert out["error"] == ("GW3 has already been played; fixtures loaded cover GW6-8."), out["error"]
+    assert out["error"] == ("GW3 has already been played; fixtures loaded cover GW6-8. "
+                            "For what happened, use get_actual_points for a player, or "
+                            "get_my_points for the team."), out["error"]
 
 
 def test_a_gameweek_after_the_loaded_range_is_still_out_of_range():

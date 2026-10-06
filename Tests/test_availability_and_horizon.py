@@ -81,7 +81,8 @@ def test_a_gameweek_before_the_horizon_says_it_was_played():
     assert out["error_kind"] == "already_played"
     assert "GW3 has already been played" in out["error"]
     assert "This run predicts GW6-11" in out["error"]
-    assert "aren't available yet" in out["error"]
+    # A3 (2026-10-05): the past is no longer unavailable, so the refusal names the tool
+    assert "get_actual_points" in out["error"] and "get_my_points" in out["error"]
 
 
 @pytest.mark.parametrize("gw", [0, -1, 39, 100])

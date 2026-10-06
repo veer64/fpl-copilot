@@ -158,7 +158,9 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
             if 1 <= int(gw) < cal_gws[0]:
                 # the same words get_prediction uses for a gameweek behind the run's horizon,
                 # so one question asked of two tools does not get two different explanations
-                err, kind = f"GW{int(gw)} has already been played; {covers}.", "already_played"
+                err = (f"GW{int(gw)} has already been played; {covers}. For what happened, "
+                       "use get_actual_points for a player, or get_my_points for the team.")
+                kind = "already_played"
             else:
                 err = (f"GW{int(gw)} is not in the fixture calendar: {covers}. A gameweek "
                        "outside that is missing from the file, which is not the same as a "

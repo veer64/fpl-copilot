@@ -229,6 +229,7 @@ def _lead_with_availability(result, element, flags):
 # which says nothing about which of the three it is.
 GW_MIN, GW_MAX = 1, 38
 _DEADLINES = {"at": 0.0, "value": None}
+_DEADLINE_TIMES = {"at": 0.0, "value": None}
 
 
 def _gw_deadlines():
@@ -270,7 +271,8 @@ def _horizon_check(gw, lo, hi, run_id):
         return None
     if x < int(lo):
         return {"error": (f"GW{x} has already been played. This run predicts GW{lo}-{hi}. "
-                          "Actual results for past gameweeks aren't available yet."),
+                          "For what actually happened, use get_actual_points for a "
+                          "player, or get_my_points for the team."),
                 "error_kind": "already_played"}
     if x > int(hi):
         span = int(hi) - int(lo)
@@ -1924,6 +1926,285 @@ def _model_degraded_reasons(run):
             if isinstance(n, str) and n.startswith(MODEL_DEGRADED_PREFIX):
                 out.append(f"model degraded (run {run.get('run_id')}, {config}): {n[len(MODEL_DEGRADED_PREFIX):].strip()}")
     return out
+
+
+# ------------------------------------------------- what actually happened (2026-10-05)
+# The actuals are ALREADY stored with their whole breakdown in
+# data/history/fpl_api_<season>.parquet (step 1 of every weekly ingest, and the file
+# eval/score_squads.py scores from), and each run's predictions are still in
+# model_predictions after the gameweek is played. So these two tools read what exists;
+# they create no table and re-implement no scoring rule. actuals_tool holds the reader.
+_ACTUALS = {"at": 0.0, "value": None}
+ACTUALS_TTL_S = 300
+
+
+def _actuals_master():
+    """(master frame, provenance dict) for this season, cached five minutes.
+    (None, {}) when nothing has been ingested yet."""
+    if _ACTUALS["value"] is not None and time.time() - _ACTUALS["at"] < ACTUALS_TTL_S:
+        return _ACTUALS["value"]
+    import actuals_tool
+    season = _season_label()
+    val = (actuals_tool.load_master(season), actuals_tool.load_provenance(season))
+    _ACTUALS.update(at=time.time(), value=val)
+    return val
+
+
+def _player_name(element):
+    """The name FPL shows, else the stored full name, else None for an unknown id."""
+    web = _web_names().get(int(element))
+    if web:
+        return web
+    try:
+        rows = _q("SELECT name FROM players_live WHERE element = %s", (int(element),))
+    except Exception:                               # noqa: BLE001 -- the name is not the answer
+        return None
+    return rows[0]["name"] if rows else None
+
+
+def _gw_deadline_times():
+    """{gw: deadline string} from the newest bootstrap snapshot, cached an hour.
+
+    ONE parse of the snapshot's events, which _gw_deadlines then shortens to dates: the
+    date form and the timestamp form must not come from two readers that could disagree.
+    """
+    if _DEADLINE_TIMES["value"] is not None and time.time() - _DEADLINE_TIMES["at"] < 3600:
+        return _DEADLINE_TIMES["value"]
+    out = {}
+    try:
+        import gzip
+        import json
+        import prices_tool as pt
+        snaps = pt.snapshots()
+        if snaps:
+            with gzip.open(snaps[-1][1], "rt", encoding="utf-8") as fh:
+                doc = json.load(fh)
+            for e in doc.get("events") or []:
+                dl = str(e.get("deadline_time") or "")
+                if dl:
+                    out[int(e["id"])] = dl
+    except Exception:                               # noqa: BLE001 -- the date is optional
+        out = {}
+    _DEADLINE_TIMES.update(at=time.time(), value=out)
+    return out
+
+
+def _deadline_at(gw):
+    """That gameweek's deadline as a tz-aware datetime, or None.
+
+    This is what version_at_deadline compares a version's created_at against, so a date
+    alone will not do: two versions written either side of 17:30 are different squads.
+    """
+    raw = _gw_deadline_times().get(int(gw))
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _prediction_before(element, gw):
+    """The model's own pre-deadline number for that gameweek: the LATEST run whose cutoff
+    IS that gameweek, which is horizon_step 0 -- the last run before its deadline, and so
+    the only prediction a manager could have acted on.
+
+    None when no run covered it. Runs 3-24 exist and the earliest cutoff is GW3, so GW1
+    and GW2 have no stored prediction and never will.
+    """
+    try:
+        rows = _q("""SELECT run_id, config, cutoff, gw, e_points, p_start, e_minutes
+                     FROM model_predictions
+                     WHERE element = %s AND gw = %s AND cutoff = %s AND config = %s
+                     ORDER BY run_id DESC LIMIT 1""",
+                  (int(element), int(gw), int(gw), PRODUCTION_CONFIG))
+    except Exception:                               # noqa: BLE001 -- the prediction is optional
+        return None
+    if not rows:
+        return None
+    r = rows[0]
+    return {"run_id": int(r["run_id"]), "config": r["config"], "cutoff": int(r["cutoff"]),
+            "e_points": None if r["e_points"] is None else round(float(r["e_points"]), 2),
+            "p_start": None if r["p_start"] is None else round(float(r["p_start"]), 3),
+            "e_minutes": None if r["e_minutes"] is None else round(float(r["e_minutes"]), 1)}
+
+
+def _not_played_yet(gw, held):
+    """The refusal for a gameweek the actuals do not cover, shaped like the horizon
+    helper's: it names what IS answerable, and when the asked-for gameweek lands."""
+    covers = (f"actual points are held for GW{held[0]}-{held[-1]}" if held
+              else "no gameweek of this season has been ingested yet")
+    when = _gw_deadlines().get(int(gw))
+    return {"error": (f"GW{gw} has not been played yet, so there are no actual points for it; "
+                      f"{covers}."
+                      + (f" GW{gw}'s deadline is {when}." if when else "")
+                      + " For what the model expects, use get_prediction."),
+            "error_kind": "not_played_yet"}
+
+
+def get_actual_points(player_id: int, gw: int = None):
+    """What a player ACTUALLY scored in a finished gameweek of this season, with the
+    breakdown FPL published, when it was fetched, and the model's own pre-deadline
+    prediction for that gameweek when a run covered it.
+
+    gw omitted: every finished gameweek, oldest first, plus the season total. This season
+    only -- earlier seasons are not read here.
+    """
+    name = _player_name(player_id)
+    if name is None:
+        return {"error": f"player id {player_id} matches no player; use resolve_player",
+                "error_kind": "unknown_player_id"}
+    try:
+        x = int(gw) if gw is not None else None
+    except (TypeError, ValueError):
+        return {"error": f"gw must be a gameweek number from {GW_MIN} to {GW_MAX}, got {gw!r}",
+                "error_kind": "invalid_gw"}
+    if x is not None and (x < GW_MIN or x > GW_MAX):
+        return {"error": f"GW{x} is not a gameweek: a season runs from GW{GW_MIN} to GW{GW_MAX}",
+                "error_kind": "invalid_gw"}
+
+    import actuals_tool
+    master, prov = _actuals_master()
+    held = actuals_tool.gws_held(master)
+    if not held:
+        return {"error": ("no finished gameweek of this season has been ingested yet, so there "
+                          "are no actual points to give"),
+                "error_kind": "not_played_yet"}
+    base = {"player_id": int(player_id), "name": name, "season": _season_label(),
+            "gameweeks_covered": [held[0], held[-1]],
+            "source": "FPL's own per-player gameweek data, as ingested by the weekly pipeline"}
+
+    if x is None:
+        weeks, total = actuals_tool.player_season(master, player_id)
+        for w in weeks:
+            p = _prediction_before(player_id, w["gw"])
+            w["predicted"] = p
+            w["predicted_minus_actual"] = (None if not p or p["e_points"] is None
+                                           else round(p["e_points"] - w["total_points"], 2))
+            w["provisional"], w["fetched_at"] = actuals_tool.provisional_for(prov, w["gw"])
+        return {**base, "gameweeks": weeks, "total_points": total,
+                "gameweeks_scored": [w["gw"] for w in weeks]}
+
+    if x not in held:
+        return {**base, **_not_played_yet(x, held)}
+    week = actuals_tool.player_gameweek(master, player_id, x)
+    if week is None:
+        return {**base, "gw": x, "played": False,
+                "note": (f"{name} has no row in GW{x}: he was not in the game's data for that "
+                         "gameweek, which is not the same as playing and scoring nothing")}
+    provisional, fetched_at = actuals_tool.provisional_for(prov, x)
+    pred = _prediction_before(player_id, x)
+    out = {**base, **week, "provisional": provisional, "fetched_at": fetched_at,
+           "predicted": pred,
+           "predicted_minus_actual": (None if not pred or pred["e_points"] is None
+                                      else round(pred["e_points"] - week["total_points"], 2))}
+    if pred is None:
+        out["predicted_note"] = (f"no run of this project predicted GW{x}: the earliest stored "
+                                 "run's cutoff is GW3, so GW1 and GW2 have no prediction to "
+                                 "compare against")
+    if provisional:
+        out["provisional_note"] = ("FPL had not finished checking this gameweek when it was "
+                                   "fetched, so bonus points and the total can still change")
+    return out
+
+
+def _squad_versions_for(user_id):
+    """Every version of that user's squad this season, oldest first -- read through
+    squad_store's own reader, so the document validation is the same one."""
+    import db_write
+    conn = db_write.connect()
+    try:
+        return squad_store.read_versions(conn, user_id, _season_label())
+    finally:
+        conn.close()
+
+
+def get_my_points(gw: int = None, user_id: int = None):
+    """The user's OWN team score for a finished gameweek: the squad version that was
+    active at that gameweek's deadline, scored by squad_store.score_gameweek_for -- FPL's
+    rules as this project already implements them (autosubs, the armband with its vice
+    fallback, hits deducted).
+
+    gw omitted: every finished gameweek the squad existed for, plus the total.
+    """
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
+    try:
+        x = int(gw) if gw is not None else None
+    except (TypeError, ValueError):
+        return {"error": f"gw must be a gameweek number from {GW_MIN} to {GW_MAX}, got {gw!r}",
+                "error_kind": "invalid_gw"}
+    if x is not None and (x < GW_MIN or x > GW_MAX):
+        return {"error": f"GW{x} is not a gameweek: a season runs from GW{GW_MIN} to GW{GW_MAX}",
+                "error_kind": "invalid_gw"}
+
+    import actuals_tool
+    master, prov = _actuals_master()
+    held = actuals_tool.gws_held(master)
+    if not held:
+        return {"error": ("no finished gameweek of this season has been ingested yet, so there "
+                          "is nothing to score"),
+                "error_kind": "not_played_yet"}
+    if x is not None and x not in held:
+        return _not_played_yet(x, held)
+    try:
+        versions = _squad_versions_for(user_id)
+    except Exception as e:                          # noqa: BLE001 -- report, never fabricate
+        return {"error": f"could not read the squad versions: {e}"}
+    if not versions:
+        return {"error": (f"no squad is recorded for user {user_id} this season, so no gameweek "
+                          "of it can be scored"),
+                "error_kind": "no_squad_for_gw"}
+
+    meaning = ("points_net is what FPL would credit: the XI after autosubs, the captain "
+               "doubled (the vice instead if the captain did not play), minus 4 per transfer "
+               "beyond the free allowance. Bench points are reported but not scored.")
+    base = {"user_id": int(user_id), "season": _season_label(),
+            "gameweeks_covered": [held[0], held[-1]],
+            "autosubs_applied": True, "chips_modelled": False,
+            "points_meaning": meaning,
+            "chips_note": ("wildcard, free hit and bench boost are not modelled, so a gameweek "
+                           "one of them was played in would score as an ordinary one")}
+
+    def score_one(g):
+        dl = _deadline_at(g)
+        if dl is None:
+            return None, (f"GW{g}'s deadline is not in the local bootstrap snapshot, so which "
+                          "squad was active then cannot be established")
+        try:
+            row = squad_store.score_gameweek_for(versions, g, dl,
+                                                 actuals_tool.actuals_frame(master, g))
+        except (ValueError, RuntimeError) as e:
+            return None, str(e)
+        return row, None
+
+    if x is not None:
+        row, err = score_one(x)
+        if err:
+            return {**base, "error": err, "error_kind": "no_squad_for_gw"}
+        if row is None:
+            return {**base, "error": (f"no squad of yours existed at GW{x}'s deadline, so GW{x} "
+                                      "cannot be scored; the record starts later"),
+                    "error_kind": "no_squad_for_gw"}
+        pr, fetched = actuals_tool.provisional_for(prov, x)
+        return {**base, **row, "provisional": pr, "fetched_at": fetched}
+
+    weeks, problems = [], {}
+    for g in held:
+        row, err = score_one(g)
+        if row is not None:
+            pr, fetched = actuals_tool.provisional_for(prov, g)
+            weeks.append({**row, "provisional": pr, "fetched_at": fetched})
+        elif err:
+            problems[g] = err
+    if not weeks:
+        return {**base, "error": (f"no gameweek of this season could be scored for user "
+                                  f"{user_id}: the squad did not exist at any finished "
+                                  "gameweek's deadline"),
+                "error_kind": "no_squad_for_gw", "per_gameweek_notes": problems}
+    return {**base, "gameweeks": weeks,
+            "total_points": sum(int(w["points_net"]) for w in weeks),
+            "gameweeks_scored": [w["gw"] for w in weeks],
+            "per_gameweek_notes": problems or None}
 
 
 def health():
