@@ -75,6 +75,43 @@ def test_none_means_no_tool_call_at_all():
     assert not bad and "get_picks" in reason
 
 
+def test_a_sheet_that_is_not_a_question_sheet_is_skipped():
+    """v3 carries a `changes` sheet documenting its own edits. Its first column is a
+    sheet:# label and its second a column name, so every one of its 113 rows loaded as a
+    question and --non-core selected 251 of 207. A sheet is a question sheet only if its
+    header row is the question columns. Measured 2026-10-06."""
+    from pathlib import Path
+    v3 = Path(rae.REPO) / "eval" / "agent_evals" / "tool_questions_v3.xlsx"
+    if not v3.exists():
+        import pytest
+        pytest.skip("v3 workbook not present")
+    qs = rae.load_questions(v3)
+    assert "changes" not in {q["sheet"] for q in qs}
+    assert len(qs) == 207, len(qs)
+    core = [q for q in qs if q["core"].upper() == "Y"]
+    assert len(core) + len([q for q in qs if q["core"].upper() != "Y"]) == 207
+    assert len(core) == 69, len(core)
+
+
+def test_the_question_file_can_be_chosen_on_the_command_line():
+    """The sheet path was a module constant bound into load_questions' default, so a run
+    could only ever grade v2.1. --file names the workbook; omitted, the default stands.
+    Added 2026-10-06 for the v3 re-run, which could not otherwise target v3."""
+    import argparse
+    from pathlib import Path
+    assert rae.SHEET_FILE.name.endswith(".xlsx")
+    a = rae.build_parser().parse_args([])
+    assert a.file is None, "no --file must leave the default in place"
+    a = rae.build_parser().parse_args(["--file", "x/y.xlsx"])
+    assert Path(a.file) == Path("x/y.xlsx")
+    # and the loader honours an explicit path over the constant
+    v3 = Path(rae.REPO) / "eval" / "agent_evals" / "tool_questions_v3.xlsx"
+    if v3.exists():
+        qs = rae.load_questions(v3)
+        sheets = {q["sheet"] for q in qs}
+        assert "get_actual_points" in sheets and "get_my_points" in sheets, sorted(sheets)
+
+
 def test_any_means_there_is_no_must_call_requirement():
     """A spec of "any" says the question has no required chain: the model may answer from
     one tool, four, or none. It is NOT "none", which forbids calling anything at all.

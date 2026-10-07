@@ -237,11 +237,27 @@ class CountingClient:
 
 
 # ------------------------------------------------------------- the question set
+# The header a question sheet must carry. v3 also holds a `changes` sheet documenting its
+# own edits, whose columns are a sheet:# label and a column name -- every one of its 113
+# rows loaded as a question and --non-core selected 251 of 207 (measured 2026-10-06). A
+# sheet is graded only if its header row says it holds questions.
+HEADER = ("#", "question")
+
+
+def is_question_sheet(ws):
+    """True when the sheet's first two headers are the question columns."""
+    head = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+    got = tuple(str(h).strip().lower() if h is not None else "" for h in head[:2])
+    return got == HEADER
+
+
 def load_questions(path=SHEET_FILE):
     from openpyxl import load_workbook
     wb = load_workbook(path, data_only=True)
     out = []
     for sheet in wb.sheetnames:
+        if not is_question_sheet(wb[sheet]):
+            continue
         for row in wb[sheet].iter_rows(min_row=2, values_only=True):
             if row[1] is None:
                 continue
@@ -521,8 +537,13 @@ def write_report(path, records, args, budget, keeper, started, finished):
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def main(argv=None):
+def build_parser():
+    """The CLI, as its own function so the options are testable without a run."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    # The workbook was a module constant bound into load_questions' default, so every run
+    # graded v2.1 whatever had superseded it. --file names the question set; omitted, the
+    # constant stands, so nothing that worked before changes.
+    ap.add_argument("--file", help="question workbook (default: %s)" % SHEET_FILE.name)
     ap.add_argument("--core", action="store_true")
     ap.add_argument("--non-core", action="store_true", dest="non_core")
     ap.add_argument("--sheet", action="append")
@@ -533,9 +554,13 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--user-id", type=int, default=9001)
     ap.add_argument("--out")
-    a = ap.parse_args(argv)
+    return ap
 
-    questions = select(load_questions(), a)
+
+def main(argv=None):
+    a = build_parser().parse_args(argv)
+
+    questions = select(load_questions(a.file or SHEET_FILE), a)
     if a.dry_run:
         print(f"{len(questions)} question(s) would run:")
         for q in questions:
