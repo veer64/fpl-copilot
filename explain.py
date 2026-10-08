@@ -293,7 +293,7 @@ def breakdown(row, step_rows=None):
     # bonus
     if bonus_mode == "delete":
         add("bonus", "exp_bonus", "bonus_mode = delete", {"bonus_mode": bonus_mode}, "constant", CONSTANT_LABELS["bonus_off"],
-            ["the bonus model is switched off; ~0.3 pts/week understated on average"])
+            ["the bonus model is switched off; predictions do not include bonus points and no estimate is made"])
     else:
         add("bonus", "exp_bonus", f"exp_bonus (bonus_mode = {bonus_mode})", {"bonus_mode": bonus_mode}, "model")
 
