@@ -341,6 +341,15 @@ tools_schema = [
         }
     },
     {
+        "name": "get_wildcard_gap",
+        "description": "What a wildcard now would open up for the user's OWN squad, for the user to decide on: gameweek by gameweek over the run's range and in total, the expected points of the current squad's best XI against the best free-pick squad -- solved by the same six-gameweek planner propose_transfers uses, with transfers free this gameweek and the squad's own money -- plus how many transfers that squad is away, its XI, bench, captain, sells and buys. One real solve: twenty to sixty seconds, so say it will take a moment. Use for 'should I wildcard', 'is it time to wildcard', 'what would a wildcard get me'. Show the gap and let the user decide; never decide for them. If refused is true the gap is withheld (a runaway strength biases it) -- give the refusal, not a gap of your own. Nothing is written.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
         "name": "search_news",
         "description": ("Search the stored team news (FPL's official flags, BBC Sport, the clubs' own sites) for a player "
                         "or a club. Use it for injury, fitness, availability, suspension and team-news questions. Always pass "
@@ -372,7 +381,8 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_my_xi, propose_transfers, explain_prediction,
                          compare_predictions, compare_runs, get_fixtures,
                          get_price_movements, get_league_table, get_match_stats,
-                         get_actual_points, get_my_points, get_prediction_history)
+                         get_actual_points, get_my_points, get_prediction_history,
+                         get_wildcard_gap)
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
@@ -493,6 +503,7 @@ available_functions = {
     "get_actual_points": get_actual_points,
     "get_my_points": get_my_points,
     "get_prediction_history": get_prediction_history,
+    "get_wildcard_gap": get_wildcard_gap,
     "search_news": search_news,
 }
 

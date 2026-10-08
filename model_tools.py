@@ -3397,3 +3397,141 @@ def get_prediction_history(player_id: int, gw: int):
     return _lead_with_availability(out, pid, _availability_for([pid]))
 
 
+def get_wildcard_gap(user_id: int = None):
+    """What a wildcard now would open up, over the run's range, for the user to decide on.
+
+    Two sides, both in the number get_my_xi reports (the best XI's expected points, the captain
+    counted again), gameweek by gameweek over the run's horizon and in total (plain, and with the
+    same decay the transfer planner weights the future by):
+      * the CURRENT squad -- its best legal XI re-solved for every gameweek over the fifteen the
+        user owns (squad_store.xi_over_fifteen, the get_my_xi solve);
+      * the FREE-PICK squad -- the SAME six-gameweek decayed-objective MIP propose_transfers runs
+        (simulator.decide_gameweek_mip), with transfers free at the first step (its wildcard
+        relief) and the squad's own money (sell value plus bank), so the plan is what a manager
+        who played the chip now could actually hold.
+    Plus how many transfers that squad is away. One MIP solve and six XI solves: twenty to sixty
+    seconds. Nothing is written and no proposal is saved. When the model is degraded (a runaway
+    strength inside the horizon) the gap is withheld for the reason propose_transfers withholds
+    its hold gap: the free-pick plan can spend on exactly the fixtures the model has mispriced."""
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
+    import simulator as sim
+    from transfer_mip import DEFAULT_DECAY, plan_to_team
+
+    t0 = time.time()
+    try:
+        record = squad_store.read_active(user_id)
+    except squad_store.SquadStateError as e:
+        return {"error": str(e)}
+    try:
+        current = _current_gw()
+    except RuntimeError as e:
+        return {"error": str(e)}
+    try:
+        df, cutoff, built = _load_frame()
+    except (FileNotFoundError, RuntimeError) as e:
+        return {"error": str(e)}
+    all_gws = sorted(int(g) for g in df["gw"].unique())
+    if current not in all_gws:
+        return {"error": f"the frame on the volume (cutoff GW{cutoff}, gws {all_gws}) has no "
+                         f"predictions for the next deadline GW{current}"}
+    doc = record["squad_json"]
+    state = squad_store.to_state(doc)
+    state.free_transfers = squad_store.free_transfers_at(record, current)
+    owned = [p["element"] for p in doc["players"]]
+    live = {r["element"]: r for r in _q("""SELECT element, name, position, team, price_tenths
+                                           FROM players_live WHERE element = ANY(%s)""", (owned,))}
+    unpriced = [e for e in owned if e not in live or live[e]["price_tenths"] is None]
+    if unpriced:
+        return {"error": f"owned element(s) {unpriced} have no current players_live price; "
+                         "refusing to value the squad"}
+    prices_live = {e: int(live[e]["price_tenths"]) for e in owned}
+    names = {p["element"]: p["name"] for p in doc["players"]}
+
+    pool0 = sim.gw_slice(df, current, cutoff=cutoff)
+    t1 = time.time()
+    try:
+        team, transfers, step, eff_h, plan = sim.decide_gameweek_mip(
+            df, current, state, pool0, prices_live, all_gws, mode="balanced", horizon=6,
+            decay=DEFAULT_DECAY, cutoff=cutoff, wildcard=True, return_plan=True)
+    except (RuntimeError, ValueError) as e:
+        return {"error": f"the free-pick solve could not produce a plan: {e}"}
+    solve_s = round(time.time() - t1, 1)
+
+    per_gw, missing_all = [], {}
+    for st in plan:
+        g = int(st["gw"])
+        pool_g = sim.gw_slice(df, g, cutoff=cutoff)
+        names.update(dict(zip(pool_g["element"].astype(int), pool_g["name"])))
+        team_cur, missing = squad_store.xi_over_fifteen(pool_g, state, prices_live)
+        cur_pts = squad_store.compare_roles(doc["players"], team_cur)["optimal_xi_points"]
+        team_wc = plan_to_team(st, sim._pool_with_owned(pool_g, state, prices_live))
+        wc_pts = round(sim.predicted_score(team_wc), 2)
+        if missing:
+            missing_all[g] = missing
+        per_gw.append({"gw": g, "horizon_step": int(st["horizon_step"]),
+                       "current_squad_xi_points": round(float(cur_pts), 2),
+                       "free_pick_xi_points": wc_pts, "gap": round(wc_pts - float(cur_pts), 2),
+                       "decay_weight": round(float(st["decay_weight"]), 4),
+                       "current_squad_captain": names.get(int(team_cur.loc[team_cur["role"] == "CAPTAIN", "element"].iloc[0])),
+                       "free_pick_captain": names.get(int(st["captain"])) if st["captain"] is not None else None,
+                       "free_pick_moves_this_step": int(st["transfers_made"]) if int(st["horizon_step"]) > 0 else 0})
+
+    cur_total = round(sum(r["current_squad_xi_points"] for r in per_gw), 2)
+    wc_total = round(sum(r["free_pick_xi_points"] for r in per_gw), 2)
+    cur_dec = round(sum(r["decay_weight"] * r["current_squad_xi_points"] for r in per_gw), 2)
+    wc_dec = round(sum(r["decay_weight"] * r["free_pick_xi_points"] for r in per_gw), 2)
+    run = _latest_run(gw=cutoff)
+    degraded = _model_degraded_reasons(run) if run else []
+
+    roles = squad_store.roles_from_team(team)
+    order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
+    squad_rows = sorted(
+        [{"player_id": e, "name": names.get(e, str(e)), "role": r, "bench_order": bo,
+          "e_points": round(float(team.loc[team["element"] == e, "e_points"].iloc[0]), 2)}
+         for e, (r, bo) in roles.items()],
+        key=lambda x: (order[x["role"]], x["bench_order"] or 0, -x["e_points"]))
+    sells = [names.get(int(o), str(o)) for o, _ in transfers]
+    buys = [names.get(int(i), str(i)) for _, i in transfers]
+    out = {
+        "gw": current, "horizon_gws": [r["gw"] for r in per_gw],
+        "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": current - cutoff,
+        "frame_built_at": str(built), **_frame_built(cutoff),
+        "squad_version_id": record["version_id"],
+        "wait_note": "one six-gameweek MIP solve plus one XI solve per gameweek: twenty to sixty seconds",
+        "basis": ("both sides are the expected points of the best XI each gameweek (the XI plus the captain "
+                  "again), the number get_my_xi reports. The free-pick squad was solved by the same "
+                  "six-gameweek decayed-objective planner propose_transfers uses, with transfers free at the "
+                  "first step (a wildcard) and the squad's own money (sell value plus bank); the current squad "
+                  "is re-solved for its best XI every gameweek. Later steps of the free-pick plan may still "
+                  "make ordinary transfers, counted in free_pick_moves_this_step."),
+        "decay": float(DEFAULT_DECAY), "effective_horizon": int(eff_h),
+        "per_gw": per_gw,
+        "totals": {"current_squad_xi_points": cur_total, "free_pick_xi_points": wc_total,
+                   "gap": None if degraded else round(wc_total - cur_total, 2),
+                   "current_squad_decayed": cur_dec, "free_pick_decayed": wc_dec,
+                   "gap_decayed": None if degraded else round(wc_dec - cur_dec, 2),
+                   "decayed_meaning": f"each gameweek weighted by {DEFAULT_DECAY} to the power of its step, the planner's own weighting"},
+        "transfers_needed": int(step["transfers_made"]),
+        "free_pick_squad": {"sells": sells, "buys": buys,
+                            "captain": names.get(int(step["captain"])) if step["captain"] is not None else None,
+                            "vice": names.get(int(step["vice"])) if step["vice"] is not None else None,
+                            "xi": [r for r in squad_rows if r["role"] != "bench"],
+                            "bench_in_order": [r for r in squad_rows if r["role"] == "bench"],
+                            "squad_cost": round(float(team["value"].sum()) / 10, 1)},
+        "later_moves_in_plan": int(sum(int(st["transfers_made"]) for st in plan[1:])),
+        "missing_from_frame": missing_all or None,
+        "refused": bool(degraded),
+        "nothing_written": True,
+        "decision": ("the user's: this shows the gap, it does not say whether to play the chip. A wildcard "
+                     "is one per half-season and the numbers beyond the next deadline will move."),
+        "solve_seconds": solve_s, "total_seconds": round(time.time() - t0, 1),
+    }
+    if degraded:
+        out["refusal"] = ("The wildcard gap cannot be measured honestly right now, so it is not reported. "
+                          "A club whose fitted strength has run off sits inside this horizon, so the "
+                          "free-pick plan can spend on exactly the fixtures the model has mispriced and the "
+                          "gap is biased in its favour by an unknown amount (KNOWN_ISSUES #25). Both sides "
+                          "were computed; only the gap is withheld. Ask again once the model-degraded "
+                          "condition clears.")
+        out["condition"] = degraded
+    return out

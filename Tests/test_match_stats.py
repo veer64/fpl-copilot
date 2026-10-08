@@ -525,7 +525,7 @@ def test_the_agent_entry_point_is_registered_and_dispatches(monkeypatch):
     monkeypatch.setenv("APP_API_KEY", "x" * 48)
     import agent
     names = [t["name"] for t in agent.tools_schema]
-    assert "get_match_stats" in names and len(names) == 23      # 23 since get_prediction_history (2026-10-08)
+    assert "get_match_stats" in names and len(names) == 24      # 24 since get_prediction_history + get_wildcard_gap (2026-10-08)
     assert set(names) == set(agent.available_functions)
     fn = agent.available_functions["get_match_stats"]
     assert (fn.__module__, fn.__qualname__) == ("model_tools", "get_match_stats")
