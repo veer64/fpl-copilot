@@ -329,6 +329,18 @@ tools_schema = [
         }
     },
     {
+        "name": "get_prediction_history",
+        "description": "Every stored run's prediction for ONE player and ONE gameweek, oldest to newest -- each row says when that run was built and what kind it was (nightly, post_ingest, or the deadline-day t90 / t30 / t10) and gives its expected points, start probability and expected minutes -- plus the biggest move between consecutive runs with the two run ids compare_runs needs to explain it (biggest_move.explain_with). Use for 'what changed overnight', 'what changed since Tuesday', 'has his prediction moved', 'why did it drop': call this first, then compare_runs on the two runs it names. Never ask the user for a run id. A gameweek no run predicted is refused with error_kind no_predictions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "player_id": {"type": "integer", "description": "The player's FPL element id (resolve_player gives it)"},
+                "gw": {"type": "integer", "description": "The gameweek the predictions are for"}
+            },
+            "required": ["player_id", "gw"]
+        }
+    },
+    {
         "name": "search_news",
         "description": ("Search the stored team news (FPL's official flags, BBC Sport, the clubs' own sites) for a player "
                         "or a club. Use it for injury, fitness, availability, suspension and team-news questions. Always pass "
@@ -360,7 +372,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_my_xi, propose_transfers, explain_prediction,
                          compare_predictions, compare_runs, get_fixtures,
                          get_price_movements, get_league_table, get_match_stats,
-                         get_actual_points, get_my_points)
+                         get_actual_points, get_my_points, get_prediction_history)
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
@@ -480,6 +492,7 @@ available_functions = {
     "get_match_stats": get_match_stats,
     "get_actual_points": get_actual_points,
     "get_my_points": get_my_points,
+    "get_prediction_history": get_prediction_history,
     "search_news": search_news,
 }
 

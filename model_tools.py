@@ -3327,3 +3327,73 @@ def _past_picks(gw, shadow=False):
     return out
 
 
+def get_prediction_history(player_id: int, gw: int):
+    """Every stored run's prediction for one player and one gameweek, oldest to newest, with when
+    each run was built and what kind it was (nightly, post_ingest, or the deadline-day t90 / t30 /
+    t10), plus the biggest move between consecutive runs and the two run ids compare_runs needs to
+    explain it. One query over model_predictions joined to model_runs; nothing is re-computed."""
+    pid = _element_id(player_id)
+    if pid is None:
+        return {"error": BAD_ELEMENT_ID, "error_kind": "invalid_player_id"}
+    bad = _horizon_check(gw, None, None, None)
+    if bad:
+        return bad
+    x = int(gw)
+    rows = _q("""SELECT p.run_id, r.kind, r.slot, r.finished_at, p.cutoff, p.horizon_step,
+                        p.e_points, p.p_start, p.e_minutes, (p.pts_goals IS NOT NULL) AS terms_recorded
+                 FROM model_predictions p JOIN model_runs r ON r.run_id = p.run_id
+                 WHERE p.element = %s AND p.gw = %s AND p.config = %s AND r.status = 'SUCCESS'
+                 ORDER BY r.finished_at, p.run_id""", (pid, x, PRODUCTION_CONFIG))
+    name = _player_name(pid)
+    if name is None:
+        return {"error": f"player id {pid} matches no player; use resolve_player",
+                "error_kind": "unknown_player_id"}
+    if not rows:
+        span = _q("SELECT min(gw) AS lo, max(gw) AS hi FROM model_runs WHERE status = 'SUCCESS'")
+        lo, hi = (span[0]["lo"], span[0]["hi"]) if span else (None, None)
+        return {"error": (f"no stored run predicted GW{x} for {name}"
+                          + (f"; runs exist from a GW{lo} cutoff to GW{hi}, each covering six gameweeks" if lo else "")),
+                "error_kind": "no_predictions", "player_id": pid, "name": name, "gw": x}
+    fmt = _dp()._fmt
+    hist = []
+    for r in rows:
+        kind = r.get("kind") or "deadline"
+        hist.append({"run_id": int(r["run_id"]), "kind": kind, "slot": r.get("slot"),
+                     "built_at": str(r["finished_at"]), "built": f"{kind} run built {fmt(r['finished_at'])}",
+                     "predictions_as_of_cutoff_gw": int(r["cutoff"]),
+                     "horizon_step": None if r.get("horizon_step") is None else int(r["horizon_step"]),
+                     "e_points": None if r["e_points"] is None else round(float(r["e_points"]), 2),
+                     "p_start": None if r["p_start"] is None else round(float(r["p_start"]), 3),
+                     "e_minutes": None if r["e_minutes"] is None else round(float(r["e_minutes"]), 1),
+                     "terms_recorded": bool(r.get("terms_recorded"))})
+    moves = []
+    for a, b in zip(hist, hist[1:]):
+        if a["e_points"] is None or b["e_points"] is None:
+            continue
+        moves.append({"from_run_id": a["run_id"], "to_run_id": b["run_id"],
+                      "from_built": a["built"], "to_built": b["built"],
+                      "e_points_before": a["e_points"], "e_points_after": b["e_points"],
+                      "change": round(b["e_points"] - a["e_points"], 2),
+                      "explainable": a["terms_recorded"] and b["terms_recorded"]})
+    biggest = max(moves, key=lambda m: abs(m["change"])) if moves else None
+    if biggest:
+        biggest = dict(biggest)
+        biggest["explain_with"] = ({"tool": "compare_runs", "player_id": pid, "gw": x,
+                                    "run_id_a": biggest["from_run_id"], "run_id_b": biggest["to_run_id"]}
+                                   if biggest["explainable"] else None)
+        if not biggest["explainable"]:
+            biggest["explain_note"] = "one of the two runs has no recorded terms (before 2026-09-14), so compare_runs cannot break the move down"
+    first, last = hist[0], hist[-1]
+    out = {"player_id": pid, "name": name, "gw": x, "runs": len(hist),
+           "first": first["built"], "latest": last["built"],
+           "latest_e_points": last["e_points"],
+           "latest_minus_first": (None if first["e_points"] is None or last["e_points"] is None
+                                  else round(last["e_points"] - first["e_points"], 2)),
+           "history": hist, "biggest_move": biggest,
+           "kinds": ("nightly = the daily rebuild; post_ingest = the rebuild after FPL confirmed a gameweek; "
+                     "t90 / t30 / t10 = the deadline-day rebuilds 90, 30 and 10 minutes before the deadline"),
+           "note": (f"oldest to newest: what each stored run predicted {name} would score in GW{x}. "
+                    "To explain a move, call compare_runs with the two run ids it names.")}
+    return _lead_with_availability(out, pid, _availability_for([pid]))
+
+
