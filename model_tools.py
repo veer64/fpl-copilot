@@ -1766,14 +1766,19 @@ def _check_lock_ban(lock, ban, pool_elements=None):
 
 
 def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
-             budget: float = None, gw: int = None):
+             budget: float = None, gw: int = None, start_player_ids: list = None):
     """Run the production MIP (gapRel=0) on the latest frame from the model
     volume, with constraints. Returns the fifteen + XI + captain + vice.
     This is a real solve: it takes seconds and blocks this chat turn.
 
     gw selects which gameweek of the run's horizon to solve. Omitted, it is
     the frame's own gameweek, which is what this tool has always solved;
-    another gameweek inside the horizon is a planning view and says so."""
+    another gameweek inside the horizon is a planning view and says so.
+
+    start_player_ids (2026-10-08) must START: each is added to the locks (a
+    starter is in the squad by definition) and then forced into the XI by the
+    same MIP. Unknown ids and players who cannot play for their club are
+    refused exactly as locks are, through _check_lock_ban."""
     import pulp
     import simulator as sim
     from optimize import optimize_squad as solve_mip
@@ -1800,13 +1805,16 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
         except RuntimeError:
             note = None
         cutoff = target
-    bad = _check_lock_ban(lock_player_ids, ban_player_ids, pool_elements=pool["element"])
+    start = sorted({int(x) for x in (start_player_ids or [])})
+    lock = sorted({int(x) for x in (lock_player_ids or [])} | set(start))   # a starter is locked too
+    bad = _check_lock_ban(lock, ban_player_ids, pool_elements=pool["element"])
     if bad:
         return bad
     prob, sol = solve_mip(pool,
-                          locked_elements=list(lock_player_ids or []),
+                          locked_elements=lock,
                           banned_elements=list(ban_player_ids or []),
-                          budget=None if budget is None else int(round(budget * 10)))
+                          budget=None if budget is None else int(round(budget * 10)),
+                          start_elements=start or None)
     if pulp.LpStatus[prob.status] != "Optimal":
         return {"error": f"solve status {pulp.LpStatus[prob.status]} -- the "
                          "constraints may be infeasible (e.g. budget too low)"}
@@ -1815,7 +1823,8 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
             **({"note": note} if note else {}),
             "frame_built_at": str(frame_mtime), **_frame_built(cutoff),
             "constraints": {"locked": lock_player_ids or [], "banned": ban_player_ids or [],
-                            "budget": budget or 100.0},
+                            "budget": budget or 100.0,
+                            **({"start": start} if start else {})},
             "captain": team.loc[team["role"] == "CAPTAIN", "name"].iloc[0],
             "vice": team.loc[team["role"] == "VICE", "name"].iloc[0],
             "squad": [{"player_id": int(r["element"]), "name": r["name"],

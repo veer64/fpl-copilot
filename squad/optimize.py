@@ -232,7 +232,7 @@ def resolve_bench_weight(mode=None, bench_weight=None):
 # The optimizer
 # ---------------------------------------------------------------------------
 def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
-                   banned_elements=None, budget=None, solver=None):
+                   banned_elements=None, budget=None, solver=None, start_elements=None):
     """Build and solve the MIP for one gameweek: 15 + XI + captain.
 
     df               : output of load_gw_data()
@@ -242,6 +242,10 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
     banned_elements  : optional list of element IDs forbidden from the squad
     budget           : spending limit in tenths; defaults to the full BUDGET
     solver           : PuLP solver instance; defaults to HiGHS, else CBC
+    start_elements   : optional list of element IDs forced into the STARTING XI
+                       (2026-10-08, the optimise tool's start_player_ids). start <= pick
+                       already holds, so a forced starter is in the squad too. None or
+                       empty emits no constraint, so every existing solve is unchanged.
 
     Returns (prob, sol):
         prob -- the solved PuLP problem (check pulp.LpStatus[prob.status])
@@ -344,6 +348,16 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
         if len(matches) == 0:
             raise ValueError(f"Locked element {elem} not found in GW data.")
         prob += pick[matches[0]] == 1
+
+    # --- forced starters: in the XI, not merely the squad ---
+    # A user who "forces a player in" means the line-up, and a squad with him on
+    # the bench answers a question nobody asked. Same refusal as a lock for an
+    # element the pool does not hold.
+    for elem in (start_elements or []):
+        matches = df.index[df["element"] == elem]
+        if len(matches) == 0:
+            raise ValueError(f"Start element {elem} not found in GW data.")
+        prob += start[matches[0]] == 1
 
     # --- banned players: forbid from the squad ---
     # A missing banned player is NOT an error: he may simply not appear in this

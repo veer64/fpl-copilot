@@ -79,13 +79,15 @@ tools_schema = [
     },
     {
         "name": "optimise",
-        "description": "Run the production optimiser on the latest model frame with constraints: force players in, ban players, or change the budget. A real MIP solve -- takes seconds. Returns fifteen + XI + captain + vice. Builds a squad from scratch with a full budget. For the user's own squad ('my team'), use propose_transfers or get_my_xi instead. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead).",
+        "description": "Run the production optimiser on the latest model frame with constraints: force players in, ban players, or change the budget. A real MIP solve -- takes seconds. Returns fifteen + XI + captain + vice. Builds a squad from scratch with a full budget. For the user's own squad ('my team'), use propose_transfers or get_my_xi instead. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead). start_player_ids must START: when the user forces players in they expect them in the line-up, so pass them here (not only as locks) unless the user says squad only; they are locked into the squad as well, and the same refusals apply.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "lock_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that MUST be in the squad"},
+                "start_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that MUST be in the starting XI (and so in the squad)"},
                 "ban_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that must NOT be in the squad"},
-                "budget": {"type": "number", "description": "Budget in millions (default 100.0)"}
+                "budget": {"type": "number", "description": "Budget in millions (default 100.0)"},
+                "gw": {"type": "integer", "description": "Optional gameweek of the run's horizon to solve (default: the next deadline's)"}
             },
             "required": []
         }
@@ -201,7 +203,9 @@ tools_schema = [
             "Fixtures with difficulty from OUR model, not FPL's FDR. Difficulty comes back as "
             "TWO numbers per fixture -- attacking (how easy it is to score) and defensive (how "
             "easy a clean sheet is) -- because they routinely disagree and that disagreement is "
-            "the point. Never average them into one score. Use for 'who does X play', 'how are "
+            "the point. Never average them into one score. Each fixture also carries an attack "
+            "score and a defence score from 1 (hardest) to 10 (easiest), ranked among every fixture "
+            "the run has priced -- quote them as two scores, never one. Use for 'who does X play', 'how are "
             "Arsenal's next five fixtures', 'is this a good run'. Each fixture says whether it "
             "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek; with no team the answer is compact rows (team, gw, opponent, home, attacking, defensive) and the two-numbers rule is stated once at the top."),
         "input_schema": {

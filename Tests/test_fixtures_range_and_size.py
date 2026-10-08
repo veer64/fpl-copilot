@@ -88,7 +88,9 @@ def test_no_team_returns_compact_rows_and_says_the_prose_once():
     rows = out["fixtures"]
     assert len(rows) == len(TEAMS) * len(GWS)
     for r in rows:
-        assert sorted(r) == ["attacking", "defensive", "gw", "home", "opponent", "team"], sorted(r)
+        # the six facts a reader scans, plus the two 1-10 scores of 2026-10-08 (3d) -- still no prose per row
+        assert sorted(r) == ["attack_score", "attacking", "defence_score", "defensive", "gw", "home",
+                             "opponent", "team"], sorted(r)
     # the two-numbers rule is stated ONCE, at the top, not in every row
     body = json.dumps(rows)
     assert "averaged" not in body and "FDR" not in body

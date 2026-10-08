@@ -91,7 +91,54 @@ def calendar(path=None, df=None):
     return out, len(names)
 
 
-def _difficulty(tl, ol, pcs):
+SCORE_MEANING = ("1 (hardest) to 10 (easiest), by rank among every fixture the run has priced: a score of "
+                 "k means the figure sits in the k-th tenth of all loaded fixtures. Two scores, never one.")
+
+
+def _num(v):
+    return None if v is None or v != v else float(v)
+
+
+def rank_scores(values):
+    """{key: score} -- each value's decile rank, 1 (lowest tenth) to 10 (highest tenth), among ALL the values
+    given. Pure, and the one place the derivation lives (3d, 2026-10-08):
+
+        pct   = (number of values strictly below v + half the number equal to v) / N
+        score = 1 + floor(10 * pct)
+
+    so the smallest value scores 1, the largest 10, equal values share a score, and the scale is
+    RELATIVE to the loaded fixtures rather than fixed thresholds -- which is what replaced the old
+    easy / average / hard bands (hard-coded cut points, B24). A None or NaN value gets None, and does
+    not count towards N. With one value the score is 5: nothing to rank against."""
+    nums = {k: _num(v) for k, v in values.items()}
+    pool = sorted(v for v in nums.values() if v is not None)
+    n = len(pool)
+    out = {}
+    for k, v in nums.items():
+        if v is None:
+            out[k] = None
+            continue
+        if n < 2:
+            out[k] = 5
+            continue
+        below = sum(1 for x in pool if x < v)
+        equal = sum(1 for x in pool if x == v)
+        pct = (below + 0.5 * equal) / n
+        out[k] = max(1, min(10, 1 + int(10 * pct)))
+    return out
+
+
+def fixture_scores(rows):
+    """{(team, gw): {"attack": s, "defence": s}} for every per-(team, gameweek) model row: the attack score
+    ranks team_lambda (higher is easier to score in), the defence score ranks p_cs (higher is easier to
+    keep a clean sheet), each across ALL the rows given. Never combined."""
+    keys = [(str(r["team"]), int(r["gw"])) for r in rows]
+    att = rank_scores({k: r.get("team_lambda") for k, r in zip(keys, rows)})
+    dfn = rank_scores({k: r.get("p_cs") for k, r in zip(keys, rows)})
+    return {k: {"attack": att[k], "defence": dfn[k]} for k in keys}
+
+
+def _difficulty(tl, ol, pcs, scores=None):
     """The two quantities, never one composite.
 
     attacking  -- how easy is it to SCORE here: our expected goals in this fixture.
@@ -101,24 +148,25 @@ def _difficulty(tl, ol, pcs):
     the clean-sheet term, so it is the honest defensive number. It is NOT exp(-opp_lambda): at
     step 0 the two differ (sd 0.0211, max 0.0782), which is the coupling error the quantile
     work found. Both are reported so neither is hidden behind the other.
-    """
-    def band(v, lo, hi):
-        if v is None or v != v:
-            return None
-        return "easy" if v >= hi else ("hard" if v <= lo else "average")
 
+    `scores` is this fixture's {"attack", "defence"} from fixture_scores -- the 1-10 rank among all
+    loaded fixtures that replaced the fixed easy / average / hard bands (3d, 2026-10-08).
+    """
+    scores = scores or {}
     return {
         "attacking": {
             "measure": "expected goals FOR this team in this fixture (team_lambda)",
             "value": None if tl is None or tl != tl else round(float(tl), 4),
-            "band": band(tl, 1.0, 1.8),
+            "score": scores.get("attack"),
+            "score_meaning": SCORE_MEANING,
             "reading": "higher is EASIER to score in",
         },
         "defensive": {
             "measure": "clean-sheet probability (p_cs, the 0.2 DC / 0.8 market blend)",
             "value": None if pcs is None or pcs != pcs else round(float(pcs), 4),
             "opp_lambda": None if ol is None or ol != ol else round(float(ol), 4),
-            "band": band(pcs, 0.20, 0.35),
+            "score": scores.get("defence"),
+            "score_meaning": SCORE_MEANING,
             "reading": "higher is EASIER to keep a clean sheet",
             "note": ("p_cs is not exp(-opp_lambda): at the deadline gameweek the two differ "
                      "(sd 0.0211, max 0.0782) because p_cs blends Dixon-Coles with the market "
@@ -144,6 +192,7 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
     run that did not compute them: a missing calculation must not read as an absence of risk.
     """
     by_key = {(str(r["team"]), int(r["gw"])): r for r in rows}
+    scores = fixture_scores(rows)                   # ranked across EVERY loaded fixture, before any filter
     model_gws = sorted({int(r["gw"]) for r in rows})
     horizon = max(1, min(int(horizon), MAX_HORIZON))
 
@@ -200,7 +249,7 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                 else:
                     tl, ol = mrow.get("team_lambda"), mrow.get("opp_lambda")
                     src, const, notes = fixture_provenance(mrow, (step_rows_by_gw or {}).get(g))
-                    e["difficulty"] = _difficulty(tl, ol, mrow.get("p_cs"))
+                    e["difficulty"] = _difficulty(tl, ol, mrow.get("p_cs"), scores.get((t, g)))
                     e["lambdas"] = {
                         "team_lambda": None if tl is None or tl != tl else round(float(tl), 6),
                         "opp_lambda": None if ol is None or ol != ol else round(float(ol), 6),
@@ -247,14 +296,16 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
             if e.get("blank_gameweek"):
                 rows.append({"team": e["team"], "gw": e["gw"], "opponent": None,
                              "home": None, "attacking": None, "defensive": None,
-                             "blank": True})
+                             "attack_score": None, "defence_score": None, "blank": True})
                 continue
             for f in e["fixtures"]:
                 d = f.get("difficulty") or {}
                 rows.append({"team": e["team"], "gw": e["gw"], "opponent": f.get("opponent"),
                              "home": f.get("home"),
                              "attacking": (d.get("attacking") or {}).get("value"),
-                             "defensive": (d.get("defensive") or {}).get("value")})
+                             "defensive": (d.get("defensive") or {}).get("value"),
+                             "attack_score": (d.get("attacking") or {}).get("score"),
+                             "defence_score": (d.get("defensive") or {}).get("score")})
         out = rows
 
     return {
@@ -277,8 +328,11 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
         },
         "compact_columns": ("attacking = expected goals FOR this team in this fixture "
                             "(higher is easier to score in); defensive = clean-sheet "
-                            "probability (higher is easier to keep one). Ask for one club to "
-                            "get the lambdas, the provenance and the runaway flags."),
+                            "probability (higher is easier to keep one); attack_score and "
+                            "defence_score = each of those ranked 1 (hardest) to 10 (easiest) "
+                            "among every fixture the run has priced -- two scores, never one. "
+                            "Ask for one club to get the lambdas, the provenance and the runaway flags."),
+        "scores": SCORE_MEANING,
         "difficulty_is_two_numbers": ("attacking and defensive difficulty are reported "
                                       "separately and must not be averaged into one FDR-like "
                                       "score -- that would discard the distinction this model "

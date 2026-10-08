@@ -103,13 +103,18 @@ def test_difficulty_is_two_quantities_and_neither_is_a_composite(cal):
 
 
 def test_the_two_can_disagree_and_both_are_reported(cal):
-    """The case FDR cannot express: easy to score in, hard to keep a clean sheet."""
+    """The case FDR cannot express: easy to score in, hard to keep a clean sheet. Since 2026-10-08
+    (3d) each side carries a 1-10 score ranked among the loaded fixtures instead of a band from
+    fixed thresholds (B24); this fixture ranks top for attack and bottom for defence."""
     mapping, n = cal
-    out = ft.build([_row("Newcastle", 6, tl=2.3, ol=2.1, pcs=0.12)], mapping, n,
+    # nine OTHER (team, gw) rows: the scores rank among every priced fixture, one row per team-gameweek
+    others = [_row(f"Other{i}", 6, tl=1.0 + 0.1 * i, ol=1.2, pcs=0.20 + 0.02 * i) for i in range(9)]
+    out = ft.build([_row("Newcastle", 6, tl=2.3, ol=2.1, pcs=0.12)] + others, mapping, n,
                    team="Newcastle", gw=6)
     d = out["fixtures"][0]["fixtures"][0]["difficulty"]
-    assert d["attacking"]["band"] == "easy"
-    assert d["defensive"]["band"] == "hard"
+    assert d["attacking"]["score"] == 10 and d["defensive"]["score"] == 1
+    assert "band" not in d["attacking"] and "band" not in d["defensive"]
+    assert "1 (hardest) to 10 (easiest)" in d["attacking"]["score_meaning"]
 
 
 def test_the_lambdas_are_labelled_as_products_not_opponent_ratings(cal):
