@@ -360,6 +360,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
+from now_context import context_block
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -370,6 +371,19 @@ client = anthropic.Anthropic()
 from pathlib import Path
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_prompt.md"
 SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def _system_for_turn():
+    """The system prompt for one turn: the "now" context block (today, the gameweek state, the run
+    schedule, the 20 clubs -- now_context.py, from local data) prepended to the reviewed prompt. Built
+    once per user turn so every API call inside the turn reads the same facts. If the block cannot be
+    built at all the prompt goes alone: a turn must never die for want of a date line."""
+    try:
+        block = context_block()
+    except Exception as e:                           # noqa: BLE001 -- the block is help, not a dependency
+        print(f"  [context block not built: {type(e).__name__}: {str(e)[:200]}]")
+        return SYSTEM_PROMPT
+    return f"{block}\n\n{SYSTEM_PROMPT}" if block else SYSTEM_PROMPT
 
 
 def call_tool(tool_name, tool_input):
@@ -471,6 +485,7 @@ def run_agent(user_message: str, messages: list = None):
 
     messages.append({"role": "user", "content": user_message})
     turn_id = uuid.uuid4().hex                       # Piece 7: one id per reply, for citation_checks
+    system = _system_for_turn()                      # the "now" block, rebuilt once per turn (2026-10-08)
     returned_ids = []                                # every result id search_news returned in THIS turn
     returned_results = []                            # the result dicts themselves, for the rendered citations (Part C)
 
@@ -478,7 +493,7 @@ def run_agent(user_message: str, messages: list = None):
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
-            system=SYSTEM_PROMPT,
+            system=system,
             tools=tools_schema,
             messages=messages
         )

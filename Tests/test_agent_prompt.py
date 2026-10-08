@@ -74,7 +74,10 @@ def test_system_prompt_file_is_loaded_and_sent_on_every_call(agent, monkeypatch)
     assert agent.PROMPT_PATH.name == "system_prompt.md"
     assert len(agent.SYSTEM_PROMPT) > 2000
     _, _, fake = _run(agent, monkeypatch, "get_picks", {}, lambda **kw: {"captain": "X"})
-    assert all(c["system"] == agent.SYSTEM_PROMPT for c in fake.calls)
+    # 2026-10-08: the "now" context block is prepended each turn (now_context.py); the reviewed prompt
+    # itself still reaches every call, whole and last
+    assert all(c["system"].endswith(agent.SYSTEM_PROMPT) for c in fake.calls)
+    assert len({c["system"] for c in fake.calls}) == 1          # one block per turn, not one per call
     assert len(fake.calls) == 2
 
 
