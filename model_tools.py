@@ -798,10 +798,20 @@ def get_picks(gw: int = None, shadow: bool = False):
     A STORED solve exists only for the run's own gameweek, which is the next
     deadline's. Asked for another gameweek inside the horizon, this computes one
     with the same solver optimise uses and says it was computed, not stored.
+    Asked for a gameweek BEFORE the run's range, it returns the stored picks of
+    the run built for that gameweek and how they actually scored (_past_picks).
     """
     run = _latest_run()
     if run is None:
         return {"error": "no successful pipeline run in the database yet"}
+    if gw is not None:
+        bad = _horizon_check(gw, None, None, run.get("run_id"))     # a number, and a gameweek
+        if bad:
+            return bad
+        if int(gw) < int(run.get("gw") or 0):
+            # before the run's range: the stored picks of the run built for that gameweek, and
+            # how they actually scored (4a, 2026-10-08) -- never a computed planning view
+            return _past_picks(int(gw), shadow)
     if gw is not None and int(gw) != int(run.get("gw") or -1):
         # no stored solve for that gameweek: compute it, through the one solver entry
         # point, and reshape optimise's answer into this tool's contract
@@ -3222,3 +3232,98 @@ def get_match_stats(team: str, opponent: str = None, stats: list = None, seasons
     out.update(ms.build(resolved, opp, names, side, venue, last_n_matches, keys, rows, tables, coverage,
                         all_null, post_cutoff, sources, as_of=f"{cutoff:%Y-%m-%d}"))
     return out
+
+
+# ======================================================================== features 2026-10-08
+# 4a past picks (get_picks with a played gameweek), 4b get_prediction_history, 4c get_wildcard_gap.
+# Each reuses the readers, scorers and solvers that already exist; nothing here re-implements a rule.
+
+def _past_picks(gw, shadow=False):
+    """The model's stored fifteen for a gameweek already played -- the LAST successful run whose own
+    gameweek was `gw`, the one a manager could have acted on before its deadline (the same choice
+    _prediction_before makes) -- and how it actually scored, through scoring.score_gameweek on the
+    actuals the weekly ingest stored (the same scorer get_my_points uses: autosubs, the armband with
+    its vice fallback). A free-pick squad makes no transfers, so no hit is charged. Labelled PAST on
+    every answer; a gameweek no run covered answers no_run_for_gw and names the first that one does."""
+    if shadow and SHADOW_CONFIG is None:
+        return {"error": "no shadow configuration is run (production = "
+                         f"{PRODUCTION_CONFIG} since 2026-09-11; config_roles.py)"}
+    config = SHADOW_CONFIG if shadow else PRODUCTION_CONFIG
+    run = _latest_run(gw=gw)
+    if run is None:
+        first = _q("SELECT min(gw) AS gw FROM model_runs WHERE status = 'SUCCESS'")
+        first_gw = first[0]["gw"] if first and first[0].get("gw") is not None else None
+        return {"error": (f"no model run was built for GW{gw}, so there are no stored picks for it"
+                          + (f"; the first gameweek with a run is GW{first_gw}" if first_gw else "")
+                          + ". For what a player actually scored, use get_actual_points."),
+                "error_kind": "no_run_for_gw",
+                **({"first_gw_with_a_run": int(first_gw)} if first_gw else {})}
+    rows = _q("""SELECT element AS player_id, name, position, team, role,
+                        bench_order, price_tenths, e_points
+                 FROM model_picks WHERE run_id = %s AND config = %s
+                 ORDER BY CASE role WHEN 'CAPTAIN' THEN 0 WHEN 'VICE' THEN 1
+                          WHEN 'start' THEN 2 ELSE 3 END, bench_order NULLS FIRST,
+                          e_points DESC""", (run["run_id"], config))
+    if not rows:
+        return {"error": f"run {run['run_id']} (GW{gw}) stored no picks for {config}",
+                "error_kind": "no_run_for_gw"}
+    for r in rows:
+        r["price"] = (r.pop("price_tenths") or 0) / 10
+        r["e_points"] = float(r["e_points"])
+    out = _run_meta(run, config)
+    out["config"] = config + (" (shadow)" if shadow else " (production)")
+    out.update({"gw": int(gw), "past": True, "stored": True,
+                "note": (f"PAST picks: the squad the model solved for GW{gw} "
+                         f"({out['kind']} run built {out['built_at']}), scored on what actually "
+                         "happened. A free-pick squad makes no transfers, so no hit is charged."
+                         + (" This run was RECOVERED after the deadline had passed, not built before it,"
+                            " so nobody could have fielded this squad in time."
+                            if out.get("recovered_post_deadline") else ""))})
+
+    # ---- how it scored: the stored actuals through the one scorer
+    import actuals_tool
+    import pandas as pd
+    from scoring import score_gameweek
+    master, prov = _actuals_master()
+    held = actuals_tool.gws_held(master)
+    actual = None
+    if int(gw) in held:
+        squad = pd.DataFrame([{"element": int(r["player_id"]), "position": r["position"], "role": r["role"],
+                               "bench_order": (float(int(r["bench_order"]) - 1)        # document 1..4 -> scoring 0..3
+                                               if r["role"] == "bench" and r["bench_order"] is not None
+                                               else float("nan"))} for r in rows])
+        actuals = actuals_tool.actuals_frame(master, int(gw))
+        res = score_gameweek(squad, actuals, transfers_made=0, free_transfers=1)
+        pts = dict(zip(actuals["element"].astype(int), actuals["total_points"].astype(int)))
+        mins = dict(zip(actuals["element"].astype(int), actuals["minutes"].astype(int)))
+        for r in rows:
+            r["actual_points"] = pts.get(int(r["player_id"]), 0)
+            r["minutes"] = mins.get(int(r["player_id"]), 0)
+        provisional, fetched_at = actuals_tool.provisional_for(prov, int(gw))
+        actual = {"points": int(res["points"]), "points_raw": int(res["raw_points"]),
+                  "captain_bonus": int(res["captain_bonus"]),
+                  "doubled": None if res["doubled"] is None else int(res["doubled"]),
+                  "doubled_role": res["doubled_role"],
+                  "final_xi": [int(e) for e in res["final_xi"]],
+                  "subs_made": [[int(o), int(i)] for o, i in res["subs_made"]],
+                  "bench_points": int(res["bench_points"]),
+                  "autosubs_applied": True, "hit": 0,
+                  "provisional": provisional, "fetched_at": fetched_at,
+                  "meaning": ("points is what this fifteen would have scored as a team: the XI after "
+                              "automatic substitutions, the captain doubled (the vice instead if the "
+                              "captain did not play); bench points are reported but not scored")}
+    else:
+        out["actual_note"] = (f"GW{gw} is not in the stored actuals yet ({'held: GW' + str(held[0]) + '-' + str(held[-1]) if held else 'nothing ingested'}), "
+                              "so these picks cannot be scored until FPL confirms the gameweek and it is ingested")
+    out["captain"] = next((r["name"] for r in rows if r["role"] == "CAPTAIN"), None)
+    out["vice"] = next((r["name"] for r in rows if r["role"] == "VICE"), None)
+    out["xi"] = [r for r in rows if r["role"] != "bench"]
+    out["bench_in_order"] = sorted((r for r in rows if r["role"] == "bench"),
+                                   key=lambda r: r["bench_order"] or 9)
+    out["squad_cost"] = round(sum(r["price"] for r in rows), 1)
+    out["predicted_xi_points"] = round(sum(r["e_points"] for r in out["xi"])
+                                       + sum(r["e_points"] for r in rows if r["role"] == "CAPTAIN"), 2)
+    out["actual"] = actual
+    return out
+
+

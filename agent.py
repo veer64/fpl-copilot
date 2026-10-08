@@ -56,7 +56,7 @@ tools_schema = [
     },
     {
         "name": "get_picks",
-        "description": "The solved squad from the latest pipeline run: the fifteen, starting XI, captain, vice-captain, and bench in order. Use for 'who should I captain', 'what team should I field'. shadow=true returns the baseline config's squad (the tracked comparison), never shown as the recommendation. Optional gw asks for another gameweek of the run's horizon: the stored solve exists only for the next deadline's gameweek, so another one is computed with the same optimiser and comes back with computed=true and a planning-view note.",
+        "description": "The solved squad from the latest pipeline run: the fifteen, starting XI, captain, vice-captain, and bench in order. Use for 'who should I captain', 'what team should I field'. shadow=true returns the baseline config's squad (the tracked comparison), never shown as the recommendation. Optional gw asks for another gameweek of the run's horizon: the stored solve exists only for the next deadline's gameweek, so another one is computed with the same optimiser and comes back with computed=true and a planning-view note. A gameweek already played returns the PAST picks: the fifteen the model solved before that deadline, labelled past=true, with how they actually scored (points after autosubs and the captain doubled, per player too); a gameweek no run was built for is refused with error_kind no_run_for_gw naming the first that has one.",
         "input_schema": {
             "type": "object",
             "properties": {
