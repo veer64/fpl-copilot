@@ -286,6 +286,21 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                         "n_fixtures": len(entries),
                         "double_gameweek": len(entries) > 1})
 
+    # 4d (2026-10-08): for one club, its doubles and blanks across EVERY gameweek the calendar holds --
+    # the calendar already carried them; a triple-captain or bench-boost question needs them in one place.
+    season_summary = None
+    if team is not None and cal_gws:
+        t = str(team)
+        covered = list(range(cal_gws[0], cal_gws[-1] + 1))
+        season_summary = {
+            "team": t, "calendar_covers": [cal_gws[0], cal_gws[-1]],
+            "double_gameweeks": [g for g in covered if len(cal.get((t, g), [])) >= 2],
+            "blank_gameweeks": [g for g in covered if not cal.get((t, g))],
+            "note": ("from the loaded fixture calendar only. Doubles and blanks are usually confirmed later in "
+                     "the season as cup ties and postponements settle, so an empty list means none are known "
+                     "yet, not that none will happen."),
+        }
+
     compact = team is None
     if compact:
         # 20 clubs x 5 gameweeks was 100 entries and 190,162 characters, because every entry
@@ -311,6 +326,7 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
     return {
         "compact": compact,
         "fixtures": out,
+        "season_summary": season_summary,
         "teams_requested": teams,
         "unknown_teams": unknown,
         "gameweeks": want_gws,

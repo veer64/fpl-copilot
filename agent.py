@@ -207,7 +207,7 @@ tools_schema = [
             "score and a defence score from 1 (hardest) to 10 (easiest), ranked among every fixture "
             "the run has priced -- quote them as two scores, never one. Use for 'who does X play', 'how are "
             "Arsenal's next five fixtures', 'is this a good run'. Each fixture says whether it "
-            "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek; with no team the answer is compact rows (team, gw, opponent, home, attacking, defensive) and the two-numbers rule is stated once at the top."),
+            "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek; with no team the answer is compact rows (team, gw, opponent, home, attacking, defensive) and the two-numbers rule is stated once at the top. With a team, season_summary lists that club's known double and blank gameweeks across the whole loaded calendar (for triple captain or bench boost questions); an empty list means none are known yet."),
         "input_schema": {
             "type": "object",
             "properties": {
