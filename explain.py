@@ -109,13 +109,13 @@ def fixture_provenance(row, step_rows=None):
         notes.append("every club at this step sits at the fit's starting point (home e^0.25 / away 1.0): home/away only, no team strength (Logs/dc_degenerate_fit_finding_2026-09-13.md)")
     elif neutral:
         src, const = "constant", CONSTANT_LABELS["neutral_fixture"]
-        notes.append("no fixture match in the Dixon-Coles join: both lambdas at the neutral fill 1.40")
+        notes.append("no fixture match: both sides at the league-average expected goals, 1.40")
     else:
         src, const = "model", None
     if fixture_runaway(row):
         notes.append(RUNAWAY_NOTE)
     if step >= 1 and int(_f(row, "odds_horizon_gws", 0) or 0) == 0 and not degenerate:
-        notes.append("beyond the deadline gameweek the fixture uses the fitted Dixon-Coles strengths, not the market")
+        notes.append("beyond the deadline gameweek the fixture is a planning estimate based on team strength, not the betting market")
     if n_fix > 1:
         notes.append(f"double gameweek: {n_fix} fixtures -- additive terms are summed, the rates shown are fixture averages")
     return src, const, notes
@@ -315,9 +315,9 @@ def breakdown(row, step_rows=None):
 
     # appearance
     add("appearance", "pts_appear",
-        f"P(60+) {p60p:.2f} x 2 + P(play <60) {max(ppa - p60p, 0):.2f} x 1",
+        f"chance of 60+ minutes {p60p:.2f} x 2 pts + chance of under 60 minutes {max(ppa - p60p, 0):.2f} x 1 pt",
         {"p_start": pst, "p60": p60, "p_60plus": p60p, "p_play_any": ppa},
-        "model", None, [f"P(play <60) uses a flat {SUB_CHANCE:.2f} for the sub chance ({CONSTANT_LABELS['sub_chance']})"])
+        "model", None, [f"the chance of under 60 minutes uses a flat {SUB_CHANCE:.2f} for the sub chance ({CONSTANT_LABELS['sub_chance']})"])
     # goals (+ penalties sub-line)
     e_goals, npxg, pen = _f(row, "e_goals"), _f(row, "npxg90"), _f(row, "e_pen_goals", 0.0)
     gpts = GOAL_PTS.get(pos, 0)
@@ -328,7 +328,7 @@ def breakdown(row, step_rows=None):
     if not topend or _close(gamma, 1.0):
         g_notes.append(f"fixture scale is {CONSTANT_LABELS['linear_scale']} in team strength (gamma {gamma:g})")
     add("goals", "pts_goals",
-        f"e_goals {e_goals:.3f} (npxG/90 {npxg:.2f} x {mf:.2f} of 90 min x fixture {fs:.2f} + pens {pen:.3f}) x {gpts} pts",
+        f"expected goals {e_goals:.3f} (expected goals per 90 {npxg:.2f} x {mf:.2f} of 90 min x fixture {fs:.2f} + pens {pen:.3f}) x {gpts} pts",
         {"e_goals": e_goals, "npxg90": npxg, "minutes_frac": mf, "fixture_scale_cal": fs, "e_pen_goals": pen},
         g_src, g_const, g_notes)
     pen_share, tpr = _f(row, "penalty_share"), _f(row, "team_pen_rate")
@@ -343,7 +343,7 @@ def breakdown(row, step_rows=None):
                               "notes": pen_notes}
     # assists
     e_ast, xa = _f(row, "e_assists"), _f(row, "xa90")
-    add("assists", "pts_assists", f"e_assists {e_ast:.3f} (xA/90 {xa:.2f} x {mf:.2f} of 90 min x fixture {fs:.2f}) x 3 pts",
+    add("assists", "pts_assists", f"expected assists {e_ast:.3f} (expected assists per 90 {xa:.2f} x {mf:.2f} of 90 min x fixture {fs:.2f}) x 3 pts",
         {"e_assists": e_ast, "xa90": xa, "minutes_frac": mf, "fixture_scale_cal": fs},
         g_src, g_const, (["no Understat record: the rate is the position prior"] if prior else []))
     # clean sheet
@@ -351,7 +351,7 @@ def breakdown(row, step_rows=None):
     if cspts == 0:
         add("clean_sheet", "pts_cs", f"{pos}: 0 pts", {"p_cs": pcs}, "rule")
     else:
-        add("clean_sheet", "pts_cs", f"p_cs {pcs:.3f} x {cspts} pts x P(60+) {p60p:.2f}",
+        add("clean_sheet", "pts_cs", f"clean-sheet chance {pcs:.3f} x {cspts} pts x chance of 60+ minutes {p60p:.2f}",
             {"p_cs": pcs, "p_60plus": p60p}, "model", None, [])
     # defensive contribution
     pdc = _f(row, "p_dc_hit")
@@ -370,13 +370,13 @@ def breakdown(row, step_rows=None):
     if pos != "GK":
         add("saves", "pts_saves", "not a GK", {}, "rule")
     else:
-        add("saves", "pts_saves", f"E[floor(S/3)], S ~ Poisson(saves/90 {s90:.2f} x {mf:.2f} min)", {"saves_per_90": s90, "minutes_frac": mf},
+        add("saves", "pts_saves", f"expected save points, one per three saves, from saves per 90 {s90:.2f} over {mf:.2f} of 90 min", {"saves_per_90": s90, "minutes_frac": mf},
             "model", None, [])
     # goals conceded
     if pos not in ("GK", "DEF"):
         add("goals_conceded", "pts_conceded", "not GK/DEF", {}, "rule")
     else:
-        add("goals_conceded", "pts_conceded", f"-E[floor(C/2)], C ~ Poisson(opp lambda {ol:.3f} x {mf:.2f} min)",
+        add("goals_conceded", "pts_conceded", f"expected points lost, one per two goals conceded, from the opponent's expected goals {ol:.3f} over {mf:.2f} of 90 min",
             {"opp_lambda": ol, "minutes_frac": mf}, "model")
     # cards
     y90, r90 = _f(row, "yellow_per_90"), _f(row, "red_per_90")
@@ -441,7 +441,7 @@ def render(bd):
             rows.append(f"    of which penalties {p['points']:+6.2f}   {p['formula']:<66s} {ptag}")
     fx = bd["fixture"]
     ftag = fx["source"] + (f": {fx['constant']}" if fx["constant"] else "")
-    rows.append(f"  fixture: team lambda {fx['team_lambda']} / opp lambda {fx['opp_lambda']} (scale {fx['fixture_scale_cal']}) -- {ftag}")
+    rows.append(f"  fixture: our expected goals {fx['team_lambda']} / theirs {fx['opp_lambda']} (scale {fx['fixture_scale_cal']}) -- {ftag}")
     rows.append(bd["summary"])
     return "\n".join(rows)
 

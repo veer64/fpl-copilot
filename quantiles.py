@@ -196,7 +196,7 @@ def fidelity(row):
         zero_variance.append({"term": "bonus", "source": "constant",
                               "constant": CONSTANT_LABELS["bonus_off"],
                               "effect": "real bonus is 0-3 and concentrated on hauls: pure "
-                                        "right-tail mass, so P90 is too low and the wrong shape"})
+                                        "right-tail mass, so the top of the range is too low and the wrong shape"})
     if abs(_f(row, "e_pen_goals")) < 1e-9 or abs(_f(row, "penalty_share") - PEN_FALLBACK) < 1e-9:
         zero_variance.append({"term": "penalties", "source": "constant",
                               "constant": CONSTANT_LABELS["pen_fallback"],
@@ -240,26 +240,26 @@ def fidelity(row):
         # a FLOOR, which is why it is the only one carrying its own caveat.
         "fragilities": [
             {"n": 1, "affects": "P90", "term": "bonus",
-             "what": "fixed at 0, so the entire upper tail is missing"},
+             "what": "our model doesn't account for bonus points, so the top of the range is understated"},
             {"n": 2, "affects": "P90", "term": "penalties",
              "what": "a fixed assumption stands in for this term"},
             {"n": 3, "affects": "P90", "term": "minutes shape",
              "what": f"{row.get('q_minutes_shape', DEFAULT_SHAPE)} is an assumption the model "
-                     "does not contain; alternatives move P90 on ~2.5% of rows by up to 2 points"},
+                     "does not contain; alternatives move the top of the range on ~2.5% of rows by up to 2 points"},
         ] + ([{"n": 4, "affects": "P10", "term": "runaway fixture",
                "what": f"{named}: {RUNAWAY_NOTE}. A clean sheet is priced near certain, so the "
-                       "floor is manufactured -- P10 is unusable on this row"}] if runaway else []),
+                       "floor is manufactured -- the low end of the range is unusable on this row"}] if runaway else []),
         "p10_is_unsafe_when_runaway": runaway,
         "p10_caveat": (
-            "P10 here is NOT a floor you can rely on. This row's fixture rests on a "
-            "Dixon-Coles strength that ran off -- " + named + ": " + RUNAWAY_NOTE +
+            "The low end of the range here is NOT a floor you can rely on. This row's fixture rests on a "
+            "team-strength estimate that ran off -- " + named + ": " + RUNAWAY_NOTE +
             " -- and a runaway opponent "
             "prices a clean sheet at near certainty, so the simulation manufactures a "
-            "confident floor that the model has no basis for. Treat P10 as unusable on this "
+            "confident floor that the model has no basis for. Treat the low end as unusable on this "
             "row and say so; a floor is what a reader trusts when judging a pick SAFE, which "
             "makes a fabricated one more dangerous than an understated ceiling."
             if runaway else
-            "P10 rests on the same components as the rest and carries no extra caveat here."),
+            "The low end of the range rests on the same components as the rest and carries no extra caveat here."),
         "p90_is_weaker_than_p50": True,
         # The range caveat (v4.2, 2026-10-09): plain words, no causes. The causes are the three
         # fragilities above, for a reader of the full block; the sentence the model passes on is this one.
@@ -269,13 +269,13 @@ def fidelity(row):
         "zero_variance_terms": zero_variance,
         "n_zero_variance": len(zero_variance),
         "summary": (f"{len(zero_variance)} of 9 lines contribute no variance because they are "
-                    f"constants; all of them bias P90 low."
+                    f"constants; all of them bias the top of the range low."
                     + (" AND this row's fixture rests on a strength that ran off, which "
-                       "manufactures the floor -- P10 is unusable here, not merely uncertain."
+                       "manufactures the floor -- the low end is unusable here, not merely uncertain."
                        if runaway else "")),
         "degenerate": bool(row.get("q_degenerate", False)),
-        "degenerate_note": ("P10 == P50: the range bar is one-sided, which is correct for a "
-                            "player who usually does not play -- P90 carries the only signal."
+        "degenerate_note": ("the low end equals the middle: the range bar is one-sided, which is correct for a "
+                            "player who usually does not play -- the top of the range carries the only signal."
                             if row.get("q_degenerate") else None),
         "notes": notes,
         "method_version": row.get("q_method_version", METHOD_VERSION),

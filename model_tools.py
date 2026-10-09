@@ -1705,7 +1705,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         hold_comparison["refusal"] = (
             "The hold-vs-move gap cannot be measured honestly right now, so it is not reported. "
             "Holding earns a second free transfer at the next gameweek, and a club whose "
-            "Dixon-Coles strength has run off sits inside this horizon, so the hold plan can spend "
+            "team-strength estimate has run off sits inside this horizon, so the hold plan can spend "
             "that transfer on fixtures the model has mispriced. The gap is therefore biased IN "
             "FAVOUR OF HOLDING by an unknown amount (KNOWN_ISSUES #25). Both plans were computed "
             "and stored; only the comparison is withheld. Ask again once the model-degraded "

@@ -186,7 +186,7 @@ def test_the_three_fragilities_are_each_named():
     fid = qt.fidelity({**a_row(), **qt.quantiles_for_row(a_row(), 6, n=4000)})
     terms = {z["term"] for z in fid["zero_variance_terms"]}
     assert {"bonus", "penalties", "cards"} <= terms
-    assert fid["summary"].endswith("bias P90 low.")
+    assert fid["summary"].endswith("bias the top of the range low.")      # v4.2: plain words
     assert all(z["source"] == "constant" for z in fid["zero_variance_terms"])
 
 

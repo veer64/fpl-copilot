@@ -168,9 +168,9 @@ def _difficulty(tl, ol, pcs, scores=None):
             "score": scores.get("defence"),
             "score_meaning": SCORE_MEANING,
             "reading": "higher is EASIER to keep a clean sheet",
-            "note": ("p_cs is not exp(-opp_lambda): at the deadline gameweek the two differ "
-                     "(sd 0.0211, max 0.0782) because p_cs blends Dixon-Coles with the market "
-                     "and opp_lambda is pure market"),
+            "note": ("the clean-sheet chance is not simply derived from the opponent's expected goals: at the "
+                     "deadline gameweek the two differ (sd 0.0211, max 0.0782) because the chance blends the "
+                     "team-strength estimate with the market, and the opponent's expected goals are pure market"),
         },
         "why_two_numbers": ("FPL's FDR is one number per fixture. These two disagree often -- a "
                             "fixture can be a good place to attack and a bad place to keep a "
@@ -259,7 +259,7 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                         "source": src,
                         "constant": const,
                         "priced_off": ("market odds (the deadline gameweek)" if market_priced(mrow)
-                                       else "the fitted Dixon-Coles strengths alone -- no odds "
+                                       else "a planning estimate based on team strength alone -- no odds "
                                             "are published this far out, and this is a LOWER "
                                             "QUALITY number than a market-priced one"),
                         "market_priced": market_priced(mrow),

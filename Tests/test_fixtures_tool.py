@@ -147,7 +147,7 @@ def test_market_priced_versus_pure_dixon_coles_is_stated(cal):
     step3 = ft.build([_row("Newcastle", 6, step=3, oh=0)], mapping, n, team="Newcastle", gw=6)
     p3 = step3["fixtures"][0]["fixtures"][0]["provenance"]
     assert p3["market_priced"] is False
-    assert "Dixon-Coles" in p3["priced_off"] and "LOWER QUALITY" in p3["priced_off"]
+    assert "planning estimate based on team strength" in p3["priced_off"] and "LOWER QUALITY" in p3["priced_off"]   # v4.2: plain words
 
 
 def test_provenance_reuses_explains_function_and_vocabulary(cal):
@@ -155,7 +155,7 @@ def test_provenance_reuses_explains_function_and_vocabulary(cal):
     out = ft.build([_row("Newcastle", 6, step=3, oh=0)], mapping, n, team="Newcastle", gw=6)
     p = out["fixtures"][0]["fixtures"][0]["provenance"]
     assert p["source"] in ("model", "constant")          # explain's fixed vocabulary
-    assert any("fitted Dixon-Coles strengths, not the market" in x for x in p["notes"])
+    assert any("planning estimate based on team strength, not the betting market" in x for x in p["notes"])   # v4.2: plain words
     src = (REPO / "fixtures_tool.py").read_text(encoding="utf-8")
     assert "from explain import" in src and "fixture_provenance" in src
     for reimplemented in ("LAMBDA_MIN", "LAMBDA_MAX", "0.15", "6.0", "x0_fixture"):
