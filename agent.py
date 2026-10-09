@@ -67,8 +67,8 @@ tools_schema = [
         }
     },
     {
-        "name": "get_best_squad",
-        "description": "The optimal fifteen. At the default full budget this is the stored production solve (instant); a custom budget runs the real optimiser (takes seconds).",
+        "name": "best_squad_from_scratch",
+        "description": "The best brand-new 15 from scratch with a full £100m, ignoring the user's squad. For the user's own squad use propose_transfers or get_my_xi. At the default full budget this is the stored production solve (instant); a custom budget runs the real optimiser (takes seconds).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -487,7 +487,7 @@ available_functions = {
     "get_prediction": get_prediction,
     "compare_players": compare_players,
     "get_picks": get_picks,
-    "get_best_squad": get_best_squad,
+    "best_squad_from_scratch": get_best_squad,
     "build_squad_from_scratch": optimise,
     "list_players": list_players,
     "get_my_squad": get_my_squad,

@@ -37,7 +37,7 @@ def _names(tools):
 
 
 @pytest.mark.parametrize("name", [
-    "resolve_player", "get_player_card", "get_prediction", "compare_players", "get_picks", "get_best_squad",
+    "resolve_player", "get_player_card", "get_prediction", "compare_players", "get_picks", "best_squad_from_scratch",
     "build_squad_from_scratch", "get_my_squad", "get_my_xi", "explain_prediction", "compare_runs", "compare_predictions",
     "propose_transfers", "set_my_squad", "list_players", "get_fixtures", "get_price_movements",
     "get_league_table", "get_match_stats", "get_actual_points", "get_my_points", "get_prediction_history",
@@ -53,7 +53,7 @@ def test_every_schema_property_is_a_parameter_of_the_function(tools, name):
 
 
 @pytest.mark.parametrize("name", [
-    "resolve_player", "get_player_card", "get_prediction", "compare_players", "get_picks", "get_best_squad",
+    "resolve_player", "get_player_card", "get_prediction", "compare_players", "get_picks", "best_squad_from_scratch",
     "build_squad_from_scratch", "get_my_squad", "get_my_xi", "explain_prediction", "compare_runs", "compare_predictions",
     "propose_transfers", "set_my_squad", "list_players", "get_fixtures", "get_price_movements",
     "get_league_table", "get_match_stats", "get_actual_points", "get_my_points", "get_prediction_history",
