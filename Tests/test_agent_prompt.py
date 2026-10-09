@@ -133,7 +133,7 @@ def test_prompt_carries_the_rules_verbatim(agent):
         "No tables and no `rendered` block in any comparison or breakdown unless the user asks",
         "\"This week\" means the next deadline's gameweek",
         "never \"check back for the schedule\"",
-        "The model does not calculate bonus points",
+        "Our model doesn't account for bonus points",          # 2026-10-09: the one bonus wording, everywhere
         "Say this once per conversation",
         "Round a figure the same way every time it appears in a conversation",
     ):

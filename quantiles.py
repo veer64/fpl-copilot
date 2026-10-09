@@ -265,8 +265,8 @@ def fidelity(row):
         "p90_is_weaker_than_p50": True,
         "p90_caveat": (
             "P90 carries the new information and is the LEAST reliable of the three. It is "
-            "fragile in three independent ways: bonus is fixed at zero so the entire upper tail "
-            "is missing; the penalty term measures penalties missed, so takers' ceilings are "
+            "fragile in three independent ways: our model doesn't account for bonus points, so the "
+            "entire upper tail is missing; the penalty term measures penalties missed, so takers' ceilings are "
             "understated; and the minutes shape (" + str(row.get("q_minutes_shape", DEFAULT_SHAPE))
             + ") is an assumption the model does not contain, which moves P90 on about 2.5% of "
               "rows by up to 2 points while barely moving P10 or P50. Do not read P90 as "

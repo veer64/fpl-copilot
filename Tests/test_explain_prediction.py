@@ -97,7 +97,7 @@ def test_forward_dc_flat_by_design_and_bonus_off_are_constants_with_the_fixed_la
     bd = explain.breakdown(_row(), _step([_row()]))
     by = {l["term"]: l for l in bd["lines"]}
     assert by["defensive_contribution"]["source"] == "constant" and by["defensive_contribution"]["constant"] == "flat by design"
-    assert by["bonus"]["source"] == "constant" and by["bonus"]["constant"] == "0 by decision"
+    assert by["bonus"]["source"] == "constant" and by["bonus"]["constant"] == "our model doesn't account for bonus points"
     assert by["cards"]["source"] == "constant" and by["cards"]["constant"] == "position rates"
     assert by["clean_sheet"]["source"] == "rule" and by["saves"]["source"] == "rule" and by["goals_conceded"]["source"] == "rule"
     assert by["goals"]["source"] == "model" and by["appearance"]["source"] == "model"

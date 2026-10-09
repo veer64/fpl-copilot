@@ -109,7 +109,8 @@ tools_schema = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "user_id": {"type": "integer", "description": "Defaults to 1, the only user"}
+                "user_id": {"type": "integer", "description": "Defaults to 1, the only user"},
+                "gw": {"type": "integer", "description": "Optional gameweek of the run's horizon to solve the XI for (default: the next deadline's)"}
             },
             "required": []
         }
