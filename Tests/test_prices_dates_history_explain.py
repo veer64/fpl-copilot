@@ -108,11 +108,13 @@ def test_the_constants_count_counts_lines_only():
     out = mt.explain_prediction(hit[0]["element"], gw=6)
     if "error" in out:
         pytest.skip(f"no breakdown available: {out['error'][:60]}")
-    n_const_lines = sum(1 for l in out["lines"] if l["source"] == "constant")
-    assert n_const_lines == 3, [l["term"] for l in out["lines"] if l["source"] == "constant"]
-    assert f"{n_const_lines} of 9 lines are constants" in out["summary"], out["summary"]
+    d = out["detail"]                                            # 2026-10-09: the technical parts sit under detail
+    n_const_lines = sum(1 for l in d["lines"] if l["source"] == "constant")
+    assert n_const_lines == 3, [l["term"] for l in d["lines"] if l["source"] == "constant"]
+    assert f"{n_const_lines} of 9 lines are constants" in d["summary"], d["summary"]
     # the penalties sub-line is still reported, just not counted as one of the nine
-    goals = next(l for l in out["lines"] if l["term"] == "goals")
+    goals = next(l for l in d["lines"] if l["term"] == "goals")
     assert goals["penalties"]["source"] == "constant"
-    assert "penalt" in out["summary"].lower()
-    assert "4 of 9" not in out["summary"]
+    assert "penalt" in d["summary"].lower()
+    assert "4 of 9" not in d["summary"]
+    assert list(out)[0] == "summary_plain" and "lines" not in out

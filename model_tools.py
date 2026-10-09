@@ -1242,6 +1242,27 @@ def _explain_from_run(run_id, player_id, gw):
     return explain.breakdown(row.iloc[0], step), run, int(row.iloc[0]["cutoff"])
 
 
+# Plain output at the source (2026-10-09): the three explain tools START with summary_plain and keep
+# everything technical under `detail`, unchanged. The keys that move:
+EXPLAIN_DETAIL = ("lines", "fixture", "summary", "rendered", "residual_core", "residual_total")
+COMPARE_DETAIL = ("terms", "sentence", "flags", "rendered", "breakdown_a", "breakdown_b")
+
+
+def _plain_first(out, detail_keys):
+    """summary_plain first, the technical keys under `detail` (unchanged), everything else in its order."""
+    detail = {k: out[k] for k in detail_keys if k in out}
+    rest = {k: v for k, v in out.items() if k not in detail_keys and k != "summary_plain"}
+    return {"summary_plain": out.get("summary_plain"), **rest, "detail": detail}
+
+
+def _plain_leads_with_availability(out):
+    """A player who cannot play for his club is said so in the plain summary's first words."""
+    if out.get("available") is False and out.get("summary_plain"):
+        out["summary_plain"] = (f"{out.get('name')} cannot play for his club: {out.get('availability_note')}. "
+                                + out["summary_plain"])
+    return out
+
+
 def explain_prediction(player_id: int, gw: int = None, run_id: int = None):
     """LEVEL 1 (Logs/explain_prediction_design.md): the breakdown of one player's
     expected points for one gameweek into the nine lines the master equation
@@ -1263,9 +1284,9 @@ def explain_prediction(player_id: int, gw: int = None, run_id: int = None):
         if bd is None:
             return cutoff                      # the error dict
         m = _run_meta(run)
-        return {**bd, "run_id": run["run_id"], "predictions_as_of_cutoff_gw": cutoff,
-                "stale_by_gameweeks": int(gw) - cutoff, "built": m["built"], "model_version": m["model_version"],
-                "source": "database (stored terms of that run)"}
+        return _plain_first({**bd, "run_id": run["run_id"], "predictions_as_of_cutoff_gw": cutoff,
+                             "stale_by_gameweeks": int(gw) - cutoff, "built": m["built"], "model_version": m["model_version"],
+                             "source": "database (stored terms of that run)"}, EXPLAIN_DETAIL)
     try:
         target = int(gw) if gw is not None else _current_gw()
     except RuntimeError as e:
@@ -1284,7 +1305,7 @@ def explain_prediction(player_id: int, gw: int = None, run_id: int = None):
     note = _stale_note(target, cutoff, built)
     if note:
         out["note_stale"] = note
-    return out
+    return _plain_first(_plain_leads_with_availability(out), EXPLAIN_DETAIL)
 
 
 def compare_runs(player_id: int, gw: int, run_id_a: int, run_id_b: int):
@@ -1301,14 +1322,18 @@ def compare_runs(player_id: int, gw: int, run_id_a: int, run_id_b: int):
     b, run_b, cut_b = _explain_from_run(run_id_b, player_id, int(gw))
     if b is None:
         return cut_b
-    c = explain.compare(a, b, label_a=f"run {run_a['run_id']}", label_b=f"run {run_b['run_id']}")
+    fmt = _dp()._fmt
+    c = explain.compare(a, b, label_a=f"run {run_a['run_id']}", label_b=f"run {run_b['run_id']}",
+                        plain_a=f"the run built {fmt(run_a.get('finished_at'))}",
+                        plain_b=f"the run built {fmt(run_b.get('finished_at'))}")
     ma, mb = _run_meta(run_a), _run_meta(run_b)
-    return {**c, "player_id": int(player_id), "name": a["name"], "gw": int(gw),
-            "run_a": {"run_id": run_a["run_id"], "kind": ma["kind"], "slot": ma["slot"], "built": ma["built"],
-                      "predictions_as_of_cutoff_gw": cut_a, "total_e_points": a["total_e_points"]},
-            "run_b": {"run_id": run_b["run_id"], "kind": mb["kind"], "slot": mb["slot"], "built": mb["built"],
-                      "predictions_as_of_cutoff_gw": cut_b, "total_e_points": b["total_e_points"]},
-            "breakdown_a": a, "breakdown_b": b, "source": "database (stored terms of both runs)"}
+    return _plain_first({**c, "player_id": int(player_id), "name": a["name"], "gw": int(gw),
+                         "run_a": {"run_id": run_a["run_id"], "kind": ma["kind"], "slot": ma["slot"], "built": ma["built"],
+                                   "predictions_as_of_cutoff_gw": cut_a, "total_e_points": a["total_e_points"]},
+                         "run_b": {"run_id": run_b["run_id"], "kind": mb["kind"], "slot": mb["slot"], "built": mb["built"],
+                                   "predictions_as_of_cutoff_gw": cut_b, "total_e_points": b["total_e_points"]},
+                         "breakdown_a": a, "breakdown_b": b, "source": "database (stored terms of both runs)"},
+                        COMPARE_DETAIL)
 
 
 def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
@@ -1344,7 +1369,7 @@ def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
     note = _stale_note(target, cutoff, built)
     if note:
         out["note_stale"] = note
-    return out
+    return _plain_first(out, COMPARE_DETAIL)
 
 
 def _frame_built(cutoff):

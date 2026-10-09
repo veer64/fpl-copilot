@@ -147,7 +147,8 @@ def test_neutral_fixture_and_runaway_strength_are_labelled():
     assert bd["fixture"]["constant"] == "league-average fixture"
     r = _row(team_lambda=0.002, opp_lambda=1.3)
     bd = explain.breakdown(r, _step([r]))
-    assert any("ran off" in x for x in bd["fixture"]["notes"]) and "KNOWN_ISSUES #25" in bd["summary"]
+    assert any("ran off" in x for x in bd["fixture"]["notes"]) and "a strength parameter ran off" in bd["summary"]
+    assert "KNOWN_ISSUES" not in bd["summary"]          # 2026-10-09: the issue number left every explain output
 
 
 def test_goalkeeper_lines_use_the_rules_and_the_saves_note():
@@ -155,7 +156,7 @@ def test_goalkeeper_lines_use_the_rules_and_the_saves_note():
     bd = explain.breakdown(gk, _step([gk]))
     by = {l["term"]: l for l in bd["lines"]}
     assert by["defensive_contribution"]["source"] == "rule" and by["saves"]["source"] == "model"
-    assert any("0.3 x position-mean fallback" in x for x in by["saves"]["notes"])
+    assert by["saves"]["notes"] == []                   # 2026-10-09: the fallback caveat left the output
     assert by["goals_conceded"]["source"] == "model" and by["clean_sheet"]["source"] == "model"
     assert bd["reconciles"]
 

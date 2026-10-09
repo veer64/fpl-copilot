@@ -85,8 +85,10 @@ def test_breakdown_from_the_database_equals_the_breakdown_from_the_frame(db):
     r = mt.explain_prediction(411, gw=5, run_id=7)
     assert "error" not in r, r
     frame_bd = explain.breakdown(base7[0], pd.DataFrame(base7))
-    for k in ("total_e_points", "summary", "reconciles", "lines", "fixture"):
+    for k in ("total_e_points", "reconciles", "summary_plain"):
         assert r[k] == frame_bd[k], k
+    for k in ("summary", "lines", "fixture", "rendered"):          # 2026-10-09: the technical parts sit under detail
+        assert r["detail"][k] == frame_bd[k], k
     assert r["run_id"] == 7 and r["stale_by_gameweeks"] == 1 and r["predictions_as_of_cutoff_gw"] == 4
     assert r["built"] == "built run 7 (post_ingest)" and r["source"].startswith("database")
     assert r["name"] == "Erling Haaland" and r["position"] == "FWD" and r["team"] == "Man City"
@@ -112,8 +114,10 @@ def test_compare_runs_ranks_the_move_labels_the_sides_and_carries_what_each_run_
     assert c["run_a"]["built"] == "built run 7 (post_ingest)" and c["run_b"]["built"] == "built run 9 (t90)"
     assert c["run_a"]["predictions_as_of_cutoff_gw"] == 4 and c["run_b"]["predictions_as_of_cutoff_gw"] == 5
     assert c["gap"] == pytest.approx(c["run_a"]["total_e_points"] - c["run_b"]["total_e_points"], abs=1e-4)
-    assert c["terms"][0]["term"] in ("goals", "appearance") and c["sentence"].startswith("run 7")
-    assert "run 7" in c["rendered"].splitlines()[0] and "run 9" in c["rendered"].splitlines()[0]
+    d = c["detail"]                                              # 2026-10-09: the technical parts sit under detail
+    assert d["terms"][0]["term"] in ("goals", "appearance") and d["sentence"].startswith("run 7")
+    assert "run 7" in d["rendered"].splitlines()[0] and "run 9" in d["rendered"].splitlines()[0]
+    assert c["summary_plain"].startswith("Erling Haaland's GW5 number moved from ") and "run 7" not in c["summary_plain"]
     assert c["gap"] > 0                    # run 9 saw a lower start probability and a weaker fixture
     e = mt.compare_runs(411, 5, 5, 9)
     assert "error" in e and "no recorded terms" in e["error"]

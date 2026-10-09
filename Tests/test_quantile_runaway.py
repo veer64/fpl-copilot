@@ -73,7 +73,8 @@ def test_a_runaway_row_is_flagged_in_fidelity():
     f = qt.fidelity(_row())
     assert f["runaway_fixture"] is True
     assert f["p10_is_unsafe_when_runaway"] is True
-    assert "KNOWN_ISSUES #25" in f["runaway_note"]
+    assert "ran off" in f["runaway_note"] and "one-sided record" in f["runaway_note"]
+    assert "KNOWN_ISSUES" not in f["runaway_note"]        # 2026-10-09: plain words at the source, no issue numbers
     assert "0.0006" in f["runaway_note"], "the lambda must be named"
 
 

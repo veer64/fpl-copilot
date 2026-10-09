@@ -36,7 +36,10 @@ FWD_BASE_RATE = 0.005
 TOL = 1e-6                       # float summation order only; anything larger is a defect
 LAMBDA_MIN, LAMBDA_MAX = 0.15, 6.0   # the runaway-strength box (KNOWN_ISSUES #25)
 RUNAWAY_NOTE = (f"a strength parameter ran off (lambda outside [{LAMBDA_MIN}, {LAMBDA_MAX}]): "
-                "a club with no history and a one-sided record -- KNOWN_ISSUES #25")
+                "a club with no history and a one-sided record")
+# The one penalty note a breakdown may carry (under detail), 2026-10-09: the cause (KNOWN_ISSUES #19)
+# is for a later model task, never for the user.
+PEN_NOTE = "penalty upside is not fully counted; for regular takers treat the figure as a floor."
 X0_HOME, X0_AWAY = float(math.exp(0.25)), 1.0     # the Dixon-Coles fit's starting point
 PEN_FALLBACK = 0.05
 SUB_CHANCE = 0.30
@@ -191,6 +194,98 @@ def _stamp(row, col, default=None):
     return default if v is None or (isinstance(v, float) and np.isnan(v)) else v
 
 
+def _num(x):
+    """A tool value for plain prose: one decimal, a trailing .0 dropped (2.0 -> 2, 5.5 -> 5.5)."""
+    s = f"{float(x):.1f}"
+    return s[:-2] if s.endswith(".0") else s
+
+
+TERM_WORDS = {"goals": "the chance to score", "assists": "the chance of an assist", "appearance": "how likely he is to play",
+              "clean_sheet": "the clean-sheet chance", "defensive_contribution": "defensive-contribution points",
+              "saves": "saves", "goals_conceded": "goals conceded", "cards": "bookings", "bonus": "bonus"}
+
+
+def plain_summary(bd, row):
+    """summary_plain (2026-10-09): two to four sentences a football fan understands -- the expected
+    points, the two or three biggest reasons in words, and the likely range -- from the breakdown's
+    lines and the row's own probabilities. No formulas, variable names, source labels, caveats or
+    issue numbers; numbers only as tool values (one decimal, or a percentage). The clean-sheet
+    chance is always one of a defender's or keeper's reasons, because it is what a fan asks about."""
+    name, gw, total, pos = bd["name"], bd["gw"], bd["total_e_points"], bd["position"]
+    p60p, pst, ppa = _f(row, "p_60plus"), _f(row, "p_start"), _f(row, "p_play_any")
+    pcs, fs = _f(row, "p_cs"), _f(row, "fixture_scale_cal")
+    n_fix = int(bd["fixture"].get("n_fixtures") or 1)
+    first = (f"{name} is expected to score {_num(total)} points in GW{gw}"
+             + (f" across {n_fix} fixtures" if n_fix > 1 else "") + ".")
+    positive = sum(l["points"] for l in bd["lines"] if l["points"] > 0) or 1.0
+    order = [l for l in sorted(bd["lines"], key=lambda l: -abs(l["points"])) if abs(l["points"]) >= 0.05 and l["term"] != "bonus"]
+    if pos in ("DEF", "GK"):
+        cs = next((l for l in order if l["term"] == "clean_sheet"), None)
+        if cs is not None and order.index(cs) > 2:
+            order.remove(cs)
+            order.insert(2, cs)
+    reasons = []
+    for l in order:
+        t, pts = l["term"], l["points"]
+        if t == "goals":
+            lead = "most of it comes from his chance to score" if pts / positive >= 0.5 else "a good part of it is his chance to score"
+            if fs == fs and fs >= 1.15:
+                lead += " in a kind fixture"
+            elif fs == fs and fs <= 0.85:
+                lead += " despite a tough fixture"
+            reasons.append(lead)
+        elif t == "appearance":
+            if p60p == p60p and p60p >= 0.85:
+                reasons.append("he is very likely to play the whole game")
+            elif pst == pst and pst >= 0.6:
+                reasons.append("he is likely to start")
+            elif ppa == ppa and ppa >= 0.5:
+                reasons.append("he may only play part of the game")
+            else:
+                reasons.append("he is unlikely to play much")
+        elif t == "assists":
+            reasons.append("his chances of an assist")
+        elif t == "clean_sheet" and pcs == pcs:
+            if pcs >= 0.4:
+                reasons.append(f"a good clean-sheet chance ({pcs:.0%})")
+            elif pcs >= 0.25:
+                reasons.append(f"a fair clean-sheet chance ({pcs:.0%})")
+            else:
+                reasons.append(f"a tough fixture keeps his clean-sheet chance low ({pcs:.0%})")
+        elif t == "defensive_contribution":
+            reasons.append("a regular chance of defensive-contribution points")
+        elif t == "saves":
+            reasons.append("a steady run of saves")
+        elif t == "goals_conceded":
+            reasons.append("goals conceded cost him a little")
+        elif t == "cards":
+            reasons.append("the odd booking costs a little")
+        if len(reasons) == 3:
+            break
+    second = ""
+    if reasons:
+        second = " The biggest reasons: " + (reasons[0] if len(reasons) == 1 else ", ".join(reasons[:-1]) + " and " + reasons[-1]) + "."
+    p10, p90 = _f(row, "q_p10"), _f(row, "q_p90")
+    third = (f" A likely range is {_num(p10)} to {_num(p90)} points." if p10 == p10 and p90 == p90
+             else " No likely range is available for this run.")
+    return first + second + third
+
+
+def plain_compare(name_a, name_b, gw, ta, tb, gap, lead, same_player, plain_a=None, plain_b=None):
+    """summary_plain for a comparison: two players ("A 5.5 vs B 3.4 for GW6: A by 2.1. Most of the gap is
+    ...") or one player across two runs ("A's GW6 number moved from 5.5 (Tuesday's update) to 3.4
+    (Thursday's update), down 2.1. Most of the move is ..."), the terms in plain words."""
+    words = [TERM_WORDS.get(r["term"], r["term"].replace("_", " ")) for r in lead]
+    reasons = "" if not words else (words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1])
+    if same_player:
+        direction = "unchanged" if abs(gap) < 1e-9 else ("down " if gap > 0 else "up ") + _num(abs(gap))
+        first = f"{name_a}'s GW{gw} number moved from {_num(ta)} ({plain_a or 'the earlier run'}) to {_num(tb)} ({plain_b or 'the later run'}), {direction}."
+        return first + (f" Most of the move is {reasons}." if reasons else " No part of it moved.")
+    verdict = "level" if abs(gap) < 1e-9 else (f"{name_a} by {_num(gap)}" if gap > 0 else f"{name_b} by {_num(-gap)}")
+    first = f"{name_a} {_num(ta)} vs {name_b} {_num(tb)} for GW{gw}: {verdict}."
+    return first + (f" Most of the gap is {reasons}." if reasons else " No term differs.")
+
+
 def breakdown(row, step_rows=None):
     """Level 1 on one (element, gw) row of the frame. Returns a dict; `lines` are the
     nine terms in descending |points|; `fixture` is the tenth line; `summary` is the
@@ -238,9 +333,7 @@ def breakdown(row, step_rows=None):
         g_src, g_const, g_notes)
     pen_share, tpr = _f(row, "penalty_share"), _f(row, "team_pen_rate")
     pen_pts = pen * gpts if pen == pen else 0.0
-    pen_notes = []
-    if not pen_fix:
-        pen_notes.append("the penalty term is ~50x undersized (team_pen_rate is built from penalties MISSED; KNOWN_ISSUES #19)")
+    pen_notes = [] if pen_fix else [PEN_NOTE]
     lines[-1]["penalties"] = {"points": round(pen_pts, 4),
                               "formula": (f"penalty_share {pen_share:.3f} x team_pen_rate {tpr:.3f} x {mf:.2f} min x {gpts} pts" if not pen_fix
                                           else f"penalty_share {pen_share:.3f} x {mf:.2f} min x {gpts} pts"),
@@ -278,7 +371,7 @@ def breakdown(row, step_rows=None):
         add("saves", "pts_saves", "not a GK", {}, "rule")
     else:
         add("saves", "pts_saves", f"E[floor(S/3)], S ~ Poisson(saves/90 {s90:.2f} x {mf:.2f} min)", {"saves_per_90": s90, "minutes_frac": mf},
-            "model", None, ["may be the 0.3 x position-mean fallback where the keeper has no rolling history (not marked per row)"])
+            "model", None, [])
     # goals conceded
     if pos not in ("GK", "DEF"):
         add("goals_conceded", "pts_conceded", "not GK/DEF", {}, "rule")
@@ -321,11 +414,12 @@ def breakdown(row, step_rows=None):
                + " -- the rest are model outputs under FPL's rules; "
                + " and ".join(known)
                + (f"; the fixture strength at this step is {fx_const}" if fx_const else "")
-               + (" -- and a strength parameter ran off (KNOWN_ISSUES #25)" if runaway else "") + ".")
+               + (" -- and a strength parameter ran off" if runaway else "") + ".")
     name = str(row.get("name", row.get("element")) if hasattr(row, "get") else getattr(row, "name", ""))
     out = {"player_id": int(_f(row, "element")), "name": name, "position": pos, "team": str(row["team"]),
            "gw": int(_f(row, "gw")), "horizon_step": step, "total_e_points": round(_f(row, "e_points"), 4),
            "lines": lines, "fixture": fixture, "summary": summary, **rec}
+    out = {"summary_plain": plain_summary(out, row), **out}          # first, always (2026-10-09)
     if not rec["reconciles"]:
         out["finding"] = (f"the row does NOT reconcile: eight terms - e_points_core = {rec['residual_core']:.6f}, "
                           f"core + bonus - e_points = {rec['residual_total']:.6f} (tolerance {TOL}); this is a defect in the "
@@ -352,14 +446,17 @@ def render(bd):
     return "\n".join(rows)
 
 
-def compare(a, b, label_a=None, label_b=None):
+def compare(a, b, label_a=None, label_b=None, plain_a=None, plain_b=None):
     """Level 2: two breakdowns on the same gameweek. Per-term difference a - b, ranked by
     |difference|; the terms accounting for >= 80% of the absolute gap; a flag where a
     term is a constant on one side and a model value on the other. label_a / label_b
     name the sides in the rendering (default: the players' names; a run-to-run comparison
-    of ONE player passes "run 7" / "run 9")."""
+    of ONE player passes "run 7" / "run 9"); plain_a / plain_b name the two runs in the
+    plain summary ("Tuesday's update"), which never carries a run id."""
     if a["gw"] != b["gw"]:
         raise ValueError(f"compare needs the same gameweek: GW{a['gw']} vs GW{b['gw']}")
+    real_a, real_b = a["name"], b["name"]
+    same_player = a["player_id"] == b["player_id"]
     name_a, name_b = label_a or a["name"], label_b or b["name"]
     a = dict(a, name=name_a); b = dict(b, name=name_b)
     la = {l["term"]: l for l in a["lines"]}; lb = {l["term"]: l for l in b["lines"]}
@@ -393,7 +490,9 @@ def compare(a, b, label_a=None, label_b=None):
         flags.append(f"both fixtures are {fa['constant']}: the goals/assists gap is minutes and rates plus home/away, not opponent quality")
     elif "constant" in (fa["source"], fb["source"]):
         flags.append(f"one fixture is a constant ({fa['constant'] or fb['constant']}) and the other a model value")
-    out = {"gw": a["gw"], "a": {"player_id": a["player_id"], "name": a["name"], "total_e_points": a["total_e_points"]},
+    out = {"summary_plain": plain_compare(real_a, real_b, a["gw"], a["total_e_points"], b["total_e_points"], gap, lead,
+                                          same_player, plain_a, plain_b),
+           "gw": a["gw"], "a": {"player_id": a["player_id"], "name": a["name"], "total_e_points": a["total_e_points"]},
            "b": {"player_id": b["player_id"], "name": b["name"], "total_e_points": b["total_e_points"]},
            "gap": gap, "terms": ranked, "sentence": sentence, "flags": flags,
            "reconciles": bool(a["reconciles"] and b["reconciles"])}
