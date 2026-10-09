@@ -38,7 +38,7 @@ def _names(tools):
 
 @pytest.mark.parametrize("name", [
     "resolve_player", "get_player_card", "get_prediction", "compare_players", "get_picks", "get_best_squad",
-    "optimise", "get_my_squad", "get_my_xi", "explain_prediction", "compare_runs", "compare_predictions",
+    "build_squad_from_scratch", "get_my_squad", "get_my_xi", "explain_prediction", "compare_runs", "compare_predictions",
     "propose_transfers", "set_my_squad", "list_players", "get_fixtures", "get_price_movements",
     "get_league_table", "get_match_stats", "get_actual_points", "get_my_points", "get_prediction_history",
     "get_wildcard_gap", "search_news"])
@@ -54,7 +54,7 @@ def test_every_schema_property_is_a_parameter_of_the_function(tools, name):
 
 @pytest.mark.parametrize("name", [
     "resolve_player", "get_player_card", "get_prediction", "compare_players", "get_picks", "get_best_squad",
-    "optimise", "get_my_squad", "get_my_xi", "explain_prediction", "compare_runs", "compare_predictions",
+    "build_squad_from_scratch", "get_my_squad", "get_my_xi", "explain_prediction", "compare_runs", "compare_predictions",
     "propose_transfers", "set_my_squad", "list_players", "get_fixtures", "get_price_movements",
     "get_league_table", "get_match_stats", "get_actual_points", "get_my_points", "get_prediction_history",
     "get_wildcard_gap", "search_news"])
@@ -67,7 +67,7 @@ def test_an_optional_gw_the_description_offers_is_in_the_schema(tools, name):
 
 
 def test_the_three_solvers_and_get_my_xi_all_offer_gw(tools):
-    for name in ("optimise", "get_picks", "get_my_xi"):
+    for name in ("build_squad_from_scratch", "get_picks", "get_my_xi"):
         schema = next(t for t in tools.tools_schema if t["name"] == name)
         assert OPTIONAL_GW.search(schema["description"]), name
         assert schema["input_schema"]["properties"]["gw"]["type"] == "integer", name

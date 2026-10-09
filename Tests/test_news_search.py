@@ -271,12 +271,14 @@ def test_resolve_player_narrows_by_club_and_says_so_when_it_cannot(live, monkeyp
     import model_tools as mt
     monkeypatch.setattr(mt, "_web_names", lambda: {})
     both = mt.resolve_player("Palmer")
-    assert [r["player_id"] for r in both["matches"]] == [3, 4]
+    # 2026-10-09: an ambiguous answer carries no ids (the lock); the candidates are still both Palmers
+    assert all("player_id" not in r for r in both["matches"]) and both["action"] == "ask the user which one"
+    assert [r["team"] for r in both["matches"]] == ["Chelsea", "Hull City"]
     assert both["ambiguous"] is True and both["total_matches"] == 2
     assert [r["player_id"] for r in mt.resolve_player("Palmer", club="Chelsea")["matches"]] == [3]
     assert [r["player_id"] for r in mt.resolve_player("Palmer", club="hull")["matches"]] == [4]
     wrong = mt.resolve_player("Palmer", club="Arsenal")
-    assert [r["player_id"] for r in wrong["matches"]] == [3, 4]
+    assert [r["team"] for r in wrong["matches"]] == ["Chelsea", "Hull City"] and all("player_id" not in r for r in wrong["matches"])
     assert "not Arsenal" in (wrong["note"] or ""), wrong["note"]
 
 

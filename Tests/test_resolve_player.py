@@ -125,6 +125,7 @@ def test_several_players_in_the_top_rank_are_reported_ambiguous(monkeypatch):
         out = mt.resolve_player(name)
         assert out["ambiguous"] is True, name
         assert out["total_matches"] >= n_top, (name, out["total_matches"])
+        assert all("player_id" not in m for m in out["matches"]) and out["action"] == "ask the user which one"   # the lock
 
 
 def test_a_club_is_a_preference_and_a_mismatch_is_explained(monkeypatch):

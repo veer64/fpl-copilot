@@ -114,7 +114,7 @@ def test_a_starter_who_is_unknown_or_cannot_play_is_refused_the_way_a_lock_is(so
 
 def test_the_optimise_schema_advertises_start_player_ids():
     import agent
-    schema = next(t for t in agent.tools_schema if t["name"] == "optimise")
+    schema = next(t for t in agent.tools_schema if t["name"] == "build_squad_from_scratch")
     props = schema["input_schema"]["properties"]
     assert "start_player_ids" in props and props["start_player_ids"]["type"] == "array"
     assert "START" in schema["description"]

@@ -9,7 +9,7 @@
 tools_schema = [
     {
         "name": "resolve_player",
-        "description": "Search for a player by name: accents, hyphens and FPL's own short name all work, and matching is on whole words. Returns `matches` (player_id, name, web_name, team, position, price, status), `total_matches`, `truncated` when more matched than are listed, `ambiguous` (more than one player answers to that name -- ask which, never pick one), `note` (for example that the player is at a different club from the one you named), and `suggestions` when nothing matched at all. available=false means the player cannot play for his club; lead with availability_note.",
+        "description": "Search for a player by name: accents, hyphens and FPL's own short name all work, and matching is on whole words. Returns `matches` (player_id, name, web_name, team, position, price, status), `total_matches`, `truncated` when more matched than are listed, `ambiguous` (more than one player answers to that name: the candidates then carry NO player_id, only name, club, position and price, and `action` says to ask the user which one -- you cannot call another tool for that player until they answer), `note` (for example that the player is at a different club from the one you named), and `suggestions` when nothing matched at all. available=false means the player cannot play for his club; lead with availability_note.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -78,8 +78,8 @@ tools_schema = [
         }
     },
     {
-        "name": "optimise",
-        "description": "Run the production optimiser on the latest model frame with constraints: force players in, ban players, or change the budget. A real MIP solve -- takes seconds. Returns fifteen + XI + captain + vice. Builds a squad from scratch with a full budget. For the user's own squad ('my team'), use propose_transfers or get_my_xi instead. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead). start_player_ids must START: when the user forces players in they expect them in the line-up, so pass them here (not only as locks) unless the user says squad only; they are locked into the squad as well, and the same refusals apply.",
+        "name": "build_squad_from_scratch",
+        "description": "Builds a brand-new 15 from scratch with a full £100m, ignoring the user's squad. Constraints: force players in, ban players, or change the budget; a real MIP solve that takes seconds and returns the fifteen, the XI, the captain and the vice. For the user's own squad ('my team', 'my line-up'), use propose_transfers or get_my_xi instead -- never this. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead). start_player_ids must START: when the user forces players in they expect them in the line-up, so pass them here (not only as locks) unless the user says squad only; they are locked into the squad as well, and the same refusals apply.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -488,7 +488,7 @@ available_functions = {
     "compare_players": compare_players,
     "get_picks": get_picks,
     "get_best_squad": get_best_squad,
-    "optimise": optimise,
+    "build_squad_from_scratch": optimise,
     "list_players": list_players,
     "get_my_squad": get_my_squad,
     "set_my_squad": set_my_squad,

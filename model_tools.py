@@ -347,7 +347,8 @@ def resolve_player(name: str, club: str = None):
 
     One dict: matches (up to RESOLVE_CAP), total_matches, truncated, ambiguous (more than
     one player in the best rank -- ask, never pick), note, and suggestions when nothing
-    matched at all."""
+    matched at all. An ambiguous answer carries NO player_id on its candidates and an
+    `action` of "ask the user which one" (the lock of 2026-10-09)."""
     import player_names as pn
     rows = _q("""SELECT element, name, position, team, price_tenths, status
                  FROM players_live""")
@@ -391,6 +392,12 @@ def resolve_player(name: str, club: str = None):
     elif n_best > 1:
         who = "; ".join(f"{m['name']} ({m['team']})" for m in matches if m["matched_on"] == MATCH_WORDS[best])
         notes.append(f"{n_best} players answer to that name -- ask which: {who}")
+        # The ambiguity LOCK (2026-10-09): an ambiguous answer carries no ids at all, so the model
+        # cannot pick one and carry on. Name, club, position and price are enough to ask with; a full
+        # name or a club that narrows the match gets the id as before.
+        for m in matches:
+            m.pop("player_id", None)
+        out["action"] = "ask the user which one"
     if total > RESOLVE_CAP:
         notes.append(f"{total} players match; the closest {RESOLVE_CAP} are listed")
     out["note"] = "; ".join(notes) or None
