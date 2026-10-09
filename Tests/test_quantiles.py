@@ -174,9 +174,12 @@ def test_p90_is_explicitly_flagged_as_the_weakest_of_the_three():
     fid = qt.fidelity({**a_row(), **qt.quantiles_for_row(a_row(), 6, n=4000)})
     assert fid["p90_is_weaker_than_p50"] is True
     c = fid["p90_caveat"].lower()
-    for needed in ("bonus", "penalt", "minutes shape", "p90"):
-        assert needed in c, needed
-    assert "do not read p90 as comparable in quality to p50" in c
+    # v4.2 (2026-10-09): the caveat is plain and cause-free; the causes stay listed in `fragilities`
+    assert c.startswith("the top of the range is the least certain figure.")
+    for banned in ("bonus", "penalt", "minutes shape", "p90", "p50"):
+        assert banned not in c, banned
+    assert "do not read it as comparable in quality to the middle" in c
+    assert [x["term"] for x in fid["fragilities"][:3]] == ["bonus", "penalties", "minutes shape"]
 
 
 def test_the_three_fragilities_are_each_named():

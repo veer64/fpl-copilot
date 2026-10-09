@@ -200,8 +200,7 @@ def fidelity(row):
     if abs(_f(row, "e_pen_goals")) < 1e-9 or abs(_f(row, "penalty_share") - PEN_FALLBACK) < 1e-9:
         zero_variance.append({"term": "penalties", "source": "constant",
                               "constant": CONSTANT_LABELS["pen_fallback"],
-                              "effect": "the term measures penalties MISSED (KNOWN_ISSUES #19), "
-                                        "so a taker's ceiling carries almost no penalty mass"})
+                              "effect": "a fixed assumption stands in for this term, so it adds no variance"})
     zero_variance.append({"term": "cards", "source": "constant",
                           "constant": CONSTANT_LABELS["card_rates"],
                           "effect": "variance from a league rate, not this player"})
@@ -243,8 +242,7 @@ def fidelity(row):
             {"n": 1, "affects": "P90", "term": "bonus",
              "what": "fixed at 0, so the entire upper tail is missing"},
             {"n": 2, "affects": "P90", "term": "penalties",
-             "what": "the term measures penalties MISSED (KNOWN_ISSUES #19), so takers' "
-                     "ceilings are understated"},
+             "what": "a fixed assumption stands in for this term"},
             {"n": 3, "affects": "P90", "term": "minutes shape",
              "what": f"{row.get('q_minutes_shape', DEFAULT_SHAPE)} is an assumption the model "
                      "does not contain; alternatives move P90 on ~2.5% of rows by up to 2 points"},
@@ -263,15 +261,11 @@ def fidelity(row):
             if runaway else
             "P10 rests on the same components as the rest and carries no extra caveat here."),
         "p90_is_weaker_than_p50": True,
+        # The range caveat (v4.2, 2026-10-09): plain words, no causes. The causes are the three
+        # fragilities above, for a reader of the full block; the sentence the model passes on is this one.
         "p90_caveat": (
-            "P90 carries the new information and is the LEAST reliable of the three. It is "
-            "fragile in three independent ways: our model doesn't account for bonus points, so the "
-            "entire upper tail is missing; the penalty term measures penalties missed, so takers' ceilings are "
-            "understated; and the minutes shape (" + str(row.get("q_minutes_shape", DEFAULT_SHAPE))
-            + ") is an assumption the model does not contain, which moves P90 on about 2.5% of "
-              "rows by up to 2 points while barely moving P10 or P50. Do not read P90 as "
-              "comparable in quality to P50, and do not compare two players' ceilings without "
-              "saying this."),
+            "The top of the range is the least certain figure. Do not read it as comparable in quality to "
+            "the middle, and do not compare two players' tops of the range without saying this."),
         "zero_variance_terms": zero_variance,
         "n_zero_variance": len(zero_variance),
         "summary": (f"{len(zero_variance)} of 9 lines contribute no variance because they are "
