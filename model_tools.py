@@ -162,17 +162,30 @@ def _freshness(run):
             k = None
     r = dict(run)
     r["knowledge"] = k
-    return _dp().freshness(r, (_dispatch_state() or {}).get("expected_next"))
+    return _dp().freshness(r, _next_run()["expected"])
+
+
+def _next_run():
+    """ONE source for the next run (3b, 2026-10-09): now_context.next_run, the helper the context block
+    reads, so a tool's run metadata and the block can never disagree. A failure inside the schedule
+    must never take a tool down: every piece is then None."""
+    try:
+        import now_context
+        return now_context.next_run()
+    except Exception:                                   # noqa: BLE001
+        return {"expected": None, "source": None, "words": None, "deadline_day_runs": None}
 
 
 def _run_meta(run, config=PRODUCTION_CONFIG):
-    exp = (_dispatch_state() or {}).get("expected_next")
+    nr = _next_run()
     return {"run_id": run["run_id"], "gw": run["gw"],
             "model_version": _version(run, config),
             "built_at": str(run["finished_at"]),
             "kind": run.get("kind") or "deadline", "slot": run.get("slot"),
             "built": _freshness(run),
-            "next_run_expected": exp,
+            "next_run_expected": nr["expected"],
+            "next_run_words": nr["words"],
+            "deadline_day_runs": nr["deadline_day_runs"],
             "recovered_post_deadline": run["recovered"]}
 
 
@@ -1384,10 +1397,12 @@ def _frame_built(cutoff):
     sidecar names (falls back to the latest run for the cutoff)."""
     run = _latest_run(gw=cutoff)
     if not run:
-        return {"built": None, "next_run_expected": (_dispatch_state() or {}).get("expected_next")}
+        nr = _next_run()
+        return {"built": None, "next_run_expected": nr["expected"], "next_run_words": nr["words"],
+                "deadline_day_runs": nr["deadline_day_runs"]}
     m = _run_meta(run)
-    return {"built": m["built"], "next_run_expected": m["next_run_expected"], "run_id": m["run_id"],
-            "model_version": m["model_version"]}
+    return {"built": m["built"], "next_run_expected": m["next_run_expected"], "next_run_words": m["next_run_words"],
+            "deadline_day_runs": m["deadline_day_runs"], "run_id": m["run_id"], "model_version": m["model_version"]}
 
 
 def _load_pool(gw=None):

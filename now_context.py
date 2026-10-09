@@ -27,7 +27,7 @@ never invented: a block with no deadline line is better than one with a guessed 
 block is capped at MAX_CHARS; the clubs line is the first to be shortened and the only one that
 can be, and the cap is asserted by a test.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 UTC = timezone.utc
 MAX_CHARS = 1200
@@ -124,12 +124,71 @@ def _events_for_policy(deadlines):
     return [{"id": g, "deadline_time": deadlines[g].strftime("%Y-%m-%dT%H:%M:%SZ")} for g in sorted(deadlines)]
 
 
+def clock():
+    """The clock every caller shares; tests monkeypatch it to freeze time."""
+    return datetime.now(UTC)
+
+
+def _promise(now, deadlines, finished, state, dp):
+    """(expected_next, source): the dispatcher's own promise when the state file holds one (the server),
+    else the same policy function the dispatcher calls, on the state it has (or an empty one) and the
+    local data (the laptop). (None, None) when there are no deadlines to derive from."""
+    expected = (state or {}).get("expected_next")
+    if expected:
+        return expected, "the dispatcher's promise"
+    if deadlines:
+        master_gw = max(finished) if finished else None
+        return dp.expected_next(now, _events_for_policy(deadlines), state or dp.empty_state(), master_gw), "by the schedule"
+    return None, None
+
+
+def deadline_day_runs(now, deadlines, dp):
+    """The deadline-day run times for the NEXT deadline, computed here from the deadline and the policy's
+    windows (the deadline minus 90, 30 and 10 minutes): exact UTC times, so the model never computes them.
+    None when no deadline remains."""
+    nxt = next((g for g in sorted(deadlines) if deadlines[g] > now), None)
+    if nxt is None:
+        return None
+    dl = deadlines[nxt]
+    out = {"gw": nxt, "deadline": dl.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    clock_words = []
+    for kind, _lo, hi in sorted(dp.DEADLINE_WINDOWS, key=lambda w: -w[2]):
+        at = dl - timedelta(minutes=hi)
+        out[kind] = at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        clock_words.append(at.strftime("%H:%M"))
+    out["words"] = f"Deadline-day runs for GW{nxt}: " + ", ".join(clock_words[:-1]) + f" and {clock_words[-1]} UTC."
+    return out
+
+
+def next_run(now=None, *, deadlines=None, finished=None, dispatch_state=None, policy=None):
+    """ONE source for "when is the next run" (3b, 2026-10-09): the context block and every tool's run
+    metadata read this, so they can never disagree. {expected, source, words, deadline_day_runs}; a piece
+    that cannot be loaded is None, never guessed. Keywords are seeds for tests."""
+    now = now or clock()
+    dp = policy or _policy()
+    try:
+        deadlines = _load_deadlines() if deadlines is None else dict(deadlines)
+    except Exception:                                 # noqa: BLE001
+        deadlines = {}
+    try:
+        finished = _load_finished() if finished is None else list(finished)
+    except Exception:                                 # noqa: BLE001
+        finished = []
+    try:
+        state = _load_dispatch_state() if dispatch_state is None else (dispatch_state or {})
+    except Exception:                                 # noqa: BLE001
+        state = {}
+    expected, source = _promise(now, deadlines, finished, state, dp)
+    return {"expected": expected, "source": source, "words": next_run_words(expected, now),
+            "deadline_day_runs": deadline_day_runs(now, deadlines, dp) if deadlines else None}
+
+
 def build(now=None, *, deadlines=None, finished=None, clubs=None, dispatch_state=None, policy=None):
     """The block and a report of what was left out: (text, omitted) where omitted is {piece: reason}.
 
     Every keyword is a seed for tests; None means 'load it from the local data'. A loader that
     raises or returns nothing drops its line and records why. The text is always <= MAX_CHARS."""
-    now = now or datetime.now(UTC)
+    now = now or clock()
     omitted = {}
     lines = [TITLE, f"- Now: {_fmt(now)}."]
 
@@ -166,21 +225,17 @@ def build(now=None, *, deadlines=None, finished=None, clubs=None, dispatch_state
     try:
         dp = policy or _policy()
         sched = schedule_words(dp)
-        expected, state = None, {}
+        state = {}
         try:
             state = _load_dispatch_state() if dispatch_state is None else (dispatch_state or {})
-            expected = (state or {}).get("expected_next")
         except Exception as e:                        # noqa: BLE001
             omitted["dispatch_state"] = f"{type(e).__name__}: {e}"
-        source = "the dispatcher's promise"
-        if not expected and deadlines:
-            # no promise on this volume (the laptop runs no dispatcher): the same policy function the
-            # dispatcher calls, on the state it has (or an empty one) and the local data
-            master_gw = (max(finished) if finished else None)
-            expected = dp.expected_next(now, _events_for_policy(deadlines), state or dp.empty_state(), master_gw)
-            source = "by the schedule"
+        # the ONE source the tools' run metadata reads too (next_run / _promise), so they agree
+        expected, source = _promise(now, deadlines, finished or [], state, dp)
         nr = next_run_words(expected, now)
-        lines.append("- Model runs: " + sched + (f" Next expected run ({source}): {nr}." if nr else ""))
+        ddr = deadline_day_runs(now, deadlines, dp) if deadlines else None
+        lines.append("- Model runs: " + sched + (f" Next expected run ({source}): {nr}." if nr else "")
+                     + (f" {ddr['words']}" if ddr else ""))
         if not nr:
             omitted["next_run"] = "no promise in the dispatch state and none derivable from the local data"
     except Exception as e:                            # noqa: BLE001
