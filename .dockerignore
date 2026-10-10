@@ -1,0 +1,17 @@
+# Build-context hygiene (2026-10-10, alongside the interpreter pin). The image needs the
+# source tree, prompts/, static/ and .git/HEAD + .git/refs (db_write.git_sha reads them;
+# there is no git binary in the image), nothing below. data/ is hidden by the
+# fpl_model_data volume at /app/data in every service, the Windows venv is useless in a
+# Linux image, and .git/objects is the repo's whole history.
+.venv/
+data/
+.git/objects/
+__pycache__/
+*.pyc
+.pytest_cache/
+eval/agent_evals/results/
+# gitignored, laptop-only working dirs (never in the server tree; 851 MB of them on 2026-10-10)
+fplcache/
+tmp/
+backups/
+mlartifacts/
