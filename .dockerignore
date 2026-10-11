@@ -15,3 +15,8 @@ fplcache/
 tmp/
 backups/
 mlartifacts/
+# secrets never in the image (2026-10-10): compose gives both services built from this image
+# (fpl-copilot and fpl-scheduler) env_file: .env, and the scheduler bind-mounts the live file for
+# the two scripts that parse it by path. Until now `COPY . .` baked the keys into every image.
+.env
+.env.*

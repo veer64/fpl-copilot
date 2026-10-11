@@ -60,9 +60,13 @@ COLUMNS = ["num", "question", "exploits", "must_call", "must_not", "setup",
 
 # claude-sonnet-4-6, the model agent.py sends to: $3.00 / $15.00 per million tokens
 # (Anthropic first-party API rates, read from the claude-api skill's model table
-# 2026-10-02). Cost lines only -- nothing here depends on the price being exact.
-USD_IN_PER_MTOK = 3.00
-USD_OUT_PER_MTOK = 15.00
+# 2026-10-02). Since 2026-10-10 the rates live in pricing.py, shared with the /chat
+# usage log, so the two cannot drift apart. Cost lines only -- nothing here depends
+# on the price being exact.
+from pricing import USD_PER_MTOK as _PRICES          # noqa: E402
+
+USD_IN_PER_MTOK = _PRICES["claude-sonnet-4-6"]["input"]
+USD_OUT_PER_MTOK = _PRICES["claude-sonnet-4-6"]["output"]
 
 
 # --------------------------------------------------------------- the grammar

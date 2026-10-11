@@ -238,6 +238,26 @@ CREATE TABLE IF NOT EXISTS players_live (
     status       TEXT, chance INT, news TEXT,
     updated_at   TIMESTAMPTZ NOT NULL
 );
+
+-- /chat usage, log only (2026-10-10): one row per reply, under the SAME turn_id numeric_checks and
+-- citation_checks carry. Until this table existed the agent's Anthropic calls were logged nowhere
+-- (llm_calls covers the news pipeline) and every production check reported the cost as NOT
+-- DETERMINED. usd is priced from pricing.USD_PER_MTOK (the eval runner's table) and is NULL when the
+-- model has no row there; cache tokens are recorded, not priced. tool_names_replaced is how many
+-- exact tool names agent.replace_tool_names rewrote in the rendered reply. Append-only in practice.
+CREATE TABLE IF NOT EXISTS chat_usage (
+    id                   BIGSERIAL PRIMARY KEY,
+    ts                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    turn_id              TEXT NOT NULL,
+    model                TEXT,
+    api_calls            INT,
+    input_tokens         BIGINT,
+    output_tokens        BIGINT,
+    cache_read_tokens    BIGINT,
+    cache_write_tokens   BIGINT,
+    usd                  NUMERIC(12, 6),
+    tool_names_replaced  INT
+);
 """
 
 STAMP_COLS = [
@@ -323,6 +343,26 @@ def connect():
         user=os.getenv("DB_USER", "postgres"),
         password=os.getenv("DB_PASSWORD", ""),
     )
+
+
+def record_chat_usage(turn_id, model, api_calls, input_tokens, output_tokens, cache_read_tokens,
+                      cache_write_tokens, usd, tool_names_replaced, conn=None):
+    """One chat_usage row per reply (see the DDL). usd None -> NULL. Raises on a DB failure: the caller
+    (agent._usage_log) catches and prints, so /chat never fails because of the log."""
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO chat_usage (turn_id, model, api_calls, input_tokens, output_tokens, "
+                        "cache_read_tokens, cache_write_tokens, usd, tool_names_replaced) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        (turn_id, model, api_calls, input_tokens, output_tokens, cache_read_tokens,
+                         cache_write_tokens, usd, tool_names_replaced))
+        conn.commit()
+    finally:
+        if own:
+            conn.close()
 
 
 def git_sha():

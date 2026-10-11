@@ -388,6 +388,8 @@ import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
 from now_context import context_block
+from db_write import record_chat_usage
+from pricing import usd as _price_usd
 
 load_dotenv()
 client = anthropic.Anthropic()
@@ -481,6 +483,40 @@ def _numeric_check(turn_id, text, messages):
               f"{[u['text'] for u in result['ungrounded']]}]")
 
 
+def _tally_usage(acc, response):
+    """Add one API response to the turn's usage tally. A response without a usage block (an older
+    fake, a provider hiccup) counts as a call but leaves the token totals undetermined."""
+    acc["calls"] += 1
+    u = getattr(response, "usage", None)
+    if u is not None:
+        acc["seen_usage"] = True
+        for key, attr in (("input", "input_tokens"), ("output", "output_tokens"),
+                          ("cache_read", "cache_read_input_tokens"), ("cache_write", "cache_creation_input_tokens")):
+            try:
+                acc[key] += int(getattr(u, attr, 0) or 0)
+            except (TypeError, ValueError):
+                pass
+    m = getattr(response, "model", None)
+    if isinstance(m, str) and m:
+        acc["model"] = m
+
+
+def _usage_log(turn_id, usage, tool_names_replaced):
+    """Part 7c (log only, 2026-10-10): one chat_usage row per reply -- the turn id numeric_checks and
+    citation_checks carry, the model, the API calls, the tokens, the usd at pricing.py's rates (NULL
+    when the model has no price or no usage was reported) and how many tool names the lock replaced.
+    Any exception is caught and printed; the reply is never affected."""
+    try:
+        model = usage.get("model") or AGENT_MODEL
+        seen = bool(usage.get("seen_usage"))
+        toks = {k: (usage[k] if seen else None) for k in ("input", "output", "cache_read", "cache_write")}
+        cost = _price_usd(model, toks["input"], toks["output"]) if seen else None
+        record_chat_usage(turn_id, model, usage["calls"], toks["input"], toks["output"],
+                          toks["cache_read"], toks["cache_write"], cost, tool_names_replaced)
+    except Exception as e:  # noqa: BLE001 -- the log must never take the reply down
+        print(f"  [usage not logged: {type(e).__name__}: {str(e)[:200]}]")
+
+
 available_functions = {
     "resolve_player": resolve_player,
     "get_player_card": get_player_card,
@@ -517,15 +553,18 @@ def run_agent(user_message: str, messages: list = None):
     system = _system_for_turn()                      # the "now" block, rebuilt once per turn (2026-10-08)
     returned_ids = []                                # every result id search_news returned in THIS turn
     returned_results = []                            # the result dicts themselves, for the rendered citations (Part C)
+    usage = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0,
+             "model": None, "seen_usage": False}     # Part 7c: this turn's API usage, logged with the reply
 
     while True:
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=AGENT_MODEL,
             max_tokens=1024,
             system=system,
             tools=tools_schema,
             messages=messages
         )
+        _tally_usage(usage, response)
 
         messages.append({"role": "assistant", "content": response.content})
 

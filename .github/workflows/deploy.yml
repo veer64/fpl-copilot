@@ -17,6 +17,12 @@ jobs:
           script: |
             set -e
             cd fpl-copilot
+            # Where the tree stood before the pull. On 2026-10-10 11:16Z the pull
+            # succeeded and the image build failed, so the server sat on a sha whose
+            # image never built while the old container kept serving. If the build
+            # fails below, the tree goes back here (--keep keeps the branch and
+            # refuses to lose local changes) and the step fails loudly.
+            PREV=$(git rev-parse HEAD)
             git pull
             # The deploy builds and restarts the APP only. It never touches
             # fpl-postgres: since 2026-09-29 that service has its own build
@@ -32,6 +38,10 @@ jobs:
             # from cron). Both app services share the project network, so the
             # app reaches the DB by service name with NO manual
             # `docker network connect`.
-            docker compose build fpl-copilot
+            if ! docker compose build fpl-copilot; then
+              git reset --keep "$PREV"
+              echo "docker compose build failed: tree restored to $PREV; the running container is untouched"
+              exit 1
+            fi
             docker compose up -d --no-deps --remove-orphans fpl-copilot
             docker compose ps
