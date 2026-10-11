@@ -40,3 +40,5 @@ eval/reports/*.md
 
 # agent eval runs: one jsonl + md per run, regenerated on demand and often large
 eval/agent_evals/results/
+# LLM judge runs: per-call verdicts, kept out of git so the user's blind labelling stays blind (2026-10-11)
+eval/judge/runs/
