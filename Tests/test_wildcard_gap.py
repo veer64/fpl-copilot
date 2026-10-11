@@ -116,7 +116,9 @@ def test_the_wildcard_gap_compares_the_current_xi_with_the_free_pick_plan_per_ga
     assert len(out["free_pick_squad"]["xi"]) == 11 and len(out["free_pick_squad"]["bench_in_order"]) == 4
     assert len(out["free_pick_squad"]["sells"]) == out["transfers_needed"] == len(out["free_pick_squad"]["buys"])
     assert out["refused"] is False and "the user's" in out["decision"]
-    assert "get_my_xi" in out["basis"] and "propose_transfers" in out["basis"]
+    assert "the line-up solve" in out["basis"] and "the transfer plan" in out["basis"]   # Part 4a: no tool names
+    assert "get_my_xi" not in out["basis"] and "propose_transfers" not in out["basis"]
+    assert out["without_wildcard"]["transfers_needed"] == out["transfers_needed"]       # Part 5a
 
 
 def test_the_current_side_is_get_my_xis_own_number(gap_env):

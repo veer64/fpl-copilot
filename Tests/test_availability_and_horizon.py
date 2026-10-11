@@ -81,8 +81,10 @@ def test_a_gameweek_before_the_horizon_says_it_was_played():
     assert out["error_kind"] == "already_played"
     assert "GW3 has already been played" in out["error"]
     assert "This run predicts GW6-11" in out["error"]
-    # A3 (2026-10-05): the past is no longer unavailable, so the refusal names the tool
-    assert "get_actual_points" in out["error"] and "get_my_points" in out["error"]
+    # A3 (2026-10-05): the past is no longer unavailable, so the refusal points at the answer;
+    # 2026-10-10 (Part 4a of the smoke fixes): in plain words, never by tool name
+    assert "actual points" in out["error"] and "team's score" in out["error"]
+    assert "get_actual_points" not in out["error"] and "get_my_points" not in out["error"]
 
 
 @pytest.mark.parametrize("gw", [0, -1, 39, 100])

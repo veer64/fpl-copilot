@@ -284,8 +284,8 @@ def _horizon_check(gw, lo, hi, run_id):
         return None
     if x < int(lo):
         return {"error": (f"GW{x} has already been played. This run predicts GW{lo}-{hi}. "
-                          "For what actually happened, use get_actual_points for a "
-                          "player, or get_my_points for the team."),
+                          "For what actually happened, ask for the player's actual points, "
+                          "or the team's score."),
                 "error_kind": "already_played"}
     if x > int(hi):
         span = int(hi) - int(lo)
@@ -523,7 +523,7 @@ def _element_id(value):
     return None
 
 
-BAD_ELEMENT_ID = "player_id must be a number; use resolve_player to find it"
+BAD_ELEMENT_ID = "player_id must be a number; look the player up by name first"
 
 
 def get_player_card(player_id: int):
@@ -770,7 +770,7 @@ def compare_players(player_id_a: int, player_id_b: int):
     if nxt is not None and out["a"]["first_gw"] < nxt:
         out["note_stale"] = (f"the first-gameweek figures are for GW{out['a']['first_gw']}, the run's own gameweek, "
                              f"which has been played; the next deadline is GW{nxt} -- for this week use "
-                             f"compare_predictions / get_prediction with gw={nxt} (as seen from the GW{out['a']['first_gw']} cutoff)")
+                             f"the per-gameweek comparison or the single prediction with gw={nxt} (as seen from the GW{out['a']['first_gw']} cutoff)")
     return out
 
 
@@ -1818,7 +1818,7 @@ def _check_lock_ban(lock, ban, pool_elements=None):
     unknown = [i for i in ids if i not in names]
     if unknown:
         return {"error": (f"player id(s) {', '.join(str(i) for i in unknown)} match no player; "
-                          "use resolve_player"),
+                          "look the player up by name first"),
                 "error_kind": "unknown_player_id"}
     locked = sorted({int(x) for x in (lock or [])})
     flags = _availability_for(locked)
@@ -2225,7 +2225,7 @@ def _not_played_yet(gw, held):
     return {"error": (f"GW{gw} has not been played yet, so there are no actual points for it; "
                       f"{covers}."
                       + (f" GW{gw}'s deadline is {when}." if when else "")
-                      + " For what the model expects, use get_prediction."),
+                      + " For what the model expects, ask for the prediction instead."),
             "error_kind": "not_played_yet"}
 
 
@@ -2239,7 +2239,7 @@ def get_actual_points(player_id: int, gw: int = None):
     """
     name = _player_name(player_id)
     if name is None:
-        return {"error": f"player id {player_id} matches no player; use resolve_player",
+        return {"error": f"player id {player_id} matches no player; look the player up by name first",
                 "error_kind": "unknown_player_id"}
     try:
         x = int(gw) if gw is not None else None
@@ -3341,7 +3341,7 @@ def _past_picks(gw, shadow=False):
         first_gw = first[0]["gw"] if first and first[0].get("gw") is not None else None
         return {"error": (f"no model run was built for GW{gw}, so there are no stored picks for it"
                           + (f"; the first gameweek with a run is GW{first_gw}" if first_gw else "")
-                          + ". For what a player actually scored, use get_actual_points."),
+                          + ". For what a player actually scored, ask for his actual points."),
                 "error_kind": "no_run_for_gw",
                 **({"first_gw_with_a_run": int(first_gw)} if first_gw else {})}
     rows = _q("""SELECT element AS player_id, name, position, team, role,
@@ -3432,7 +3432,7 @@ def get_prediction_history(player_id: int, gw: int):
                  ORDER BY r.finished_at, p.run_id""", (pid, x, PRODUCTION_CONFIG))
     name = _player_name(pid)
     if name is None:
-        return {"error": f"player id {pid} matches no player; use resolve_player",
+        return {"error": f"player id {pid} matches no player; look the player up by name first",
                 "error_kind": "unknown_player_id"}
     if not rows:
         span = _q("SELECT min(gw) AS lo, max(gw) AS hi FROM model_runs WHERE status = 'SUCCESS'")
@@ -3468,7 +3468,7 @@ def get_prediction_history(player_id: int, gw: int):
                                     "run_id_a": biggest["from_run_id"], "run_id_b": biggest["to_run_id"]}
                                    if biggest["explainable"] else None)
         if not biggest["explainable"]:
-            biggest["explain_note"] = "one of the two runs has no recorded terms (before 2026-09-14), so compare_runs cannot break the move down"
+            biggest["explain_note"] = "one of the two runs has no recorded terms (before 2026-09-14), so the move cannot be broken down term by term"
     first, last = hist[0], hist[-1]
     out = {"player_id": pid, "name": name, "gw": x, "runs": len(hist),
            "first": first["built"], "latest": last["built"],
@@ -3479,7 +3479,7 @@ def get_prediction_history(player_id: int, gw: int):
            "kinds": ("nightly = the daily rebuild; post_ingest = the rebuild after FPL confirmed a gameweek; "
                      "t90 / t30 / t10 = the deadline-day rebuilds 90, 30 and 10 minutes before the deadline"),
            "note": (f"oldest to newest: what each stored run predicted {name} would score in GW{x}. "
-                    "To explain a move, call compare_runs with the two run ids it names.")}
+                    "To explain a move, compare the two runs biggest_move.explain_with names.")}
     return _lead_with_availability(out, pid, _availability_for([pid]))
 
 
@@ -3608,8 +3608,8 @@ def get_wildcard_gap(user_id: int = None):
         "squad_version_id": record["version_id"],
         "wait_note": "one six-gameweek MIP solve plus one XI solve per gameweek: twenty to sixty seconds",
         "basis": ("both sides are the expected points of the best XI each gameweek (the XI plus the captain "
-                  "again), the number get_my_xi reports. The free-pick squad was solved by the same "
-                  "six-gameweek decayed-objective planner propose_transfers uses, with transfers free at the "
+                  "again), the number the line-up solve reports. The free-pick squad was solved by the same "
+                  "six-gameweek decayed-objective planner the transfer plan uses, with transfers free at the "
                   "first step (a wildcard) and the squad's own money (sell value plus bank); the current squad "
                   "is re-solved for its best XI every gameweek. Later steps of the free-pick plan may still "
                   "make ordinary transfers, counted in free_pick_moves_this_step."),

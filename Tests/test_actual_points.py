@@ -240,7 +240,9 @@ def test_get_my_points_with_no_gw_gives_every_gameweek_it_can_score(monkeypatch)
 def test_the_horizon_refusal_now_names_the_tool_that_can_answer():
     out = mt._horizon_check(3, 6, 11, 24)
     assert out["error_kind"] == "already_played"
-    assert "get_actual_points" in out["error"], out["error"]
+    # 2026-10-10 (Part 4a): the refusal still points at the answer, in plain words, never by tool name
+    assert "actual points" in out["error"] and "team's score" in out["error"], out["error"]
+    assert "get_actual_points" not in out["error"]
     assert "aren't available yet" not in out["error"]      # the old, now-false sentence
 
 
@@ -252,7 +254,7 @@ def test_the_fixtures_refusal_now_names_the_tool_that_can_answer():
              "p_cs": 0.33, "horizon_step": g - 6} for g in (6, 7, 8)]
     out = ft.build(rows, cal, 1, team="Arsenal", gw=3)
     assert out["error_kind"] == "already_played"
-    assert "get_actual_points" in out["error"], out["error"]
+    assert "actual points" in out["error"] and "get_actual_points" not in out["error"], out["error"]   # Part 4a
 
 
 # ======================================================================================

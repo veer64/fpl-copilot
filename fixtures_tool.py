@@ -208,7 +208,7 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                 # the same words get_prediction uses for a gameweek behind the run's horizon,
                 # so one question asked of two tools does not get two different explanations
                 err = (f"GW{int(gw)} has already been played; {covers}. For what happened, "
-                       "use get_actual_points for a player, or get_my_points for the team.")
+                       "ask for the player's actual points, or the team's score.")
                 kind = "already_played"
             else:
                 err = (f"GW{int(gw)} is not in the fixture calendar: {covers}. A gameweek "

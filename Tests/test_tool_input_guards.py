@@ -27,7 +27,7 @@ import psycopg2                                            # noqa: E402
 import agent                                               # noqa: E402
 import model_tools as mt                                   # noqa: E402
 
-BAD_ID = "player_id must be a number; use resolve_player to find it"
+BAD_ID = "player_id must be a number; look the player up by name first"     # 2026-10-10: no tool names in tool text
 
 
 @pytest.fixture

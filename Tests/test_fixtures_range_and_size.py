@@ -62,8 +62,7 @@ def test_a_gameweek_before_the_loaded_range_says_it_was_played(gw):
     out = ft.build(rows_of(), cal_of(), 3, team="Arsenal", gw=gw)
     assert out.get("error_kind") == "already_played", (gw, out)
     assert out["error"] == (f"GW{gw} has already been played; fixtures loaded cover GW6-8. "
-                            "For what happened, use get_actual_points for a player, or "
-                            "get_my_points for the team.")
+                            "For what happened, ask for the player's actual points, or the team's score.")
 
 
 def test_a_real_blank_inside_the_range_stays_a_blank():

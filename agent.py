@@ -401,6 +401,56 @@ from pathlib import Path
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_prompt.md"
 SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
 
+# The model every turn is sent to; one name, so the usage log (below) and the call agree.
+AGENT_MODEL = "claude-sonnet-4-6"
+
+# Part 4b of the smoke fixes (2026-10-10): tool names reaching users. Section 9 of the prompt forbids
+# them and the tools' own strings no longer carry them, but a model that has just called a tool can
+# still write its name ("run it as a `build_squad_from_scratch`"). So the final text is rewritten,
+# exact name -> short plain phrase, with or without backticks or "()", BEFORE the Sources list is
+# added. The RAW text is what the canary scorer, the citation check and the numeric checker see, and
+# what the conversation history keeps. Every tool in tools_schema must have a phrase
+# (Tests/test_tool_names_plain.py), so a new tool cannot be missed.
+import re
+TOOL_PLAIN_PHRASES = {
+    "resolve_player": "the player lookup",
+    "get_player_card": "the player card",
+    "get_prediction": "the prediction lookup",
+    "compare_players": "the player comparison",
+    "get_picks": "the model's picks",
+    "best_squad_from_scratch": "the best squad from scratch",
+    "build_squad_from_scratch": "a fresh squad build",
+    "get_my_squad": "your squad record",
+    "get_my_xi": "the line-up solve",
+    "explain_prediction": "the prediction breakdown",
+    "compare_runs": "the run-to-run comparison",
+    "compare_predictions": "the head-to-head breakdown",
+    "propose_transfers": "the transfer plan",
+    "set_my_squad": "the squad change",
+    "list_players": "the player list",
+    "get_fixtures": "the fixture list",
+    "get_price_movements": "the price movements",
+    "get_league_table": "the league table",
+    "get_match_stats": "the match stats",
+    "get_actual_points": "the actual points lookup",
+    "get_my_points": "your team's score",
+    "get_prediction_history": "the prediction history",
+    "get_wildcard_gap": "the wildcard comparison",
+    "search_news": "the news search",
+}
+_TOOL_NAME_RE = re.compile(r"`?\b(" + "|".join(sorted(TOOL_PLAIN_PHRASES, key=len, reverse=True))
+                           + r")\b(\(\))?`?")
+
+
+def replace_tool_names(text):
+    """(text with every exact tool name replaced by its plain phrase, how many were replaced).
+    Whole-word only: list_players_v2 or get_picksy are left alone; `name`, name() and (name) are caught."""
+    return _TOOL_NAME_RE.subn(lambda m: TOOL_PLAIN_PHRASES[m.group(1)], text)
+
+
+# What the latest reply cost and did, for the process that served it (the eval runner reads it).
+LAST_TURN = {}
+
 
 def _system_for_turn():
     """The system prompt for one turn: the "now" context block (today, the gameweek state, the run
@@ -571,11 +621,16 @@ def run_agent(user_message: str, messages: list = None):
         if response.stop_reason != "tool_use":
             for block in response.content:
                 if block.type == "text":
-                    _citation_check(turn_id, block.text, returned_ids)
-                    _numeric_check(turn_id, block.text, messages)                  # log only; never alters the reply
-                    rendered = render_citations(block.text, returned_results)      # Part C: [1], [2] + Sources
-                    if rendered != block.text:
-                        print(f"  [raw reply with c-ids: {block.text}]")           # the raw reply stays in the logs
+                    raw = block.text
+                    _citation_check(turn_id, raw, returned_ids)
+                    _numeric_check(turn_id, raw, messages)                         # log only; never alters the reply
+                    plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
+                    rendered = render_citations(plain, returned_results)           # Part C: [1], [2] + Sources
+                    if rendered != raw:
+                        print(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
+                    LAST_TURN.clear()
+                    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, **usage)
+                    _usage_log(turn_id, usage, n_names)
                     return rendered, messages
 
         tool_results = []

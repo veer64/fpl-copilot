@@ -42,7 +42,8 @@ def test_roles_are_stale_when_a_run_landed_after_they_were_recorded():
     rec = _row(legal_doc(), gw=4, created_at=T0)
     st = squad_store.roles_status(rec, _run(4, T0 + timedelta(hours=5)))
     assert st["status"] == "STALE"
-    assert "not a recommendation for GW4" in st["warning"] and "get_my_xi" in st["warning"]
+    assert "not a recommendation for GW4" in st["warning"] and "the line-up solve" in st["warning"]
+    assert "get_my_xi" not in st["warning"]                 # Part 4a (2026-10-10): no tool names in tool text
     assert st["as_of_gw"] == 4 and st["latest_run"]["run_id"] == 5
 
 

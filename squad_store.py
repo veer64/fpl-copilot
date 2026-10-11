@@ -453,7 +453,7 @@ def read_active(user_id=None, conn=None):
 
 ROLES_MEANING = ("the roles recorded WITH this version (captain, vice, XI, bench order) -- a record "
                  "of what was set when it was written, NOT a recommendation for the current "
-                 "gameweek; get_my_xi computes that from the current model run")
+                 "gameweek; the line-up solve computes that from the current model run")
 
 
 # ------------------------------------------------- free transfers (lazy)
@@ -516,7 +516,7 @@ def roles_status(record, latest_run):
             f"these roles were recorded at {record['created_at']} for GW{record['gw']}; "
             f"model run {latest_run['run_id']} for GW{latest_run['gw']} was built at "
             f"{latest_run['finished_at']}, AFTER that. They are a record of what was set, "
-            f"not a recommendation for GW{latest_run['gw']} -- call get_my_xi for that.")
+            f"not a recommendation for GW{latest_run['gw']} -- the line-up solve gives that.")
     else:
         out["status"] = "current"
         out["warning"] = None
@@ -1091,7 +1091,7 @@ def write_version(active, new_doc, gw, note, confirm, conn=None, user_id=None):
             if len(flipped) != 1:
                 raise SquadStateError(
                     f"version {active['version_id']} is no longer the active squad for user "
-                    f"{user_id} (superseded meanwhile); re-read with get_my_squad and retry")
+                    f"{user_id} (superseded meanwhile); re-read the squad and retry")
             cur.execute(
                 """INSERT INTO squad_versions
                        (user_id, season, gw, squad_json, is_active, supersedes, note)
