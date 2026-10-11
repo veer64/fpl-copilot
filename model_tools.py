@@ -939,6 +939,17 @@ def get_my_squad(user_id: int = None):
                                scores=scores)
 
 
+# Part 1 of the smoke fixes (2026-10-10): "How's my line-up looking?" ended with "Want me to apply this
+# XI?" because the result handed the model an apply payload (confirm true) and a description that said
+# how to record the XI. The result now carries the exact follow-up question the line-up rule wants and a
+# next_step that says never to offer to apply; the payload previews. The numbers are untouched.
+LINEUP_NEXT_QUESTION = ("Would you like me to weigh that against the transfers you could make, "
+                        "or against the best possible squad?")
+LINEUP_NEXT_STEP = ("give the gain from rearranging, then end the answer by asking next_question word for "
+                    "word and stop there. Never offer to apply, set or record this line-up; only the user "
+                    "asks for that, and then it is previewed first.")
+
+
 def get_my_xi(user_id: int = None, gw: int = None):
     """THIS WEEK's best XI, captain, vice and bench order over the fifteen the
     user owns, solved from the current production frame on the model volume
@@ -1022,7 +1033,9 @@ def get_my_xi(user_id: int = None, gw: int = None):
                        "captain_id": next(r["player_id"] for r in xi if r["role"] == "CAPTAIN"),
                        "vice_id": next(r["player_id"] for r in xi if r["role"] == "VICE"),
                        "bench_order_ids": [r["player_id"] for r in bench],
-                       "gw": target, "confirm": True},
+                       "gw": target, "confirm": False},
+        "next_question": LINEUP_NEXT_QUESTION,
+        "next_step": LINEUP_NEXT_STEP,
     }
     if missing:
         out["note_missing"] = (f"{len(missing)} owned player(s) have no row for GW{target} in the "
