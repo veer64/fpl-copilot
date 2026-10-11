@@ -191,10 +191,12 @@ def test_get_my_points_scores_through_squad_stores_own_scorer(monkeypatch):
     want = squad_store.score_gameweek_for([v], 3, pd.Timestamp("2026-09-04T17:30:00Z"),
                                           at.actuals_frame(m, 3))
     assert "error" not in out, out
-    for k in ("points_net", "points_raw", "hit", "captain_bonus", "doubled",
+    for k in ("points_net", "points_raw", "hit", "doubled",
               "doubled_role", "transfers_made", "free_transfers", "final_xi",
               "subs_made", "bench_points", "version_id"):
         assert out[k] == want[k], k
+    # 2026-10-10: the scorer's captain_bonus travels as captain_doubled_added (Tests/test_captain_wording.py)
+    assert out["captain_doubled_added"] == want["captain_bonus"]
     assert out["autosubs_applied"] is True          # the scorer does them; say so
 
 

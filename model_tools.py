@@ -2303,6 +2303,29 @@ def _squad_versions_for(user_id):
         conn.close()
 
 
+def _captain_words(row):
+    """The captain's extra points in plain words (Part 3 of the smoke fixes, 2026-10-10). The scorer
+    calls the doubled score's extra `captain_bonus`, and a model handed that key said "a 6-point
+    bonus" -- which in FPL means the 1/2/3 bonus points our model does not account for. The tool
+    says captain_doubled_added and a sentence; the word "bonus" never appears."""
+    n = int(row.get("captain_bonus") or 0)
+    role = row.get("doubled_role")
+    if role == "captain":
+        note = f"your captain's doubled score added {n} points"
+    elif role == "vice":
+        note = f"your vice-captain's doubled score added {n} points (the captain did not play)"
+    else:
+        note = "nobody's score was doubled (neither the captain nor the vice-captain played)"
+    return {"captain_doubled_added": n, "captain_note": note}
+
+
+def _plain_score_row(row):
+    """The scorer's row with captain_bonus replaced by the plain-words pair; every other key as is."""
+    out = {k: v for k, v in row.items() if k != "captain_bonus"}
+    out.update(_captain_words(row))
+    return out
+
+
 def get_my_points(gw: int = None, user_id: int = None):
     """The user's OWN team score for a finished gameweek: the squad version that was
     active at that gameweek's deadline, scored by squad_store.score_gameweek_for -- FPL's
@@ -2370,14 +2393,14 @@ def get_my_points(gw: int = None, user_id: int = None):
                                       "cannot be scored; the record starts later"),
                     "error_kind": "no_squad_for_gw"}
         pr, fetched = actuals_tool.provisional_for(prov, x)
-        return {**base, **row, "provisional": pr, "fetched_at": fetched}
+        return {**base, **_plain_score_row(row), "provisional": pr, "fetched_at": fetched}
 
     weeks, problems = [], {}
     for g in held:
         row, err = score_one(g)
         if row is not None:
             pr, fetched = actuals_tool.provisional_for(prov, g)
-            weeks.append({**row, "provisional": pr, "fetched_at": fetched})
+            weeks.append({**_plain_score_row(row), "provisional": pr, "fetched_at": fetched})
         elif err:
             problems[g] = err
     if not weeks:
@@ -3361,7 +3384,7 @@ def _past_picks(gw, shadow=False):
             r["minutes"] = mins.get(int(r["player_id"]), 0)
         provisional, fetched_at = actuals_tool.provisional_for(prov, int(gw))
         actual = {"points": int(res["points"]), "points_raw": int(res["raw_points"]),
-                  "captain_bonus": int(res["captain_bonus"]),
+                  "captain_doubled_added": int(res["captain_bonus"]),
                   "doubled": None if res["doubled"] is None else int(res["doubled"]),
                   "doubled_role": res["doubled_role"],
                   "final_xi": [int(e) for e in res["final_xi"]],
