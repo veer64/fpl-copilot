@@ -372,6 +372,7 @@ def run_one(q, client, agent, recorder, budget, keeper, conn):
         for kind, text in ([("setup", q["setup"])] if q["setup"] else []) + \
                           [("question", q["question"])]:
             recorder.clear()
+            getattr(agent, "LAST_CONTEXT", {}).clear()
             t0 = time.time()
             before = budget.snapshot()
             r = client.post("/chat", json={"message": text})
@@ -381,6 +382,7 @@ def run_one(q, client, agent, recorder, budget, keeper, conn):
             turns.append({"kind": kind, "message": text,
                           "reply": r.json().get("answer", ""),
                           "calls": recorder.dump(),
+                          "context_block": getattr(agent, "LAST_CONTEXT", {}).get("text"),
                           "latency_s": round(time.time() - t0, 2),
                           "anthropic_calls": after["anthropic_calls"] - before["anthropic_calls"],
                           "input_tokens": after["input_tokens"] - before["input_tokens"],
@@ -470,17 +472,42 @@ class Recorder:
 def wrap_dispatcher(agent, recorder):
     """Record every tool call the agent makes, in order. Runner-local: the
     production dispatcher is called unchanged and its result passed straight
-    back, so nothing the agent sees differs from production."""
+    back, so nothing the agent sees differs from production. Since 2026-10-11
+    each record also carries `output`: str(result), the exact tool_result
+    content agent.py hands the model (the answer-quality judge reads it)."""
     original = agent.call_tool
 
     def recording_call_tool(tool_name, tool_input):
         out = original(tool_name, tool_input)
         err = out.get("error") if isinstance(out, dict) else None
         recorder.calls.append({"tool": tool_name, "args": tool_input or {},
-                               "error": (str(err)[:300] if err else None)})
+                               "error": (str(err)[:300] if err else None),
+                               "output": str(out)})
         return out
 
     agent.call_tool = recording_call_tool
+    return original
+
+
+def wrap_context(agent):
+    """Keep the context block the agent prepended to the turn's system prompt
+    (agent._system_for_turn calls agent.context_block once per user turn), so a
+    judge sees the same dates, gameweek state and club list the model saw. A
+    block that fails to build is recorded as None and the error re-raised, as
+    the agent expects (it then sends the prompt alone)."""
+    agent.LAST_CONTEXT = {}
+    original = agent.context_block
+
+    def capture():
+        try:
+            text = original()
+        except Exception:
+            agent.LAST_CONTEXT["text"] = None
+            raise
+        agent.LAST_CONTEXT["text"] = text
+        return text
+
+    agent.context_block = capture
     return original
 
 
@@ -583,6 +610,7 @@ def main(argv=None):
     recorder = Recorder()
     wrap_dispatcher(agent, recorder)
     wrap_raw_reply(agent)
+    wrap_context(agent)
     wrap_voyage(budget)
     agent.client = CountingClient(agent.client, budget)
 
