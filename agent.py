@@ -68,7 +68,7 @@ tools_schema = [
     },
     {
         "name": "best_squad_from_scratch",
-        "description": "The best brand-new 15 from scratch with a full £100m, ignoring the user's squad. For the user's own squad use propose_transfers or get_my_xi. At the default full budget this is the stored production solve (instant); a custom budget runs the real optimiser (takes seconds).",
+        "description": "The best brand-new 15 from scratch with a full £100m, ignoring the user's squad. For the user's own squad use propose_transfers or get_my_xi. Never call this when the user's own squad is the subject ('given what I already own', 'improve my team', 'the best I could get from here'), not even as a benchmark beside propose_transfers. At the default full budget this is the stored production solve (instant); a custom budget runs the real optimiser (takes seconds).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -79,7 +79,7 @@ tools_schema = [
     },
     {
         "name": "build_squad_from_scratch",
-        "description": "Builds a brand-new 15 from scratch with a full £100m, ignoring the user's squad. Constraints: force players in, ban players, or change the budget; a real MIP solve that takes seconds and returns the fifteen, the XI, the captain and the vice. For the user's own squad ('my team', 'my line-up'), use propose_transfers or get_my_xi instead -- never this. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead). start_player_ids must START: when the user forces players in they expect them in the line-up, so pass them here (not only as locks) unless the user says squad only; they are locked into the squad as well, and the same refusals apply.",
+        "description": "Builds a brand-new 15 from scratch with a full £100m, ignoring the user's squad. Constraints: force players in, ban players, or change the budget; a real MIP solve that takes seconds and returns the fifteen, the XI, the captain and the vice. For the user's own squad ('my team', 'my line-up', 'given what I own'), use propose_transfers or get_my_xi instead -- never this, and never as a benchmark beside them. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead). start_player_ids must START: when the user forces players in they expect them in the line-up, so pass them here (not only as locks) unless the user says squad only; they are locked into the squad as well, and the same refusals apply.",
         "input_schema": {
             "type": "object",
             "properties": {
