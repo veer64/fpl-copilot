@@ -144,3 +144,14 @@ def test_a_club_and_position_that_do_match_are_unaffected(live):
     out = mt.list_players(team="Spurs", position="keeper")
     assert [p["name"] for p in out["players"]] == ["Guglielmo Vicario"]
     assert out["total_matches"] == 1 and out["truncated"] is False and out["note"] is None
+
+
+def test_the_count_not_shown_travels_with_the_answer(live):
+    """Part 5a of the smoke fixes (2026-10-10): "54 more forwards" was 79 - 25 done by the model.
+    The tool says how many it left out, so the reply never has to subtract."""
+    out = mt.list_players(team="Hull City")
+    assert out["not_shown"] == 43 - mt.LIST_CAP == out["total_matches"] - len(out["players"])
+    assert str(out["not_shown"]) in (out["note"] or ""), out["note"]
+    small = mt.list_players(team="Spurs")
+    assert small["not_shown"] == 0
+    assert mt.list_players(team="Spurs", position="GK")["not_shown"] == 0

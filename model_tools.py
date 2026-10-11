@@ -498,9 +498,11 @@ def list_players(team: str = None, position: str = None):
             note = "players_live holds no players"
     elif total > LIST_CAP:
         note = (f"{total} players match; the {LIST_CAP} most expensive are listed "
-                f"(this tool orders by price)")
+                f"(this tool orders by price); {total - LIST_CAP} are not shown")
+    # not_shown travels with the answer so the model never does total minus the cap itself
+    # (Part 5a of the smoke fixes, 2026-10-10: "54 more forwards" was 79 - 25 done by the model)
     return {"players": players, "total_matches": total, "truncated": total > LIST_CAP,
-            "note": note}
+            "not_shown": max(0, total - len(players)), "note": note}
 
 
 def _element_id(value):
@@ -782,8 +784,9 @@ def _planning_note(target, next_gw):
     """
     if next_gw is None or int(target) == int(next_gw):
         return None
-    return (f"Planning view for GW{int(target)} from today's predictions; availability and "
-            "predictions will change before then.")
+    return (f"Planning view for GW{int(target)} from today's predictions: GW{int(target)} is inside the "
+            "model's range, so this is a real prediction, but availability and predictions will change "
+            "before then.")
 
 
 def _solver_gw(gw):
@@ -3480,6 +3483,29 @@ def get_prediction_history(player_id: int, gw: int):
     return _lead_with_availability(out, pid, _availability_for([pid]))
 
 
+def _without_wildcard(record, gw, transfers_needed):
+    """What the free-pick squad's transfers would cost WITHOUT the chip, derived by the tool so the
+    model never computes it (Part 5a of the smoke fixes, 2026-10-10: a reply said "28+ points" for
+    7 hits x 4 with the free-transfer count never shown). Free transfers at `gw` by the same rule
+    get_my_squad uses (squad_store.free_transfers_at); a record the rule cannot read is reported,
+    never guessed."""
+    n = int(transfers_needed)
+    try:
+        ft = int(squad_store.free_transfers_at(record, int(gw)))
+    except (ValueError, KeyError, TypeError) as e:
+        return {"free_transfers_now": None, "transfers_needed": n, "extra_transfers": None,
+                "hit_cost_points": None,
+                "note": f"the hit cost without the chip cannot be derived: {e}"}
+    extra = max(0, n - ft)
+    used = min(n, ft)
+    cost = extra * squad_store.HIT_COST                     # FPL's real charge per paid transfer (4)
+    return {"free_transfers_now": ft, "transfers_needed": n, "extra_transfers": extra,
+            "hit_cost_points": cost,
+            "note": (f"making these {n} transfers without the chip would use {used} free "
+                     f"transfer{'' if used == 1 else 's'} and cost {extra} extra transfers x "
+                     f"{squad_store.HIT_COST} = {cost} points")}
+
+
 def get_wildcard_gap(user_id: int = None):
     """What a wildcard now would open up, over the run's range, for the user to decide on.
 
@@ -3595,6 +3621,7 @@ def get_wildcard_gap(user_id: int = None):
                    "gap_decayed": None if degraded else round(wc_dec - cur_dec, 2),
                    "decayed_meaning": f"each gameweek weighted by {DEFAULT_DECAY} to the power of its step, the planner's own weighting"},
         "transfers_needed": int(step["transfers_made"]),
+        "without_wildcard": _without_wildcard(record, current, int(step["transfers_made"])),
         "free_pick_squad": {"sells": sells, "buys": buys,
                             "captain": names.get(int(step["captain"])) if step["captain"] is not None else None,
                             "vice": names.get(int(step["vice"])) if step["vice"] is not None else None,
