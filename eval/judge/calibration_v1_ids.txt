@@ -1,0 +1,42 @@
+# Calibration set v1 (2026-10-11): 38 real answers from the agent eval, picked so every metric applies to >= 10
+# answers where the data allows (M4 >= 8), at least a third carry a code signal of a likely fail, and 15 sheets are
+# covered; search_news questions excluded. The first 22 come from the 2026-10-11 11:00Z re-run of six sheets on the
+# deployed code (tool outputs captured); the other 16 were re-run the same day for their tool outputs.
+routing:3
+optimise:1
+optimise:2
+optimise:3
+optimise:5
+optimise:7
+forced_starters:1
+forced_starters:2
+forced_starters:3
+forced_starters:4
+lineup_value:1
+lineup_value:2
+lineup_value:3
+wildcard_gap:1
+wildcard_gap:3
+routing:7
+routing:10
+routing:14
+routing:28
+routing:29
+routing:32
+get_best_squad:4
+propose_transfers:1
+propose_transfers:4
+propose_transfers:6
+get_fixtures:1
+get_fixtures:6
+fixture_scores:1
+fixture_scores:2
+get_player_card:6
+get_prediction:5
+get_my_xi:5
+get_my_xi:6
+get_my_points:1
+get_my_points:4
+plain_language:1
+plain_language:2
+list_players:5
