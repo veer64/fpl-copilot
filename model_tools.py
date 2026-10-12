@@ -196,6 +196,29 @@ def _run_meta(run, config=PRODUCTION_CONFIG):
 # and every player row carries club and position.
 PROB_MEANINGS = {"p_play_any": "chance of playing at all (any minutes)", "p_start": "chance of starting",
                  "p_60plus": "chance of playing 60 minutes or more"}
+KEY_MEANINGS = {
+    "first_gw_p_start": PROB_MEANINGS["p_start"],
+    "horizon_gws": "the gameweeks these predictions cover",
+    "horizon_step": "how many gameweeks past the next deadline (0 = the deadline gameweek)",
+    "horizon_e_points_sum": "expected points summed over every gameweek covered",
+    "effective_horizon": "how many gameweeks the plan looks ahead",
+    "horizon": "how many gameweeks the plan looks ahead",
+    "predictions_as_of_cutoff_gw": "the gameweek the predictions were built for; later gameweeks are as seen from there",
+    "stale_by_gameweeks": "how many gameweeks old the predictions are for this gameweek",
+    "frame_built_at": "when the predictions were built",
+    "solve_seconds": "how long the squad build took, in seconds",
+    "hold_solve_seconds": "how long the hold plan took, in seconds",
+    "hold_re_solved": "whether the hold plan was computed separately",
+    "run_id": "the build's id (for the record, not for the user)",
+    "decay": "how much each later gameweek is discounted in the plan",
+    "decayed_meaning": "how the weighted totals are formed",
+    "objective": "the plan's weighted total over the gameweeks it covers",
+    "move_objective": "the weighted total of the move plan",
+    "hold_objective": "the weighted total of the hold plan",
+    "gap_objective": "move minus hold on the weighted total",
+}
+
+
 def _meanings_for(out):
     """{key: plain meaning} for every key in `out` (top level, and the keys of its rows one level down) that
     has a plain twin in PROB_MEANINGS or KEY_MEANINGS; {} when none."""
@@ -771,8 +794,8 @@ def get_prediction(player_id: int, gw: int = None):
             return outside
     rows = _q(sql + " ORDER BY gw", tuple(params))
     if not rows:
-        return {"error": f"no prediction rows for player {player_id} in run "
-                         f"{run['run_id']} (not in the pool at that cutoff)"}
+        return {"error": f"no prediction rows for player {player_id} in build "
+                         f"{run['run_id']} (not in the player pool for that gameweek)"}
     # The player's club, for naming a runaway own-team strength. model_predictions does not
     # carry it, and guessing a club by matching lambdas is the recorded mis-pairing trap. A
     # separate, guarded lookup: if it fails the club is simply not named, and the rest of the
@@ -848,13 +871,13 @@ def _quantile_block(rows):
     fid = qt.fidelity(src)
     fid["source_gw"] = int(src["gw"])
     fid["source_rule"] = ("earliest gameweek whose fixture has a runaway strength"
-                          if runaways else "earliest gameweek in the horizon (none is affected)")
+                          if runaways else "earliest gameweek covered (none is affected)")
     fid["runaway_in_horizon"] = bool(runaways)
     fid["runaway_gws"] = [int(r["gw"]) for r in sorted(runaways, key=lambda r: int(r["gw"]))]
     fid["p10_unusable_gws"] = list(fid["runaway_gws"])
     if runaways and len(runaways) < len(have):
         fid["p10_caveat"] = (f"Applies to GW{', GW'.join(str(g) for g in fid['runaway_gws'])} "
-                             f"only, not the whole horizon. " + fid["p10_caveat"])
+                             f"only, not the whole six-gameweek range. " + fid["p10_caveat"])
     return {
         "computed": True,
         "method_version": src.get("q_method_version"),
@@ -912,9 +935,9 @@ def compare_players(player_id_a: int, player_id_b: int):
     except RuntimeError:
         nxt = None
     if nxt is not None and out["a"]["first_gw"] < nxt:
-        out["note_stale"] = (f"the first-gameweek figures are for GW{out['a']['first_gw']}, the run's own gameweek, "
-                             f"which has been played; the next deadline is GW{nxt} -- for this week use "
-                             f"the per-gameweek comparison or the single prediction with gw={nxt} (as seen from the GW{out['a']['first_gw']} cutoff)")
+        out["note_stale"] = (f"the first-gameweek figures are for GW{out['a']['first_gw']}, the gameweek these predictions "
+                             f"were built for, which has been played; the next deadline is GW{nxt} -- for this week use "
+                             f"the per-gameweek comparison or the single prediction with gw={nxt} (as the model saw it before GW{out['a']['first_gw']})")
     return _with_meanings(_with_started_note(out, out["a"]["first_gw"]))
 
 
@@ -983,7 +1006,7 @@ def get_picks(gw: int = None, shadow: bool = False):
         # no stored solve for that gameweek: compute it, through the one solver entry
         # point, and reshape optimise's answer into this tool's contract
         if shadow:
-            return {"error": (f"there is no stored solve for GW{int(gw)} and no shadow "
+            return {"error": (f"there is no stored squad for GW{int(gw)} and no shadow "
                               "configuration to compute one with; ask for the production "
                               "picks instead")}
         got = optimise(gw=gw)
@@ -1137,7 +1160,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
     except (FileNotFoundError, RuntimeError) as e:
         return {"error": str(e)}
     except ValueError as e:
-        return {"error": f"the frame on the volume has no predictions for GW{target}: {e}"}
+        return {"error": f"there are no predictions for GW{target}: {e}"}
     doc = record["squad_json"]
     state = squad_store.to_state(doc)
     elements = [p["element"] for p in doc["players"]]
@@ -1186,15 +1209,15 @@ def get_my_xi(user_id: int = None, gw: int = None):
     }
     if missing:
         out["note_missing"] = (f"{len(missing)} owned player(s) have no row for GW{target} in the "
-                               f"frame (blank gameweek or absent at cutoff GW{cutoff}) and were "
-                               "solved at 0 expected points, per the production blank-week rule")
+                               f"predictions (blank gameweek or absent from the GW{cutoff} build) and were "
+                               "counted at 0 expected points, per the production blank-week rule")
     if xi_note:
         out["note"] = xi_note
     if target != cutoff:
-        out["note_stale"] = (f"the frame on the volume is GW{cutoff}'s (built {built:%Y-%m-%d %H:%M}Z); "
-                             f"GW{target}'s predictions here are as seen from cutoff GW{cutoff}, "
-                             f"{target - cutoff} gameweek(s) stale. A fresh frame lands when the "
-                             f"pipeline runs at T-90 before the GW{target} deadline"
+        out["note_stale"] = (f"the predictions were last built for GW{cutoff} (built {built:%Y-%m-%d %H:%M}Z); "
+                             f"GW{target}'s figures here are as the model saw them before GW{cutoff}, "
+                             f"{target - cutoff} gameweek(s) stale. Fresh predictions land with the "
+                             f"update 90 minutes before the GW{target} deadline"
                              + (f" ({nd[1]})" if nd else ""))
     return _with_meanings(_with_started_note(out, target))
 
@@ -1290,8 +1313,8 @@ def _load_frame():
     frame_p = PROD_FRAME
     prices_p = REPO / "data" / "live" / "_tmp_prices_2026_27.parquet"
     if not frame_p.exists() or not prices_p.exists():
-        raise FileNotFoundError("no frame on the model volume yet -- the pipeline has "
-                                "not produced a build here")
+        raise FileNotFoundError("no predictions on this machine yet -- no build has "
+                                "been produced here")
     df = sim.load_season(walkforward_path=str(frame_p), history_path=str(prices_p),
                          horizon_aware=True, season=os.getenv("FPL_SEASON", "2026-27"))
     cutoff = int(df["cutoff"].min())
@@ -1314,9 +1337,9 @@ def _check_sidecar(frame_p, cutoff):
         latest = _latest_run(gw=cutoff)
         if side.get("run_id") is not None and latest and int(latest["run_id"]) != int(side["run_id"]):
             raise RuntimeError(
-                f"the frame on the volume belongs to run {side['run_id']} but the database's latest "
-                f"successful run for GW{cutoff} is {latest['run_id']} -- frame and database disagree; "
-                "not answering from a frame of unknown provenance")
+                f"the stored predictions and the database's latest successful build for GW{cutoff} "
+                f"disagree (build ids {side['run_id']} and {latest['run_id']}); not answering from "
+                "predictions of unknown provenance")
 
 
 def _frame_raw():
@@ -1327,8 +1350,8 @@ def _frame_raw():
     import pandas as pd
     frame_p = PROD_FRAME
     if not frame_p.exists():
-        raise FileNotFoundError("no frame on the model volume yet -- the pipeline has "
-                                "not produced a build here")
+        raise FileNotFoundError("no predictions on this machine yet -- no build has "
+                                "been produced here")
     df = pd.read_parquet(frame_p)
     cutoff = int(df["cutoff"].min())
     built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
@@ -1345,12 +1368,12 @@ def _explain_row(df, cutoff, player_id, target):
         return None, None, outside
     step = df[df["gw"] == int(target)]
     if step.empty:
-        return None, None, {"error": f"the frame on the volume has no predictions for GW{target}: it covers "
-                                     f"GW{lo}-GW{hi} as seen from cutoff GW{cutoff}"}
+        return None, None, {"error": f"there are no predictions for GW{target}: the current build covers "
+                                     f"GW{lo}-GW{hi}, as seen before GW{cutoff}"}
     row = step[step["element"] == int(player_id)]
     if row.empty:
         return None, None, {"error": f"no row for player {player_id} in GW{target}: a blank gameweek for the "
-                                     f"club, or the player was not in the frame at cutoff GW{cutoff}"}
+                                     f"club, or the player was not in the build for GW{cutoff}"}
     return row.iloc[0], step, None
 
 
@@ -1358,9 +1381,9 @@ def _stale_note(target, cutoff, built):
     if target == cutoff:
         return None
     nd = _next_deadline()
-    return (f"the frame on the volume is GW{cutoff}'s (built {built:%Y-%m-%d %H:%M}Z); GW{target}'s "
-            f"predictions here are as seen from cutoff GW{cutoff}, {target - cutoff} gameweek(s) stale. "
-            f"A fresh frame lands when the pipeline runs at T-90 before the GW{target} deadline"
+    return (f"the predictions were last built for GW{cutoff} (built {built:%Y-%m-%d %H:%M}Z); GW{target}'s "
+            f"figures here are as the model saw them before GW{cutoff}, {target - cutoff} gameweek(s) stale. "
+            f"Fresh predictions land with the update 90 minutes before the GW{target} deadline"
             + (f" ({nd[1]})" if nd else ""))
 
 
@@ -1384,7 +1407,7 @@ def _rows_from_db(run, config, gw):
         return None
     df = pd.DataFrame(rows)
     if df["pts_goals"].isna().all():
-        raise ValueError(f"run {run['run_id']} has no recorded terms (built {run['finished_at']}, before the term "
+        raise ValueError(f"build {run['run_id']} has no recorded terms (built {run['finished_at']}, before the term "
                          "columns of 2026-09-14; they are never backfilled) -- only its totals can be read")
     stamp = run.get("model_stamp") or {}
     if isinstance(stamp, str):
@@ -1404,9 +1427,9 @@ def _explain_from_run(run_id, player_id, gw):
     import explain
     run = _run_by_id(run_id)
     if run is None:
-        return None, None, {"error": f"no run {run_id} in the database"}
+        return None, None, {"error": f"no build {run_id} in the database"}
     if run.get("status") != "SUCCESS":
-        return None, None, {"error": f"run {run_id} is {run.get('status')}: it wrote no predictions"}
+        return None, None, {"error": f"build {run_id} is {run.get('status')}: it wrote no predictions"}
     try:
         step = _rows_from_db(run, PRODUCTION_CONFIG, gw)
     except ValueError as e:
@@ -1415,8 +1438,8 @@ def _explain_from_run(run_id, player_id, gw):
         lo, hi = _run_horizon(run)
         outside = _horizon_check(gw, lo, hi, run_id)
         return None, None, (outside or
-                            {"error": f"run {run_id} (GW{run['gw']}) has no rows for GW{gw}: "
-                                      "outside its six-week horizon"})
+                            {"error": f"build {run_id} (GW{run['gw']}) has no rows for GW{gw}: "
+                                      "outside its six-gameweek range"})
     row = step[step["element"] == int(player_id)]
     if row.empty:
         return None, None, {"error": f"no row for player {player_id} in GW{gw} of run {run_id}"}
@@ -1504,9 +1527,9 @@ def compare_runs(player_id: int, gw: int, run_id_a: int, run_id_b: int):
     if b is None:
         return cut_b
     fmt = _dp()._fmt
-    c = explain.compare(a, b, label_a=f"run {run_a['run_id']}", label_b=f"run {run_b['run_id']}",
-                        plain_a=f"the run built {fmt(run_a.get('finished_at'))}",
-                        plain_b=f"the run built {fmt(run_b.get('finished_at'))}")
+    c = explain.compare(a, b, label_a=f"build {run_a['run_id']}", label_b=f"build {run_b['run_id']}",
+                        plain_a=f"the update built {fmt(run_a.get('finished_at'))}",
+                        plain_b=f"the update built {fmt(run_b.get('finished_at'))}")
     ma, mb = _run_meta(run_a), _run_meta(run_b)
     return _plain_first({**c, "player_id": int(player_id), "name": a["name"], "gw": int(gw),
                          "run_a": {"run_id": run_a["run_id"], "kind": ma["kind"], "slot": ma["slot"], "built": ma["built"],
@@ -1630,11 +1653,11 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         return {"error": str(e)}
     all_gws = sorted(int(g) for g in df["gw"].unique())
     if current not in all_gws:
-        return {"error": f"the frame on the volume (cutoff GW{cutoff}, gws {all_gws}) has no "
-                         f"predictions for the next deadline GW{current}"}
+        return {"error": f"the predictions (built for GW{cutoff}, covering GW{all_gws}) have no "
+                         f"entry for the next deadline GW{current}"}
     horizon = int(horizon or 6)
     if not (1 <= horizon <= 6):
-        return {"error": f"horizon must be 1..6, got {horizon}"}
+        return {"error": f"the plan length must be between 1 and 6 gameweeks, got {horizon}"}
     lock = sorted({int(x) for x in (lock_player_ids or [])})
     ban = sorted({int(x) for x in (ban_player_ids or [])})
     bad = _check_lock_ban(lock, ban)
@@ -1799,7 +1822,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         bank_before=change["bank_before"], bank_after=change["bank_after"],
         captain=req["captain_id"], vice=req["vice_id"], predicted_xi_points=float(xi_pts),
         hold_applied=hold, solve_seconds=solve_s, git_sha=db_write.git_sha(),
-        note=("stale-by-one: frame cutoff GW%d, plan from GW%d" % (cutoff, current)) if current != cutoff else "fresh frame")
+        note=("stale by one gameweek: predictions built for GW%d, plan from GW%d" % (cutoff, current)) if current != cutoff else "fresh predictions")
     rows = [dict(horizon_step=0, gw=current, element_out=t["out"], name_out=t["out_name"],
                  element_in=t["in"], name_in=t["in_name"], sold_for=t["sold_for"],
                  bought_for=t["bought_for"], executable=True) for t in change["transfers"]]
@@ -1826,7 +1849,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
             note=("hold baseline for the move proposal written next: hold THIS gameweek only "
                   "(step 0 forced to zero transfers, steps 1-5 free, the rolled free transfer "
                   "earned and spent inside the plan). " + header["note"]
-                  + ("; not re-solved -- the move solve already held at step 0, so the forced hold "
+                  + ("; not recomputed -- the move plan already held at step 0, so the forced hold "
                      "is the same plan and the gap is exactly zero"
                      if not step.get("hold_solved", True) else "")))
         hold_pid = db_write.write_proposal(hold_header, _rows_for_later(hold_later))
@@ -1852,7 +1875,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     hold_comparison = {
         "stored_as_proposal_id": hold_pid,
         "basis": "hold THIS gameweek only: step 0 forced to zero transfers, steps 1-5 free, the "
-                 "rolled free transfer earned and spent inside the plan; the XI is re-solved at "
+                 "rolled free transfer earned and spent inside the plan; the XI is re-picked at "
                  "every step in both plans",
         "move_objective": round(float(step["objective"]), 3),
         "hold_objective": None if hold_obj is None else round(float(hold_obj), 3),
@@ -1868,14 +1891,14 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         hold_comparison["refusal"] = (
             "The hold-vs-move gap cannot be measured honestly right now, so it is not reported. "
             "Holding earns a second free transfer at the next gameweek, and a club whose "
-            "team-strength estimate has run off sits inside this horizon, so the hold plan can spend "
+            "team-strength estimate has run off sits inside the gameweeks this plan covers, so the hold plan can spend "
             "that transfer on fixtures the model has mispriced. The gap is therefore biased IN "
             "FAVOUR OF HOLDING by an unknown amount (KNOWN_ISSUES #25). Both plans were computed "
             "and stored; only the comparison is withheld. Ask again once the model-degraded "
             "condition clears.")
         hold_comparison["condition"] = degraded
     elif gap_obj is None:
-        hold_comparison["verdict"] = "no hold baseline: the hold solve returned no plan"
+        hold_comparison["verdict"] = "no hold baseline: the hold plan could not be computed"
     else:
         hold_comparison["verdict"] = (
             f"moving scores {gap_obj:+.3f} on the six-week objective against holding"
@@ -1905,8 +1928,6 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
 
     roles = squad_store.roles_from_team(team)
     squad_rows = _squad_rows_from_team(team, roles, names)
-    t_meta =     roles = squad_store.roles_from_team(team)
-    squad_rows = _squad_rows_from_team(team, roles, names)
     t_meta = _player_meta([t["out"] for t in change["transfers"]] + [t["in"] for t in change["transfers"]]
                           + [t["out_id"] for st in later for t in st["transfers"]]
                           + [t["in_id"] for st in later for t in st["transfers"] if t["in_id"] is not None])
@@ -1915,7 +1936,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     out = {
         "summary_plain": _transfer_summary(current, change, hold_comparison, change["free_transfers_before"]),
         "proposal_id": proposal_id, "source": source,
-        "wait_note": "two real MIP solves (the move plan and the hold baseline): typically twenty to sixty seconds, occasionally longer",
+        "wait_note": "two full plans are computed (the move plan and the hold baseline): typically twenty to sixty seconds, occasionally longer",
         "gw": current, "path": header["note"], "predictions_as_of_cutoff_gw": cutoff,
         "stale_by_gameweeks": current - cutoff, "frame_built_at": str(built), **_frame_built(cutoff),
         "run_id": header["run_id"], "model_version": (_version(run, PRODUCTION_CONFIG) if run else None),
@@ -1983,8 +2004,8 @@ def _check_lock_ban(lock, ban, pool_elements=None):
         if missing:
             return {"error": (f"player id(s) {', '.join(str(i) for i in missing)} "
                               f"({', '.join(names[i] for i in missing)}) are in the game but not "
-                              "in this run's frame, so the optimiser cannot be made to pick "
-                              "them -- a blank gameweek, or they joined after the cutoff"),
+                              "in this build's player pool, so they cannot be forced in "
+                              "-- a blank gameweek, or they joined after the predictions were built"),
                     "error_kind": "locked_player_not_in_frame"}
     return None
 
@@ -2023,7 +2044,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
         except (FileNotFoundError, RuntimeError) as e:
             return {"error": str(e)}
         except ValueError as e:
-            return {"error": f"the frame on the volume has no predictions for GW{target}: {e}"}
+            return {"error": f"there are no predictions for GW{target}: {e}"}
         try:
             note = _planning_note(target, _current_gw())
         except RuntimeError:
@@ -2411,7 +2432,7 @@ def _not_played_yet(gw, held):
     """The refusal for a gameweek the actuals do not cover, shaped like the horizon
     helper's: it names what IS answerable, and when the asked-for gameweek lands."""
     covers = (f"actual points are held for GW{held[0]}-{held[-1]}" if held
-              else "no gameweek of this season has been ingested yet")
+              else "no gameweek of this season has been confirmed and loaded yet")
     when = _gw_deadlines().get(int(gw))
     return {"error": (f"GW{gw} has not been played yet, so there are no actual points for it; "
                       f"{covers}."
@@ -2445,12 +2466,12 @@ def get_actual_points(player_id: int, gw: int = None):
     master, prov = _actuals_master()
     held = actuals_tool.gws_held(master)
     if not held:
-        return {"error": ("no finished gameweek of this season has been ingested yet, so there "
+        return {"error": ("no finished gameweek of this season has been confirmed and loaded yet, so there "
                           "are no actual points to give"),
                 "error_kind": "not_played_yet"}
     base = {"player_id": int(player_id), "name": name, "season": _season_label(),
             "gameweeks_covered": [held[0], held[-1]],
-            "source": "FPL's own per-player gameweek data, as ingested by the weekly pipeline"}
+            "source": "FPL's own per-player gameweek data, as loaded by the weekly refresh"}
 
     if x is None:
         weeks, total = actuals_tool.player_season(master, player_id)
@@ -2477,8 +2498,8 @@ def get_actual_points(player_id: int, gw: int = None):
            "predicted_minus_actual": (None if not pred or pred["e_points"] is None
                                       else round(pred["e_points"] - week["total_points"], 2))}
     if pred is None:
-        out["predicted_note"] = (f"no run of this project predicted GW{x}: the earliest stored "
-                                 "run's cutoff is GW3, so GW1 and GW2 have no prediction to "
+        out["predicted_note"] = (f"no build of this project predicted GW{x}: the earliest stored "
+                                 "build is for GW3, so GW1 and GW2 have no prediction to "
                                  "compare against")
     if provisional:
         out["provisional_note"] = ("FPL had not finished checking this gameweek when it was "
@@ -2542,7 +2563,7 @@ def get_my_points(gw: int = None, user_id: int = None):
     master, prov = _actuals_master()
     held = actuals_tool.gws_held(master)
     if not held:
-        return {"error": ("no finished gameweek of this season has been ingested yet, so there "
+        return {"error": ("no finished gameweek of this season has been confirmed and loaded yet, so there "
                           "is nothing to score"),
                 "error_kind": "not_played_yet"}
     if x is not None and x not in held:
@@ -2964,8 +2985,8 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
             return {"error": err, "known_teams": known}
     rows, step_rows = _team_gw_rows(run["run_id"], skel)
     if not rows:
-        return {"error": f"run {run['run_id']} has no per-team fixture rows to price "
-                         "(the prediction table is missing a required column, or the run "
+        return {"error": f"build {run['run_id']} has no per-team fixture rows to price "
+                         "(the prediction table is missing a required column, or the build "
                          "wrote nothing). No difficulty can be reported.",
                 "required_columns": list(FIXTURE_REQUIRED_COLS)}
     out = _run_meta(run)
@@ -3005,7 +3026,7 @@ def get_price_movements(window_days: int = 7, user_id: int = None, include_squad
 
 # ---------------------------------------------------------------- league table (as-of)
 LEAGUE_STACK_COLS = ["season", "GW", "team", "was_home", "kickoff_time", "fixture"]
-AS_OF_RULE = ("a result counts only if the match finished before the cutoff DAY began -- "
+AS_OF_RULE = ("a result counts only if the match finished before the as-of DAY began -- "
               "dixon_coles.knowable_before, the fit's own training filter and the as-of "
               "guard's truncation, applied unchanged (KNOWN_ISSUES #25)")
 
@@ -3051,10 +3072,10 @@ def _run_cutoff(run, cal, as_of, cal_note=None):
         cutoff = lt.first_kickoff_by_gw(cal).get(int(run["gw"]))
         if cutoff is None:
             return None, None, (f"the calendar has no first kickoff for GW{run['gw']}, so the latest "
-                                f"run's cutoff cannot be derived"
+                                f"build's as-of time cannot be derived"
                                 f"{(' -- ' + cal_note) if cal_note else ''}. Pass as_of explicitly.")
-        return cutoff, (f"the latest run's cutoff: GW{run['gw']}'s first kickoff, derived from the "
-                        f"stack + forward skeleton the way the walk-forward derives cutoff_date"), None
+        return cutoff, (f"the latest build's as-of time: GW{run['gw']}'s first kickoff, derived from the "
+                        f"fixture calendar"), None
     cutoff, err = lt.parse_as_of(as_of)
     if err:
         return None, None, err
@@ -3155,8 +3176,8 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
     elif cutoff.normalize() > latest_result + pd.Timedelta(days=1):
         status = "after_latest_result"
         statement = (f"the archive's latest result is dated {latest_result:%Y-%m-%d} and the "
-                     f"cutoff is {stamp}; "
-                     + (f"{n_missing} fixture(s) dated before the cutoff day carry no result "
+                     f"as-of time is {stamp}; "
+                     + (f"{n_missing} fixture(s) dated before the as-of day carry no result "
                         f"(results_missing_before_cutoff) -- the table is INCOMPLETE as of that "
                         f"date, not merely older" if n_missing else
                         "no fixture is dated between them, so the table is complete as of that "
@@ -3164,10 +3185,10 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
     else:
         status = "ok"
         statement = (f"the archive's latest result is dated {latest_result:%Y-%m-%d}; "
-                     + (f"{n_missing} fixture(s) dated before the cutoff day carry no result "
-                        f"(postponed, or not yet ingested) -- see results_missing_before_cutoff"
+                     + (f"{n_missing} fixture(s) dated before the as-of day carry no result "
+                        f"(postponed, or played but not yet loaded) -- see results_missing_before_cutoff"
                         if n_missing else
-                        "every fixture dated before the cutoff day has a result"))
+                        "every fixture dated before the as-of day has a result"))
 
     out = _run_meta(run)
     out.update({
@@ -3182,11 +3203,11 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
         "n_matches_in_table": int(len(known)),
         "results_missing_before_cutoff": {
             "n": n_missing, "matches": lt.missing_list(missing_l),
-            "note": ("fixtures dated before the cutoff day with no result in the archive: "
+            "note": ("fixtures dated before the as-of day with no result in the archive: "
                      "postponed and still carrying the original date, or played but not yet "
-                     "ingested. Not counted. If any is listed, the table is incomplete as of "
-                     "this cutoff." if n_missing else
-                     "none: every fixture dated before the cutoff day has a result")},
+                     "loaded. Not counted. If any is listed, the table is incomplete as of "
+                     "this time." if n_missing else
+                     "none: every fixture dated before the as-of day has a result")},
         "gameweek_labels": {
             "source": "the stack + forward skeleton, pairing the two sides of each fixture id",
             "unmapped": n_unmapped,
@@ -3333,7 +3354,7 @@ def _e0_fill_check(season, archive):
                           if ok else
                           f"the E0 fill sidecar for {season} claims {claimed_n} filled cells across "
                           f"{len(cols)} columns but the archive holds {actual_n}: the fill was overwritten "
-                          f"(an ingest rebuilt the file) or has not been re-applied -- the sidecar "
+                          f"(a data refresh rebuilt the file) or has not been re-applied -- the sidecar "
                           f"describes data that is not there")}
 
 
@@ -3550,7 +3571,7 @@ def _past_picks(gw, shadow=False):
     out = _run_meta(run, config)
     out["config"] = config + (" (shadow)" if shadow else " (production)")
     out.update({"gw": int(gw), "past": True, "stored": True,
-                "note": (f"PAST picks: the squad the model solved for GW{gw} "
+                "note": (f"PAST picks: the squad the model picked for GW{gw} "
                          f"({out['kind']} run built {out['built_at']}), scored on what actually "
                          "happened. A free-pick squad makes no transfers, so no hit is charged."
                          + (" This run was RECOVERED after the deadline had passed, not built before it,"
@@ -3590,8 +3611,8 @@ def _past_picks(gw, shadow=False):
                               "automatic substitutions, the captain doubled (the vice instead if the "
                               "captain did not play); bench points are reported but not scored")}
     else:
-        out["actual_note"] = (f"GW{gw} is not in the stored actuals yet ({'held: GW' + str(held[0]) + '-' + str(held[-1]) if held else 'nothing ingested'}), "
-                              "so these picks cannot be scored until FPL confirms the gameweek and it is ingested")
+        out["actual_note"] = (f"GW{gw} is not in the stored actuals yet ({'held: GW' + str(held[0]) + '-' + str(held[-1]) if held else 'nothing loaded yet'}), "
+                              "so these picks cannot be scored until FPL confirms the gameweek and the results are loaded")
     out["captain"] = next((r["name"] for r in rows if r["role"] == "CAPTAIN"), None)
     out["vice"] = next((r["name"] for r in rows if r["role"] == "VICE"), None)
     out["xi"] = [r for r in rows if r["role"] != "bench"]
@@ -3628,8 +3649,8 @@ def get_prediction_history(player_id: int, gw: int):
     if not rows:
         span = _q("SELECT min(gw) AS lo, max(gw) AS hi FROM model_runs WHERE status = 'SUCCESS'")
         lo, hi = (span[0]["lo"], span[0]["hi"]) if span else (None, None)
-        return {"error": (f"no stored run predicted GW{x} for {name}"
-                          + (f"; runs exist from a GW{lo} cutoff to GW{hi}, each covering six gameweeks" if lo else "")),
+        return {"error": (f"no stored build predicted GW{x} for {name}"
+                          + (f"; builds exist from GW{lo} to GW{hi}, each covering six gameweeks" if lo else "")),
                 "error_kind": "no_predictions", "player_id": pid, "name": name, "gw": x}
     meta = _player_meta([pid]).get(pid) or {}
     fmt = _dp()._fmt
@@ -3660,7 +3681,7 @@ def get_prediction_history(player_id: int, gw: int):
                                     "run_id_a": biggest["from_run_id"], "run_id_b": biggest["to_run_id"]}
                                    if biggest["explainable"] else None)
         if not biggest["explainable"]:
-            biggest["explain_note"] = "one of the two runs has no recorded terms (before 2026-09-14), so the move cannot be broken down term by term"
+            biggest["explain_note"] = "one of the two builds has no recorded terms (before 2026-09-14), so the move cannot be broken down term by term"
     first, last = hist[0], hist[-1]
     out = {"player_id": pid, "name": name, "position": meta.get("position"), "team": meta.get("team"), "gw": x, "runs": len(hist),
            "first": first["built"], "latest": last["built"],
@@ -3670,8 +3691,8 @@ def get_prediction_history(player_id: int, gw: int):
            "history": hist, "biggest_move": biggest,
            "kinds": ("nightly = the daily rebuild; post_ingest = the rebuild after FPL confirmed a gameweek; "
                      "t90 / t30 / t10 = the deadline-day rebuilds 90, 30 and 10 minutes before the deadline"),
-           "note": (f"oldest to newest: what each stored run predicted {name} would score in GW{x}. "
-                    "To explain a move, compare the two runs biggest_move.explain_with names.")}
+           "note": (f"oldest to newest: what each stored build predicted {name} would score in GW{x}. "
+                    "To explain a move, compare the two builds biggest_move.explain_with names.")}
     return _with_meanings(_lead_with_availability(out, pid, _availability_for([pid])))
 
 
@@ -3733,8 +3754,8 @@ def get_wildcard_gap(user_id: int = None):
         return {"error": str(e)}
     all_gws = sorted(int(g) for g in df["gw"].unique())
     if current not in all_gws:
-        return {"error": f"the frame on the volume (cutoff GW{cutoff}, gws {all_gws}) has no "
-                         f"predictions for the next deadline GW{current}"}
+        return {"error": f"the predictions (built for GW{cutoff}, covering GW{all_gws}) have no "
+                         f"entry for the next deadline GW{current}"}
     doc = record["squad_json"]
     state = squad_store.to_state(doc)
     state.free_transfers = squad_store.free_transfers_at(record, current)
@@ -3755,7 +3776,7 @@ def get_wildcard_gap(user_id: int = None):
             df, current, state, pool0, prices_live, all_gws, mode="balanced", horizon=6,
             decay=DEFAULT_DECAY, cutoff=cutoff, wildcard=True, return_plan=True)
     except (RuntimeError, ValueError) as e:
-        return {"error": f"the free-pick solve could not produce a plan: {e}"}
+        return {"error": f"the free-pick plan could not be computed: {e}"}
     solve_s = round(time.time() - t1, 1)
 
     per_gw, missing_all = [], {}
@@ -3793,12 +3814,12 @@ def get_wildcard_gap(user_id: int = None):
         "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": current - cutoff,
         "frame_built_at": str(built), **_frame_built(cutoff),
         "squad_version_id": record["version_id"],
-        "wait_note": "one six-gameweek MIP solve plus one XI solve per gameweek: twenty to sixty seconds",
+        "wait_note": "one six-gameweek plan plus one line-up pick per gameweek: twenty to sixty seconds",
         "basis": ("both sides are the expected points of the best XI each gameweek (the XI plus the captain "
-                  "again), the number the line-up solve reports. The free-pick squad was solved by the same "
-                  "six-gameweek decayed-objective planner the transfer plan uses, with transfers free at the "
+                  "again), the number the line-up pick reports. The free-pick squad was built by the same "
+                  "six-gameweek weighted planner the transfer plan uses, with transfers free at the "
                   "first step (a wildcard) and the squad's own money (sell value plus bank); the current squad "
-                  "is re-solved for its best XI every gameweek. Later steps of the free-pick plan may still "
+                  "is re-picked for its best XI every gameweek. Later steps of the free-pick plan may still "
                   "make ordinary transfers, counted in free_pick_moves_this_step."),
         "decay": float(DEFAULT_DECAY), "effective_horizon": int(eff_h),
         "per_gw": per_gw,
@@ -3825,7 +3846,7 @@ def get_wildcard_gap(user_id: int = None):
     }
     if degraded:
         out["refusal"] = ("The wildcard gap cannot be measured honestly right now, so it is not reported. "
-                          "A club whose fitted strength has run off sits inside this horizon, so the "
+                          "A club whose fitted strength has run off sits inside the gameweeks this plan covers, so the "
                           "free-pick plan can spend on exactly the fixtures the model has mispriced and the "
                           "gap is biased in its favour by an unknown amount (KNOWN_ISSUES #25). Both sides "
                           "were computed; only the gap is withheld. Ask again once the model-degraded "

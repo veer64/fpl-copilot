@@ -58,8 +58,8 @@ BET365_ATTRIBUTION = ("Bet365's pre-match prices (football-data.co.uk's B365H/B3
 ODDS_NOT_A_FORECAST = ("descriptive of past matches only: this is not a forecast of any future "
                        "result, must never be extended forward, and says nothing about value -- "
                        "the same boundary as the price-movements tool")
-NO_MATCHES_REASON = ("no match with a result before the cutoff day: under the as-of rule a result "
-                     "counts only if the match finished before the cutoff DAY began, so this club "
+NO_MATCHES_REASON = ("no match with a result before the as-of day: under the as-of rule a result "
+                     "counts only if the match finished before the as-of DAY began, so this club "
                      "has no knowable result yet. Null, not zero -- it is not bottom of the table.")
 NULL_KEYS = STAT_KEYS + ("ppg", "gf_per_game", "ga_per_game", "form_string", "form_n",
                          "form_points", "form_gf", "form_ga", "home", "away", "unbeaten_run",

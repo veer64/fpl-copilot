@@ -100,9 +100,9 @@ def test_a_run_without_recorded_terms_answers_with_an_error_not_a_breakdown(db):
 
 
 def test_unknown_run_failed_run_missing_gw_and_missing_player(db):
-    assert "no run 99" in mt.explain_prediction(411, gw=5, run_id=99)["error"]
+    assert "no build 99" in mt.explain_prediction(411, gw=5, run_id=99)["error"]   # Part C: "build", not "run"
     assert "FAILED" in mt.explain_prediction(411, gw=5, run_id=8)["error"]
-    assert "outside its six-week horizon" in mt.explain_prediction(411, gw=12, run_id=7)["error"]
+    assert "outside its six-gameweek range" in mt.explain_prediction(411, gw=12, run_id=7)["error"]   # Part C: plain words
     assert "no row for player 424242" in mt.explain_prediction(424242, gw=5, run_id=7)["error"]
     assert "gw is required" in mt.explain_prediction(411, run_id=7)["error"]
 
@@ -115,9 +115,9 @@ def test_compare_runs_ranks_the_move_labels_the_sides_and_carries_what_each_run_
     assert c["run_a"]["predictions_as_of_cutoff_gw"] == 4 and c["run_b"]["predictions_as_of_cutoff_gw"] == 5
     assert c["gap"] == pytest.approx(c["run_a"]["total_e_points"] - c["run_b"]["total_e_points"], abs=1e-4)
     d = c["detail"]                                              # 2026-10-09: the technical parts sit under detail
-    assert d["terms"][0]["term"] in ("goals", "appearance") and d["sentence"].startswith("run 7")
-    assert "run 7" in d["rendered"].splitlines()[0] and "run 9" in d["rendered"].splitlines()[0]
-    assert c["summary_plain"].startswith("Erling Haaland's GW5 number moved from ") and "run 7" not in c["summary_plain"]
+    assert d["terms"][0]["term"] in ("goals", "appearance") and d["sentence"].startswith("build 7")    # Part C: "build", not "run"
+    assert "build 7" in d["rendered"].splitlines()[0] and "build 9" in d["rendered"].splitlines()[0]
+    assert c["summary_plain"].startswith("Erling Haaland's GW5 number moved from ") and "run 7" not in c["summary_plain"] and "build 7" not in c["summary_plain"]
     assert c["gap"] > 0                    # run 9 saw a lower start probability and a weaker fixture
     e = mt.compare_runs(411, 5, 5, 9)
     assert "error" in e and "no recorded terms" in e["error"]

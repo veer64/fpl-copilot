@@ -256,3 +256,56 @@ def test_the_transfer_summary_says_the_plan_covers_up_to_six_gameweeks():
     import inspect
     assert '"summary_plain": _transfer_summary(' in inspect.getsource(mt.propose_transfers)
     assert "This plan covers up to six gameweeks; check back each week." in PROMPT
+
+
+# ================================================================ F5
+TOOL_MODULES = ["model_tools.py", "squad_store.py", "fixtures_tool.py", "explain.py", "league_table.py", "match_stats.py",
+                "quantiles.py", "actuals_tool.py", "prices_tool.py", "news_search.py", "now_context.py"]
+JARGON = re.compile(r"\b(ingest(?:ed|ion|s)?|post-ingest|horizon|cutoff|cut-off|solve[sd]?|solver|optimi[sz]er|frame)\b"
+                    r"|\brun \d+\b|\bthe run\b|\bstatus[:=]? ?['\"]?[udaisn]['\"]?\b", re.I)
+# Structured values, never prose: health() diagnostics (Tests/test_model_degraded_health.py pins them; /health
+# only), SQL, provenance stamps, a stored plan's path label, and the one sentence that quotes FPL's own
+# "ingested" status word.
+ALLOWED = (
+    lambda s: s.lstrip().upper().startswith(("SELECT", "INSERT", "UPDATE", "WITH", "DELETE", "CREATE")),
+    lambda s: s.startswith(("weekly ingest", "tool surface: ")),
+    lambda s: s.startswith("model_tools."),
+    lambda s: s.startswith("OPERATIONAL evidence only"),              # squad_store.RULE_1_COMMENT, a stored evidence note
+)
+
+
+def _prose_literals(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    skip = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body:
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+                skip.add(id(first.value))
+        if isinstance(node, ast.Dict):
+            skip.update(id(k) for k in node.keys if isinstance(k, ast.Constant))
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+            skip.add(id(node.slice))
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            out.append((node.lineno, "".join(v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str))))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skip:
+            out.append((node.lineno, node.value))
+    return [(ln, s) for ln, s in out if len(s.strip()) >= 12 and " " in s.strip()]
+
+
+def test_no_pipeline_jargon_in_the_tools_prose():
+    hits = []
+    for m in TOOL_MODULES:
+        for ln, s in _prose_literals(REPO / m):
+            if JARGON.search(s) and not any(ok(s) for ok in ALLOWED):
+                hits.append(f"{m}:{ln}: {JARGON.findall(s)[:3]} {s.strip()[:90]!r}")
+    assert hits == [], "\n".join(hits)
+
+
+def test_the_jargon_keys_that_stay_have_plain_twins():
+    for k in ("horizon_gws", "predictions_as_of_cutoff_gw", "solve_seconds", "frame_built_at", "effective_horizon", "horizon_step", "stale_by_gameweeks"):
+        assert k in mt.KEY_MEANINGS and not JARGON.search(mt.KEY_MEANINGS[k]), k
+    assert "ingest" in PROMPT.lower() and "horizon -> the next six gameweeks" in PROMPT and "cutoff -> " in PROMPT
+    assert "status codes" in PROMPT and "u, i, d, s, n" in PROMPT

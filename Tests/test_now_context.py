@@ -59,7 +59,7 @@ def test_the_gameweek_line_while_a_gameweek_is_being_played():
 
 def test_the_schedule_comes_from_the_policy_constants_not_a_copy():
     text, _ = seeded()
-    assert (f"- Model runs: The model rebuilds nightly at {dp.NIGHTLY_HOUR_UTC:02d}:00 UTC once the previous "
+    assert (f"- Model updates: The model rebuilds nightly at {dp.NIGHTLY_HOUR_UTC:02d}:00 UTC once the previous "   # Part C: "updates"
             "gameweek is confirmed, and on deadline day at 90, 30 and 10 minutes before the deadline.") in text
     leads = sorted(hi for _, _, hi in dp.DEADLINE_WINDOWS)
     assert leads == [10, 30, 90]                     # the words above are built from these
@@ -69,18 +69,18 @@ def test_the_next_run_is_the_dispatchers_promise_when_the_volume_holds_one():
     state = {"expected_next": {"kind": "t90", "slot": "t90:GW6", "gw": 6, "at": "2026-10-10T08:30:00Z",
                                "condition": None, "grace_min": 35}}
     text, _ = seeded(dispatch_state=state)
-    assert "Next expected run (the dispatcher's promise): t90, Saturday 2026-10-10 08:30 UTC." in text
+    assert "Next expected update (the dispatcher's promise): the update 90 minutes before the deadline, Saturday 2026-10-10 08:30 UTC." in text   # Part C
 
 
 def test_the_next_run_is_derived_from_the_policy_when_there_is_no_promise():
     # an empty state at Thursday 18:42Z: the policy says today's nightly (11:00Z) has not run, so it is due now
     text, omitted = seeded()
-    assert "Next expected run (by the schedule): nightly, due now (Thursday 2026-10-08 18:42 UTC)." in text
+    assert "Next expected update (by the schedule): the nightly update, due now (Thursday 2026-10-08 18:42 UTC)." in text   # Part C
     assert "next_run" not in omitted
     # with today's nightly recorded as done, the promise is tomorrow's
     done = {"slots": {"nightly:2026-10-08": {"kind": "nightly", "status": "SUCCESS", "attempts": 1}}}
     text, _ = seeded(dispatch_state=done)
-    assert "Next expected run (by the schedule): nightly, Friday 2026-10-09 11:00 UTC." in text
+    assert "Next expected update (by the schedule): the nightly update, Friday 2026-10-09 11:00 UTC." in text   # Part C
 
 
 def test_a_conditional_promise_is_said_in_words():
@@ -88,8 +88,8 @@ def test_a_conditional_promise_is_said_in_words():
                                "condition": "GW6 confirmed by FPL and ingested (ticks 00:17/06:17/12:17/18:17Z)",
                                "grace_min": None, "certain_kind": "t90", "certain_at": "2026-10-17T08:30:00Z"}}
     text, _ = seeded(dispatch_state=state)
-    assert ("Next expected run (the dispatcher's promise): post_ingest, once GW6 confirmed by FPL and ingested "
-            "(ticks 00:17/06:17/12:17/18:17Z); in any case Saturday 2026-10-17 08:30 UTC (t90).") in text
+    assert ("Next expected update (the dispatcher's promise): once GW6 confirmed by FPL and ingested "
+            "(ticks 00:17/06:17/12:17/18:17Z); in any case Saturday 2026-10-17 08:30 UTC (the update 90 minutes before the deadline).") in text
 
 
 def test_the_twenty_clubs_are_listed_from_the_snapshot():

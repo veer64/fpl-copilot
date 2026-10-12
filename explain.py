@@ -423,7 +423,7 @@ def breakdown(row, step_rows=None):
     if not rec["reconciles"]:
         out["finding"] = (f"the row does NOT reconcile: eight terms - e_points_core = {rec['residual_core']:.6f}, "
                           f"core + bonus - e_points = {rec['residual_total']:.6f} (tolerance {TOL}); this is a defect in the "
-                          "frame, not rounding -- report it, do not answer the breakdown as if it were sound")
+                          "predictions, not rounding -- report it, do not answer the breakdown as if it were sound")
     out["rendered"] = render(out)
     return out
 

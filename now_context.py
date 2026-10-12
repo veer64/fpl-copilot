@@ -31,7 +31,11 @@ from datetime import datetime, timedelta, timezone
 
 UTC = timezone.utc
 MAX_CHARS = 1200
-TITLE = "CONTEXT BLOCK (rebuilt every turn from local data; today, the gameweek state, the run schedule, the clubs)"
+TITLE = "CONTEXT BLOCK (rebuilt every turn from local data; today, the gameweek state, the update schedule, the clubs)"
+# the dispatcher's kind labels in words (Part C, 2026-10-12): the labels stay in the data, the sentence is plain
+KIND_WORDS = {"nightly": "the nightly update", "post_ingest": "the update after FPL confirms the gameweek",
+              "t90": "the update 90 minutes before the deadline", "t30": "the update 30 minutes before the deadline",
+              "t10": "the update 10 minutes before the deadline", "deadline": "the deadline update"}
 
 
 def _fmt(dt):
@@ -106,17 +110,18 @@ def next_run_words(expected, now=None):
     `now` is one the policy says is due at this very tick, and is said so rather than as a time."""
     if not expected:
         return None
+    kind = KIND_WORDS.get(expected.get("kind"), expected.get("kind"))
     if expected.get("at"):
         at = _parse(expected["at"])
         if now is not None and at <= now:
-            return f"{expected.get('kind')}, due now ({_fmt(at)})"
-        return f"{expected.get('kind')}, {_fmt(at)}"
+            return f"{kind}, due now ({_fmt(at)})"
+        return f"{kind}, {_fmt(at)}"
     cond = expected.get("condition")
     if not cond:
         return None
-    words = f"{expected.get('kind')}, once {cond}"
+    words = f"once {cond}"
     if expected.get("certain_at"):
-        words += f"; in any case {_fmt(_parse(expected['certain_at']))} ({expected.get('certain_kind')})"
+        words += f"; in any case {_fmt(_parse(expected['certain_at']))} ({KIND_WORDS.get(expected.get('certain_kind'), expected.get('certain_kind'))})"
     return words
 
 
@@ -234,7 +239,7 @@ def build(now=None, *, deadlines=None, finished=None, clubs=None, dispatch_state
         expected, source = _promise(now, deadlines, finished or [], state, dp)
         nr = next_run_words(expected, now)
         ddr = deadline_day_runs(now, deadlines, dp) if deadlines else None
-        lines.append("- Model runs: " + sched + (f" Next expected run ({source}): {nr}." if nr else "")
+        lines.append("- Model updates: " + sched + (f" Next expected update ({source}): {nr}." if nr else "")
                      + (f" {ddr['words']}" if ddr else ""))
         if not nr:
             omitted["next_run"] = "no promise in the dispatch state and none derivable from the local data"

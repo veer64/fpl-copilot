@@ -204,7 +204,7 @@ def test_the_current_seasons_aggregate_is_flagged_as_including_post_cutoff_match
     out = mt.get_match_stats(team="Arsenal", stats=["possession"], seasons=2)
     cur = _stat(out, "possession")["by_season"]["2026-27"]
     assert cur["includes_post_cutoff"] is True and cur["matches_after_cutoff_in_aggregate"] >= 0
-    assert "after the cutoff" in cur["statement"]
+    assert "after the as-of day" in cur["statement"]   # Part C: plain words
     past = _stat(out, "possession")["by_season"]["2025-26"]
     assert past["includes_post_cutoff"] is False
 

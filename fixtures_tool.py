@@ -91,7 +91,7 @@ def calendar(path=None, df=None):
     return out, len(names)
 
 
-SCORE_MEANING = ("1 (hardest) to 10 (easiest), by rank among every fixture the run has priced: a score of "
+SCORE_MEANING = ("1 (hardest) to 10 (easiest), by rank among every fixture the build has priced: a score of "
                  "k means the figure sits in the k-th tenth of all loaded fixtures. Two scores, never one.")
 
 
@@ -241,7 +241,7 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                 if mrow is None:
                     e["difficulty"] = None
                     e["difficulty_unavailable"] = (
-                        f"the latest run's horizon covers gameweeks "
+                        f"the latest build covers gameweeks "
                         f"{model_gws[0]}-{model_gws[-1]} and this is GW{g}; the fixture is real "
                         f"but the model has not priced it. This is a missing CALCULATION, not "
                         f"an easy fixture." if model_gws else
@@ -336,7 +336,7 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
         "calendar_source": {
             "file": SKELETON.name,
             "age_hours": skeleton_age_hours,
-            "refresh": "written by the WEEKLY ingest, not by each build",
+            "refresh": "refreshed WEEKLY, not by each build",
             "caveat": ("fixtures get rescheduled; a calendar this old can name a kickoff that "
                        "has since moved. Deliberate: refreshing it per build would touch the "
                        "build path for something that rarely changes."),
@@ -346,7 +346,7 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                             "(higher is easier to score in); defensive = clean-sheet "
                             "probability (higher is easier to keep one); attack_score and "
                             "defence_score = each of those ranked 1 (hardest) to 10 (easiest) "
-                            "among every fixture the run has priced -- two scores, never one. "
+                            "among every fixture the build has priced -- two scores, never one. "
                             "Ask for one club to get the lambdas, the provenance and the runaway flags."),
         "scores": SCORE_MEANING,
         "difficulty_is_two_numbers": ("attacking and defensive difficulty are reported "

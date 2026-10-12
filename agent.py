@@ -421,7 +421,7 @@ TOOL_PLAIN_PHRASES = {
     "best_squad_from_scratch": "the best squad from scratch",
     "build_squad_from_scratch": "a fresh squad build",
     "get_my_squad": "your squad record",
-    "get_my_xi": "the line-up solve",
+    "get_my_xi": "the line-up pick",
     "explain_prediction": "the prediction breakdown",
     "compare_runs": "the run-to-run comparison",
     "compare_predictions": "the head-to-head breakdown",

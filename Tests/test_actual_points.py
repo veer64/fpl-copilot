@@ -173,7 +173,7 @@ def test_no_stored_prediction_is_said_not_silently_omitted(monkeypatch):
     monkeypatch.setattr(mt, "_prediction_before", lambda el, gw: None)
     out = mt.get_actual_points(SAKA, gw=1)
     assert out["predicted"] is None
-    assert "no run" in out["predicted_note"].lower()
+    assert "no build" in out["predicted_note"].lower()           # Part C (2026-10-12): "build", not "run", in tool prose
 
 
 # ---- A2 get_my_points -----------------------------------------------------------------

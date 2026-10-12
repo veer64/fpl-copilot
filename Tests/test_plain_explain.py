@@ -204,6 +204,6 @@ def test_the_three_descriptions_and_the_prompt_point_at_summary_plain():
     p = agent.SYSTEM_PROMPT
     assert "Answer from `summary_plain`. Use `detail` only when the user asks for the breakdown, the maths or how the number is built." in p
     assert "Never volunteer the penalty limitation." in p
-    assert "our numbers don't fully count penalties, so for a regular taker treat it as a floor" in p
+    assert "our numbers don't fully count penalties, so treat the figure as a floor if a tool says he takes penalties" in p   # Part C F6
     assert "Never explain the cause." in p
     assert "penalty term is built from penalties missed" not in p

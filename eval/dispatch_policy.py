@@ -218,7 +218,7 @@ def expected_next(now, events, state, master_gw):
             if now <= at or lo < lead <= hi:
                 return timed(kind, sid, max(at, now) if lo < lead <= hi else at)
         return {"kind": "post_ingest", "slot": f"post_ingest:GW{gw}", "gw": gw + 1, "at": None,
-                "condition": f"GW{gw} confirmed by FPL and ingested (ticks 00:17/06:17/12:17/18:17Z)",
+                "condition": f"GW{gw} confirmed by FPL and loaded (checked at 00:17/06:17/12:17/18:17Z)",
                 "grace_min": None}
 
     prev_gw = gw - 1
@@ -227,7 +227,7 @@ def expected_next(now, events, state, master_gw):
         # conditional on FPL, which we do not control -- but the deadline run is
         # CERTAIN: promise it too, so /health can see it missed (the stalled-FPL case)
         return {"kind": "post_ingest", "slot": f"post_ingest:GW{prev_gw}", "gw": gw, "at": None,
-                "condition": f"GW{prev_gw} confirmed by FPL and ingested (ticks 00:17/06:17/12:17/18:17Z), "
+                "condition": f"GW{prev_gw} confirmed by FPL and loaded (checked at 00:17/06:17/12:17/18:17Z), "
                              f"then nightly at {NIGHTLY_HOUR_UTC:02d}:00Z",
                 "grace_min": None,
                 "certain_kind": "t90", "certain_slot": f"t90:GW{gw}", "certain_at": iso(t90_at),
@@ -338,12 +338,14 @@ def freshness(run, expected=None):
     kind = run.get("kind") or "deadline"
     built = _fmt(run.get("finished_at"))
     dur = k.get("duration_s")
-    head = f"built {built} ({kind}, run {run.get('run_id')}" + (f", {dur:.0f} s" if dur else "") + ")"
+    # Part C (2026-10-12): plain words -- no run number, no "ingested", the kind in words. The run id
+    # travels in the data (run_id), never in this sentence.
+    head = f"built {built} ({KIND_WORDS.get(kind, kind)}" + (f", {dur:.0f} s" if dur else "") + ")"
     if not k:
-        knows = "knowledge not recorded (a pre-multi-run row)"
+        knows = "knowledge not recorded (an early build)"
     else:
         knows = (f"knows results through GW{k.get('history_through_gw')} "
-                 f"(ingested {_fmt(k.get('history_ingested_at'))}), team news to "
+                 f"(loaded {_fmt(k.get('history_ingested_at'))}), team news to "
                  f"{_fmt(k.get('availability_asof'))}, odds pulled {_fmt(k.get('odds_pulled_at'))}")
         gap = history_gap(run.get("gw"), k.get("history_through_gw"))
         if gap:
@@ -353,13 +355,14 @@ def freshness(run, expected=None):
         pred += f" (deadline {_fmt(k['deadline_at'])})"
     if expected:
         if expected.get("at"):
-            nxt = f"next run {_fmt(expected['at'])} ({expected['kind']})"
+            nxt = f"next update {_fmt(expected['at'])} ({KIND_WORDS.get(expected['kind'], expected['kind'])})"
         else:
-            nxt = f"next run when {expected.get('condition')} ({expected['kind']})"
+            nxt = f"next update once {expected.get('condition')}"
             if expected.get("certain_at"):
-                nxt += f"; in any case {_fmt(expected['certain_at'])} ({expected.get('certain_kind')}), whatever FPL confirms"
+                nxt += (f"; in any case {_fmt(expected['certain_at'])} "
+                        f"({KIND_WORDS.get(expected.get('certain_kind'), expected.get('certain_kind'))}), whatever FPL confirms")
     else:
-        nxt = "next run not scheduled"
+        nxt = "next update not scheduled"
     return " -- ".join([head, knows, pred, nxt])
 
 
@@ -379,5 +382,11 @@ def history_gap(gw, history_through_gw):
         return None
     if h < gw - 1:
         missing = f"GW{h + 1}" if h + 1 == gw - 1 else f"GW{h + 1}-GW{gw - 1}"
-        return f"{missing} not yet confirmed and ingested when this was built: history stops at GW{h}"
+        return f"{missing} not yet confirmed and loaded when this was built: history stops at GW{h}"
     return None
+
+
+# the kind labels in words (the same table now_context uses); the labels themselves stay in the data
+KIND_WORDS = {"nightly": "nightly", "post_ingest": "after FPL confirmed the gameweek",
+              "t90": "90 minutes before the deadline", "t30": "30 minutes before the deadline",
+              "t10": "10 minutes before the deadline", "deadline": "deadline"}

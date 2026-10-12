@@ -58,9 +58,9 @@ def test_tool_metadata_and_the_context_block_agree_on_a_dispatcher_promise(froze
     meta = mt._run_meta(dict(RUN))
     nr = nc.next_run()
     assert meta["next_run_expected"] == nr["expected"] and nr["source"] == "the dispatcher's promise"
-    assert f"Next expected run (the dispatcher's promise): {meta['next_run_words']}." in text
-    assert meta["next_run_words"] == "t90, Saturday 2026-10-10 08:30 UTC"
-    assert "next run Sat 10 Oct 08:30Z (t90)" in meta["built"] and "not scheduled" not in meta["built"]
+    assert f"Next expected update (the dispatcher's promise): {meta['next_run_words']}." in text   # Part C: plain words
+    assert meta["next_run_words"] == "the update 90 minutes before the deadline, Saturday 2026-10-10 08:30 UTC"
+    assert "next update Sat 10 Oct 08:30Z (90 minutes before the deadline)" in meta["built"] and "not scheduled" not in meta["built"]
     assert meta["deadline_day_runs"]["t90"] == "2026-10-10T08:30:00Z" and "Deadline-day runs for GW6: 08:30, 09:30 and 09:50 UTC." in text
 
 
@@ -70,9 +70,9 @@ def test_tool_metadata_and_the_context_block_agree_when_the_schedule_derives_the
     meta = mt._run_meta(dict(RUN))
     nr = nc.next_run()
     assert nr["source"] == "by the schedule" and meta["next_run_expected"] == nr["expected"]
-    assert meta["next_run_words"] == "nightly, due now (Thursday 2026-10-08 18:42 UTC)"
-    assert f"Next expected run (by the schedule): {meta['next_run_words']}." in text
-    assert "next run Thu 08 Oct 18:42Z (nightly)" in meta["built"] and "not scheduled" not in meta["built"]
+    assert meta["next_run_words"] == "the nightly update, due now (Thursday 2026-10-08 18:42 UTC)"
+    assert f"Next expected update (by the schedule): {meta['next_run_words']}." in text
+    assert "next update Thu 08 Oct 18:42Z (nightly)" in meta["built"] and "not scheduled" not in meta["built"]
     assert "next_run" not in omitted
 
 
@@ -80,7 +80,7 @@ def test_frame_built_carries_the_same_three_fields_with_or_without_a_run(frozen,
     frozen({})
     monkeypatch.setattr(mt, "_latest_run", lambda gw=None, any_status=False: None)
     fb = mt._frame_built(6)
-    assert fb["built"] is None and fb["next_run_words"] == "nightly, due now (Thursday 2026-10-08 18:42 UTC)"
+    assert fb["built"] is None and fb["next_run_words"] == "the nightly update, due now (Thursday 2026-10-08 18:42 UTC)"
     assert fb["deadline_day_runs"]["t10"] == "2026-10-10T09:50:00Z"
     monkeypatch.setattr(mt, "_latest_run", lambda gw=None, any_status=False: dict(RUN))
     fb2 = mt._frame_built(6)
@@ -92,7 +92,7 @@ def test_a_broken_schedule_never_takes_a_tool_down(frozen, monkeypatch):
         raise RuntimeError("volume gone")
     monkeypatch.setattr(nc, "next_run", boom)
     meta = mt._run_meta(dict(RUN))
-    assert meta["next_run_expected"] is None and meta["next_run_words"] is None and "next run not scheduled" in meta["built"]
+    assert meta["next_run_expected"] is None and meta["next_run_words"] is None and "next update not scheduled" in meta["built"]
 
 
 def test_the_prompt_sends_the_model_to_the_tools_for_the_times():

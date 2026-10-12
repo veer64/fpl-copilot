@@ -83,4 +83,4 @@ def test_the_prompt_carries_the_translation_line():
     import agent
     p = agent.SYSTEM_PROMPT
     assert ("When a tool uses a technical label, say it in plain words: npxG -> expected goals, xA -> expected assists, "
-            "P10/P50/P90 -> the low end / middle / top of the likely range.") in p
+            "P10/P50/P90 -> the low end / middle / top of the likely range, p_play_any -> the chance of playing at all") in p   # Part C: the line continues

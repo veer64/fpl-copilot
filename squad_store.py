@@ -453,7 +453,7 @@ def read_active(user_id=None, conn=None):
 
 ROLES_MEANING = ("the roles recorded WITH this version (captain, vice, XI, bench order) -- a record "
                  "of what was set when it was written, NOT a recommendation for the current "
-                 "gameweek; the line-up solve computes that from the current model run")
+                 "gameweek; the line-up pick computes that from the current model build")
 
 
 # ------------------------------------------------- free transfers (lazy)
@@ -514,9 +514,9 @@ def roles_status(record, latest_run):
         out["status"] = "STALE"
         out["warning"] = (
             f"these roles were recorded at {record['created_at']} for GW{record['gw']}; "
-            f"model run {latest_run['run_id']} for GW{latest_run['gw']} was built at "
+            f"the model build for GW{latest_run['gw']} was made at "
             f"{latest_run['finished_at']}, AFTER that. They are a record of what was set, "
-            f"not a recommendation for GW{latest_run['gw']} -- the line-up solve gives that.")
+            f"not a recommendation for GW{latest_run['gw']} -- the line-up pick gives that.")
     else:
         out["status"] = "current"
         out["warning"] = None
@@ -816,7 +816,7 @@ def xi_over_fifteen(pool, state, prices):
                                budget=int(p15["value"].sum()))
     status = pulp.LpStatus[prob.status]
     if status != "Optimal":
-        raise RuntimeError(f"XI solve over the owned fifteen returned {status}")
+        raise RuntimeError(f"the line-up pick over the owned fifteen returned {status}")
     team = sim.solution_to_squad(p15, sol)
     return team, missing
 

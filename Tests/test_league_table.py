@@ -207,7 +207,7 @@ def test_the_default_cutoff_is_the_runs_gameweek_first_kickoff(mt):
     assert default["as_of"]["cutoff"] == explicit["as_of"]["cutoff"]
     assert default["table"] == explicit["table"]
     assert "first kickoff" in default["as_of"]["source"] and "GW3" in default["as_of"]["source"]
-    assert "cutoff DAY" in default["as_of"]["rule"] and "knowable_before" in default["as_of"]["rule"]
+    assert "as-of DAY" in default["as_of"]["rule"] and "knowable_before" in default["as_of"]["rule"]   # Part C: plain words
 
 
 def test_the_default_cutoff_derivation_matches_the_walk_forward_on_the_real_calendar():
@@ -379,7 +379,7 @@ def test_a_club_with_no_knowable_matches_is_nulls_with_a_reason_not_zeros(mt):
     assert out["n_matches_in_table"] == 0
     for r in out["table"]:
         assert r["position"] is None and r["played"] is None and r["points"] is None
-        assert r["no_matches"] is True and "before the cutoff day" in r["reason"]
+        assert r["no_matches"] is True and "before the as-of day" in r["reason"]   # Part C: plain words
     assert len(out["table"]) == 4                                     # every club still listed
 
 

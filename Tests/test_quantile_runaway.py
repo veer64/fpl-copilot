@@ -165,7 +165,7 @@ def test_the_answer_block_comes_from_an_affected_row_not_the_noisiest(mt):
 
 def test_the_caveat_is_scoped_to_the_affected_gameweeks(mt):
     c = mt._quantile_block(_mixed())["fidelity"]["p10_caveat"]
-    assert c.startswith("Applies to GW6, GW8 only, not the whole horizon.")
+    assert c.startswith("Applies to GW6, GW8 only, not the whole six-gameweek range.")   # Part C: plain words
 
 
 def test_an_all_runaway_horizon_is_not_scoped_down(mt):

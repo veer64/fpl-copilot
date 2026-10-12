@@ -61,7 +61,7 @@ def test_deadline_slots_fire_with_an_unconfirmed_bootstrap_and_a_stale_season_fi
             p = dp.plan(t, EVENTS_STALLED, st, master_gw=master)
             if p["action"]:
                 fired.append(p["action"])
-                assert "not yet confirmed and ingested" in p["reason"] or "unreadable" in p["reason"], p["reason"]
+                assert "not yet confirmed and loaded" in p["reason"] or "unreadable" in p["reason"], p["reason"]   # Part C: history_gap says "loaded"
                 succeed(st, p, hist=master or 0, when=t + timedelta(minutes=1))
         assert fired == ["t90", "t30", "t10"], (master, fired)
     # and between deadlines under the same stall nothing but the promise moves
@@ -86,12 +86,13 @@ def test_freshness_names_the_history_gap_and_the_certain_fallback():
            "knowledge": {"duration_s": 50, "history_through_gw": 3, "history_ingested_at": "2026-09-08T00:17:00Z",
                          "availability_asof": "2026-09-18T15:50:00Z", "odds_pulled_at": "2026-09-18T16:00:30Z"}}
     s = dp.freshness(run, None)
-    assert "knows results through GW3" in s and "GW4 not yet confirmed and ingested when this was built: history stops at GW3" in s
-    exp = {"kind": "post_ingest", "at": None, "condition": "GW4 confirmed by FPL and ingested",
+    assert "knows results through GW3" in s and "GW4 not yet confirmed and loaded when this was built: history stops at GW3" in s
+    exp = {"kind": "post_ingest", "at": None, "condition": "GW4 confirmed by FPL and loaded",
            "certain_kind": "t90", "certain_at": "2026-09-18T16:00:00Z"}
     s2 = dp.freshness({**run, "gw": 5}, exp)
-    assert s2.endswith("next run when GW4 confirmed by FPL and ingested (post_ingest); in any case Fri 18 Sep 16:00Z (t90), whatever FPL confirms")
-    assert dp.history_gap(5, 4) is None and dp.history_gap(6, 3) == "GW4-GW5 not yet confirmed and ingested when this was built: history stops at GW3"
+    # Part C (2026-10-12): plain words in the sentence every answer carries -- "update" not "run", the kind in words
+    assert s2.endswith("next update once GW4 confirmed by FPL and loaded; in any case Fri 18 Sep 16:00Z (90 minutes before the deadline), whatever FPL confirms")
+    assert dp.history_gap(5, 4) is None and dp.history_gap(6, 3) == "GW4-GW5 not yet confirmed and loaded when this was built: history stops at GW3"
     assert "unreadable" in dp.history_gap(5, None)
 
 
@@ -263,17 +264,17 @@ def test_freshness_string_names_time_knowledge_target_and_promise():
                          "deadline_at": "2026-09-18T17:30:00Z"}}
     exp = {"kind": "nightly", "slot": "nightly:2026-09-17", "at": "2026-09-17T11:00:00Z"}
     s = dp.freshness(run, exp)
-    assert s.startswith("built Wed 16 Sep 11:03Z (nightly, run 7, 44 s)")
-    assert "knows results through GW4 (ingested Tue 15 Sep 12:24Z)" in s
+    assert s.startswith("built Wed 16 Sep 11:03Z (nightly, 44 s)")                      # Part C: no run number in the sentence
+    assert "knows results through GW4 (loaded Tue 15 Sep 12:24Z)" in s
     assert "team news to Wed 16 Sep 11:00Z" in s and "odds pulled Wed 16 Sep 11:02Z" in s
     assert "predicting GW5 (deadline Fri 18 Sep 17:30Z)" in s
-    assert s.endswith("next run Thu 17 Sep 11:00Z (nightly)")
+    assert s.endswith("next update Thu 17 Sep 11:00Z (nightly)")                      # Part C: "update", not "run"
 
 
 def test_freshness_degrades_gracefully_for_a_pre_multi_run_row_and_a_conditional_promise():
     run = {"run_id": 5, "gw": 4, "kind": "deadline", "finished_at": "2026-09-12T11:01:01+00:00", "knowledge": None}
     s = dp.freshness(run, {"kind": "post_ingest", "at": None, "condition": "GW4 confirmed by FPL and ingested"})
-    assert "knowledge not recorded" in s and "next run when GW4 confirmed" in s
+    assert "knowledge not recorded" in s and "next update once GW4 confirmed" in s   # Part C: plain words
 
 
 # ------------------------------------------------------- a tick never outlives its work

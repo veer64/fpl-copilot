@@ -201,7 +201,7 @@ def head_to_head(rows, team, opponent, window=None):
                 for r in rows.itertuples(index=False)]
     w = window or {}
     where = ", ".join(str(s) for s in (w.get("seasons") or [])) or "the seasons requested"
-    asof = f" as of {w.get('as_of')}" if w.get("as_of") else " as of the cutoff"
+    asof = f" as of {w.get('as_of')}" if w.get("as_of") else " as of the model's as-of time"
     # One sentence, and a second only when it adds a fact: that the club played nothing at all
     # in the window. The old wording ("a stated zero, not an empty result ... a window with no
     # data") explained the implementation instead of answering the question.
@@ -260,11 +260,11 @@ def season_figure(stat, spec, tables, season, team, side, all_null_cols, post_cu
     entry["includes_post_cutoff"] = bool(flag)
     entry["matches_after_cutoff_in_aggregate"] = int(n_after)
     entry["statement"] = (
-        f"season aggregate saved {saved_at}: {n_after} fixture(s) are dated after the cutoff day and "
-        f"on or before the save, so matches played after the cutoff are inside this figure while "
-        f"the per-match stats beside it stop at the cutoff" if flag else
-        f"season aggregate; every fixture of {season} is dated before the cutoff day, so nothing "
-        f"after the cutoff is inside it")
+        f"season aggregate saved {saved_at}: {n_after} fixture(s) are dated after the as-of day and "
+        f"on or before the save, so matches played after the as-of day are inside this figure while "
+        f"the per-match stats beside it stop at the as-of day" if flag else
+        f"season aggregate; every fixture of {season} is dated before the as-of day, so nothing "
+        f"after it is inside")
     return entry
 
 
