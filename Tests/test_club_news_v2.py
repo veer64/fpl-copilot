@@ -325,7 +325,11 @@ def test_runner_inside_window_searches_the_nine_clubs_only(conn, tmp_path, monke
     monkeypatch.setattr(runner, "RAW_DIR", tmp_path / "raw")
     monkeypatch.setattr(sys, "argv", ["fetch_club_news.py", "--now", "2026-09-17T15:07:00Z"])
     runner.main()
-    assert len(tv.requests) == len(config_roles.CLUB_NEWS_CLUBS) == 9
+    dated = [r for r in tv.requests if r.get("start_date")]
+    undated = [r for r in tv.requests if not r.get("start_date")]
+    assert len(dated) == len(config_roles.CLUB_NEWS_CLUBS) == 9                       # one dated search per club
+    assert len(undated) == 9 - len(SEARCHES)                                           # Part D G5: a dated search with no results is retried once without dates
+    assert {d for r in undated for d in r["include_domains"]}.isdisjoint(SEARCHES)
     assert {d for r in tv.requests for d in r["include_domains"]} <= set(config_roles.CLUB_DOMAINS.values())
 
 

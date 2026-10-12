@@ -342,6 +342,32 @@ def parse_iso(v):
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
+def planned_credits(n_clubs):
+    """The guard's worst case for one run: a dated search per club, a second undated search per club when
+    the dated one returns nothing (search_plan), and an extract credit per five results."""
+    return n_clubs * SEARCH_CREDITS * 2 + extract_credits(MAX_RESULTS * n_clubs)
+
+
+def search_plan(tavily, query, domain, start_date, end_date):
+    """One club's search: the dated request, and -- only when it returns NO results -- the same query once
+    more without dates (Part D G5, 2026-10-12: arsenal.com and cpfc.co.uk answered 0 results to the dated
+    request on 8 and 9 Oct and 10 / 5 results to an undated one, so the date filter, not the query, was
+    empty; the old-article guard still decides what is kept). Returns {results, request, credits,
+    retried_without_dates}; a club whose dated search returns results sends exactly what it sent before."""
+    resp = tavily.search(query, domain, start_date, end_date)
+    request = search_request(query, [domain], start_date, end_date)
+    results = resp.get("results", []) if isinstance(resp, dict) else []
+    retried = False
+    credits = SEARCH_CREDITS
+    if not results:
+        resp = tavily.search(query, domain)
+        request = search_request(query, [domain])
+        results = resp.get("results", []) if isinstance(resp, dict) else []
+        retried = True
+        credits += SEARCH_CREDITS
+    return {"results": results, "request": request, "response": resp, "credits": credits, "retried_without_dates": retried}
+
+
 def search_dates(window_start, now):
     """(start_date, end_date) for a Tavily search: the window's first day and today, as ISO dates.
     Tavily rejects start_date == end_date (HTTP 400 "start_date and end_date cannot be the same",
@@ -764,7 +790,7 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
     now = now or datetime.now(timezone.utc)
     raw_dir = Path(raw_dir or RAW_DIR)
     ns.ensure_schema(conn)
-    planned = len(clubs) * SEARCH_CREDITS + extract_credits(MAX_RESULTS * len(clubs))   # worst case: every result new
+    planned = planned_credits(len(clubs))                                            # worst case: every result new, every club retried
     if replay:
         log("replay: serving saved raw files; no Tavily calls, no HTTP requests, no ledger rows")
     else:
@@ -788,15 +814,18 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
         query = QUERY.format(club=club)
         if v2:
             start_date, end_date = search_dates(window[0], now)
-            resp = tavily.search(query, domain, start_date, end_date)
-            request = search_request(query, [domain], start_date, end_date)
+            plan = search_plan(tavily, query, domain, start_date, end_date)
+            resp, request, search_credits = plan["response"], plan["request"], plan["credits"]
+            if plan["retried_without_dates"]:
+                log(f"{club}: dated search returned nothing; retried once without dates")
         else:
             resp = tavily.search(query, domain)
             request = search_request(query, [domain])
+            search_credits = SEARCH_CREDITS
         results = resp.get("results", []) if isinstance(resp, dict) else []
         if not replay:
-            record_call(conn, "search", club, query, len(results), SEARCH_CREDITS, now)
-            summary["credits"] += SEARCH_CREDITS
+            record_call(conn, "search", club, query, len(results), search_credits, now)
+            summary["credits"] += search_credits
             save_raw(raw_dir, f"{stamp}_{domain}.search.json.gz",
                      {"request": request, "fetched_at": now.isoformat(), "club": club, "response": resp})
         kept, dropped = filter_results(results, domain)
