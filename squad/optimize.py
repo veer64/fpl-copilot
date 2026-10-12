@@ -371,6 +371,36 @@ def optimize_squad(df, mode=None, bench_weight=None, locked_elements=None,
     return prob, {"pick": pick, "start": start, "captain": captain, "vice": vice}
 
 
+def cheapest_squad_cost(df, locked_elements=None, banned_elements=None, solver=None):
+    """The cost (tenths) of the CHEAPEST legal fifteen in this pool -- 2-5-5-3, at most MAX_PER_CLUB
+    from one club, the locks in and the bans out -- or None when no legal fifteen exists at all.
+    Part C (2026-10-12): the number a budget refusal quotes ("the cheapest legal squad costs
+    £X.Xm"), measured by a cost-minimising solve over the same rules, never estimated."""
+    locked_elements = list(locked_elements or [])
+    banned_elements = list(banned_elements or [])
+    prob = pulp.LpProblem("fpl_cheapest_squad", pulp.LpMinimize)
+    pick = {i: pulp.LpVariable(f"cpick_{i}", cat="Binary") for i in df.index}
+    prob += pulp.lpSum(pick[i] * df.loc[i, "value"] for i in df.index)
+    prob += pulp.lpSum(pick[i] for i in df.index) == SQUAD_SIZE
+    for pos, n in POSITION_LIMITS.items():
+        prob += pulp.lpSum(pick[i] for i in df.index if df.loc[i, "position"] == pos) == n
+    for team in df["team"].unique():
+        prob += pulp.lpSum(pick[i] for i in df.index if df.loc[i, "team"] == team) <= MAX_PER_CLUB
+    for elem in locked_elements:
+        matches = df.index[df["element"] == elem]
+        if len(matches) == 0:
+            return None
+        prob += pick[matches[0]] == 1
+    for elem in banned_elements:
+        matches = df.index[df["element"] == elem]
+        if len(matches) > 0:
+            prob += pick[matches[0]] == 0
+    prob.solve(solver or _default_solver())
+    if pulp.LpStatus[prob.status] != "Optimal":
+        return None
+    return int(round(sum(float(df.loc[i, "value"]) for i in df.index if _is_set(pick[i]))))
+
+
 def resolve_names(df, names, action="lock"):
     """Turn a list of name searches into a list of element IDs.
 

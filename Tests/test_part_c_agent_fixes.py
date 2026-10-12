@@ -187,3 +187,40 @@ def test_the_prompt_translates_the_probability_keys_and_forbids_the_start_label(
     assert "p_play_any -> the chance of playing at all" in PROMPT
     assert "p_start -> the chance of starting" in PROMPT and "p_60plus -> the chance of playing 60 minutes or more" in PROMPT
     assert "never call the chance of playing at all a start probability" in PROMPT
+
+
+# ================================================================ F4
+def test_four_forced_forwards_are_refused_by_the_rule_before_any_solve(solver_env, monkeypatch):
+    df = solver_env
+    monkeypatch.setattr(mt, "solve_mip_entry", lambda *a, **k: (_ for _ in ()).throw(AssertionError("the solver ran")), raising=False)
+    out = mt.optimise(lock_player_ids=fwd_ids(df, 4), budget=80.0)
+    assert out["error_kind"] == "squad_rule" and out["error"] == "FPL allows at most 3 forwards; you asked to force 4"
+    out = mt.optimise(start_player_ids=fwd_ids(df, 4))
+    assert out["error_kind"] == "squad_rule" and "at most 3 forwards" in out["error"]
+    four_t1 = [int(e) for e in df[df["team"] == "T1"]["element"].head(4)]
+    out = mt.optimise(lock_player_ids=four_t1)
+    assert out["error_kind"] == "squad_rule" and out["error"] == "FPL allows at most 3 players from one club; you asked to force 4 from T1"
+
+
+def test_a_budget_nobody_can_meet_is_refused_with_the_measured_cheapest_legal_cost(solver_env):
+    df = solver_env
+    cheapest = optimize.cheapest_squad_cost(df)
+    assert cheapest == sum(sorted(df[df.position == "GK"]["value"])[:2]) + sum(sorted(df[df.position == "DEF"]["value"])[:5]) \
+        + sum(sorted(df[df.position == "MID"]["value"])[:5]) + sum(sorted(df[df.position == "FWD"]["value"])[:3])   # no club clash in this pool
+    out = mt.optimise(budget=40.0)
+    assert out["error_kind"] == "budget_infeasible" and out["cheapest_legal_cost"] == round(cheapest / 10, 1)
+    assert out["error"] == (f"no legal squad fits £40.0m: the cheapest legal squad costs £{cheapest / 10:.1f}m")
+    locked = fwd_ids(df, 1)
+    with_lock = optimize.cheapest_squad_cost(df, locked_elements=locked)
+    out = mt.optimise(lock_player_ids=locked, budget=40.0)
+    assert out["cheapest_legal_cost"] == round(with_lock / 10, 1) and "including the players you forced in" in out["error"]
+    assert "solve status" not in out["error"]
+
+
+def test_a_normal_request_is_unchanged_by_the_rule_checks(solver_env):
+    df = solver_env
+    out = mt.optimise(lock_player_ids=[100])
+    assert "error" not in out and "cheapest_legal_cost" not in out and set(out["constraints"]) == {"locked", "banned", "budget"}
+    prob, sol = optimize.optimize_squad(df, locked_elements=[100])
+    picked = {int(df.loc[i, "element"]) for i, v in sol["pick"].items() if v.value() > 0.5}
+    assert {r["player_id"] for r in out["squad"]} == picked

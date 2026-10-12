@@ -2012,14 +2012,16 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
     bad = _check_lock_ban(lock, ban_player_ids, pool_elements=pool["element"])
     if bad:
         return bad
+    bad = _check_squad_rules(lock, pool)              # FPL's shape and club cap, BEFORE any solve (F4)
+    if bad:
+        return bad
     prob, sol = solve_mip(pool,
                           locked_elements=lock,
                           banned_elements=list(ban_player_ids or []),
                           budget=None if budget is None else int(round(budget * 10)),
                           start_elements=start or None)
     if pulp.LpStatus[prob.status] != "Optimal":
-        return {"error": f"solve status {pulp.LpStatus[prob.status]} -- the "
-                         "constraints may be infeasible (e.g. budget too low)"}
+        return _budget_refusal(pool, lock, list(ban_player_ids or []), budget, pulp.LpStatus[prob.status])
     team = sim.solution_to_squad(pool, sol)
     out = {"gw": cutoff, "solve_seconds": round(time.time() - t0, 1),
            **({"note": note} if note else {}),
@@ -2035,6 +2037,43 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
                      for _, r in team.iterrows()],
            "squad_cost": round(team["value"].sum() / 10, 1)}
     return _with_meanings(_with_started_note(out, cutoff))
+
+
+def _check_squad_rules(lock, pool):
+    """None, or the refusal when the forced players alone break FPL's squad shape (2 GK, 5 DEF, 5 MID,
+    3 FWD) or the club cap (3 per club) -- named in plain words BEFORE the solver runs, so an impossible
+    request is never answered with 'infeasible' and a budget story (Part C, F4)."""
+    from optimize import MAX_PER_CLUB, POSITION_LIMITS
+    if not lock:
+        return None
+    rows = pool[pool["element"].isin(list(lock))]
+    words = {"GK": "goalkeepers", "DEF": "defenders", "MID": "midfielders", "FWD": "forwards"}
+    for pos, cap in POSITION_LIMITS.items():
+        n = int((rows["position"] == pos).sum())
+        if n > cap:
+            return {"error": f"FPL allows at most {cap} {words[pos]}; you asked to force {n}",
+                    "error_kind": "squad_rule", "rule": f"at most {cap} {words[pos]} in a squad of 15"}
+    for club, n in rows["team"].value_counts().items():
+        if int(n) > MAX_PER_CLUB:
+            return {"error": f"FPL allows at most {MAX_PER_CLUB} players from one club; you asked to force {int(n)} from {club}",
+                    "error_kind": "squad_rule", "rule": f"at most {MAX_PER_CLUB} players from one club"}
+    return None
+
+
+def _budget_refusal(pool, lock, ban, budget, status):
+    """The refusal for a squad build no legal fifteen satisfies: the measured cost of the CHEAPEST legal
+    squad (the forced players included) by a cost-minimising solve, never a guess (Part C, F4)."""
+    from optimize import cheapest_squad_cost
+    cheapest = cheapest_squad_cost(pool, locked_elements=list(lock), banned_elements=ban)
+    shown = f"£{budget:.1f}m" if budget is not None else "the budget"
+    if cheapest is None:
+        return {"error": f"no legal squad can be built with those players and bans (the build came back {status})",
+                "error_kind": "infeasible"}
+    cost = round(cheapest / 10, 1)
+    forced = " including the players you forced in" if lock else ""
+    return {"error": f"no legal squad fits {shown}: the cheapest legal squad{forced} costs £{cost:.1f}m",
+            "error_kind": "budget_infeasible", "cheapest_legal_cost": cost,
+            "budget": budget, "forced_players": list(lock)}
 
 
 # ------------------------------------------------------------------- health
