@@ -194,6 +194,33 @@ def _run_meta(run, config=PRODUCTION_CONFIG):
 # GW6 figures GW7, naming clubs from memory and echoing pipeline words. The keys stay (tests and the eval pin
 # them); every answer that carries one gets a `meanings` line, the started gameweek is said in one sentence,
 # and every player row carries club and position.
+PROB_MEANINGS = {"p_play_any": "chance of playing at all (any minutes)", "p_start": "chance of starting",
+                 "p_60plus": "chance of playing 60 minutes or more"}
+def _meanings_for(out):
+    """{key: plain meaning} for every key in `out` (top level, and the keys of its rows one level down) that
+    has a plain twin in PROB_MEANINGS or KEY_MEANINGS; {} when none."""
+    keys = set()
+
+    def _walk(obj, depth):
+        if isinstance(obj, dict):
+            keys.update(obj.keys())
+            if depth < 2:
+                for v in obj.values():
+                    _walk(v, depth + 1)
+        elif isinstance(obj, list) and depth < 2:
+            for v in obj[:3]:
+                _walk(v, depth + 1)
+    _walk(out, 0)
+    return {k: (PROB_MEANINGS.get(k) or KEY_MEANINGS[k]) for k in sorted(keys) if k in PROB_MEANINGS or k in KEY_MEANINGS}
+
+
+def _with_meanings(out):
+    m = _meanings_for(out) if isinstance(out, dict) else {}
+    if m:
+        out["meanings"] = m
+    return out
+
+
 def gw_started_note(gw, in_progress):
     """The one sentence for figures of a gameweek whose deadline has passed and which FPL has not yet
     confirmed, or None. Pure."""
@@ -747,7 +774,7 @@ def get_prediction(player_id: int, gw: int = None):
     out["horizon_e_points_sum"] = round(sum(r["e_points"] or 0 for r in rows), 2)
     out["quantiles"] = _quantile_block(rows)
     _with_started_note(out, rows[0].get("gw") if gw is None else None)   # the first row is the build's own gameweek
-    return _lead_with_availability(out, player_id, _availability_for([player_id]))
+    return _with_meanings(_lead_with_availability(out, player_id, _availability_for([player_id])))
 
 
 def _quantile_block(rows):
@@ -867,7 +894,7 @@ def compare_players(player_id_a: int, player_id_b: int):
         out["note_stale"] = (f"the first-gameweek figures are for GW{out['a']['first_gw']}, the run's own gameweek, "
                              f"which has been played; the next deadline is GW{nxt} -- for this week use "
                              f"the per-gameweek comparison or the single prediction with gw={nxt} (as seen from the GW{out['a']['first_gw']} cutoff)")
-    return _with_started_note(out, out["a"]["first_gw"])
+    return _with_meanings(_with_started_note(out, out["a"]["first_gw"]))
 
 
 
@@ -954,7 +981,7 @@ def get_picks(gw: int = None, shadow: bool = False):
                     "squad_cost": got.get("squad_cost")})
         if got.get("note"):
             out["note"] = got["note"]
-        return out
+        return _with_meanings(out)
     if shadow and SHADOW_CONFIG is None:
         return {"error": "no shadow configuration is run (production = "
                          f"{PRODUCTION_CONFIG} since 2026-09-11; config_roles.py)"}
@@ -984,7 +1011,7 @@ def get_picks(gw: int = None, shadow: bool = False):
                WHERE run_id = %s AND config = %s""", (run["run_id"], PRODUCTION_CONFIG))}
         here = {r["player_id"] for r in rows}
         out["differs_from_production_by"] = sorted(here ^ prod)
-    return _with_started_note(out, run.get("gw"))
+    return _with_meanings(_with_started_note(out, run.get("gw")))
 
 
 def get_best_squad(budget: float = None):
@@ -1148,7 +1175,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
                              f"{target - cutoff} gameweek(s) stale. A fresh frame lands when the "
                              f"pipeline runs at T-90 before the GW{target} deadline"
                              + (f" ({nd[1]})" if nd else ""))
-    return _with_started_note(out, target)
+    return _with_meanings(_with_started_note(out, target))
 
 
 def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_ids: list,
@@ -1504,7 +1531,7 @@ def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
     note = _stale_note(target, cutoff, built)
     if note:
         out["note_stale"] = note
-    return _plain_first(out, COMPARE_DETAIL)
+    return _with_meanings(_plain_first(out, COMPARE_DETAIL))
 
 
 def _frame_built(cutoff):
@@ -1897,7 +1924,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "applied_check": "passed squad_store.plan_change (legality + money conservation) as a dry run",
         "apply_with": {**req, "gw": current, "proposal_id": proposal_id, "confirm": True},
     }
-    return _with_started_note(out, current)
+    return _with_meanings(_with_started_note(out, current))
 
 
 def _check_lock_ban(lock, ban, pool_elements=None):
@@ -2007,7 +2034,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
                       "e_points": round(float(r["e_points"]), 2), "role": r["role"]}
                      for _, r in team.iterrows()],
            "squad_cost": round(team["value"].sum() / 10, 1)}
-    return _with_started_note(out, cutoff)
+    return _with_meanings(_with_started_note(out, cutoff))
 
 
 # ------------------------------------------------------------------- health
@@ -2883,7 +2910,7 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
     out = _run_meta(run)
     out.update(ft.build(rows, cal, n_names, team=resolved, gw=gw, horizon=horizon,
                         step_rows_by_gw=step_rows, skeleton_age_hours=age_h))
-    return _with_started_note(out, int(gw) if gw is not None else run.get("gw"))
+    return _with_meanings(_with_started_note(out, int(gw) if gw is not None else run.get("gw")))
 
 
 def get_price_movements(window_days: int = 7, user_id: int = None, include_squad: bool = True):
@@ -3584,7 +3611,7 @@ def get_prediction_history(player_id: int, gw: int):
                      "t90 / t30 / t10 = the deadline-day rebuilds 90, 30 and 10 minutes before the deadline"),
            "note": (f"oldest to newest: what each stored run predicted {name} would score in GW{x}. "
                     "To explain a move, compare the two runs biggest_move.explain_with names.")}
-    return _lead_with_availability(out, pid, _availability_for([pid]))
+    return _with_meanings(_lead_with_availability(out, pid, _availability_for([pid])))
 
 
 def _without_wildcard(record, gw, transfers_needed):
@@ -3743,4 +3770,4 @@ def get_wildcard_gap(user_id: int = None):
                           "were computed; only the gap is withheld. Ask again once the model-degraded "
                           "condition clears.")
         out["condition"] = degraded
-    return _with_started_note(out, current)
+    return _with_meanings(_with_started_note(out, current))

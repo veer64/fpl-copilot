@@ -172,3 +172,18 @@ def test_optimise_and_the_other_frame_tools_say_when_their_gameweek_has_started(
 def test_the_prompt_says_to_name_the_tools_gameweek_and_never_relabel():
     assert "name the gameweek the tool result gives" in PROMPT and "never relabel" in PROMPT
     assert "which has already started" in PROMPT
+
+
+# ================================================================ F3
+def test_probability_meanings_are_the_three_plain_phrases():
+    assert mt.PROB_MEANINGS == {"p_play_any": "chance of playing at all (any minutes)", "p_start": "chance of starting",
+                                "p_60plus": "chance of playing 60 minutes or more"}
+    m = mt._meanings_for({"xi": [{"p_play_any": 0.9, "e_points": 4.0}], "solve_seconds": 1.2, "horizon_gws": [6, 7]})
+    assert m["p_play_any"] == mt.PROB_MEANINGS["p_play_any"] and "solve_seconds" in m and "horizon_gws" in m
+    assert mt._meanings_for({"gw": 6}) == {}
+
+
+def test_the_prompt_translates_the_probability_keys_and_forbids_the_start_label():
+    assert "p_play_any -> the chance of playing at all" in PROMPT
+    assert "p_start -> the chance of starting" in PROMPT and "p_60plus -> the chance of playing 60 minutes or more" in PROMPT
+    assert "never call the chance of playing at all a start probability" in PROMPT
