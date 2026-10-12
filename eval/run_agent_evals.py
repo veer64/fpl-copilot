@@ -187,6 +187,65 @@ def grade(q, calls, setup_calls=None):
 
 
 # ------------------------------------------------------------------- budget
+# ---------------------------------------------------------------- the LLM judge on trusted metrics (Part D J8)
+# TRUSTED comes from the calibration (Part C) AND the fresh set (Part D, 2026-10-12): M2 and M3b only. The judge
+# runs after an answer is saved, through llm.py, on its own cap; a FAIL is re-judged twice and stands only when
+# all three say FAIL (confirmed_fail); untrusted metrics are never run here.
+TRUSTED_METRICS = ("M2", "M3b")
+JUDGE_MODEL = "claude-opus-5-5"
+JUDGE_REJUDGES = 2
+
+
+class JudgeConfig:
+    def __init__(self, model=JUDGE_MODEL, max_calls=300, max_usd=8.0):
+        from judge import run_judge as RJ
+        self.model = model
+        self.budget = RJ.Budget(max_calls, max_usd)
+        self.facts = RJ.allowed_general_facts()
+        self.stopped = None
+
+
+def judge_record(rec, cfg):
+    """{metric: {verdict, verdicts, confirmed_fail, reason, code_reason, usd, calls} | {not_run} | {applicable: False}}
+    for the trusted metrics; also sets rec['judge_usd']. A FAIL is re-judged JUDGE_REJUDGES more times."""
+    from judge import metrics as M
+    from judge import run_judge as RJ
+    out, usd_start = {}, cfg.budget.usd
+    for metric in TRUSTED_METRICS:
+        if cfg.stopped:
+            out[metric] = {"not_run": cfg.stopped}
+            continue
+        if not M.applicable(metric, rec):
+            out[metric] = {"verdict": None, "applicable": False}
+            continue
+        verdicts, rows, usd0, calls0, not_run = [], [], cfg.budget.usd, cfg.budget.calls, None
+        for _ in range(1 + JUDGE_REJUDGES):
+            if not cfg.budget.can_call():
+                not_run = f"judge cap reached (calls {cfg.budget.calls}/{cfg.budget.max_calls}, usd {cfg.budget.usd:.2f}/{cfg.budget.max_usd})"
+                break
+            try:
+                row = RJ.judge_one(rec, metric, cfg.model, cfg.budget, facts=cfg.facts)
+            except RJ.StopRun as e:
+                cfg.stopped = not_run = str(e)
+                break
+            rows.append(row)
+            verdicts.append(row.get("verdict") or ("ERROR" if row.get("error") else None))
+            if verdicts[-1] != "FAIL":
+                break
+        if not_run and not verdicts:
+            out[metric] = {"not_run": not_run}
+            continue
+        confirmed = len(verdicts) == 1 + JUDGE_REJUDGES and all(v == "FAIL" for v in verdicts)
+        final = "FAIL" if confirmed else ("PASS" if "PASS" in verdicts else (verdicts[-1] if verdicts else None))
+        last = rows[-1] if rows else {}
+        out[metric] = {"verdict": final, "verdicts": verdicts, "confirmed_fail": confirmed,
+                       "reason": last.get("reason"), "code_reason": last.get("code_reason"), "error": last.get("error"),
+                       "usd": round(cfg.budget.usd - usd0, 4), "calls": cfg.budget.calls - calls0,
+                       **({"not_run_rejudge": not_run} if not_run else {})}
+    rec["judge_usd"] = round(cfg.budget.usd - usd_start, 4)
+    return out
+
+
 class BudgetExceeded(RuntimeError):
     pass
 
@@ -348,8 +407,9 @@ def max_id(conn, table):
             return None
 
 
-def run_one(q, client, agent, recorder, budget, keeper, conn):
-    """One question (with its setup turn, if any). Returns the result record."""
+def run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg=None):
+    """One question (with its setup turn, if any). Returns the result record; with `judge_cfg` the trusted
+    metrics are judged after grading (judge_record)."""
     rec = {"id": q["id"], "sheet": q["sheet"], "num": q["num"], "question": q["question"],
            "must_call": q["must_call"], "must_not": q["must_not"], "setup": q["setup"],
            "needs_squad": q["needs_squad"], "core": q["core"], "bug": q["bug"],
@@ -419,6 +479,8 @@ def run_one(q, client, agent, recorder, budget, keeper, conn):
     rec["actual_calls"] = " > ".join(c["tool"] for c in qturn["calls"]) or "(none)"
     if turns[:-1]:
         rec["setup_calls"] = " > ".join(c["tool"] for c in earlier) or "(none)"
+    if judge_cfg is not None:
+        rec["judge"] = judge_record(rec, judge_cfg)
     return rec
 
 
@@ -585,6 +647,9 @@ def build_parser():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--user-id", type=int, default=9001)
     ap.add_argument("--out")
+    ap.add_argument("--judge", action="store_true", help="judge the TRUSTED metrics (M2, M3b) after each answer, through llm.py")
+    ap.add_argument("--judge-max-usd", type=float, default=8.0, dest="judge_max_usd")
+    ap.add_argument("--judge-max-calls", type=int, default=300, dest="judge_max_calls")
     return ap
 
 
@@ -620,6 +685,9 @@ def main(argv=None):
     print(f"reference squad: user {a.user_id}, version {keeper.version}, gw {keeper.gw}")
 
     client = TestClient(app_main.app, headers={"x-api-key": os.environ["APP_API_KEY"]})
+    judge_cfg = JudgeConfig(JUDGE_MODEL, a.judge_max_calls, a.judge_max_usd) if a.judge else None
+    if judge_cfg:
+        print(f"judge: {JUDGE_MODEL} on {', '.join(TRUSTED_METRICS)}, cap {a.judge_max_calls} calls / ${a.judge_max_usd}")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
     out = Path(a.out) if a.out else RESULTS_DIR / f"run_{started}.jsonl"
@@ -635,7 +703,7 @@ def main(argv=None):
                        "must_call": q["must_call"], "result": "NOT RUN", "reason": stopped}
             else:
                 try:
-                    rec = run_one(q, client, agent, recorder, budget, keeper, conn)
+                    rec = run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg)
                 except BudgetExceeded as e:
                     stopped = str(e)
                     rec = {"id": q["id"], "sheet": q["sheet"], "num": q["num"],
@@ -663,6 +731,10 @@ def main(argv=None):
     print(f"\njsonl:  {out}\nreport: {report}")
     print(f"Anthropic {budget.calls} calls, Voyage {budget.voyage}, "
           f"tokens {budget.tok_in}/{budget.tok_out}, ${budget.usd:.2f}")
+    if judge_cfg:
+        jb = judge_cfg.budget
+        print(f"judge ({JUDGE_MODEL}, {', '.join(TRUSTED_METRICS)}): {jb.calls} calls, tokens {jb.tok_in}/{jb.tok_out}, ${jb.usd:.2f}"
+              + (f" -- stopped: {judge_cfg.stopped}" if judge_cfg.stopped else ""))
     conn.close()
     return 0
 
