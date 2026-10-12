@@ -67,5 +67,5 @@ def test_the_prompt_carries_the_three_rules():
     p = agent.SYSTEM_PROMPT
     assert '"7 extra transfers x 4 = 28 points"' in p
     assert "A number whose inputs you cannot show is a number you do not state" in p
-    assert "A gameweek a tool solved or priced is INSIDE the model's range" in p
+    assert "A gameweek a tool built or priced is INSIDE the model's range" in p      # Part D G3: "built", not "solved"
     assert "Whether a player takes penalties or set pieces, or regularly earns bonus points, comes only from a tool result" in p

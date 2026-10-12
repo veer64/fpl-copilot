@@ -88,8 +88,8 @@ def test_a_conditional_promise_is_said_in_words():
                                "condition": "GW6 confirmed by FPL and ingested (ticks 00:17/06:17/12:17/18:17Z)",
                                "grace_min": None, "certain_kind": "t90", "certain_at": "2026-10-17T08:30:00Z"}}
     text, _ = seeded(dispatch_state=state)
-    assert ("Next expected update (the dispatcher's promise): once GW6 confirmed by FPL and ingested "
-            "(ticks 00:17/06:17/12:17/18:17Z); in any case Saturday 2026-10-17 08:30 UTC (the update 90 minutes before the deadline).") in text
+    assert ("Next expected update (the dispatcher's promise): once GW6 confirmed by FPL and loaded "          # Part D G3: a stored promise's old wording is said in today's words
+            "(checked at 00:17/06:17/12:17/18:17Z); in any case Saturday 2026-10-17 08:30 UTC (the update 90 minutes before the deadline).") in text
 
 
 def test_the_twenty_clubs_are_listed_from_the_snapshot():

@@ -119,6 +119,11 @@ def next_run_words(expected, now=None):
     cond = expected.get("condition")
     if not cond:
         return None
+    try:
+        from dispatch_policy import plain_condition                    # a stored promise may carry pre-2026-10-12 wording
+        cond = plain_condition(cond)
+    except ImportError:
+        pass
     words = f"once {cond}"
     if expected.get("certain_at"):
         words += f"; in any case {_fmt(_parse(expected['certain_at']))} ({KIND_WORDS.get(expected.get('certain_kind'), expected.get('certain_kind'))})"

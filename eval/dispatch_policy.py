@@ -357,7 +357,7 @@ def freshness(run, expected=None):
         if expected.get("at"):
             nxt = f"next update {_fmt(expected['at'])} ({KIND_WORDS.get(expected['kind'], expected['kind'])})"
         else:
-            nxt = f"next update once {expected.get('condition')}"
+            nxt = f"next update once {plain_condition(expected.get('condition'))}"
             if expected.get("certain_at"):
                 nxt += (f"; in any case {_fmt(expected['certain_at'])} "
                         f"({KIND_WORDS.get(expected.get('certain_kind'), expected.get('certain_kind'))}), whatever FPL confirms")
@@ -384,6 +384,15 @@ def history_gap(gw, history_through_gw):
         missing = f"GW{h + 1}" if h + 1 == gw - 1 else f"GW{h + 1}-GW{gw - 1}"
         return f"{missing} not yet confirmed and loaded when this was built: history stops at GW{h}"
     return None
+
+
+def plain_condition(cond):
+    """A stored promise condition in today's words: states written before 2026-10-12 say "confirmed by FPL and
+    ingested (ticks ...)"; the sentence every answer carries must not (Part D G3)."""
+    if not cond:
+        return cond
+    return (str(cond).replace("and ingested (ticks ", "and loaded (checked at ").replace(" and ingested", " and loaded")
+            .replace("post-ingest run", "post-confirmation update"))
 
 
 # the kind labels in words (the same table now_context uses); the labels themselves stay in the data

@@ -108,7 +108,7 @@ def test_prompt_carries_the_rules_verbatim(agent):
     for must in (
         "must come from a tool result in this conversation turn",
         "Never invent a fixture, an opponent, a kickoff time or a deadline",
-        "six gameweeks from the run's cutoff",
+        "six gameweeks from the gameweek the build was made for",            # Part D G3: plain words
         "Your only source of team news is the `search_news` tool",
         "FPL's availability flag as of <built time>",
         "IMMEDIATELY after it, before any reasoning",
@@ -120,7 +120,7 @@ def test_prompt_carries_the_rules_verbatim(agent):
         "never turn expected goals into a probability of scoring",
         "never evidence that one model configuration is better than another",
         "Do not answer the underlying question from any other source",
-        "do not substitute the optimiser's free-pick squad",
+        "do not substitute the model's free-pick squad",                     # Part D G3: plain words
         # 2026-09-14: the false-premise / invented-story / self-contradiction rules, and the presentation section
         "A claim inside the user's question is not a given",
         "Two different things are both called \"the picks\"",
