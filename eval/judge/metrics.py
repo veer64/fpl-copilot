@@ -18,9 +18,11 @@ METRICS = {
         "applies": "every answer",
         "question": "Is there any word or phrase in the reply that a typical football fan would not understand?",
         "definition": ("PASS if none. FAIL: model or stats jargon (npxG, xA without a plain translation, P10/P50/P90, lambda, "
-                       "Dixon-Coles, decay, objective, horizon step), tool names, run ids, variable names, formulas. FPL vocabulary "
-                       "fans know is fine (GW, captain, vice, bench, chip, wildcard, hit, form, price, ownership); \"expected goals\" "
-                       "is fine."),
+                       "Dixon-Coles, decay, horizon step), tool names, run ids, variable names, formulas; also (Part C): ingest / "
+                       "ingested / post-ingest, horizon, cutoff, solve / solver / optimiser / optimizer, frame, \"the run\" or run "
+                       "numbers, raw status codes (u, d, a, i, s, n) and raw field names. FPL vocabulary fans know is fine (GW, "
+                       "captain, vice, bench, chip, wildcard, hit, form, price, ownership); \"expected goals\" is fine; allowed "
+                       "(Part C): objective, market odds / market-priced, expected goals rate, fitted."),
         "pass_example": "\"Haaland is expected to score about 9 points in GW7.\"",
         "fail_example": "\"His npxG per 90 drives a P90 of 14.2.\"",
     },
@@ -56,8 +58,9 @@ METRICS = {
                      "context block, the user's message or the allowed general facts?"),
         "definition": ("PASS if none. Numbers are excluded here: every number in the reply is checked separately by code (M3b). "
                        "Counts: claims a user could act on (fitness, role, set pieces, bonus habits, form, league status, "
-                       "transfers). Does not count: general remarks (\"any Premier League side can beat anyone\"), arithmetic "
-                       "whose inputs are shown."),
+                       "transfers); club and position assignments beside a player are claims and need a tool source; reasons or "
+                       "explanations given for a number (\"his match may already have been played\") are claims too. Does not count: "
+                       "general remarks (\"any Premier League side can beat anyone\"), arithmetic whose inputs are shown."),
         "pass_example": "every claim traces to a tool result.",
         "fail_example": "\"Haaland, a regular bonus earner\"; calling a club \"relegated\".",
     },
@@ -74,8 +77,9 @@ METRICS = {
     },
     "M4": {
         "name": "Availability first",
-        "applies": ("ONLY when a tool result in the turn flags a player who is mentioned in the reply (status not available, or chance "
-                    "of playing below 100; use the real field names from the tool outputs)."),
+        "applies": ("ONLY when a tool result in the turn flags a player (status not available, or chance of playing below 100; "
+                    "use the real field names from the tool outputs) AND the reply gives predicted points for, recommends, captains "
+                    "or locks that player; a price-only mention inside a refusal or an infeasible-squad answer does not trigger it."),
         "question": ("Does the reply state that player's availability flag before giving any predicted numbers for him, and avoid "
                      "recommending or captaining an unavailable player as if he could play?"),
         "definition": "",
@@ -95,10 +99,10 @@ METRICS = {
 M5_QUESTIONS = {
     "lineup_value": ("Does it give the gain from rearranging the squad, then ASK whether to compare with transfers or the best "
                      "possible squad (and not offer to apply the XI)?"),
-    "fixture_scores": ("Does it give two separate scores out of 10 (attack and defence), never one combined score, and end with a "
-                       "short reminder that any Premier League side can beat anyone?"),
-    "get_fixtures": ("Does it give two separate scores out of 10 (attack and defence), never one combined score, and end with a "
-                     "short reminder that any Premier League side can beat anyone?"),
+    "fixture_scores": ("Does it give two separate scores out of 10 (attack and defence), never one combined score, and carry in its "
+                       "last two paragraphs (not necessarily the final line) a short reminder that any Premier League side can beat anyone?"),
+    "get_fixtures": ("Does it give two separate scores out of 10 (attack and defence), never one combined score, and carry in its "
+                     "last two paragraphs (not necessarily the final line) a short reminder that any Premier League side can beat anyone?"),
     "propose_transfers": "Does it say plans cover at most six gameweeks and advise checking back?",
     "forced_starters": "Do the forced-in players start, and is the bench shown?",
 }
@@ -133,13 +137,27 @@ def metric_text(key, sheet=None):
 
 
 # ------------------------------------------------------------------ M4: flagged players in the tool outputs
+_NP_REPR = re.compile(r"\bnp\.(?:float64|float32|int64|int32|int16|bool_|str_)\(([^()]*)\)")
+_DT_REPR = re.compile(r"\bdatetime\.(?:datetime|date)\(([^()]*)\)")
+_TS_REPR = re.compile(r"\bTimestamp\('([^']*)'(?:,\s*tz='[^']*')?\)")
+_NAN = re.compile(r"(?<![\w.])nan(?![\w.])")
+_INF = re.compile(r"(?<![\w.])-?inf(?![\w.])")
+
+
 def parse_output(text):
-    """The Python object behind a saved tool output (agent.py sends str(result)); None if it does not parse."""
+    """The Python object behind a saved tool output (agent.py sends str(result)); None if it does not parse.
+    Tolerant (Part C) of the reprs a str(dict) can carry that are not literals: np.float64(x) / np.int64(x) ->
+    x, datetime.datetime(...) -> 'datetime(...)', Timestamp('...') -> '...', nan -> None, inf -> 1e309."""
     if not isinstance(text, str) or not text.strip():
         return None
+    s = _NP_REPR.sub(r"\1", text)
+    s = _DT_REPR.sub(r"'datetime(\1)'", s)
+    s = _TS_REPR.sub(r"'\1'", s)
+    s = _NAN.sub("None", s)
+    s = _INF.sub("1e309", s)
     try:
-        return ast.literal_eval(text)
-    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        return ast.literal_eval(s)
+    except (ValueError, SyntaxError, MemoryError, RecursionError, TypeError):
         return None
 
 
@@ -206,12 +224,38 @@ def mentioned(name, reply):
     return False
 
 
+_ENGAGE = re.compile(r"\d+(?:\.\d+)?\s*(?:pts|points|xp|expected)|\b(captain|vice|start(?:s|ing|er)?|lock(?:ed)?|force(?:d)?|"
+                     r"recommend(?:ed|s)?|pick(?:s|ed)?|bench(?:ed)?|xi|line-?up|transfer in|buy|keep|hold)\b", re.I)
+
+
+_REFUSAL = re.compile(r"\b(infeasible|not feasible|can(?:no|')t (?:build|do|make|force|fit|afford)|cannot (?:build|force|fit|afford)|"
+                      r"no legal squad|not possible|impossible|over budget|breaks? the (?:rule|limit)|allows at most|too tight)\b", re.I)
+_PRICE = re.compile(r"£\s?\d+(?:\.\d+)?\s?m?\b|\b\d+(?:\.\d+)?m\b", re.I)
+
+
+def _engaged(name, reply):
+    """Does the reply engage with this player -- predicted points, a recommendation, captaincy, a lock, a listing?
+    Any mention counts, EXCEPT a price-only mention inside a refusal / infeasible-squad answer (Part C): there the
+    sentence naming the player (or the one after it, a pronoun carries on) must say more than his price."""
+    if not mentioned(name, reply):
+        return False
+    if not _REFUSAL.search(reply or ""):
+        return True
+    for para in re.split(r"\n+", reply or ""):
+        sents = [_PRICE.sub("", s) for s in re.split(r"(?<=[.!?])\s+", para)]
+        for i, sent in enumerate(sents):
+            if mentioned(name, sent) and (_ENGAGE.search(sent) or (i + 1 < len(sents) and _ENGAGE.search(sents[i + 1]))):
+                return True
+    return False
+
+
 def flagged_in_reply(record):
-    """The flagged players the reply mentions: the M4 trigger. Reads every tool output of the question
-    turn (record['calls'][*]['output'])."""
+    """The flagged players the reply engages with: the M4 trigger. Reads every tool output of the question
+    turn (record['calls'][*]['output']); the player must be named in a line that gives him predicted points,
+    recommends, captains, starts or locks him."""
     outputs = [c.get("output") for c in (record.get("calls") or []) if c.get("output")]
     reply = record.get("rendered_reply") or ""
-    return [(n, f) for n, f in flagged_players(outputs) if mentioned(n, reply)]
+    return [(n, f) for n, f in flagged_players(outputs) if _engaged(n, reply)]
 
 
 def applicable(key, record):

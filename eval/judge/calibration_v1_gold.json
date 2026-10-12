@@ -1,0 +1,3153 @@
+{
+ "built": "2026-10-12T15:03:57.844552+00:00",
+ "answers": 38,
+ "rules": [
+  "1 user's original label",
+  "2 review call (JUDGE RIGHT -> Opus run-1 verdict; USER RIGHT -> the user's label)",
+  "3 M1 consistency (claude_proposed)",
+  "4 club claims without a tool source -> M3a FAIL (evidence)",
+  "5 the task's explicit calls; evidence cells: wildcard_gap:1 M3a, plain_language:2 / fixture_scores:1 / fixture_scores:2 M3b"
+ ],
+ "labels_sha_commit": "3e3b6b2",
+ "review_calls_commit": "d37ef03",
+ "gold": {
+  "routing:3": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: We can say that the model will be updated with new facts, or something like that"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: clubs next to players with no tool source (optimise output has no team field)"
+   },
+   "M3b": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: the task's explicit call"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "optimise:1": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains ingested"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: clubs next to players with no tool source"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: the judge's own note contradicted its verdict; numbers are the tool's"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "optimise:2": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains optimiser"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: 4 forwards break the 3-forward rule; '4 MIDs' wrong; £85m/£90m invented"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: infeasible-squad answer: a price-only mention of a doubtful player does not trigger M4"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "optimise:3": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "no number claim in the reply (Part C extractor)"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "optimise:5": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "review call USER RIGHT -> the user's label; note: OBJECTIVE IS NOT A TERM NORMAL PEOPLE WOULD NOT GET"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: the task's explicit call: numbers are the tool's"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "optimise:7": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains ingested"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: clubs from memory; the club count is wrong"
+   },
+   "M3b": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: club count wrong"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "forced_starters:1": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains ingested"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: clubs from memory (Hornicek at Man City, Gomez at Wigan/Brighton)"
+   },
+   "M3b": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: GW6 figures labelled GW7"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "forced_starters:2": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: the task's explicit call: no issues"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "forced_starters:3": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains frame, post-ingest"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: reason for a low number invented (Arsenal's match may already be played)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "forced_starters:4": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: MAKE IS AS UNAVAILABLE THAT U"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "no number claim in the reply (Part C extractor)"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "lineup_value:1": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: BUT IT IS NOT A BIG DEAL"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "lineup_value:2": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: WE CAN USE BETTER EASIER LANGUAGE TO SAY INGEST, WE CAN SAY MODEL IS BEING UPDAT"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: the judge's own note contradicted its verdict"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "lineup_value:3": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: WE CAN USE BETTER EASIER LANGUAGE TO SAY INGEST, WE CAN SAY MODEL IS BEING UPDAT"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: chance of any appearance called a start probability; 0.39 written as about 30%"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "wildcard_gap:1": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains horizon, ingested"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "evidence",
+    "reason": "XI table shows an empty FWD row (Haaland, the forward, sits in the Captain row)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: the task's explicit call: numbers are the tool's"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "wildcard_gap:3": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: GW7-only gap applied to GW8-9"
+   },
+   "M3b": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: GW7-only gap applied to GW8-9"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "routing:7": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: WE NEED TO SAY SOMETHING LIKE OVER THE NEXT 6 WEEK PLAN OR SOMETHING THAN HORIZI"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "routing:10": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: NOT A BIG DEAL "
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "routing:14": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains ingested"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: WE CANNOT OPENLY SAY OUT OUR WEAKNESS, BEING TRANSPARENT IS ONE THING AND THIS I"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "review call USER RIGHT -> the user's label; note: THERE IS NOTHING HERE"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "routing:28": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains frame, ingested"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "routing:29": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "routing:32": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: PLEASE CHECK ON THIS ONE"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "get_best_squad:4": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "explicit call in the task: the task's explicit call"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "propose_transfers:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "review call USER RIGHT -> the user's label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict"
+   }
+  },
+  "propose_transfers:4": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains ingested"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "FAIL",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "propose_transfers:6": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "get_fixtures:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: the reminder is present in the last two paragraphs"
+   }
+  },
+  "get_fixtures:6": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "fixture_scores:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: BUT WE CAN LEAVE THIS HERE, AND SAY THAT WE TAKE IN UPDATES ONCE THE WHOLE GW IS"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "evidence",
+    "reason": "Part 1 verifier with the setup turn's outputs: 9 items, {'DIRECT': 8, 'DERIVED': 1}; every number verified",
+    "verified_items": [
+     {
+      "id": "c1",
+      "text": "18",
+      "final": "DERIVED",
+      "quote": "'calendar_source': {'file': 'forward_skeleton_2026_27.parquet', 'age_hours': 445.8"
+     },
+     {
+      "id": "c2",
+      "text": "two",
+      "final": "DIRECT",
+      "quote": "a score of k means the figure sits in the k-th tenth of all loaded fixtures. Two scores, never one."
+     },
+     {
+      "id": "c3",
+      "text": "8",
+      "final": "DIRECT",
+      "quote": "'gw': 7, 'fixtures': [{'opponent': \"Nott'm Forest\" ... 'attacking': {'measure': 'expected goals FOR this team in this fi"
+     },
+     {
+      "id": "c4",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "'gw': 8, 'fixtures': [{'opponent': 'Everton' ... 'attacking': {'measure': 'expected goals FOR this team in this fixture "
+     },
+     {
+      "id": "c5",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "'gw': 9, 'fixtures': [{'opponent': 'Liverpool' ... 'attacking': {'measure': 'expected goals FOR this team in this fixtur"
+     },
+     {
+      "id": "c6",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "'defensive': {'measure': 'clean-sheet probability (p_cs, the 0.2 DC / 0.8 market blend)', 'value': 0.3071, 'opp_lambda':"
+     },
+     {
+      "id": "c7",
+      "text": "8",
+      "final": "DIRECT",
+      "quote": "'gameweeks': [6, 7, 8, 9, 10]"
+     },
+     {
+      "id": "c8",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "'value': 1.4489, 'score': 7 ... 'value': 0.3071, 'opp_lambda': 1.1805, 'score': 7"
+     },
+     {
+      "id": "c9",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "'opponent': 'Liverpool', 'opponent_id': 14, 'home': False, 'kickoff': '2026-11-01T16:30:00Z', 'difficulty': {'attacking'"
+     }
+    ]
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "fixture_scores:2": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains ingested"
+   },
+   "M2": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: BUT WE DO NOT HAVE LIVE UPDATES, IT IS ALRIGHT NO MAJOR FIX NEEDED"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "evidence",
+    "reason": "Part 1 verifier with the setup turn's outputs: 68 items, {'DIRECT': 56, 'DERIVED': 10, 'COUNT': 2}; every number verified",
+    "verified_items": [
+     {
+      "id": "c1",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "'gameweeks': [6, 7, 8, 9]"
+     },
+     {
+      "id": "c2",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "'gameweeks': [6, 7, 8, 9]"
+     },
+     {
+      "id": "c3",
+      "text": "two",
+      "final": "DIRECT",
+      "quote": "attack_score and defence_score = each of those ranked 1 (hardest) to 10 (easiest) among every fixture the run has priced"
+     },
+     {
+      "id": "c4",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "'gameweeks': [6, 7, 8, 9]"
+     },
+     {
+      "id": "c5",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 6, 'opponent': 'Leeds', 'home': True, 'attacking': 2.1045, 'defensive': 0.4722, 'attack_score'"
+     },
+     {
+      "id": "c6",
+      "text": "8",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 7, 'opponent': \"Nott'm Forest\", 'home': False, 'attacking': 1.5869, 'defensive': 0.441, 'attac"
+     },
+     {
+      "id": "c7",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 8, 'opponent': 'Everton', 'home': True, 'attacking': 1.7283, 'defensive': 0.5413, 'attack_scor"
+     },
+     {
+      "id": "c8",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 9, 'opponent': 'Liverpool', 'home': False, 'attacking': 1.4489, 'defensive': 0.3071, 'attack_s"
+     },
+     {
+      "id": "c9",
+      "text": "8.5",
+      "final": "DERIVED",
+      "quote": "'team': 'Arsenal', 'gw': 6, 'opponent': 'Leeds', 'home': True, 'attacking': 2.1045, 'defensive': 0.4722, 'attack_score':"
+     },
+     {
+      "id": "c10",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "{'team': 'Man City', 'gw': 6, 'opponent': 'Liverpool', 'home': False, 'attacking': 1.4129, 'defensive': 0.2637, 'attack_"
+     },
+     {
+      "id": "c11",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Man City', 'gw': 7, 'opponent': 'Ipswich Town', 'home': True, 'attacking': 3.5139, 'defensive': 0.5012, 'attac"
+     },
+     {
+      "id": "c12",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Man City', 'gw': 8, 'opponent': 'Aston Villa', 'home': False, 'attacking': 1.8693, 'defensive': 0.3244, 'attac"
+     },
+     {
+      "id": "c13",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Man City', 'gw': 9, 'opponent': 'Brighton', 'home': True, 'attacking': 2.1635, 'defensive': 0.3549, 'attack_sc"
+     },
+     {
+      "id": "c14",
+      "text": "9.3",
+      "final": "DERIVED",
+      "quote": "'team': 'Man City', 'gw': 9, 'opponent': 'Brighton', 'home': True, 'attacking': 2.1635, 'defensive': 0.3549, 'attack_sco"
+     },
+     {
+      "id": "c15",
+      "text": "2",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 6, 'opponent': 'Everton', 'home': True, 'attacking': 0.8995, 'defensive': 0.3107, 'attack_sc"
+     },
+     {
+      "id": "c16",
+      "text": "3",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 7, 'opponent': 'Fulham', 'home': False, 'attacking': 1.0792, 'defensive': 0.4214, 'attack_sc"
+     },
+     {
+      "id": "c17",
+      "text": "5",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 8, 'opponent': 'Brentford', 'home': True, 'attacking': 1.2606, 'defensive': 0.4074, 'attack_"
+     },
+     {
+      "id": "c18",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 9, 'opponent': 'Ipswich Town', 'home': True, 'attacking': 2.0119, 'defensive': 0.535, 'attac"
+     },
+     {
+      "id": "c19",
+      "text": "5.0",
+      "final": "DERIVED",
+      "quote": ""
+     },
+     {
+      "id": "c20",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "{'team': 'Chelsea', 'gw': 6, 'opponent': 'Bournemouth', 'home': True, 'attacking': 1.7989, 'defensive': 0.3253, 'attack_"
+     },
+     {
+      "id": "c21",
+      "text": "6",
+      "final": "DIRECT",
+      "quote": "{'team': 'Chelsea', 'gw': 7, 'opponent': 'Everton', 'home': False, 'attacking': 1.298, 'defensive': 0.288, 'attack_score"
+     },
+     {
+      "id": "c22",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Chelsea', 'gw': 8, 'opponent': 'Spurs', 'home': True, 'attacking': 1.9777, 'defensive': 0.2804, 'attack_score'"
+     },
+     {
+      "id": "c23",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "{'team': 'Chelsea', 'gw': 9, 'opponent': 'Man Utd', 'home': True, 'attacking': 1.7108, 'defensive': 0.2326, 'attack_scor"
+     },
+     {
+      "id": "c24",
+      "text": "8.5",
+      "final": "DERIVED",
+      "quote": ""
+     },
+     {
+      "id": "c25",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "{'team': 'Newcastle', 'gw': 6, 'opponent': 'Coventry City', 'home': False, 'attacking': 1.4302, 'defensive': 0.3879, 'at"
+     },
+     {
+      "id": "c26",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "{'team': 'Newcastle', 'gw': 7, 'opponent': 'Aston Villa', 'home': True, 'attacking': 1.7352, 'defensive': 0.2487, 'attac"
+     },
+     {
+      "id": "c27",
+      "text": "8",
+      "final": "DIRECT",
+      "quote": "{'team': 'Newcastle', 'gw': 8, 'opponent': 'Crystal Palace', 'home': False, 'attacking': 1.5463, 'defensive': 0.2584, 'a"
+     },
+     {
+      "id": "c28",
+      "text": "8",
+      "final": "DIRECT",
+      "quote": "{'team': 'Newcastle', 'gw': 9, 'opponent': 'Everton', 'home': True, 'attacking': 1.547, 'defensive': 0.3447, 'attack_sco"
+     },
+     {
+      "id": "c29",
+      "text": "8.0",
+      "final": "DERIVED",
+      "quote": "{'team': 'Newcastle', 'gw': 6, 'opponent': 'Coventry City', 'home': False, 'attacking': 1.4302, 'defensive': 0.3879, 'at"
+     },
+     {
+      "id": "c30",
+      "text": "three",
+      "final": "COUNT",
+      "quote": "{'team': 'Man City', 'gw': 7, 'opponent': 'Ipswich Town', 'home': True, 'attacking': 3.5139, 'defensive': 0.5012, 'attac"
+     },
+     {
+      "id": "c31",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Man City', 'gw': 7, 'opponent': 'Ipswich Town', 'home': True, 'attacking': 3.5139, 'defensive': 0.5012, 'attac"
+     },
+     {
+      "id": "c32",
+      "text": "8",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 8, 'opponent': 'Brentford', 'home': True, 'attacking': 1.2606, 'defensive': 0.4074, 'attack_"
+     },
+     {
+      "id": "c33",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 9, 'opponent': 'Ipswich Town', 'home': True, 'attacking': 2.0119, 'defensive': 0.535, 'attac"
+     },
+     {
+      "id": "c34",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 6, 'opponent': 'Leeds', 'home': True, 'attacking': 2.1045, 'defensive': 0.4722, 'attack_score'"
+     },
+     {
+      "id": "c35",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 7, 'opponent': \"Nott'm Forest\", 'home': False, 'attacking': 1.5869, 'defensive': 0.441, 'attac"
+     },
+     {
+      "id": "c36",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 8, 'opponent': 'Everton', 'home': True, 'attacking': 1.7283, 'defensive': 0.5413, 'attack_scor"
+     },
+     {
+      "id": "c37",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 9, 'opponent': 'Liverpool', 'home': False, 'attacking': 1.4489, 'defensive': 0.3071, 'attack_s"
+     },
+     {
+      "id": "c38",
+      "text": "9.3",
+      "final": "DERIVED",
+      "quote": "{'team': 'Arsenal', 'gw': 6, 'opponent': 'Leeds', 'home': True, 'attacking': 2.1045, 'defensive': 0.4722, 'attack_score'"
+     },
+     {
+      "id": "c39",
+      "text": "2",
+      "final": "DIRECT",
+      "quote": "{'team': 'Spurs', 'gw': 6, 'opponent': 'Man Utd', 'home': False, 'attacking': 1.0314, 'defensive': 0.1635, 'attack_score"
+     },
+     {
+      "id": "c40",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Spurs', 'gw': 7, 'opponent': 'Coventry City', 'home': True, 'attacking': 1.7815, 'defensive': 0.7637, 'attack_"
+     },
+     {
+      "id": "c41",
+      "text": "1",
+      "final": "DIRECT",
+      "quote": "{'team': 'Spurs', 'gw': 8, 'opponent': 'Chelsea', 'home': False, 'attacking': 1.2715, 'defensive': 0.1384, 'attack_score"
+     },
+     {
+      "id": "c42",
+      "text": "6",
+      "final": "DIRECT",
+      "quote": "{'team': 'Spurs', 'gw': 9, 'opponent': 'Crystal Palace', 'home': True, 'attacking': 1.5397, 'defensive': 0.2869, 'attack"
+     },
+     {
+      "id": "c43",
+      "text": "4.8",
+      "final": "DERIVED",
+      "quote": "{'team': 'Spurs', 'gw': 6, 'opponent': 'Man Utd', 'home': False, 'attacking': 1.0314, 'defensive': 0.1635, 'attack_score"
+     },
+     {
+      "id": "c44",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "{'team': 'Fulham', 'gw': 6, 'opponent': 'Ipswich Town', 'home': False, 'attacking': 1.2575, 'defensive': 0.2989, 'attack"
+     },
+     {
+      "id": "c45",
+      "text": "8",
+      "final": "DIRECT",
+      "quote": "{'team': 'Fulham', 'gw': 7, 'opponent': 'Hull City', 'home': True, 'attacking': 0.8641, 'defensive': 0.3399, 'attack_sco"
+     },
+     {
+      "id": "c46",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Fulham', 'gw': 8, 'opponent': 'Coventry City', 'home': False, 'attacking': 1.3746, 'defensive': 0.755, 'attack"
+     },
+     {
+      "id": "c47",
+      "text": "3",
+      "final": "DIRECT",
+      "quote": "{'team': 'Fulham', 'gw': 9, 'opponent': 'Aston Villa', 'home': False, 'attacking': 1.1249, 'defensive': 0.2047, 'attack_"
+     },
+     {
+      "id": "c48",
+      "text": "7.0",
+      "final": "DERIVED",
+      "quote": "{'team': 'Fulham', 'gw': 6, 'opponent': 'Ipswich Town', 'home': False, 'attacking': 1.2575, 'defensive': 0.2989, 'attack"
+     },
+     {
+      "id": "c49",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 6, 'opponent': 'Everton', 'home': True, 'attacking': 0.8995, 'defensive': 0.3107, 'attack_sc"
+     },
+     {
+      "id": "c50",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 7, 'opponent': 'Fulham', 'home': False, 'attacking': 1.0792, 'defensive': 0.4214, 'attack_sc"
+     },
+     {
+      "id": "c51",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 8, 'opponent': 'Brentford', 'home': True, 'attacking': 1.2606, 'defensive': 0.4074, 'attack_"
+     },
+     {
+      "id": "c52",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 9, 'opponent': 'Ipswich Town', 'home': True, 'attacking': 2.0119, 'defensive': 0.535, 'attac"
+     },
+     {
+      "id": "c53",
+      "text": "8.8",
+      "final": "DERIVED",
+      "quote": ""
+     },
+     {
+      "id": "c54",
+      "text": "2",
+      "final": "DIRECT",
+      "quote": "{'team': 'Bournemouth', 'gw': 6, 'opponent': 'Chelsea', 'home': False, 'attacking': 1.0703, 'defensive': 0.167, 'attack_"
+     },
+     {
+      "id": "c55",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "{'team': 'Bournemouth', 'gw': 7, 'opponent': 'Sunderland', 'home': True, 'attacking': 1.5067, 'defensive': 0.3469, 'atta"
+     },
+     {
+      "id": "c56",
+      "text": "3",
+      "final": "DIRECT",
+      "quote": "{'team': 'Bournemouth', 'gw': 8, 'opponent': 'Man Utd', 'home': False, 'attacking': 1.2796, 'defensive': 0.1826, 'attack"
+     },
+     {
+      "id": "c57",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "{'team': 'Bournemouth', 'gw': 9, 'opponent': 'Leeds', 'home': True, 'attacking': 1.5351, 'defensive': 0.3012, 'attack_sc"
+     },
+     {
+      "id": "c58",
+      "text": "5.3",
+      "final": "DERIVED",
+      "quote": ""
+     },
+     {
+      "id": "c59",
+      "text": "three",
+      "final": "COUNT",
+      "quote": ""
+     },
+     {
+      "id": "c60",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 6, 'opponent': 'Leeds', 'home': True, 'attacking': 2.1045, 'defensive': 0.4722, 'attack_score'"
+     },
+     {
+      "id": "c61",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "{'team': 'Arsenal', 'gw': 9, 'opponent': 'Liverpool', 'home': False, 'attacking': 1.4489, 'defensive': 0.3071, 'attack_s"
+     },
+     {
+      "id": "c62",
+      "text": "7",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 6, 'opponent': 'Everton', 'home': True, 'attacking': 0.8995, 'defensive': 0.3107, 'attack_sc"
+     },
+     {
+      "id": "c63",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 7, 'opponent': 'Fulham', 'home': False, 'attacking': 1.0792, 'defensive': 0.4214, 'attack_sc"
+     },
+     {
+      "id": "c64",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 8, 'opponent': 'Brentford', 'home': True, 'attacking': 1.2606, 'defensive': 0.4074, 'attack_"
+     },
+     {
+      "id": "c65",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Hull City', 'gw': 9, 'opponent': 'Ipswich Town', 'home': True, 'attacking': 2.0119, 'defensive': 0.535, 'attac"
+     },
+     {
+      "id": "c66",
+      "text": "9",
+      "final": "DIRECT",
+      "quote": "'gameweeks': [6, 7, 8, 9]"
+     },
+     {
+      "id": "c67",
+      "text": "10",
+      "final": "DIRECT",
+      "quote": "{'team': 'Spurs', 'gw': 7, 'opponent': 'Coventry City', 'home': True, 'attacking': 1.7815, 'defensive': 0.7637, 'attack_"
+     },
+     {
+      "id": "c68",
+      "text": "1",
+      "final": "DIRECT",
+      "quote": "{'team': 'Spurs', 'gw': 8, 'opponent': 'Chelsea', 'home': False, 'attacking': 1.2715, 'defensive': 0.1384, 'attack_score"
+     }
+    ]
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   }
+  },
+  "get_player_card:6": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict; note: ONE SMALL PROMPT UPDATE AWAY "
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "get_prediction:5": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "get_my_xi:5": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: contains cutoff, ingested, optimiser"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "get_my_xi:6": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "review call USER RIGHT -> the user's label; note: NOT A BIG DEAL"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "no number claim in the reply (Part C extractor)"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "get_my_points:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "get_my_points:4": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "plain_language:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> Opus run-1 verdict"
+   },
+   "M3b": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "no number claim in the reply (Part C extractor)"
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "plain_language:2": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "claude_proposed",
+    "reason": "M1 consistency rule: only flagged words are allowed (fitted)"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "evidence",
+    "reason": "Part 1 verifier with the setup turn's outputs: 4 items, {'DIRECT': 4}; every number verified",
+    "verified_items": [
+     {
+      "id": "c1",
+      "text": "90",
+      "final": "DIRECT",
+      "quote": "'formula': 'expected save points, one per three saves, from saves per 90 3.36 over 0.97 of 90 min', 'inputs': {'saves_pe"
+     },
+     {
+      "id": "c2",
+      "text": "3.36",
+      "final": "DIRECT",
+      "quote": "'term': 'saves', 'points': 0.7486, 'formula': 'expected save points, one per three saves, from saves per 90 3.36 over 0."
+     },
+     {
+      "id": "c3",
+      "text": "97%",
+      "final": "DIRECT",
+      "quote": "from saves per 90 3.36 over 0.97 of 90 min', 'inputs': {'saves_per_90': 3.3626, 'minutes_frac': 0.967}"
+     },
+     {
+      "id": "c4",
+      "text": "90",
+      "final": "DIRECT",
+      "quote": "from saves per 90 3.36 over 0.97 of 90 min"
+     }
+    ]
+   },
+   "M4": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  },
+  "list_players:5": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's original label (M3, words and numbers)"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: as listed"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "explicit call in the task: Vicario's unavailability is stated"
+   },
+   "M5": {
+    "verdict": "N/A",
+    "source": "code",
+    "reason": "not applicable (code)"
+   }
+  }
+ },
+ "differs_from_user_label": [
+  {
+   "id": "optimise:1",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains ingested"
+  },
+  {
+   "id": "optimise:2",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains optimiser"
+  },
+  {
+   "id": "optimise:7",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains ingested"
+  },
+  {
+   "id": "forced_starters:1",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains ingested"
+  },
+  {
+   "id": "forced_starters:3",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains frame, post-ingest"
+  },
+  {
+   "id": "wildcard_gap:1",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains horizon, ingested"
+  },
+  {
+   "id": "wildcard_gap:1",
+   "metric": "M3a",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "evidence",
+   "reason": "XI table shows an empty FWD row (Haaland, the forward, sits in the Captain row)"
+  },
+  {
+   "id": "routing:14",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains ingested"
+  },
+  {
+   "id": "routing:28",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains frame, ingested"
+  },
+  {
+   "id": "propose_transfers:4",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains ingested"
+  },
+  {
+   "id": "fixture_scores:2",
+   "metric": "M1",
+   "user_label": "(blank)",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains ingested"
+  },
+  {
+   "id": "get_my_xi:5",
+   "metric": "M1",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "claude_proposed",
+   "reason": "M1 consistency rule: contains cutoff, ingested, optimiser"
+  }
+ ],
+ "m1_words": {
+  "routing:3": {
+   "banned": [
+    "ingested"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "optimise:1": {
+   "banned": [
+    "ingested"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "optimise:2": {
+   "banned": [
+    "optimiser"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "optimise:3": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "optimise:5": {
+   "banned": [],
+   "allowed": [
+    "objective"
+   ],
+   "other_j3_jargon": [
+    "the run"
+   ]
+  },
+  "optimise:7": {
+   "banned": [
+    "ingested"
+   ],
+   "allowed": [
+    "market-priced"
+   ],
+   "other_j3_jargon": []
+  },
+  "forced_starters:1": {
+   "banned": [
+    "ingested"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "forced_starters:2": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "forced_starters:3": {
+   "banned": [
+    "frame",
+    "post-ingest"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "forced_starters:4": {
+   "banned": [
+    "status: u"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "lineup_value:1": {
+   "banned": [
+    "cutoff",
+    "ingested",
+    "optimiser"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "lineup_value:2": {
+   "banned": [
+    "cutoff"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "lineup_value:3": {
+   "banned": [
+    "ingested",
+    "solve"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "wildcard_gap:1": {
+   "banned": [
+    "horizon",
+    "ingested"
+   ],
+   "allowed": [
+    "objective"
+   ],
+   "other_j3_jargon": []
+  },
+  "wildcard_gap:3": {
+   "banned": [
+    "ingested",
+    "optimiser"
+   ],
+   "allowed": [
+    "objective"
+   ],
+   "other_j3_jargon": []
+  },
+  "routing:7": {
+   "banned": [
+    "horizon"
+   ],
+   "allowed": [],
+   "other_j3_jargon": [
+    "the run"
+   ]
+  },
+  "routing:10": {
+   "banned": [
+    "horizon",
+    "solve"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "routing:14": {
+   "banned": [
+    "ingested"
+   ],
+   "allowed": [
+    "fitted"
+   ],
+   "other_j3_jargon": []
+  },
+  "routing:28": {
+   "banned": [
+    "frame",
+    "ingested"
+   ],
+   "allowed": [],
+   "other_j3_jargon": [
+    "the run"
+   ]
+  },
+  "routing:29": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "routing:32": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "get_best_squad:4": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "propose_transfers:1": {
+   "banned": [],
+   "allowed": [
+    "objective"
+   ],
+   "other_j3_jargon": []
+  },
+  "propose_transfers:4": {
+   "banned": [
+    "ingested"
+   ],
+   "allowed": [
+    "objective"
+   ],
+   "other_j3_jargon": []
+  },
+  "propose_transfers:6": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "get_fixtures:1": {
+   "banned": [],
+   "allowed": [
+    "market-priced"
+   ],
+   "other_j3_jargon": []
+  },
+  "get_fixtures:6": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "fixture_scores:1": {
+   "banned": [],
+   "allowed": [
+    "market-priced"
+   ],
+   "other_j3_jargon": [
+    "the run"
+   ]
+  },
+  "fixture_scores:2": {
+   "banned": [
+    "ingested"
+   ],
+   "allowed": [],
+   "other_j3_jargon": [
+    "the run"
+   ]
+  },
+  "get_player_card:6": {
+   "banned": [
+    "ingested"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "get_prediction:5": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": [
+    "the run"
+   ]
+  },
+  "get_my_xi:5": {
+   "banned": [
+    "cutoff",
+    "ingested",
+    "optimiser"
+   ],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "get_my_xi:6": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "get_my_points:1": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "get_my_points:4": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "plain_language:1": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  },
+  "plain_language:2": {
+   "banned": [],
+   "allowed": [
+    "fitted"
+   ],
+   "other_j3_jargon": []
+  },
+  "list_players:5": {
+   "banned": [],
+   "allowed": [],
+   "other_j3_jargon": []
+  }
+ },
+ "club_claims": {
+  "routing:3": {
+   "claims": 15,
+   "sourced_ok": 1,
+   "sourced_wrong": 0,
+   "unsourced": 14,
+   "unknown_player": 0,
+   "unsourced_db_differs": 7,
+   "wrong_vs_table": 7
+  },
+  "optimise:1": {
+   "claims": 11,
+   "sourced_ok": 2,
+   "sourced_wrong": 0,
+   "unsourced": 9,
+   "unknown_player": 0,
+   "unsourced_db_differs": 4,
+   "wrong_vs_table": 4
+  },
+  "optimise:2": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "optimise:3": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "optimise:5": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "optimise:7": {
+   "claims": 11,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 11,
+   "unknown_player": 0,
+   "unsourced_db_differs": 2,
+   "wrong_vs_table": 2
+  },
+  "forced_starters:1": {
+   "claims": 15,
+   "sourced_ok": 2,
+   "sourced_wrong": 0,
+   "unsourced": 13,
+   "unknown_player": 0,
+   "unsourced_db_differs": 8,
+   "wrong_vs_table": 8
+  },
+  "forced_starters:2": {
+   "claims": 2,
+   "sourced_ok": 2,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "forced_starters:3": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "forced_starters:4": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "lineup_value:1": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "lineup_value:2": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "lineup_value:3": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "wildcard_gap:1": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "wildcard_gap:3": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "routing:7": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "routing:10": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "routing:14": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "routing:28": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "routing:29": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "routing:32": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "get_best_squad:4": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "propose_transfers:1": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "propose_transfers:4": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "propose_transfers:6": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "get_fixtures:1": {
+   "claims": 1,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 1,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "get_fixtures:6": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "fixture_scores:1": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "fixture_scores:2": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "get_player_card:6": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "get_prediction:5": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "get_my_xi:5": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "get_my_xi:6": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "get_my_points:1": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "get_my_points:4": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "plain_language:1": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "plain_language:2": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  },
+  "list_players:5": {
+   "claims": 0,
+   "sourced_ok": 0,
+   "sourced_wrong": 0,
+   "unsourced": 0,
+   "unknown_player": 0,
+   "unsourced_db_differs": 0,
+   "wrong_vs_table": 0
+  }
+ },
+ "club_claim_rows": {
+  "routing:3": [
+   {
+    "player_text": "Lukáš Horníček",
+    "club_text": "Coventry",
+    "club": "Coventry City",
+    "where": "table",
+    "player": "Lukás Hornícek",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Newcastle",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Gabriel",
+    "club_text": "Arsenal",
+    "club": "Arsenal",
+    "where": "table",
+    "player": "Gabriel dos Santos Magalhães",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Arsenal",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Calafiori",
+    "club_text": "Arsenal",
+    "club": "Arsenal",
+    "where": "table",
+    "player": "Riccardo Calafiori",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Arsenal",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Mukiele",
+    "club_text": "Man Utd",
+    "club": "Man Utd",
+    "where": "table",
+    "player": "Nordi Mukiele",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Sunderland",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Khalaili",
+    "club_text": "Ipswich",
+    "club": "Ipswich Town",
+    "where": "table",
+    "player": "Anan Khalaili",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Crystal Palace",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Botman",
+    "club_text": "Newcastle",
+    "club": "Newcastle",
+    "where": "table",
+    "player": "Sven Botman",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Newcastle",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Saka",
+    "club_text": "Arsenal",
+    "club": "Arsenal",
+    "where": "table",
+    "player": "Bukayo Saka",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Arsenal",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Mbeumo",
+    "club_text": "Brentford",
+    "club": "Brentford",
+    "where": "table",
+    "player": "Bryan Mbeumo",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Man Utd",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Pedro Neto",
+    "club_text": "Chelsea",
+    "club": "Chelsea",
+    "where": "table",
+    "player": "Pedro Lomba Neto",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Chelsea",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Haaland",
+    "club_text": "Man City",
+    "club": "Man City",
+    "where": "table",
+    "player": "Erling Haaland",
+    "resolved_by": "tool",
+    "tool_club": "Man City",
+    "db_club": "Man City",
+    "status": "sourced_ok",
+    "db_differs": false
+   },
+   {
+    "player_text": "Wissa",
+    "club_text": "Brentford",
+    "club": "Brentford",
+    "where": "table",
+    "player": "Yoane Wissa",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Newcastle",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Leno",
+    "club_text": "Fulham",
+    "club": "Fulham",
+    "where": "table",
+    "player": "Bernd Leno",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Fulham",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Schlager",
+    "club_text": "Coventry",
+    "club": "Coventry City",
+    "where": "table",
+    "player": "Xaver Schlager",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Nott'm Forest",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Gómez",
+    "club_text": "Brighton",
+    "club": "Brighton",
+    "where": "table",
+    "player": "Diego Gómez Amarilla",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Brighton",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Barry",
+    "club_text": "Brighton",
+    "club": "Brighton",
+    "where": "table",
+    "player": "Thierno Barry",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Everton",
+    "status": "unsourced",
+    "db_differs": true
+   }
+  ],
+  "optimise:1": [
+   {
+    "player_text": "David Raya",
+    "club_text": "Arsenal",
+    "club": "Arsenal",
+    "where": "table",
+    "player": "David Raya Martín",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Arsenal",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Nordi Mukiele",
+    "club_text": "Man City",
+    "club": "Man City",
+    "where": "table",
+    "player": "Nordi Mukiele",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Sunderland",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Anan Khalaili",
+    "club_text": "Brighton",
+    "club": "Brighton",
+    "where": "table",
+    "player": "Anan Khalaili",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Crystal Palace",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Sven Botman",
+    "club_text": "Newcastle",
+    "club": "Newcastle",
+    "where": "table",
+    "player": "Sven Botman",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Newcastle",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Maxim De Cuyper",
+    "club_text": "Chelsea",
+    "club": "Chelsea",
+    "where": "table",
+    "player": "Maxim De Cuyper",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Brighton",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Dara O'Shea",
+    "club_text": "Ipswich",
+    "club": "Ipswich Town",
+    "where": "table",
+    "player": "Dara O'Shea",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Ipswich Town",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Bukayo Saka",
+    "club_text": "Arsenal",
+    "club": "Arsenal",
+    "where": "table",
+    "player": "Bukayo Saka",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Arsenal",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Bryan Mbeumo",
+    "club_text": "Brentford",
+    "club": "Brentford",
+    "where": "table",
+    "player": "Bryan Mbeumo",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Man Utd",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Pedro Neto",
+    "club_text": "Chelsea",
+    "club": "Chelsea",
+    "where": "table",
+    "player": "Pedro Lomba Neto",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Chelsea",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Erling Haaland",
+    "club_text": "Man City",
+    "club": "Man City",
+    "where": "table",
+    "player": "Erling Haaland",
+    "resolved_by": "tool",
+    "tool_club": "Man City",
+    "db_club": "Man City",
+    "status": "sourced_ok",
+    "db_differs": false
+   },
+   {
+    "player_text": "Alexander Isak",
+    "club_text": "Liverpool",
+    "club": "Liverpool",
+    "where": "table",
+    "player": "Alexander Isak",
+    "resolved_by": "tool",
+    "tool_club": "Liverpool",
+    "db_club": "Liverpool",
+    "status": "sourced_ok",
+    "db_differs": false
+   }
+  ],
+  "optimise:7": [
+   {
+    "player_text": "Jordan Pickford",
+    "club_text": "Everton",
+    "club": "Everton",
+    "where": "table",
+    "player": "Jordan Pickford",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Everton",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "James Tarkowski",
+    "club_text": "Everton",
+    "club": "Everton",
+    "where": "table",
+    "player": "James Tarkowski",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Everton",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Jarrad Branthwaite",
+    "club_text": "Everton",
+    "club": "Everton",
+    "where": "table",
+    "player": "Jarrad Branthwaite",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Everton",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Gabriel",
+    "club_text": "Arsenal",
+    "club": "Arsenal",
+    "where": "table",
+    "player": "Gabriel dos Santos Magalhães",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Arsenal",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Nordi Mukiele",
+    "club_text": "Newcastle",
+    "club": "Newcastle",
+    "where": "table",
+    "player": "Nordi Mukiele",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Sunderland",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "James Justin",
+    "club_text": "Leeds",
+    "club": "Leeds",
+    "where": "table",
+    "player": "James Justin",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Leeds",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Bryan Mbeumo",
+    "club_text": "Brentford",
+    "club": "Brentford",
+    "where": "table",
+    "player": "Bryan Mbeumo",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Man Utd",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Marcus Tavernier",
+    "club_text": "Bournemouth",
+    "club": "Bournemouth",
+    "where": "table",
+    "player": "Marcus Tavernier",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Bournemouth",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Cody Gakpo",
+    "club_text": "Liverpool",
+    "club": "Liverpool",
+    "where": "table",
+    "player": "Cody Gakpo",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Liverpool",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Alex Scott",
+    "club_text": "Bournemouth",
+    "club": "Bournemouth",
+    "where": "table",
+    "player": "Alex Scott",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Bournemouth",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Erling Haaland",
+    "club_text": "Man City",
+    "club": "Man City",
+    "where": "table",
+    "player": "Erling Haaland",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Man City",
+    "status": "unsourced",
+    "db_differs": false
+   }
+  ],
+  "forced_starters:1": [
+   {
+    "player_text": "Lukáš Horníček",
+    "club_text": "Man City",
+    "club": "Man City",
+    "where": "table",
+    "player": "Lukás Hornícek",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Newcastle",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Gabriel",
+    "club_text": "Arsenal",
+    "club": "Arsenal",
+    "where": "table",
+    "player": "Gabriel dos Santos Magalhães",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Arsenal",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Riccardo Calafiori",
+    "club_text": "Arsenal",
+    "club": "Arsenal",
+    "where": "table",
+    "player": "Riccardo Calafiori",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Arsenal",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Nordi Mukiele",
+    "club_text": "Newcastle",
+    "club": "Newcastle",
+    "where": "table",
+    "player": "Nordi Mukiele",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Sunderland",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Anan Khalaili",
+    "club_text": "Coventry",
+    "club": "Coventry City",
+    "where": "table",
+    "player": "Anan Khalaili",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Crystal Palace",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Dara O'Shea",
+    "club_text": "Sunderland",
+    "club": "Sunderland",
+    "where": "table",
+    "player": "Dara O'Shea",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Ipswich Town",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Bukayo Saka",
+    "club_text": "Arsenal",
+    "club": "Arsenal",
+    "where": "table",
+    "player": "Bukayo Saka",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Arsenal",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Bryan Mbeumo",
+    "club_text": "Brentford",
+    "club": "Brentford",
+    "where": "table",
+    "player": "Bryan Mbeumo",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Man Utd",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Xaver Schlager",
+    "club_text": "Leeds",
+    "club": "Leeds",
+    "where": "table",
+    "player": "Xaver Schlager",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Nott'm Forest",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Erling Haaland",
+    "club_text": "Man City",
+    "club": "Man City",
+    "where": "table",
+    "player": "Erling Haaland",
+    "resolved_by": "tool",
+    "tool_club": "Man City",
+    "db_club": "Man City",
+    "status": "sourced_ok",
+    "db_differs": false
+   },
+   {
+    "player_text": "Alexander Isak",
+    "club_text": "Liverpool",
+    "club": "Liverpool",
+    "where": "table",
+    "player": "Alexander Isak",
+    "resolved_by": "tool",
+    "tool_club": "Liverpool",
+    "db_club": "Liverpool",
+    "status": "sourced_ok",
+    "db_differs": false
+   },
+   {
+    "player_text": "Bernd Leno",
+    "club_text": "Fulham",
+    "club": "Fulham",
+    "where": "table",
+    "player": "Bernd Leno",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Fulham",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Diego Gómez",
+    "club_text": "Wigan/Brighton",
+    "club": null,
+    "where": "table",
+    "player": "Diego Gómez Amarilla",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Brighton",
+    "status": "unsourced",
+    "db_differs": true
+   },
+   {
+    "player_text": "Regan Slater",
+    "club_text": "Hull",
+    "club": "Hull City",
+    "where": "table",
+    "player": "Regan Slater",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Hull City",
+    "status": "unsourced",
+    "db_differs": false
+   },
+   {
+    "player_text": "Thierno Barry",
+    "club_text": "Brentford",
+    "club": "Brentford",
+    "where": "table",
+    "player": "Thierno Barry",
+    "resolved_by": "tool",
+    "tool_club": null,
+    "db_club": "Everton",
+    "status": "unsourced",
+    "db_differs": true
+   }
+  ],
+  "forced_starters:2": [
+   {
+    "player_text": "Cole Palmer",
+    "club_text": "Chelsea",
+    "club": "Chelsea",
+    "where": "prose",
+    "player": "Cole Palmer",
+    "resolved_by": "tool",
+    "tool_club": "Chelsea",
+    "db_club": "Chelsea",
+    "status": "sourced_ok",
+    "db_differs": false
+   },
+   {
+    "player_text": "Alex Palmer",
+    "club_text": "Ipswich Town",
+    "club": "Ipswich Town",
+    "where": "prose",
+    "player": "Alex Palmer",
+    "resolved_by": "tool",
+    "tool_club": "Ipswich Town",
+    "db_club": "Ipswich Town",
+    "status": "sourced_ok",
+    "db_differs": false
+   }
+  ],
+  "get_fixtures:1": [
+   {
+    "player_text": "Leeds",
+    "club_text": "Forest",
+    "club": "Nott'm Forest",
+    "where": "prose",
+    "player": null,
+    "resolved_by": "unknown",
+    "tool_club": null,
+    "db_club": null,
+    "status": "unknown_player",
+    "db_differs": null
+   }
+  ]
+ },
+ "number_claims": {
+  "routing:3": 40,
+  "optimise:1": 32,
+  "optimise:2": 16,
+  "optimise:3": 0,
+  "optimise:5": 37,
+  "optimise:7": 35,
+  "forced_starters:1": 37,
+  "forced_starters:2": 4,
+  "forced_starters:3": 35,
+  "forced_starters:4": 0,
+  "lineup_value:1": 7,
+  "lineup_value:2": 6,
+  "lineup_value:3": 21,
+  "wildcard_gap:1": 26,
+  "wildcard_gap:3": 39,
+  "routing:7": 8,
+  "routing:10": 3,
+  "routing:14": 24,
+  "routing:28": 10,
+  "routing:29": 5,
+  "routing:32": 11,
+  "get_best_squad:4": 7,
+  "propose_transfers:1": 35,
+  "propose_transfers:4": 30,
+  "propose_transfers:6": 7,
+  "get_fixtures:1": 8,
+  "get_fixtures:6": 1,
+  "fixture_scores:1": 9,
+  "fixture_scores:2": 68,
+  "get_player_card:6": 7,
+  "get_prediction:5": 4,
+  "get_my_xi:5": 8,
+  "get_my_xi:6": 0,
+  "get_my_points:1": 3,
+  "get_my_points:4": 8,
+  "plain_language:1": 0,
+  "plain_language:2": 4,
+  "list_players:5": 6
+ }
+}

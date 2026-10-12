@@ -92,6 +92,10 @@ def shared_block(record):
         msg = (st or {}).get("message") or record.get("setup") or ""
         rep = strip_sources((st or {}).get("reply") or "")
         parts.append(tag("setup_turn", f"User: {msg}\nAssistant: {rep}" if rep else f"User: {msg}"))
+        for c in ((st or {}).get("calls") or []):                         # J1: the earlier turn's tool evidence
+            parts.append(tag("tool_result", c.get("output") if c.get("output") is not None else "(output not recorded)",
+                             name=c.get("tool"), args=json.dumps(c.get("args") or {}, ensure_ascii=False, sort_keys=True),
+                             turn="setup (earlier turn)"))
     for c in (record.get("calls") or qt.get("calls") or []):
         parts.append(tag("tool_result", c.get("output") if c.get("output") is not None else "(output not recorded)",
                          name=c.get("tool"), args=json.dumps(c.get("args") or {}, ensure_ascii=False, sort_keys=True)))
