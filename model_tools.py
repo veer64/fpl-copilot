@@ -297,6 +297,14 @@ def _squad_rows_from_team(team, roles, names):
     return sorted(rows, key=lambda x: (order[x["role"]], x["bench_order"] or 0, -x["e_points"]))
 
 
+def _recorded_armband(doc_players):
+    """{recorded_captain, recorded_vice} by name from the squad document's roles (Part D G4: the agent
+    offered to 'make Haaland captain' when he already was the recorded captain)."""
+    cap = next((p.get("name") for p in doc_players if p.get("role") == "CAPTAIN"), None)
+    vice = next((p.get("name") for p in doc_players if p.get("role") == "VICE"), None)
+    return {"recorded_captain": cap, "recorded_vice": vice}
+
+
 def _transfer_row_meta(row, meta):
     """A transfer row {out, out_id, in, in_id, ...} with team_out / position_out / team_in / position_in."""
     o, i = row.get("out_id"), row.get("in_id")
@@ -1198,7 +1206,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
         "predicted_xi_points": comparison["optimal_xi_points"],
         "missing_from_frame": missing,
         "recorded_roles": {"as_of_gw": record["gw"], "recorded_at": str(record["created_at"]),
-                           **comparison},
+                           **_recorded_armband(doc["players"]), **comparison},
         "adopt_with": {"player_ids": sorted(elements),
                        "captain_id": next(r["player_id"] for r in xi if r["role"] == "CAPTAIN"),
                        "vice_id": next(r["player_id"] for r in xi if r["role"] == "VICE"),
@@ -2997,7 +3005,7 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
                 "required_columns": list(FIXTURE_REQUIRED_COLS)}
     out = _run_meta(run)
     out.update(ft.build(rows, cal, n_names, team=resolved, gw=gw, horizon=horizon,
-                        step_rows_by_gw=step_rows, skeleton_age_hours=age_h))
+                        step_rows_by_gw=step_rows, skeleton_age_hours=age_h, now=datetime.now(timezone.utc)))
     return _with_meanings(_with_started_note(out, int(gw) if gw is not None else run.get("gw")))
 
 

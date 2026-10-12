@@ -183,9 +183,49 @@ def _difficulty(tl, ol, pcs, scores=None):
     }
 
 
+SCORE_PLAIN = ("a score of k means the fixture sits in the k-th tenth of every fixture the build priced: a score of 10 "
+               "is not 'the easiest fixture' and 1 is not 'the hardest', each is one tenth of all fixtures; attack and "
+               "defence are scored separately and never combined")
+MATCH_LENGTH_H = 2
+
+
+def fixture_status(kickoff, now):
+    """'played' / 'in progress' / 'to come' for a kickoff ISO string against the clock (Part D G4: the agent
+    called a match played the day before 'already underway'); None when either is missing."""
+    if not kickoff or now is None:
+        return None
+    try:
+        from datetime import datetime, timedelta, timezone
+        k = datetime.fromisoformat(str(kickoff).replace("Z", "+00:00"))
+        if k.tzinfo is None:
+            k = k.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    if now < k:
+        return "to come"
+    if now < k + timedelta(hours=MATCH_LENGTH_H):
+        return "in progress"
+    return "played"
+
+
+def kickoff_day(kickoff):
+    """'Sunday 11 Oct 2026, 15:30 UTC' for a kickoff ISO string (Part D G4: the agent called 2026-10-11 'Saturday')."""
+    if not kickoff:
+        return None
+    try:
+        from datetime import datetime, timezone
+        k = datetime.fromisoformat(str(kickoff).replace("Z", "+00:00"))
+        if k.tzinfo is None:
+            k = k.replace(tzinfo=timezone.utc)
+        return k.astimezone(timezone.utc).strftime("%A %d %b %Y, %H:%M UTC")
+    except ValueError:
+        return None
+
+
 def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
-          step_rows_by_gw=None, skeleton_age_hours=None):
-    """PURE. `rows` are the per-(team, gw) model rows; `cal` is calendar()'s mapping.
+          step_rows_by_gw=None, skeleton_age_hours=None, now=None):
+    """PURE. `rows` are the per-(team, gw) model rows; `cal` is calendar()'s mapping; `now` (optional)
+    gives every fixture a status against the clock.
 
     A fixture beyond the model's horizon is RETURNED WITH difficulty None and a reason, never
     omitted and never given a fabricated number -- the same rule the quantile block uses for a
@@ -238,6 +278,12 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
             entries = []
             for f in fixtures:
                 e = dict(f)
+                status = fixture_status(e.get("kickoff"), now)
+                if status:
+                    e["status"] = status
+                day = kickoff_day(e.get("kickoff"))
+                if day:
+                    e["kickoff_day"] = day
                 if mrow is None:
                     e["difficulty"] = None
                     e["difficulty_unavailable"] = (
@@ -330,9 +376,22 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
         "teams_requested": teams,
         "unknown_teams": unknown,
         "gameweeks": want_gws,
+        "listed_gameweeks": want_gws,
         "model_horizon": {"gws": model_gws,
+                          "gameweeks_covered": [model_gws[0], model_gws[-1]] if model_gws else [],
                           "note": ("fixtures outside this range are listed with difficulty "
-                                   "null and a reason, never omitted")},
+                                   "null and a reason, never omitted; the build covers "
+                                   + (f"GW{model_gws[0]}-GW{model_gws[-1]}" if model_gws else "no gameweek")
+                                   + f" while this answer lists GW{want_gws[0]}-GW{want_gws[-1]}"
+                                   + (" -- a club with no fixture listed here may still have one in a covered gameweek this answer does not list"
+                                      if model_gws and want_gws[-1] < model_gws[-1] else ""))},
+        "score_meaning": SCORE_PLAIN,
+        "meanings": {"kickoff_day": "the weekday, date and UTC kickoff time of the fixture, from the calendar",
+                     "status": "played = kicked off more than two hours ago; in progress = kicked off within the last two hours; "
+                               "to come = kickoff is still ahead (against the clock at the time of the answer)",
+                     "attack_score": "1 (hardest) to 10 (easiest) by tenths among every priced fixture",
+                     "defence_score": "1 (hardest) to 10 (easiest) by tenths among every priced fixture",
+                     "listed_gameweeks": "the gameweeks this answer lists", "gameweeks_covered": "the gameweeks the build has priced"},
         "calendar_source": {
             "file": SKELETON.name,
             "age_hours": skeleton_age_hours,
