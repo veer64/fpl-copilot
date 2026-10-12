@@ -103,9 +103,45 @@ def shared_block(record):
     return "\n\n".join(parts)
 
 
+# Sentences the agent is REQUIRED to say (Part D J7, 2026-10-12): the prompt's own words and the tools' own notes.
+# The judge treated them as unsupported claims (8 of 21 M3a FAILs on the v4.4 re-run). Each one must appear in
+# prompts/system_prompt.md or in a tool module's source -- Tests/test_judge_part_d.py checks that they do not drift.
+REQUIRED_SENTENCES = [
+    ("prompt", "Our model doesn't account for bonus points"),
+    ("prompt", "our numbers don't fully count penalties, so treat the figure as a floor if a tool says he takes penalties"),
+    ("prompt", "priced off the betting market"),
+    ("prompt", "the longer-range estimate from team strengths, with no odds, lineups or team news yet"),
+    ("prompt", "planning number, never a recommendation"),
+    ("prompt", "any Premier League side can beat anyone"),
+    ("prompt", "This plan covers up to six gameweeks; check back each week."),
+    ("prompt", "These figures are for GW6, which has already started. Our numbers are updated once GW6 is finished and FPL confirms the results."),
+    ("prompt", "the next update lands once FPL confirms GW4 and it is loaded"),
+    ("model_tools.py", "Planning view for GW{int(target)} from today's predictions: GW{int(target)} is inside the "),
+    ("model_tools.py", "FPL allows at most {cap} {words[pos]}; you asked to force {n}"),
+    ("model_tools.py", "FPL allows at most {MAX_PER_CLUB} players from one club; you asked to force {int(n)} from {club}"),
+    ("model_tools.py", "no legal squad fits {shown}: the cheapest legal squad{forced} costs £{cost:.1f}m"),
+    ("model_tools.py", "the predictions were last built for GW{cutoff} (built {built:%Y-%m-%d %H:%M}Z); GW{target}'s "),
+    ("model_tools.py", "Fresh predictions land with the update 90 minutes before the GW{target} deadline"),
+    ("eval/dispatch_policy.py", "knows results through GW{k.get('history_through_gw')} "),
+    ("eval/dispatch_policy.py", "next update once "),
+]
+REQUIRED_WORDS = ("Sentences the agent is REQUIRED to say (the prompt's own words and the tools' own notes; the <n> / {...} parts are filled in by "
+                  "the tools). Saying, quoting or paraphrasing one of these is NEVER an unsupported or invented claim, nor is a tool's own note "
+                  "(note_stale, note_gw_started, summary_plain, the planning-view note, the freshness 'built ...' line):")
+
+
+def required_sentences_text():
+    lines = []
+    for src, s in REQUIRED_SENTENCES:
+        plain = re.sub(r"\{[^}]*\}", "<n>", s).replace("GW6", "GW<n>").replace("GW4", "GW<n>")
+        lines.append(f"- {plain}")
+    return REQUIRED_WORDS + "\n" + "\n".join(dict.fromkeys(lines))
+
+
 def allowed_general_facts(prompt_path=None, bugs_path=None):
-    """FPL's rules (section 0 of the system prompt) and the by-design statements (Table 2 of tool_bugs_v1.md),
-    read from the files so they cannot drift from what the agent is told."""
+    """FPL's rules (section 0 of the system prompt), the by-design statements (Table 2 of tool_bugs_v1.md) and the
+    sentences the agent is required to say (REQUIRED_SENTENCES), read from the files so they cannot drift from
+    what the agent is told."""
     prompt_path = Path(prompt_path or REPO / "prompts" / "system_prompt.md")
     bugs_path = Path(bugs_path or REPO / "eval" / "agent_evals" / "tool_bugs_v1.md")
     lines = prompt_path.read_text(encoding="utf-8").splitlines()
@@ -125,7 +161,8 @@ def allowed_general_facts(prompt_path=None, bugs_path=None):
             if len(cells) >= 3:
                 design.append(f"{cells[0]} ({cells[1]}): {cells[2]}")
     return ("FPL's rules (the agent's own section 0):\n" + "\n".join(rules) +
-            "\n\nBy design, not bugs (the agent must say them):\n" + "\n".join(design))
+            "\n\nBy design, not bugs (the agent must say them):\n" + "\n".join(design) +
+            "\n\n" + required_sentences_text())
 
 
 def build_prompt(record, key, facts=None):

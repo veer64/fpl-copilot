@@ -63,7 +63,7 @@ _BENCH_NUM = re.compile(r"\b[Bb]ench\s*(?:order\s*)?\d\b")
 
 INSTRUCTIONS = """For EVERY claim id in <number_claims>, return one item:
 {"id": "<claim id>", "number": <the number>, "about": "<player/club/team, gameweek, stat>", "type": "DIRECT" | "DERIVED" | "RULE" | "COUNT" | "WRONG" | "UNSUPPORTED", "quote": "<exact text copied from the tool output / context block / user message / allowed facts, up to 300 chars, including the field name and enough context to show whose number it is and for which gameweek>", "inputs": [...] (DERIVED only), "op": "+|-|x|/|sum" (DERIVED only), "items": [{"item": "<what is counted>", "quote": "<exact text>"}] (COUNT only), "why": "<one line>"}
-DIRECT = the number (or its rounding) is in the quote and the quote is about the same player/club, gameweek and stat. DERIVED = simple arithmetic from inputs: each input is {"number": <n>, "quote": "<exact text>"}, or a well-known constant {"number": <n>, "constant": "<what it is>"} (24 hours a day, 7 days a week, 60 and 90 minutes, 100 percent, 2 for the captain, 3 for the triple captain, 4 points per extra transfer, the squad of 15 / XI of 11 / 2-5-5-3 shape, 3 per club, the 100.0 budget), or a nested derivation {"op": ..., "inputs": [...]}. RULE = an FPL rule or allowed fact. COUNT = a count of things the reply lists (players, transfers, autosubs, gameweeks, caveats): list EVERY counted thing in "items", each with the exact quote that shows it; if the count depends on an attribute no tool gives (e.g. a player's club), add "unsupported_attribute": "<which>". WRONG = a source exists but says something different (wrong value, wrong player, wrong gameweek, wrong stat). UNSUPPORTED = no source.
+DIRECT = the number (or its rounding) is in the quote and the quote is about the same player/club, gameweek and stat. DERIVED = simple arithmetic from inputs: each input is {"number": <n>, "quote": "<exact text>"}, or a well-known constant {"number": <n>, "constant": "<what it is>"} (24 hours a day, 7 days a week, 60 and 90 minutes, 100 percent, 2 for the captain, 3 for the triple captain, 4 points per extra transfer, the squad of 15 / XI of 11 / 2-5-5-3 shape, 3 per club, the 100.0 budget), or a nested derivation {"op": ..., "inputs": [...]}. RULE = an FPL rule or allowed fact. COUNT = a count of things the reply lists (players, transfers, autosubs, gameweeks, caveats): list EVERY counted thing in "items", each with the exact quote that shows it; if the count depends on an attribute no tool gives (e.g. a player's club), add "unsupported_attribute": "<which>". WRONG = a source exists but says something different (wrong value, wrong player, wrong gameweek, wrong stat). For a count or word-number claim that is WRONG, still fill "items" with the things the material actually shows (each with its exact quote), so the true count is checkable. UNSUPPORTED = no source.
 Quotes must be copied verbatim; to join two exact fragments from the same source write them in order separated by " ... ".
 Then give {"reason": "<one sentence>", "verdict": "PASS" | "FAIL"}: FAIL if any item is WRONG or UNSUPPORTED.
 Answer with strict JSON only, in this shape: {"items": [ ... one item per claim id, in order ... ], "reason": "...", "verdict": "PASS" | "FAIL"}"""
@@ -355,6 +355,17 @@ def verify(claims, items, sources):
         if t == "WRONG":
             row["code"]["quote_found"] = quote_found(quote, sources) if quote else None
             row["final"] = "WRONG"
+            things = row["items"] or []
+            if things:                                                     # a count the judge calls wrong: code checks the count it listed (J6)
+                quoted = [quote_found(x.get("quote") if isinstance(x, dict) else "", sources) for x in things]
+                try:
+                    n_eq = float(c["value"]).is_integer() and int(round(float(c["value"]))) == len(things)
+                except (TypeError, ValueError):
+                    n_eq = False
+                row["code"]["count_ok"] = bool(n_eq and all(quoted))
+                if n_eq and all(quoted):
+                    row["final"] = "COUNT"                                 # the judge's own list matches the claim: its WRONG was a contradiction
+                    row["why"] = "code: the judge listed exactly this many quoted items, so the count stands; " + str(row["why"] or "")
             rows.append(row)
             continue
         if t == "COUNT":

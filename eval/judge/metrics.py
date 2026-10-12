@@ -59,7 +59,10 @@ METRICS = {
         "definition": ("PASS if none. Numbers are excluded here: every number in the reply is checked separately by code (M3b). "
                        "Counts: claims a user could act on (fitness, role, set pieces, bonus habits, form, league status, "
                        "transfers); club and position assignments beside a player are claims and need a tool source; reasons or "
-                       "explanations given for a number (\"his match may already have been played\") are claims too. Does not count: "
+                       "explanations given for a number (\"his match may already have been played\") are claims too. The sentences the "
+                       "allowed facts list as REQUIRED (the prompt's own words and the tools' own notes: the freshness line, the bonus "
+                       "and penalty sentences, the six-gameweek plan sentence, the started-gameweek note, the longer-range-estimate "
+                       "wording, the squad-rule refusals, 'any Premier League side can beat anyone') are never unsupported claims. Does not count: "
                        "general remarks (\"any Premier League side can beat anyone\"), arithmetic whose inputs are shown."),
         "pass_example": "every claim traces to a tool result.",
         "fail_example": "\"Haaland, a regular bonus earner\"; calling a club \"relegated\".",
