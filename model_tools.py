@@ -2493,7 +2493,13 @@ def get_actual_points(player_id: int, gw: int = None):
                          "gameweek, which is not the same as playing and scoring nothing")}
     provisional, fetched_at = actuals_tool.provisional_for(prov, x)
     pred = _prediction_before(player_id, x)
-    out = {**base, **week, "provisional": provisional, "fetched_at": fetched_at,
+    meta = _player_meta([player_id]).get(int(player_id)) or {}
+    ev = actuals_tool.scoring_events(week, meta.get("position"))
+    out = {**base, "position": meta.get("position"), "team": meta.get("team"), **week,
+           "scoring_events": ev["events"], "events_total": ev["events_total"], "unexplained_points": ev["unexplained_points"],
+           "events_note": ("scoring_events lists only what scored, each with its points; the raw FPL stats beside it "
+                           "(clean_sheets, goals_conceded, ...) are facts, not points -- " + ev["note"]),
+           "provisional": provisional, "fetched_at": fetched_at,
            "predicted": pred,
            "predicted_minus_actual": (None if not pred or pred["e_points"] is None
                                       else round(pred["e_points"] - week["total_points"], 2))}

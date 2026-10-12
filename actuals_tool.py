@@ -28,6 +28,65 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
 
+# FPL's scoring (2026-27), applied to a gameweek row to list ONLY the events that scored (Part D G2,
+# 2026-10-12: a forward's clean sheet is a fact FPL records but never a scoring event, and the agent
+# credited Haaland with one). Points the rules do not pin down from these columns (the defensive-
+# contribution threshold) are left as unexplained_points, never guessed.
+GOAL_POINTS = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}
+CLEAN_SHEET_POINTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
+
+
+def scoring_events(week, position):
+    """{events: [{event, points}], events_total, unexplained_points, note} for one player-gameweek
+    row (player_gameweek's shape) and his position. Only events that moved the score appear;
+    a clean sheet for a forward, or any zero-point line, is named in the note instead."""
+    pos = (position or "").upper()
+    g = lambda k: int(week.get(k) or 0)                                      # noqa: E731
+    events, notes = [], []
+    mins = g("minutes")
+    if mins >= 60:
+        events.append({"event": "played 60+ minutes", "points": 2})
+    elif mins > 0:
+        events.append({"event": "played 1-59 minutes", "points": 1})
+    if g("goals_scored"):
+        n = g("goals_scored")
+        events.append({"event": f"{n} goal{'s' if n != 1 else ''}", "points": n * GOAL_POINTS.get(pos, 4)})
+    if g("assists"):
+        n = g("assists")
+        events.append({"event": f"{n} assist{'s' if n != 1 else ''}", "points": n * 3})
+    if g("clean_sheets") and mins >= 60:
+        pts = CLEAN_SHEET_POINTS.get(pos, 0)
+        if pts:
+            events.append({"event": "clean sheet", "points": pts})
+        else:
+            notes.append("clean sheet kept but a forward gets no clean-sheet points")
+    if g("goals_conceded") >= 2 and pos in ("GK", "DEF"):
+        n = g("goals_conceded")
+        events.append({"event": f"{n} goals conceded", "points": -(n // 2)})
+    if g("saves") >= 3 and pos == "GK":
+        n = g("saves")
+        events.append({"event": f"{n} saves", "points": n // 3})
+    if g("penalties_saved"):
+        events.append({"event": f"{g('penalties_saved')} penalty save{'s' if g('penalties_saved') != 1 else ''}", "points": 5 * g("penalties_saved")})
+    if g("penalties_missed"):
+        events.append({"event": f"{g('penalties_missed')} penalty miss{'es' if g('penalties_missed') != 1 else ''}", "points": -2 * g("penalties_missed")})
+    if g("own_goals"):
+        events.append({"event": "own goal" if g("own_goals") == 1 else f"{g('own_goals')} own goals", "points": -2 * g("own_goals")})
+    if g("yellow_cards"):
+        events.append({"event": "yellow card" if g("yellow_cards") == 1 else f"{g('yellow_cards')} yellow cards", "points": -1 * g("yellow_cards")})
+    if g("red_cards"):
+        events.append({"event": "red card", "points": -3})
+    if g("bonus"):
+        events.append({"event": "bonus", "points": g("bonus")})
+    total = sum(e["points"] for e in events)
+    unexplained = g("total_points") - total
+    if unexplained:
+        notes.append(f"{abs(unexplained)} point{'s' if abs(unexplained) != 1 else ''} of the FPL total {'are' if abs(unexplained) != 1 else 'is'} not explained "
+                     f"by these events (FPL's defensive-contribution rule or a correction); the FPL total is the number of record")
+    return {"events": events, "events_total": total, "unexplained_points": unexplained,
+            "note": "; ".join(notes) if notes else "every point of the FPL total is explained by these events"}
+
+
 # The breakdown FPL publishes per player per gameweek, in the order a reader wants it.
 # Every one of these is a column of the master parquet (checked by the tests).
 BREAKDOWN_COLS = [
