@@ -342,6 +342,17 @@ def parse_iso(v):
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
+def search_dates(window_start, now):
+    """(start_date, end_date) for a Tavily search: the window's first day and today, as ISO dates.
+    Tavily rejects start_date == end_date (HTTP 400 "start_date and end_date cannot be the same",
+    2026-10-07 15:07Z, the GW6 window's first day: no search, 0 credits, 0 articles). On that day
+    only, start_date is pulled back one day; every other day sends exactly what it sent before."""
+    start, end = f"{window_start:%Y-%m-%d}", f"{now:%Y-%m-%d}"
+    if start == end:
+        start = f"{now - timedelta(days=1):%Y-%m-%d}"
+    return start, end
+
+
 def gate(now, events, days=WINDOW_DAYS):
     """The next gameweek is the first event whose deadline is at or after `now`; the run may
     search only inside [deadline - days, deadline], both ends inclusive, so a run AT the
@@ -776,8 +787,9 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
     for club, domain in clubs.items():
         query = QUERY.format(club=club)
         if v2:
-            resp = tavily.search(query, domain, f"{window[0]:%Y-%m-%d}", f"{now:%Y-%m-%d}")
-            request = search_request(query, [domain], f"{window[0]:%Y-%m-%d}", f"{now:%Y-%m-%d}")
+            start_date, end_date = search_dates(window[0], now)
+            resp = tavily.search(query, domain, start_date, end_date)
+            request = search_request(query, [domain], start_date, end_date)
         else:
             resp = tavily.search(query, domain)
             request = search_request(query, [domain])

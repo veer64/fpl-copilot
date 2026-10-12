@@ -327,3 +327,42 @@ def test_runner_inside_window_searches_the_nine_clubs_only(conn, tmp_path, monke
     runner.main()
     assert len(tv.requests) == len(config_roles.CLUB_NEWS_CLUBS) == 9
     assert {d for r in tv.requests for d in r["include_domains"]} <= set(config_roles.CLUB_DOMAINS.values())
+
+
+# ---- the Tavily date range (2026-10-12): the window's first day sent start_date == end_date -> HTTP 400 ----------
+# 7 Oct 2026 15:07Z, GW6 window from 7 Oct 10:00Z: both dates formatted to 2026-10-07 and Tavily answered
+# {"detail":{"error":"start_date and end_date cannot be the same"}}; 0 credits, 0 articles that day. Fix: on that day
+# only, start_date = end_date - 1 day. Days 2, 3 and the deadline day keep the exact dates they sent before.
+GW7 = datetime(2026, 10, 17, 10, 0, tzinfo=UTC)
+W7 = GW7 - timedelta(days=3)                                            # the GW7 window opens 14 Oct 10:00Z
+
+
+@pytest.mark.parametrize("now,expect", [
+    (datetime(2026, 10, 14, 15, 7, tzinfo=UTC), ("2026-10-13", "2026-10-14")),   # day 1: start pulled back one day
+    (datetime(2026, 10, 15, 15, 7, tzinfo=UTC), ("2026-10-14", "2026-10-15")),   # day 2: unchanged
+    (datetime(2026, 10, 16, 15, 7, tzinfo=UTC), ("2026-10-14", "2026-10-16")),   # day 3: unchanged
+    (GW7, ("2026-10-14", "2026-10-17")),                                            # a run AT the deadline: unchanged
+])
+def test_search_dates_never_send_the_same_start_and_end(now, expect):
+    start, end = cn.search_dates(W7, now)
+    assert (start, end) == expect
+    assert date.fromisoformat(start) < date.fromisoformat(end)
+    if f"{W7:%Y-%m-%d}" != f"{now:%Y-%m-%d}":
+        assert (start, end) == (f"{W7:%Y-%m-%d}", f"{now:%Y-%m-%d}")        # the old formatting, byte for byte
+
+
+def test_run_sends_the_fixed_dates_on_the_windows_first_day_and_the_old_ones_after(conn, tmp_path):
+    tv, http = FakeTavily(SEARCHES, EXTRACTS), FakeHttp(PAGES)
+    day1 = datetime(2026, 9, 15, 18, 0, tzinfo=UTC)                     # inside WINDOW (opens 15 Sep 17:30Z), same calendar day
+    cn.run(conn, CLUBS, tv, now=day1, raw_dir=tmp_path / "raw", http=http, window=WINDOW, opponents=OPPONENTS,
+           aliases=cn.team_aliases(TEAMS))
+    assert len(tv.requests) == len(CLUBS)
+    assert all(r["start_date"] == "2026-09-14" and r["end_date"] == "2026-09-15" for r in tv.requests), tv.requests
+    saved = sorted((tmp_path / "raw").glob("*.search.json.gz"))
+    assert saved
+    body = json.loads(gzip.decompress(saved[0].read_bytes()))
+    assert body["request"]["start_date"] == "2026-09-14" and body["request"]["end_date"] == "2026-09-15"
+    tv2, http2 = FakeTavily(SEARCHES, EXTRACTS), FakeHttp(PAGES)
+    _run(conn, tv2, http2, tmp_path / "raw2")                            # NOW = 17 Sep 15:07Z, day 3: unchanged dates
+    assert len(tv2.requests) == len(CLUBS)
+    assert all(r["start_date"] == "2026-09-15" and r["end_date"] == "2026-09-17" for r in tv2.requests), tv2.requests
