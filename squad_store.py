@@ -863,10 +863,17 @@ def compare_roles(doc_players, team):
     optimal = roles_from_team(team)
     points = {int(r.element): float(r.e_points) for r in team.itertuples(index=False)}
     names = {p["element"]: p["name"] for p in doc_players}
+    # club and position travel with every player row (Part C, 2026-10-12): a row without them
+    # is a row the agent fills from memory
+    meta = {int(r.element): (str(r.position) if "position" in team.columns else None,
+                             str(r.team) if "team" in team.columns else None)
+            for r in team.itertuples(index=False)}
     changes = []
     for e in sorted(recorded, key=lambda e: -points.get(e, 0.0)):
         if recorded[e] != optimal.get(e):
-            changes.append({"player_id": e, "name": names[e], "e_points": round(points.get(e, 0.0), 2),
+            pos, club = meta.get(e, (None, None))
+            changes.append({"player_id": e, "name": names[e], "position": pos, "team": club,
+                            "e_points": round(points.get(e, 0.0), 2),
                             "recorded": _role_label(*recorded[e]),
                             "optimal": _role_label(*optimal[e])})
     rec_pts = _xi_points(recorded, points)

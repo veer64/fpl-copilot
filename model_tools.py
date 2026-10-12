@@ -189,6 +189,69 @@ def _run_meta(run, config=PRODUCTION_CONFIG):
             "recovered_post_deadline": run["recovered"]}
 
 
+# ---------------------------------------------------------------- Part C (2026-10-12): plain words at the source
+# The review of 38 answers found the agent calling the chance of any appearance a start probability, labelling
+# GW6 figures GW7, naming clubs from memory and echoing pipeline words. The keys stay (tests and the eval pin
+# them); every answer that carries one gets a `meanings` line, the started gameweek is said in one sentence,
+# and every player row carries club and position.
+def _player_meta(elements):
+    """{element: {name, position, team}} from players_live for the ids given; {} on any failure."""
+    ids = sorted({int(x) for x in elements if x is not None})
+    if not ids:
+        return {}
+    try:
+        rows = _q("SELECT element, name, position, team FROM players_live WHERE element = ANY(%s)", (ids,))
+    except Exception:                               # noqa: BLE001 -- cosmetic, never fatal
+        return {}
+    return {int(r["element"]): {"name": r.get("name"), "position": r.get("position"), "team": r.get("team")} for r in rows}
+
+
+def _squad_rows_from_team(team, roles, names):
+    """The fifteen as rows carrying club and position, from a role-tagged team frame."""
+    order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
+    meta = {int(r.element): (str(r.position), str(r.team)) for r in team.itertuples(index=False)}
+    rows = []
+    for e, (r, bo) in roles.items():
+        pos, club = meta.get(int(e), (None, None))
+        rows.append({"player_id": e, "name": names.get(e, str(e)), "position": pos, "team": club, "role": r,
+                     "bench_order": bo, "e_points": round(float(team.loc[team["element"] == e, "e_points"].iloc[0]), 2)})
+    return sorted(rows, key=lambda x: (order[x["role"]], x["bench_order"] or 0, -x["e_points"]))
+
+
+def _transfer_row_meta(row, meta):
+    """A transfer row {out, out_id, in, in_id, ...} with team_out / position_out / team_in / position_in."""
+    o, i = row.get("out_id"), row.get("in_id")
+    mo, mi = (meta.get(int(o)) if o is not None else None) or {}, (meta.get(int(i)) if i is not None else None) or {}
+    return {**row, "team_out": mo.get("team"), "position_out": mo.get("position"),
+            "team_in": mi.get("team"), "position_in": mi.get("position")}
+
+
+def player_rows_missing_team_or_position(out):
+    """Every player row in a tool output that lacks team or position (transfer rows: the four *_out / *_in
+    keys). Used by the tests and by the eval's code checks. Pure."""
+    missing = []
+
+    def _walk(obj, path):
+        if isinstance(obj, dict):
+            if "out_id" in obj or "in_id" in obj:
+                lacks = [k for k in ("team_out", "position_out", "team_in", "position_in") if k not in obj]
+                if obj.get("in_id") is None:
+                    lacks = [k for k in lacks if not k.endswith("_in")]
+                if lacks:
+                    missing.append({"path": path, "name": obj.get("out") or obj.get("name"), "lacks": lacks})
+            elif isinstance(obj.get("name"), str) and ("player_id" in obj or "element" in obj):
+                lacks = [k for k in ("team", "position") if not obj.get(k)]
+                if lacks:
+                    missing.append({"path": path, "name": obj["name"], "lacks": lacks})
+            for k, v in obj.items():
+                _walk(v, f"{path}.{k}")
+        elif isinstance(obj, list):
+            for n, v in enumerate(obj):
+                _walk(v, f"{path}[{n}]")
+    _walk(out, "")
+    return missing
+
+
 # ---------------------------------------------------------------- reference
 STATUS_WORDS = {"a": "available", "d": "doubtful", "i": "injured", "s": "suspended", "u": "unavailable", "n": "not in squad"}
 
@@ -738,9 +801,10 @@ def compare_players(player_id_a: int, player_id_b: int):
     a, b = get_prediction(player_id_a), get_prediction(player_id_b)
     if "error" in a or "error" in b:
         return {"a": a, "b": b}
-    names = {r["element"]: r["name"] for r in _q(
-        "SELECT element, name FROM players_live WHERE element IN (%s, %s)",
+    live = {r["element"]: r for r in _q(
+        "SELECT element, name, position, team FROM players_live WHERE element IN (%s, %s)",
         (player_id_a, player_id_b))}
+    names = {e: r["name"] for e, r in live.items()}
 
     flags = _availability_for([player_id_a, player_id_b])
 
@@ -749,8 +813,10 @@ def compare_players(player_id_a: int, player_id_b: int):
         # The first row is the RUN's own gameweek -- between deadlines that is the one just
         # played, not "next". The gameweek travels with the number (2026-09-14: an answer
         # called GW4's figures "next gameweek" while GW5 was the next deadline).
+        meta = live.get(p["player_id"]) or {}
         return _lead_with_availability(
             {"player_id": p["player_id"], "name": names.get(p["player_id"]),
+             "position": meta.get("position"), "team": meta.get("team"),
              "first_gw": first["gw"],
              "first_gw_e_points": first["e_points"],
              "first_gw_p_start": first["p_start"],
@@ -846,7 +912,7 @@ def get_picks(gw: int = None, shadow: bool = False):
         if "error" in got:
             return got
         rows = [{"player_id": r["player_id"], "name": r["name"], "position": r["position"],
-                 "team": None, "role": r["role"], "price": r["price"],
+                 "team": r.get("team"), "role": r["role"], "price": r["price"],
                  "e_points": r["e_points"]} for r in got["squad"]]
         out = {k: got[k] for k in ("gw", "solve_seconds", "frame_built_at", "built")
                if k in got}
@@ -1113,8 +1179,9 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
                     "to record this squad"),
         "version_id": row["version_id"], "supersedes": row["supersedes"], "gw": row["gw"],
         "change": {
-            "transfers": [{"out": t["out_name"], "out_id": t["out"], "sold_for": m(t["sold_for"]),
-                           "in": t["in_name"], "in_id": t["in"], "bought_for": m(t["bought_for"])}
+            "transfers": [_transfer_row_meta({"out": t["out_name"], "out_id": t["out"], "sold_for": m(t["sold_for"]),
+                                              "in": t["in_name"], "in_id": t["in"], "bought_for": m(t["bought_for"])},
+                                             _player_meta([t["out"] for t in change["transfers"]] + [t["in"] for t in change["transfers"]]))
                           for t in change["transfers"]],
             "n_transfers": change["n_transfers"],
             "free_transfers_recorded": change["free_transfers_recorded"],
@@ -1399,9 +1466,11 @@ def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
            "frame_built_at": str(built), **_frame_built(cutoff)}
     if not out["reconciles"]:
         out["finding"] = "at least one of the two rows does not reconcile -- see the breakdowns' `finding`; do not present the comparison as sound"
+    meta = _player_meta([player_id_a, player_id_b])
     for side, pid in (("a", player_id_a), ("b", player_id_b)):
         if isinstance(out.get(side), dict):
-            out[side] = _lead_with_availability(out[side], pid, flags)
+            m = meta.get(int(pid)) or {}
+            out[side] = _lead_with_availability({**out[side], "position": m.get("position"), "team": m.get("team")}, pid, flags)
     note = _stale_note(target, cutoff, built)
     if note:
         out["note_stale"] = note
@@ -1757,12 +1826,14 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         return None if t is None else round(t / 10, 1)
 
     roles = squad_store.roles_from_team(team)
-    order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
-    squad_rows = sorted(
-        [{"player_id": e, "name": names.get(e, str(e)), "role": r, "bench_order": bo,
-          "e_points": round(float(team.loc[team["element"] == e, "e_points"].iloc[0]), 2)}
-         for e, (r, bo) in roles.items()],
-        key=lambda x: (order[x["role"]], x["bench_order"] or 0, -x["e_points"]))
+    squad_rows = _squad_rows_from_team(team, roles, names)
+    t_meta =     roles = squad_store.roles_from_team(team)
+    squad_rows = _squad_rows_from_team(team, roles, names)
+    t_meta = _player_meta([t["out"] for t in change["transfers"]] + [t["in"] for t in change["transfers"]]
+                          + [t["out_id"] for st in later for t in st["transfers"]]
+                          + [t["in_id"] for st in later for t in st["transfers"] if t["in_id"] is not None])
+    for st in later:
+        st["transfers"] = [_transfer_row_meta(t, t_meta) for t in st["transfers"]]
     return {
         "proposal_id": proposal_id, "source": source,
         "wait_note": "two real MIP solves (the move plan and the hold baseline): typically twenty to sixty seconds, occasionally longer",
@@ -1780,8 +1851,8 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "this_deadline": {
             "verdict": ("HOLD -- no transfer" if change["n_transfers"] == 0 else
                         f"{change['n_transfers']} transfer(s), {change['hits']} hit(s)"),
-            "transfers": [{"out": t["out_name"], "out_id": t["out"], "sold_for": m(t["sold_for"]),
-                           "in": t["in_name"], "in_id": t["in"], "bought_for": m(t["bought_for"])}
+            "transfers": [_transfer_row_meta({"out": t["out_name"], "out_id": t["out"], "sold_for": m(t["sold_for"]),
+                                              "in": t["in_name"], "in_id": t["in"], "bought_for": m(t["bought_for"])}, t_meta)
                           for t in change["transfers"]],
             "hits": change["hits"], "hit_cost_points": change["hit_cost_points"],
             "free_transfers_before": change["free_transfers_before"],
@@ -1901,7 +1972,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
             "captain": team.loc[team["role"] == "CAPTAIN", "name"].iloc[0],
             "vice": team.loc[team["role"] == "VICE", "name"].iloc[0],
             "squad": [{"player_id": int(r["element"]), "name": r["name"],
-                       "position": r["position"], "price": r["value"] / 10,
+                       "position": r["position"], "team": str(r["team"]), "price": r["value"] / 10,
                        "e_points": round(float(r["e_points"]), 2), "role": r["role"]}
                       for _, r in team.iterrows()],
             "squad_cost": round(team["value"].sum() / 10, 1)}
@@ -3440,6 +3511,7 @@ def get_prediction_history(player_id: int, gw: int):
         return {"error": (f"no stored run predicted GW{x} for {name}"
                           + (f"; runs exist from a GW{lo} cutoff to GW{hi}, each covering six gameweeks" if lo else "")),
                 "error_kind": "no_predictions", "player_id": pid, "name": name, "gw": x}
+    meta = _player_meta([pid]).get(pid) or {}
     fmt = _dp()._fmt
     hist = []
     for r in rows:
@@ -3470,7 +3542,7 @@ def get_prediction_history(player_id: int, gw: int):
         if not biggest["explainable"]:
             biggest["explain_note"] = "one of the two runs has no recorded terms (before 2026-09-14), so the move cannot be broken down term by term"
     first, last = hist[0], hist[-1]
-    out = {"player_id": pid, "name": name, "gw": x, "runs": len(hist),
+    out = {"player_id": pid, "name": name, "position": meta.get("position"), "team": meta.get("team"), "gw": x, "runs": len(hist),
            "first": first["built"], "latest": last["built"],
            "latest_e_points": last["e_points"],
            "latest_minus_first": (None if first["e_points"] is None or last["e_points"] is None
@@ -3593,12 +3665,7 @@ def get_wildcard_gap(user_id: int = None):
     degraded = _model_degraded_reasons(run) if run else []
 
     roles = squad_store.roles_from_team(team)
-    order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
-    squad_rows = sorted(
-        [{"player_id": e, "name": names.get(e, str(e)), "role": r, "bench_order": bo,
-          "e_points": round(float(team.loc[team["element"] == e, "e_points"].iloc[0]), 2)}
-         for e, (r, bo) in roles.items()],
-        key=lambda x: (order[x["role"]], x["bench_order"] or 0, -x["e_points"]))
+    squad_rows = _squad_rows_from_team(team, roles, names)
     sells = [names.get(int(o), str(o)) for o, _ in transfers]
     buys = [names.get(int(i), str(i)) for _, i in transfers]
     out = {
