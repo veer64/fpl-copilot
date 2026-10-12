@@ -1,0 +1,16 @@
+# fresh check set v1 (Part 7, 2026-10-12): 15 answers from the v4.4 re-run, none of the 38 calibration ids
+club_membership:1
+compare_players:1
+compare_predictions:2
+compare_runs:1
+date_aware:1
+explain_prediction:2
+fixture_scores:3
+follow_ups:1
+get_actual_points:1
+get_best_squad:1
+get_fixtures:2
+get_league_table:1
+get_match_stats:1
+get_my_points:2
+get_my_squad:1
