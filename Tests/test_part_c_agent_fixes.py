@@ -224,3 +224,35 @@ def test_a_normal_request_is_unchanged_by_the_rule_checks(solver_env):
     prob, sol = optimize.optimize_squad(df, locked_elements=[100])
     picked = {int(df.loc[i, "element"]) for i, v in sol["pick"].items() if v.value() > 0.5}
     assert {r["player_id"] for r in out["squad"]} == picked
+
+
+# ================================================================ F6
+def test_section_0_carries_the_scoring_basics_from_scoring_py():
+    sec = PROMPT.split("# 1. ")[0]
+    assert f"costs {scoring.HIT_COST} points" in sec
+    assert f"at least {scoring.MIN_FORMATION['DEF']} DEF, at least {scoring.MIN_FORMATION['MID']} MID, at least {scoring.MIN_FORMATION['FWD']} FWD" in sec
+    assert f"Each gameweek {scoring.XI_SIZE} start" in sec
+    assert "captain scores double" in sec and "triple captain" in sec.lower()
+    assert "forward gets no clean-sheet points" in sec or "forwards get no clean-sheet points" in sec
+    assert "Never credit a forward with a clean sheet" in sec
+    assert "autosub" in sec.lower()
+
+
+def test_the_penalty_sentence_does_not_call_the_player_a_taker_and_invented_facts_are_forbidden():
+    assert "for a regular taker treat it as a floor" not in PROMPT
+    assert "if a tool says he takes penalties" in PROMPT
+    assert "Never state a fact about a player, club, fixture or result that no tool result or the context block gives" in PROMPT
+    assert "the reason behind a number" in PROMPT
+
+
+# ================================================================ F7
+def test_the_transfer_summary_says_the_plan_covers_up_to_six_gameweeks():
+    s = mt._transfer_summary(7, {"n_transfers": 1, "hits": 0, "transfers": [{"out_name": "A", "in_name": "B"}]},
+                             {"gap_objective": 1.2, "gap_this_gw": 0.4, "refused": False}, 2)
+    assert s.startswith("For GW7: 1 transfer, 0 hits (A out, B in)")
+    assert s.endswith("This plan covers up to six gameweeks; check back each week.")
+    hold = mt._transfer_summary(7, {"n_transfers": 0, "hits": 0, "transfers": []}, {"gap_objective": 0.0, "gap_this_gw": 0.0, "refused": False}, 1)
+    assert hold.startswith("For GW7: hold, no transfer") and "This plan covers up to six gameweeks; check back each week." in hold
+    import inspect
+    assert '"summary_plain": _transfer_summary(' in inspect.getsource(mt.propose_transfers)
+    assert "This plan covers up to six gameweeks; check back each week." in PROMPT

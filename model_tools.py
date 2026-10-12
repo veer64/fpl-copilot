@@ -308,6 +308,27 @@ def player_rows_missing_team_or_position(out):
     return missing
 
 
+def _transfer_summary(current, change, hold_comparison, free_before):
+    """The plain first line of a transfer plan, ending with the fixed six-gameweek sentence (F7)."""
+    n = int(change.get("n_transfers") or 0)
+    if n == 0:
+        head = f"For GW{int(current)}: hold, no transfer"
+    else:
+        moves = ", ".join(f"{t.get('out_name')} out, {t.get('in_name')} in" for t in change.get("transfers") or [])
+        head = f"For GW{int(current)}: {n} transfer{'s' if n != 1 else ''}, {int(change.get('hits') or 0)} hit{'s' if change.get('hits') != 1 else ''}"
+        head += f" ({moves})" if moves else ""
+    parts = [head + "."]
+    if hold_comparison and not hold_comparison.get("refused"):
+        g6, g1 = hold_comparison.get("gap_objective"), hold_comparison.get("gap_this_gw")
+        if g6 is not None and g1 is not None:
+            parts.append(f"Against holding: {g6:+.2f} over the next six gameweeks (weighted towards the nearer ones), "
+                         f"{g1:+.2f} for this deadline alone.")
+    elif hold_comparison and hold_comparison.get("refused"):
+        parts.append("The hold-versus-move gap is withheld this week.")
+    parts.append("This plan covers up to six gameweeks; check back each week.")
+    return " ".join(parts)
+
+
 # ---------------------------------------------------------------- reference
 STATUS_WORDS = {"a": "available", "d": "doubtful", "i": "injured", "s": "suspended", "u": "unavailable", "n": "not in squad"}
 
@@ -1892,6 +1913,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     for st in later:
         st["transfers"] = [_transfer_row_meta(t, t_meta) for t in st["transfers"]]
     out = {
+        "summary_plain": _transfer_summary(current, change, hold_comparison, change["free_transfers_before"]),
         "proposal_id": proposal_id, "source": source,
         "wait_note": "two real MIP solves (the move plan and the hold baseline): typically twenty to sixty seconds, occasionally longer",
         "gw": current, "path": header["note"], "predictions_as_of_cutoff_gw": cutoff,
