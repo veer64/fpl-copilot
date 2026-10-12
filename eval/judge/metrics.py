@@ -46,6 +46,32 @@ METRICS = {
         "pass_example": "every claim traces to a tool result.",
         "fail_example": "\"Haaland, a regular bonus earner\"; calling a club \"relegated\".",
     },
+    # Part B (2026-10-12): M3 split. M3a is the claims in words; M3b is every number, judged and then VERIFIED
+    # by code (judge/number_claims.py). M3 stays for the record (Part A's runs and the user's labels used it).
+    "M3a": {
+        "name": "Faithful to the tools (claims in words)",
+        "applies": "every answer",
+        "question": ("Does the reply state any fact in words about a player, club or match (fitness, role, penalties/set pieces, "
+                     "bonus habits, form, league status, transfers, ownership) that is NOT supported by the tool results, the "
+                     "context block, the user's message or the allowed general facts?"),
+        "definition": ("PASS if none. Numbers are excluded here: every number in the reply is checked separately by code (M3b). "
+                       "Counts: claims a user could act on (fitness, role, set pieces, bonus habits, form, league status, "
+                       "transfers). Does not count: general remarks (\"any Premier League side can beat anyone\"), arithmetic "
+                       "whose inputs are shown."),
+        "pass_example": "every claim traces to a tool result.",
+        "fail_example": "\"Haaland, a regular bonus earner\"; calling a club \"relegated\".",
+    },
+    "M3b": {
+        "name": "Faithful to the tools (numbers, code-verified)",
+        "applies": "every answer whose reply contains at least one number claim",
+        "question": ("Is every number in the reply supported by a quoted source -- direct, derived by simple arithmetic, or an "
+                     "FPL rule -- about the same player, club, gameweek and stat?"),
+        "definition": ("The judge returns one item per number (DIRECT / DERIVED / RULE / WRONG / UNSUPPORTED with the exact "
+                       "quote it rests on); code verifies coverage, every quote, every number and every derivation, and "
+                       "recomputes the verdict: FAIL if any number is WRONG or UNSUPPORTED."),
+        "pass_example": "\"9.2 points\" quoted from the player's own GW7 row of a tool result.",
+        "fail_example": "a number copied from another player's row, or one no tool returned.",
+    },
     "M4": {
         "name": "Availability first",
         "applies": ("ONLY when a tool result in the turn flags a player who is mentioned in the reply (status not available, or chance "
@@ -77,7 +103,8 @@ M5_QUESTIONS = {
     "forced_starters": "Do the forced-in players start, and is the bench shown?",
 }
 M5_SHEETS = tuple(M5_QUESTIONS)
-ALL = ("M1", "M2", "M3", "M4", "M5")
+ALL = ("M1", "M2", "M3", "M4", "M5")                   # Part A's set (the user's labels)
+ALL_B = ("M1", "M2", "M3a", "M3b", "M4", "M5")         # Part B's set (M3 split)
 
 # FPL's status codes; 'a' is the only "available". Everything else is a flag.
 UNAVAILABLE_STATUS = {"d", "i", "s", "u", "n"}
@@ -190,8 +217,11 @@ def flagged_in_reply(record):
 def applicable(key, record):
     """Does metric `key` apply to this recorded answer? M1-M3 always; M4 only with a flagged, mentioned
     player; M5 only on its sheets."""
-    if key in ("M1", "M2", "M3"):
+    if key in ("M1", "M2", "M3", "M3a"):
         return True
+    if key == "M3b":
+        from judge import number_claims                    # lazy: it imports run_judge, which imports this module
+        return bool(number_claims.extract_claims(record.get("rendered_reply") or ""))
     if key == "M4":
         return bool(flagged_in_reply(record))
     if key == "M5":

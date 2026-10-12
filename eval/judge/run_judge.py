@@ -128,7 +128,7 @@ def build_prompt(record, key, facts=None):
     """The user message for one (answer, metric): shared block, the allowed facts (M3 only), the metric, the
     output instruction."""
     parts = [shared_block(record)]
-    if key == "M3":
+    if key in ("M3", "M3a"):
         parts.append(tag("allowed_general_facts", facts if facts is not None else allowed_general_facts()))
     parts.append(tag("metric", M.metric_text(key, record.get("sheet"))))
     parts.append(OUTPUT_INSTRUCTION)
@@ -192,7 +192,11 @@ class StopRun(RuntimeError):
 
 # ------------------------------------------------------------------ one judgement
 def judge_one(record, key, model, budget, client=None, conn=None, facts=None, streak=None):
-    """One (answer, metric): build, call llm.complete, parse; one retry on unparseable output; ERROR after."""
+    """One (answer, metric): build, call llm.complete, parse; one retry on unparseable output; ERROR after.
+    M3b (numbers) goes through judge/number_claims.py, whose verdict is recomputed by code."""
+    if key == "M3b":
+        from judge import number_claims
+        return number_claims.judge_numbers(record, model, budget, client=client, conn=conn, facts=facts, streak=streak)
     prompt = build_prompt(record, key, facts)
     row = {"id": record["id"], "sheet": record.get("sheet"), "metric": key, "model": model, "verdict": None,
            "reason": None, "input_tokens": 0, "output_tokens": 0, "usd": 0.0, "latency_s": 0.0, "attempts": 0,
@@ -297,7 +301,7 @@ def main(argv=None):
     a = build_parser().parse_args(argv)
     keys = [k.strip() for k in a.metrics.split(",") if k.strip()]
     for k in keys:
-        if k not in M.ALL:
+        if k not in M.ALL and k not in M.ALL_B:
             raise SystemExit(f"unknown metric {k}")
     records = load_records(a.results)
     ids = load_ids(a.ids)
