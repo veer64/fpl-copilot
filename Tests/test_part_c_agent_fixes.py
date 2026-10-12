@@ -149,3 +149,26 @@ def test_prompt_line_11_covers_clubs_and_positions():
     line = PROMPT.splitlines()[10]
     assert line.startswith("- Every number you state")
     assert "club" in line and "position" in line and "must come from a tool result in this conversation turn" in line
+
+
+# ================================================================ F2
+def test_the_started_note_is_one_fixed_sentence_for_the_gameweek_in_progress():
+    assert mt.gw_started_note(6, 6) == ("These figures are for GW6, which has already started. Our numbers are updated once "
+                                        "GW6 is finished and FPL confirms the results.")
+    assert mt.gw_started_note(7, 6) is None and mt.gw_started_note(6, None) is None and mt.gw_started_note(None, 6) is None
+
+
+def test_optimise_and_the_other_frame_tools_say_when_their_gameweek_has_started(solver_env, monkeypatch):
+    monkeypatch.setattr(mt, "_gw_in_progress", lambda: 6)
+    out = mt.optimise(lock_player_ids=[100])
+    assert out["gw"] == 6 and out["note_gw_started"] == mt.gw_started_note(6, 6)
+    monkeypatch.setattr(mt, "_gw_in_progress", lambda: None)
+    assert "note_gw_started" not in mt.optimise(lock_player_ids=[100])
+    import inspect
+    for fn in (mt.get_my_xi, mt.get_picks, mt.get_prediction, mt.compare_players, mt.get_wildcard_gap, mt.propose_transfers, mt.get_fixtures):
+        assert "_with_started_note(" in inspect.getsource(fn), fn.__name__
+
+
+def test_the_prompt_says_to_name_the_tools_gameweek_and_never_relabel():
+    assert "name the gameweek the tool result gives" in PROMPT and "never relabel" in PROMPT
+    assert "which has already started" in PROMPT

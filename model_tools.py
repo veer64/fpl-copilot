@@ -194,6 +194,35 @@ def _run_meta(run, config=PRODUCTION_CONFIG):
 # GW6 figures GW7, naming clubs from memory and echoing pipeline words. The keys stay (tests and the eval pin
 # them); every answer that carries one gets a `meanings` line, the started gameweek is said in one sentence,
 # and every player row carries club and position.
+def gw_started_note(gw, in_progress):
+    """The one sentence for figures of a gameweek whose deadline has passed and which FPL has not yet
+    confirmed, or None. Pure."""
+    if gw is None or in_progress is None or int(gw) != int(in_progress):
+        return None
+    return (f"These figures are for GW{int(gw)}, which has already started. Our numbers are updated once "
+            f"GW{int(gw)} is finished and FPL confirms the results.")
+
+
+def _gw_in_progress():
+    """The gameweek in progress (deadline passed, not yet in the confirmed results), or None -- read the
+    way the context block reads it (now_context.gameweek_state), never guessed."""
+    try:
+        import now_context as nc
+        _, in_progress, _ = nc.gameweek_state(nc.clock(), nc._load_deadlines(), nc._load_finished())
+        return in_progress
+    except Exception:                               # noqa: BLE001 -- cosmetic, never fatal
+        return None
+
+
+def _with_started_note(out, gw):
+    """`out` with `note_gw_started` when `gw` is the gameweek in progress."""
+    if isinstance(out, dict) and "error" not in out:
+        note = gw_started_note(gw, _gw_in_progress())
+        if note:
+            out["note_gw_started"] = note
+    return out
+
+
 def _player_meta(elements):
     """{element: {name, position, team}} from players_live for the ids given; {} on any failure."""
     ids = sorted({int(x) for x in elements if x is not None})
@@ -717,6 +746,7 @@ def get_prediction(player_id: int, gw: int = None):
                            if k not in PRED_INTERNAL_COLS and k != "team"} for r in rows]
     out["horizon_e_points_sum"] = round(sum(r["e_points"] or 0 for r in rows), 2)
     out["quantiles"] = _quantile_block(rows)
+    _with_started_note(out, rows[0].get("gw") if gw is None else None)   # the first row is the build's own gameweek
     return _lead_with_availability(out, player_id, _availability_for([player_id]))
 
 
@@ -837,7 +867,7 @@ def compare_players(player_id_a: int, player_id_b: int):
         out["note_stale"] = (f"the first-gameweek figures are for GW{out['a']['first_gw']}, the run's own gameweek, "
                              f"which has been played; the next deadline is GW{nxt} -- for this week use "
                              f"the per-gameweek comparison or the single prediction with gw={nxt} (as seen from the GW{out['a']['first_gw']} cutoff)")
-    return out
+    return _with_started_note(out, out["a"]["first_gw"])
 
 
 
@@ -914,7 +944,7 @@ def get_picks(gw: int = None, shadow: bool = False):
         rows = [{"player_id": r["player_id"], "name": r["name"], "position": r["position"],
                  "team": r.get("team"), "role": r["role"], "price": r["price"],
                  "e_points": r["e_points"]} for r in got["squad"]]
-        out = {k: got[k] for k in ("gw", "solve_seconds", "frame_built_at", "built")
+        out = {k: got[k] for k in ("gw", "solve_seconds", "frame_built_at", "built", "note_gw_started")
                if k in got}
         out.update({"config": PRODUCTION_CONFIG + " (production)",
                     "stored": False, "computed": True,
@@ -954,7 +984,7 @@ def get_picks(gw: int = None, shadow: bool = False):
                WHERE run_id = %s AND config = %s""", (run["run_id"], PRODUCTION_CONFIG))}
         here = {r["player_id"] for r in rows}
         out["differs_from_production_by"] = sorted(here ^ prod)
-    return out
+    return _with_started_note(out, run.get("gw"))
 
 
 def get_best_squad(budget: float = None):
@@ -1118,7 +1148,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
                              f"{target - cutoff} gameweek(s) stale. A fresh frame lands when the "
                              f"pipeline runs at T-90 before the GW{target} deadline"
                              + (f" ({nd[1]})" if nd else ""))
-    return out
+    return _with_started_note(out, target)
 
 
 def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_ids: list,
@@ -1834,7 +1864,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
                           + [t["in_id"] for st in later for t in st["transfers"] if t["in_id"] is not None])
     for st in later:
         st["transfers"] = [_transfer_row_meta(t, t_meta) for t in st["transfers"]]
-    return {
+    out = {
         "proposal_id": proposal_id, "source": source,
         "wait_note": "two real MIP solves (the move plan and the hold baseline): typically twenty to sixty seconds, occasionally longer",
         "gw": current, "path": header["note"], "predictions_as_of_cutoff_gw": cutoff,
@@ -1867,6 +1897,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "applied_check": "passed squad_store.plan_change (legality + money conservation) as a dry run",
         "apply_with": {**req, "gw": current, "proposal_id": proposal_id, "confirm": True},
     }
+    return _with_started_note(out, current)
 
 
 def _check_lock_ban(lock, ban, pool_elements=None):
@@ -1963,19 +1994,20 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
         return {"error": f"solve status {pulp.LpStatus[prob.status]} -- the "
                          "constraints may be infeasible (e.g. budget too low)"}
     team = sim.solution_to_squad(pool, sol)
-    return {"gw": cutoff, "solve_seconds": round(time.time() - t0, 1),
-            **({"note": note} if note else {}),
-            "frame_built_at": str(frame_mtime), **_frame_built(cutoff),
-            "constraints": {"locked": lock_player_ids or [], "banned": ban_player_ids or [],
-                            "budget": budget or 100.0,
-                            **({"start": start} if start else {})},
-            "captain": team.loc[team["role"] == "CAPTAIN", "name"].iloc[0],
-            "vice": team.loc[team["role"] == "VICE", "name"].iloc[0],
-            "squad": [{"player_id": int(r["element"]), "name": r["name"],
-                       "position": r["position"], "team": str(r["team"]), "price": r["value"] / 10,
-                       "e_points": round(float(r["e_points"]), 2), "role": r["role"]}
-                      for _, r in team.iterrows()],
-            "squad_cost": round(team["value"].sum() / 10, 1)}
+    out = {"gw": cutoff, "solve_seconds": round(time.time() - t0, 1),
+           **({"note": note} if note else {}),
+           "frame_built_at": str(frame_mtime), **_frame_built(cutoff),
+           "constraints": {"locked": lock_player_ids or [], "banned": ban_player_ids or [],
+                           "budget": budget or 100.0,
+                           **({"start": start} if start else {})},
+           "captain": team.loc[team["role"] == "CAPTAIN", "name"].iloc[0],
+           "vice": team.loc[team["role"] == "VICE", "name"].iloc[0],
+           "squad": [{"player_id": int(r["element"]), "name": r["name"],
+                      "position": r["position"], "team": str(r["team"]), "price": r["value"] / 10,
+                      "e_points": round(float(r["e_points"]), 2), "role": r["role"]}
+                     for _, r in team.iterrows()],
+           "squad_cost": round(team["value"].sum() / 10, 1)}
+    return _with_started_note(out, cutoff)
 
 
 # ------------------------------------------------------------------- health
@@ -2851,7 +2883,7 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
     out = _run_meta(run)
     out.update(ft.build(rows, cal, n_names, team=resolved, gw=gw, horizon=horizon,
                         step_rows_by_gw=step_rows, skeleton_age_hours=age_h))
-    return out
+    return _with_started_note(out, int(gw) if gw is not None else run.get("gw"))
 
 
 def get_price_movements(window_days: int = 7, user_id: int = None, include_squad: bool = True):
@@ -3711,4 +3743,4 @@ def get_wildcard_gap(user_id: int = None):
                           "were computed; only the gap is withheld. Ask again once the model-degraded "
                           "condition clears.")
         out["condition"] = degraded
-    return out
+    return _with_started_note(out, current)
