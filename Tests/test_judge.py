@@ -74,7 +74,7 @@ def test_the_five_metric_texts_are_the_rubric_verbatim():
     assert "His npxG per 90 drives a P90 of 14.2." in M.metric_text("M1")
     assert "Does the reply answer what the user actually asked?" in M.metric_text("M2")
     assert "allowed general facts" in M.metric_text("M3")
-    assert "Bruno Fernandes is flagged 75% to play" in M.metric_text("M4")
+    assert "Gakpo: 3.2 points -- and he's doubtful (75%)" in M.metric_text("M4")       # judge final 2026-10-13: the two-tier M4 examples
     assert "Want me to apply this XI?" in M.metric_text("M5", "lineup_value")
 
 

@@ -78,16 +78,24 @@ METRICS = {
         "pass_example": "\"9.2 points\" quoted from the player's own GW7 row of a tool result.",
         "fail_example": "a number copied from another player's row, or one no tool returned.",
     },
+    # Redefined 2026-10-13 (judge final) after the user's fresh review calls (compare_players:1, compare_runs:1: a doubtful
+    # player's points may come before his flag): two tiers, decided by code from the tool row and listed per answer.
     "M4": {
         "name": "Availability first",
         "applies": ("ONLY when a tool result in the turn flags a player (status not available, or chance of playing below 100; "
                     "use the real field names from the tool outputs) AND the reply gives predicted points for, recommends, captains "
                     "or locks that player; a price-only mention inside a refusal or an infeasible-squad answer does not trigger it."),
-        "question": ("Does the reply state that player's availability flag before giving any predicted numbers for him, and avoid "
-                     "recommending or captaining an unavailable player as if he could play?"),
-        "definition": "",
-        "pass_example": "\"Bruno Fernandes is flagged 75% to play. If he plays, expect about 5 points.\"",
-        "fail_example": "points first, flag at the end or missing.",
+        "question": ("For each flagged player the reply engages with: if he is UNAVAILABLE (status u, or injured / suspended with a "
+                     "0% or unknown chance of playing), does the reply state his availability flag BEFORE any predicted number for "
+                     "him, and never recommend, captain, start or lock him as if he could play? If he is DOUBTFUL (status d, or a "
+                     "chance of playing between 25% and 75%), is his flag clearly stated somewhere in the reply (order does not matter)?"),
+        "definition": ("PASS if every flagged player the reply engages with meets his tier's rule; FAIL if any does not. The tier "
+                       "of each such player, from the tool row, is listed under 'Flagged players' below for this answer. A flag "
+                       "stated in the reply's own words counts (\"doubtful\", \"75% to play\", \"out\", \"suspended\", \"injured\")."),
+        "pass_example": ("DOUBTFUL: \"Gakpo: 3.2 points -- and he's doubtful (75%).\" UNAVAILABLE: \"Isak is out (thigh injury, 0%). "
+                         "His 4.1-point figure is a planning number only.\""),
+        "fail_example": ("UNAVAILABLE: \"Isak: 4.1 points, a strong pick\" with the injury flag at the end or missing, or Isak "
+                         "captained; DOUBTFUL: a 75%-to-play player given points with no flag anywhere in the reply."),
     },
     "M5": {
         "name": "Right answer shape",
@@ -125,8 +133,9 @@ def metric_question(key, sheet=None):
     return METRICS[key]["question"]
 
 
-def metric_text(key, sheet=None):
-    """The metric block, verbatim: name, applies, question, definition, pass example, fail example."""
+def metric_text(key, sheet=None, record=None):
+    """The metric block, verbatim: name, applies, question, definition, pass example, fail example. For M4 with a
+    record, the answer's own flagged players and their tiers (code-decided) follow."""
     m = METRICS[key]
     q = metric_question(key, sheet)
     lines = [f"{key} {m['name']}. Applies: {m['applies']}", f"Question: \"{q}\""]
@@ -136,7 +145,68 @@ def metric_text(key, sheet=None):
         lines.append(f"Pass example: {m['pass_example']}")
     if m["fail_example"]:
         lines.append(f"Fail example: {m['fail_example']}")
+    if key == "M4" and record is not None:
+        flags = m4_flags(record)
+        if flags:
+            lines.append("Flagged players the reply engages with (tier decided by code from the tool row):")
+            lines += [f"- {name} -- {tier} ({detail})" for name, tier, detail in flags]
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ M4 tiers (judge final, 2026-10-13)
+UNAVAILABLE_TIER = "UNAVAILABLE"
+DOUBTFUL_TIER = "DOUBTFUL"
+
+
+def _chance_of(fields):
+    for k in ("chance", "chance_of_playing", "chance_of_playing_next_round", "chance_of_playing_this_round"):
+        v = fields.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return v
+    av = fields.get("availability")
+    if isinstance(av, dict):
+        return _chance_of(av)
+    return None
+
+
+def flag_tier(fields):
+    """UNAVAILABLE: status u or n, or injured / suspended with a 0% or unknown chance of playing, or available False with
+    no chance; DOUBTFUL: status d, or any other flag with a chance between 1 and 99 (the 25-75% band and its neighbours
+    read the same way: the flag must be stated, order free)."""
+    status = str(fields.get("status") or "").lower()
+    chance = _chance_of(fields)
+    if status in ("u", "n"):
+        return UNAVAILABLE_TIER
+    if status in ("i", "s"):
+        return UNAVAILABLE_TIER if (chance is None or chance <= 0) else DOUBTFUL_TIER
+    if status == "d":
+        return DOUBTFUL_TIER
+    if chance is not None and chance <= 0:
+        return UNAVAILABLE_TIER
+    if fields.get("available") is False and chance is None:
+        return UNAVAILABLE_TIER
+    return DOUBTFUL_TIER
+
+
+def _flag_detail(fields):
+    parts = []
+    status = fields.get("status")
+    if status:
+        parts.append(f"status {status}")
+    chance = _chance_of(fields)
+    if chance is not None:
+        parts.append(f"{int(chance) if float(chance).is_integer() else chance}% chance of playing")
+    elif fields.get("available") is False:
+        parts.append("available False")
+    note = fields.get("availability_note") or fields.get("news")
+    if note:
+        parts.append(f"note: {str(note)[:80]}")
+    return ", ".join(parts) or "flagged"
+
+
+def m4_flags(record):
+    """[(name, tier, detail)] for every flagged player the reply engages with -- the list the M4 judge sees."""
+    return [(name, flag_tier(fields), _flag_detail(fields)) for name, fields in flagged_in_reply(record)]
 
 
 # ------------------------------------------------------------------ M4: flagged players in the tool outputs

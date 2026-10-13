@@ -171,7 +171,7 @@ def build_prompt(record, key, facts=None):
     parts = [shared_block(record)]
     if key in ("M3", "M3a"):
         parts.append(tag("allowed_general_facts", facts if facts is not None else allowed_general_facts()))
-    parts.append(tag("metric", M.metric_text(key, record.get("sheet"))))
+    parts.append(tag("metric", M.metric_text(key, record.get("sheet"), record=record if key == "M4" else None)))
     parts.append(OUTPUT_INSTRUCTION)
     return "\n\n".join(parts)
 
