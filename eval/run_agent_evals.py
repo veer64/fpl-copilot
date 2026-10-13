@@ -191,32 +191,52 @@ def grade(q, calls, setup_calls=None):
 # TRUSTED comes from the calibration (Part C) AND the fresh set (Part D, 2026-10-12): M2 and M3b only. The judge
 # runs after an answer is saved, through llm.py, on its own cap; a FAIL is re-judged twice and stands only when
 # all three say FAIL (confirmed_fail); untrusted metrics are never run here.
+# The judge's trust table (eval/judge/README.md, judge final 2026-10-13): --judge runs exactly the TRUSTED metrics;
+# --judge-all adds the REPORT-ONLY ones, whose verdicts are report columns only and never reach the gate (judge_gate).
 TRUSTED_METRICS = ("M2", "M3b")
+REPORT_ONLY_METRICS = ("M1", "M3a", "M4", "M5")
+ALL_JUDGE_METRICS = ("M1", "M2", "M3a", "M3b", "M4", "M5")
 JUDGE_MODEL = "claude-opus-5-5"
 JUDGE_REJUDGES = 2
 
 
 class JudgeConfig:
-    def __init__(self, model=JUDGE_MODEL, max_calls=300, max_usd=8.0):
+    def __init__(self, model=JUDGE_MODEL, max_calls=300, max_usd=8.0, metrics=TRUSTED_METRICS):
         from judge import run_judge as RJ
         self.model = model
+        self.metrics = tuple(metrics)
         self.budget = RJ.Budget(max_calls, max_usd)
         self.facts = RJ.allowed_general_facts()
         self.stopped = None
 
 
+def judge_metrics_for(args):
+    """The metrics a run judges: every metric with --judge-all, the TRUSTED ones with --judge, none otherwise."""
+    if getattr(args, "judge_all", False):
+        return ALL_JUDGE_METRICS
+    return TRUSTED_METRICS if getattr(args, "judge", False) else ()
+
+
+def judge_gate(rec):
+    """The TRUSTED metrics whose confirmed FAIL counts against the answer; report-only verdicts never do."""
+    j = rec.get("judge") or {}
+    return [m for m in TRUSTED_METRICS if isinstance(j.get(m), dict) and j[m].get("confirmed_fail")]
+
+
 def judge_record(rec, cfg):
-    """{metric: {verdict, verdicts, confirmed_fail, reason, code_reason, usd, calls} | {not_run} | {applicable: False}}
-    for the trusted metrics; also sets rec['judge_usd']. A FAIL is re-judged JUDGE_REJUDGES more times."""
+    """{metric: {verdict, verdicts, confirmed_fail, reason, code_reason, usd, calls[, report_only]} | {not_run} |
+    {applicable: False}} for cfg.metrics (the TRUSTED ones by default); also sets rec['judge_usd']. A FAIL is
+    re-judged JUDGE_REJUDGES more times. A report-only metric's row carries report_only True."""
     from judge import metrics as M
     from judge import run_judge as RJ
     out, usd_start = {}, cfg.budget.usd
-    for metric in TRUSTED_METRICS:
+    for metric in cfg.metrics:
+        report_only = metric not in TRUSTED_METRICS
         if cfg.stopped:
-            out[metric] = {"not_run": cfg.stopped}
+            out[metric] = {"not_run": cfg.stopped, **({"report_only": True} if report_only else {})}
             continue
         if not M.applicable(metric, rec):
-            out[metric] = {"verdict": None, "applicable": False}
+            out[metric] = {"verdict": None, "applicable": False, **({"report_only": True} if report_only else {})}
             continue
         verdicts, rows, usd0, calls0, not_run = [], [], cfg.budget.usd, cfg.budget.calls, None
         for _ in range(1 + JUDGE_REJUDGES):
@@ -233,7 +253,7 @@ def judge_record(rec, cfg):
             if verdicts[-1] != "FAIL":
                 break
         if not_run and not verdicts:
-            out[metric] = {"not_run": not_run}
+            out[metric] = {"not_run": not_run, **({"report_only": True} if report_only else {})}
             continue
         confirmed = len(verdicts) == 1 + JUDGE_REJUDGES and all(v == "FAIL" for v in verdicts)
         final = "FAIL" if confirmed else ("PASS" if "PASS" in verdicts else (verdicts[-1] if verdicts else None))
@@ -241,7 +261,8 @@ def judge_record(rec, cfg):
         out[metric] = {"verdict": final, "verdicts": verdicts, "confirmed_fail": confirmed,
                        "reason": last.get("reason"), "code_reason": last.get("code_reason"), "error": last.get("error"),
                        "usd": round(cfg.budget.usd - usd0, 4), "calls": cfg.budget.calls - calls0,
-                       **({"not_run_rejudge": not_run} if not_run else {})}
+                       **({"not_run_rejudge": not_run} if not_run else {}),
+                       **({"report_only": True} if report_only else {})}
     rec["judge_usd"] = round(cfg.budget.usd - usd_start, 4)
     return out
 
@@ -647,7 +668,9 @@ def build_parser():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--user-id", type=int, default=9001)
     ap.add_argument("--out")
-    ap.add_argument("--judge", action="store_true", help="judge the TRUSTED metrics (M2, M3b) after each answer, through llm.py")
+    ap.add_argument("--judge", action="store_true", help="judge the TRUSTED metrics (TRUSTED_METRICS) after each answer, through llm.py")
+    ap.add_argument("--judge-all", action="store_true", dest="judge_all",
+                    help="judge every metric; the report-only ones (REPORT_ONLY_METRICS) are report columns, never the gate")
     ap.add_argument("--judge-max-usd", type=float, default=8.0, dest="judge_max_usd")
     ap.add_argument("--judge-max-calls", type=int, default=300, dest="judge_max_calls")
     return ap
@@ -685,9 +708,10 @@ def main(argv=None):
     print(f"reference squad: user {a.user_id}, version {keeper.version}, gw {keeper.gw}")
 
     client = TestClient(app_main.app, headers={"x-api-key": os.environ["APP_API_KEY"]})
-    judge_cfg = JudgeConfig(JUDGE_MODEL, a.judge_max_calls, a.judge_max_usd) if a.judge else None
+    judge_metrics = judge_metrics_for(a)
+    judge_cfg = JudgeConfig(JUDGE_MODEL, a.judge_max_calls, a.judge_max_usd, judge_metrics) if judge_metrics else None
     if judge_cfg:
-        print(f"judge: {JUDGE_MODEL} on {', '.join(TRUSTED_METRICS)}, cap {a.judge_max_calls} calls / ${a.judge_max_usd}")
+        print(f"judge: {JUDGE_MODEL} on {', '.join(judge_metrics)} (gate: {', '.join(TRUSTED_METRICS)}), cap {a.judge_max_calls} calls / ${a.judge_max_usd}")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
     out = Path(a.out) if a.out else RESULTS_DIR / f"run_{started}.jsonl"
@@ -733,8 +757,10 @@ def main(argv=None):
           f"tokens {budget.tok_in}/{budget.tok_out}, ${budget.usd:.2f}")
     if judge_cfg:
         jb = judge_cfg.budget
-        print(f"judge ({JUDGE_MODEL}, {', '.join(TRUSTED_METRICS)}): {jb.calls} calls, tokens {jb.tok_in}/{jb.tok_out}, ${jb.usd:.2f}"
+        print(f"judge ({JUDGE_MODEL}, {', '.join(judge_cfg.metrics)}): {jb.calls} calls, tokens {jb.tok_in}/{jb.tok_out}, ${jb.usd:.2f}"
               + (f" -- stopped: {judge_cfg.stopped}" if judge_cfg.stopped else ""))
+        gated = [(r["id"], m) for r in records for m in judge_gate(r)]
+        print(f"judge gate ({', '.join(TRUSTED_METRICS)}): {len(gated)} confirmed FAIL(s)" + (f": {gated}" if gated else ""))
     conn.close()
     return 0
 
