@@ -1,0 +1,501 @@
+{
+ "built": "2026-10-13T02:19:07.338979+00:00",
+ "answers": 15,
+ "metrics": [
+  "M1",
+  "M2",
+  "M3a",
+  "M3b",
+  "M4",
+  "M5"
+ ],
+ "labels_file": "eval/judge/fresh_v1_labels.xlsx (sha256 095fc1d45d0a, commit 4d498ea)",
+ "review_file": "eval/judge/fresh_v1_review.xlsx (sha256 8463957b82a7, commit 55fa494)",
+ "rules": [
+  "1 the user's fresh label (the M3 column serves M3a and M3b)",
+  "2 the user's review call (JUDGE RIGHT -> the judge's run-1 verdict from eval/judge/runs/fresh_v1_claude-opus-5-5.jsonl; USER RIGHT -> the user's label)",
+  "3 blank / UNSURE / N/A cells are excluded (verdict null, source excluded)"
+ ],
+ "gold": {
+  "club_membership:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "compare_players:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'UNSURE'"
+   },
+   "M3b": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'UNSURE'"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "review call USER RIGHT -> the user's label; note: NO ISSUE HERE, EVERYTHING IS ALRIGHT, THE TOOL GAVE THE AVAILABILITY INFO"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "compare_predictions:2": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "compare_runs:1": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict; note: for all status and their single letter abbreviations, do not use the single letter abbrieviations use their full forms"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'UNSURE'"
+   },
+   "M3b": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'UNSURE'"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_call",
+    "reason": "review call USER RIGHT -> the user's label; note: NO ISSUE HERE, EVERYTHING IS ALRIGHT, THE TOOL GAVE THE AVAILABILITY INFO"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "date_aware:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "explain_prediction:2": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label; note: WE DO NOT NEED TO GIVE ANY EXPLANATIONS ON BONUS, JUST A PLAIN NO BONUS IS NOT ACCOUNTED FOR BY THE MODEL, TOP RANKED RANKED PLAYERS TEND TO GET A FEW EXTRA POINTS FROM THE BONUS ELEMENT "
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "fixture_scores:3": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict; note: The date here is not a problem, that should be there. I think horizon can be said something like over a 6 week plan or so, but this is not a major issue"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict; note: THE AGENT NEEDS TO CALL THE FIXTURES TOOL AS WELL, IT CANNOT SAY THAT THE MATCH IS NOT SCHEDULED, IT IS SCHEDULED BUT IT IS NOT MODELLED AS IT FALLS OUTSIDE THE 6 GW HORIZON."
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict"
+   }
+  },
+  "follow_ups:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "get_actual_points:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "get_best_squad:1": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict; note: Look at the judges reasoning, it is correct"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict"
+   },
+   "M3b": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "get_fixtures:2": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   }
+  },
+  "get_league_table:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "get_match_stats:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "get_my_points:2": {
+   "M1": {
+    "verdict": "FAIL",
+    "source": "user_call",
+    "reason": "review call JUDGE RIGHT -> the judge's run-1 verdict"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  },
+  "get_my_squad:1": {
+   "M1": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M2": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3a": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M3b": {
+    "verdict": "PASS",
+    "source": "user_label",
+    "reason": "the user's fresh label"
+   },
+   "M4": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   },
+   "M5": {
+    "verdict": null,
+    "source": "excluded",
+    "reason": "the user's label is 'N/A'"
+   }
+  }
+ }
+}
