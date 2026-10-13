@@ -63,3 +63,26 @@ def test_m4_applicability_is_unchanged_by_the_redefinition():
     assert M.applicable("M4", _record("Isak is expected to score 5 points.", calls)) is True
     assert M.applicable("M4", _record("That squad is infeasible: four forwards. Isak costs £9.1m.", calls)) is False
     assert M.applicable("M4", _record("Nothing on Liverpool this week.", calls)) is False
+
+
+# ------------------------------------------------------------------ M3b attribution check by code (eval/judge/attribution_check.py)
+def test_attribution_check_reads_tables_sentences_and_stat_families():
+    from judge import attribution_check as AC
+    idx = AC.player_index([{"element": 12, "name": "Bukayo Saka"}, {"element": 20, "name": "Bryan Mbeumo"}, {"element": 30, "name": "Cody Gakpo"},
+                           {"element": 41, "name": "Andres Garcia"}, {"element": 42, "name": "Gonzalo Garcia"}])
+    reply = ("**Saka (GW7): 5.2 pts expected. Mbeumo: 4.9.**\n\n| Player | Club | Price | xPts (GW6) |\n|---|---|---|---|\n"
+             "| Gonzalo Garcia | Fulham | £6.0m | 3.3 |\n\nHe has a lower clean sheet chance (25% vs Saka's 44%).")
+    rec = {"id": "x", "rendered_reply": reply, "turns": [{"context_block": "- next deadline: GW7"}], "calls": []}
+    saka = {"claim": "5.2", "number": 5.2, "context": "**Saka (GW7): 5.2 pts expected. Mbeumo: 4.9.**  | Player | Club | Price", "quote": "'name': 'Bukayo Saka', 'gw': 7, 'e_points': 5.2", "inputs": None}
+    assert AC.check_player(saka, rec, idx)[0] == "MATCH" and AC.check_gw(saka, rec)[0] == "MATCH" and AC.check_stat(saka, rec)[0] == "MATCH"
+    mbeumo = dict(saka, claim="4.9", number=4.9, quote="'name': 'Bukayo Saka', 'gw': 7, 'e_points': 4.9")
+    assert AC.check_player(mbeumo, rec, idx)[0] == "CONFLICT"                   # Mbeumo's number quoted from Saka's row
+    cell = {"claim": "3.3", "number": 3.3, "context": "| Gonzalo Garcia | Fulham | £6.0m | 3.3 |  He has a lower", "quote": "'name': 'Gonzalo Garcia', 'gw': 6, 'e_points': 3.3", "inputs": None}
+    assert AC.check_player(cell, rec, idx) == ("MATCH", "nearest Gonzalo Garcia (same table row) is in the quote")
+    assert AC.check_stat(cell, rec)[0] == "MATCH" and AC.check_gw(cell, rec)[0] == "MATCH"   # column header 'xPts (GW6)'
+    price = dict(cell, claim="£6.0m", number=6.0, quote="'name': 'Gonzalo Garcia', 'price': 6.0")
+    assert AC.check_stat(price, rec)[0] == "MATCH"
+    wrong_stat = dict(cell, quote="'name': 'Gonzalo Garcia', 'gw': 6, 'price': 3.3")
+    assert AC.check_stat(wrong_stat, rec)[0] == "CONFLICT"
+    pron = {"claim": "25%", "number": 25.0, "context": "He has a lower clean sheet chance (25% vs Saka's 44%).", "quote": "'name': 'Bryan Mbeumo', 'p_cs': 0.25", "inputs": None}
+    assert AC.check_player(pron, rec, idx)[0] == "NOT CHECKABLE"                 # a pronoun subject: the code does not resolve it
