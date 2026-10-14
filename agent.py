@@ -462,6 +462,13 @@ _XPTS_RE = re.compile(r"\bxpts\b", re.I)
 _SOLVE_NOUN_RE = re.compile(r"\b(a|the|this|that|real|fresh|new|second|full|same|one|chip-optimal|optimal)\s+solve(s?)\b", re.I)
 _SOLVED_RE = re.compile(r"\b(re-)?solved(?=\s+(?:in|for|with|using|at|on)\b)", re.I)
 _BUILDER_RE = re.compile(r"\b(optimi[sz]er|solver)(s?)\b", re.I)
+# Batch 3 F8 follow-up (2026-10-14): the eval of dc34992 found the bonus sentence personalised -- "top-ranked players like
+# Haaland tend to pick up a few extra points" (get_picks:1, explain_prediction:5, routing:12, get_prediction:10), a
+# player-specific bonus claim the judge fails (M3a). The name inserted into the sentence is removed at the reply.
+_BONUS_NAMED_RE = re.compile(
+    r"\b(top-ranked players)\s*(?:\(\s*(?:like|such as|e\.g\.?|including)\s+[^)]{1,80}\)|,?\s*(?:like|such as|including)\s+"
+    r"[A-Z][\w'’.\-]+(?:\s+[A-Z][\w'’.\-]+)?(?:\s*(?:,|and|or|&)\s*[A-Z][\w'’.\-]+(?:\s+[A-Z][\w'’.\-]+)?)*,?)\s+(tend to)\b",
+    re.I)
 
 
 def _cap_like(word, model):
@@ -498,6 +505,8 @@ def plain_words(text):
     text, k = _SOLVED_RE.subn(lambda m: _cap_like("rebuilt" if m.group(1) else "built", m.group(0)), text)
     n += k
     text, k = _BUILDER_RE.subn(lambda m: _cap_like("squad builder", m.group(1)) + m.group(2), text)
+    n += k
+    text, k = _BONUS_NAMED_RE.subn(lambda m: f"{m.group(1)} {m.group(2)}", text)
     n += k
     return text, n
 

@@ -191,6 +191,25 @@ def test_the_bonus_sentence_is_the_same_everywhere():
     assert "never a claim that a specific player will or tends to get bonus" in PROMPT
 
 
+@pytest.mark.parametrize("raw", [
+    "Our model doesn't account for bonus points; top-ranked players like Haaland tend to pick up a few extra points from bonus.",
+    "Top-ranked players (like Haaland) tend to pick up a few extra points from bonus in practice",
+    "top-ranked players like Mbeumo tend to pick up a few extra points the model doesn't capture",
+    "top-ranked players such as Saka and Haaland tend to pick up a few",
+])
+def test_the_bonus_sentence_never_carries_a_players_name(raw):
+    """F8 follow-up: the dc34992 eval found the sentence personalised in four answers (M3a FAIL each)."""
+    out, n = agent.plain_words(raw)
+    assert n == 1 and "top-ranked players tend to" in out.lower()
+    assert not any(name in out for name in ("Haaland", "Mbeumo", "Saka"))
+
+
+def test_the_plain_bonus_sentence_is_left_alone_and_the_prompt_forbids_additions():
+    assert agent.plain_words(BONUS) == (BONUS, 0)
+    assert "word for word and on its own: no player's name inside it or after it" in PROMPT
+    assert "it makes no figure a floor and explains no result" in PROMPT
+
+
 # ------------------------------------------------------------------ F9: fixtures beyond the plan
 SKEL = [
     (1, 6, "Newcastle", 7, True, "2026-10-10T14:00:00Z"),
