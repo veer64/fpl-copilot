@@ -37,6 +37,8 @@ tmp/
 eval/labels/local/
 eval/reports/*.xlsx
 eval/reports/*.md
+# RAG eval (2026-10-14): the candidate pool names which retrieval variant found each chunk; the labeller must not see it
+eval/reports/*.json
 
 # agent eval runs: one jsonl + md per run, regenerated on demand and often large
 eval/agent_evals/results/
