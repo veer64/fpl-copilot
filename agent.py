@@ -79,7 +79,7 @@ tools_schema = [
     },
     {
         "name": "build_squad_from_scratch",
-        "description": "Builds a brand-new 15 from scratch with a full £100m, ignoring the user's squad. Also the tool for 'the best squad for gameweek N' (pass gw=N; constraints are optional) and for any from-scratch request with a constraint -- 'ban player X from the squad', 'force X in', 'without Y' -- even when an id looks wrong: pass it and let the tool refuse, it names the problem. Constraints: force players in, ban players, or change the budget; a real MIP solve that takes seconds and returns the fifteen, the XI, the captain and the vice. For the user's own squad ('my team', 'my line-up', 'given what I own'), use propose_transfers or get_my_xi instead -- never this, and never as a benchmark beside them. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead). start_player_ids must START: when the user forces players in they expect them in the line-up, so pass them here (not only as locks) unless the user says squad only; they are locked into the squad as well, and the same refusals apply.",
+        "description": "Builds a brand-new 15 from scratch with a full £100m, ignoring the user's squad. Also the tool for 'the best squad for gameweek N' (pass gw=N; constraints are optional) and for any from-scratch request with a constraint -- 'ban player X from the squad', 'force X in', 'without Y' -- even when an id looks wrong: pass it and let the tool refuse, it names the problem. Constraints: force players in, ban players, or change the budget; a real MIP solve that takes seconds and returns the fifteen, the XI, the captain and the vice. For the user's own squad ('my team', 'my line-up', 'given what I own'), use propose_transfers or get_my_xi instead -- never this, and never as a benchmark beside them. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead); an injured, suspended or doubtful player the user forces in IS built in, and the result then opens with forced_availability_warning -- quote it first, then the squad, and never say this build will refuse a player without calling it. start_player_ids must START: when the user forces players in they expect them in the line-up, so pass them here (not only as locks) unless the user says squad only; they are locked into the squad as well, and the same refusals apply.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -94,7 +94,7 @@ tools_schema = [
     },
     {
         "name": "get_my_squad",
-        "description": "The user's OWN fifteen -- the versioned squad state (a hypothetical entry seeded at GW4), NOT the model's free-pick solve. Returns the fifteen with purchase price, current price and what each would SELL for under FPL's rule, plus bank, total points and the version id. Free transfers: free_transfers_now is the count available for the next deadline (derived: one banked per gameweek, capped at 5); free_transfers_recorded is the stale count as of the version's own gameweek -- quote free_transfers_now. The roles it carries (recorded_captain, recorded_vice, recorded_xi, recorded_bench_in_order) are what was RECORDED when that version was written -- a record, NOT this week's advice; the `roles` block says whether they are STALE relative to the latest model run, and if so you must say so. Use for 'what is my team', 'what would X sell for', 'how much money do I have'. For 'who should I start / captain / bench this week' call get_my_xi instead. If it returns an error, no squad state is recorded: say exactly that and do NOT answer with get_picks instead. total_points is null with total_points_note when no gameweek has been scored yet -- that is not a total of zero.",
+        "description": "The user's OWN fifteen -- the versioned squad state (a hypothetical entry seeded at GW4), NOT the model's free-pick solve. Returns the fifteen with purchase price, current price and what each would SELL for under FPL's rule, plus bank, total points and the version id. Free transfers: free_transfers_now is the count available for the next deadline (derived: one banked per gameweek, capped at 5); free_transfers_recorded is the stale count as of the version's own gameweek -- quote free_transfers_now. The roles it carries (recorded_captain, recorded_vice, recorded_xi, recorded_bench_in_order) are what was RECORDED when that version was written -- a record, NOT this week's advice; the `roles` block says whether they are STALE relative to the latest model run, and if so you must say so. Use for 'what is my team', 'what is my team worth' (its sell value and bank), 'what would X sell for', 'how much money do I have'. For 'who should I start / captain / bench this week' call get_my_xi instead. If it returns an error, no squad state is recorded: say exactly that and do NOT answer with get_picks instead. total_points is null with total_points_note when no gameweek has been scored yet -- that is not a total of zero.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -157,7 +157,7 @@ tools_schema = [
     },
     {
         "name": "propose_transfers",
-        "description": "The six-week transfer plan for the user's OWN squad from the production model: what to sell and buy for the next deadline (with sell prices under FPL's rule, purchase prices, hits, bank after, and the XI/captain after the move), plus the following gameweeks' indicative moves. Two real optimiser solves (the move plan, and the HOLD BASELINE that says what doing nothing scores over the same horizon): it typically takes twenty to sixty seconds and occasionally longer, so tell the user it will take a moment before calling it. The result carries hold_comparison: report the hold total, the move total and the gap. If hold_comparison.refused is true, give its refusal instead of the gap and do not reconstruct the gap from the two objectives yourself -- it is withheld because it is biased, not because it is missing. Optional lock_player_ids (must be in the squad: kept if owned, bought if not) and ban_player_ids (must not be: sold if owned, never bought) answer 'best plan given I am keeping X and refusing Y'. Every proposal is checked through the same legality and money rules as set_my_squad and saved with a proposal_id. It is a PROPOSAL, not an application: to make it, pass apply_with to set_my_squad (confirm=false to preview, confirm=true only when the user explicitly says so). If the response carries bug=true, say so plainly and do not present the proposal as advice. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead).",
+        "description": "The six-week transfer plan for the user's OWN squad from the production model: what to sell and buy for the next deadline (with sell prices under FPL's rule, purchase prices, hits, bank after, and the XI/captain after the move), plus the following gameweeks' indicative moves. Two real optimiser solves (the move plan, and the HOLD BASELINE that says what doing nothing scores over the same horizon): it typically takes twenty to sixty seconds and occasionally longer: say in one clause that it takes a moment and call it in the same turn -- never ask the user's permission to run it. 'Should I roll my free transfer?' is answered by calling this tool. The result carries hold_comparison: report the hold total, the move total and the gap. If hold_comparison.refused is true, give its refusal instead of the gap and do not reconstruct the gap from the two objectives yourself -- it is withheld because it is biased, not because it is missing. Optional lock_player_ids (must be in the squad: kept if owned, bought if not) and ban_player_ids (must not be: sold if owned, never bought) answer 'best plan given I am keeping X and refusing Y'. Every proposal is checked through the same legality and money rules as set_my_squad and saved with a proposal_id. It is a PROPOSAL, not an application: to make it, pass apply_with to set_my_squad (confirm=false to preview, confirm=true only when the user explicitly says so). If the response carries bug=true, say so plainly and do not present the proposal as advice. An id that matches no player is refused, and a player who cannot play for his club cannot be locked (ban him instead).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -208,7 +208,7 @@ tools_schema = [
             "score and a defence score from 1 (hardest) to 10 (easiest), ranked among every fixture "
             "the run has priced -- quote them as two scores, never one. Use for 'who does X play', 'how are "
             "Arsenal's next five fixtures', 'is this a good run'. Each fixture says whether it "
-            "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek; with no team the answer is compact rows (team, gw, opponent, home, attacking, defensive) and the two-numbers rule is stated once at the top. With a team, season_summary lists that club's known double and blank gameweeks across the whole loaded calendar (for triple captain or bench boost questions); an empty list means none are known yet."),
+            "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek; with no team the answer is compact rows (team, gw, opponent, home, attacking, defensive) and the two-numbers rule is stated once at the top. Fixtures beyond the gameweeks the model has rated are listed with a rating line 'scheduled but not rated yet' and their gameweek and date -- never call them not scheduled; for 'the next N gameweeks' pass horizon=N (up to 10). With a team, season_summary lists that club's known double and blank gameweeks across the whole loaded calendar (for triple captain or bench boost questions); an empty list means none are known yet."),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -225,8 +225,8 @@ tools_schema = [
         "description": (
             "Risers and fallers from the stored price snapshots, and what each of the user's own "
             "players would SELL for now under the asymmetric rule (a rise is shared with FPL -- "
-            "you get half rounded down; a fall is yours in full). Use for 'who is rising', 'what "
-            "is my squad worth', 'can I afford X'. It reports what HAS happened: it cannot say "
+            "you get half rounded down; a fall is yours in full). Use for 'who is rising', 'can I afford X'; "
+            "for what the user's squad is worth (its sell value and bank) use get_my_squad. It reports what HAS happened: it cannot say "
             "whether a price will change next, and a recent rise is not evidence of the next one."),
         "input_schema": {
             "type": "object",
@@ -448,6 +448,60 @@ def replace_tool_names(text):
     return _TOOL_NAME_RE.subn(lambda m: TOOL_PLAIN_PHRASES[m.group(1)], text)
 
 
+# Batch 3 F6 (2026-10-14): plain words at the reply, the same lock as tool names. Measured on the 166 replies of
+# 2026-10-13: "xPts" in 20+ replies (mostly table headers), "horizon" in 5, the squad builder's own words
+# ("optimiser", "a real solve", "solved in 1.2 seconds") in 4; FPL's status letters must never reach a reader
+# either. Only these forms are rewritten -- a status letter only right after "status:" / "flag:" or as "status d."
+# -- so "the flag cites a hamstring" or "this won't solve it" are left alone. The RAW text stays what the checks see.
+STATUS_LETTER_WORDS = {"a": "available", "d": "doubtful", "i": "injured", "s": "suspended", "u": "unavailable",
+                       "n": "not in squad"}
+_STATUS_COLON_RE = re.compile(r"\b(status|flag)(\s*[:=]\s*)([`'\"]?)([adisun])\3(?![\w%'`\"])", re.I)
+_STATUS_SPACE_RE = re.compile(r"\b(status)(\s+)([`'\"]?)([adisun])\3(?=\s*(?:[(),.;:|]|$))", re.I | re.M)
+_HORIZON_RE = re.compile(r"\b((?:[A-Za-z]+|\d+)-gameweek\s+)?horizons?\b", re.I)
+_XPTS_RE = re.compile(r"\bxpts\b", re.I)
+_SOLVE_NOUN_RE = re.compile(r"\b(a|the|this|that|real|fresh|new|second|full|same|one|chip-optimal|optimal)\s+solve(s?)\b", re.I)
+_SOLVED_RE = re.compile(r"\b(re-)?solved(?=\s+(?:in|for|with|using|at|on)\b)", re.I)
+_BUILDER_RE = re.compile(r"\b(optimi[sz]er|solver)(s?)\b", re.I)
+
+
+def _cap_like(word, model):
+    return word[:1].upper() + word[1:] if model[:1].isupper() else word
+
+
+def plain_words(text):
+    """(text with FPL's status letters, "horizon", "xPts" and the squad builder's internal words in plain words,
+    how many replacements). Pure."""
+    n = 0
+
+    def status(m):
+        return f"{m.group(1)}{m.group(2)}{m.group(3)}{STATUS_LETTER_WORDS[m.group(4).lower()]}{m.group(3)}"
+    text, k = _STATUS_COLON_RE.subn(status, text)
+    n += k
+    text, k = _STATUS_SPACE_RE.subn(status, text)
+    n += k
+
+    def horizon(m):
+        if m.group(1):
+            return m.group(1) + "plan"
+        return _cap_like("six-gameweek plan", m.group(0))
+    text, k = _HORIZON_RE.subn(horizon, text)
+    n += k
+
+    def xpts(m):
+        before = text_ref[0][:m.start()].rstrip(" *_")
+        return "Expected points" if (not before or before.endswith(("|", "\n"))) else "expected points"
+    text_ref = [text]
+    text, k = _XPTS_RE.subn(xpts, text)
+    n += k
+    text, k = _SOLVE_NOUN_RE.subn(lambda m: f"{m.group(1)} build{m.group(2)}", text)
+    n += k
+    text, k = _SOLVED_RE.subn(lambda m: _cap_like("rebuilt" if m.group(1) else "built", m.group(0)), text)
+    n += k
+    text, k = _BUILDER_RE.subn(lambda m: _cap_like("squad builder", m.group(1)) + m.group(2), text)
+    n += k
+    return text, n
+
+
 # What the latest reply cost and did, for the process that served it (the eval runner reads it).
 LAST_TURN = {}
 
@@ -625,11 +679,12 @@ def run_agent(user_message: str, messages: list = None):
                     _citation_check(turn_id, raw, returned_ids)
                     _numeric_check(turn_id, raw, messages)                         # log only; never alters the reply
                     plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
+                    plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
                     rendered = render_citations(plain, returned_results)           # Part C: [1], [2] + Sources
                     if rendered != raw:
                         print(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
                     LAST_TURN.clear()
-                    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, **usage)
+                    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
                     _usage_log(turn_id, usage, n_names)
                     return rendered, messages
 

@@ -286,6 +286,9 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                     e["kickoff_day"] = day
                 if mrow is None:
                     e["difficulty"] = None
+                    # batch 3 F9 (2026-10-14): the agent said a fixture beyond the plan was "not scheduled"; it is
+                    # scheduled, the model has simply not rated it yet -- said in those words, with its gameweek and date
+                    e["rating"] = f"scheduled but not rated yet: GW{g}" + (f", {day}" if day else "")
                     e["difficulty_unavailable"] = (
                         f"the latest build covers gameweeks "
                         f"{model_gws[0]}-{model_gws[-1]} and this is GW{g}; the fixture is real "
@@ -366,7 +369,8 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                              "attacking": (d.get("attacking") or {}).get("value"),
                              "defensive": (d.get("defensive") or {}).get("value"),
                              "attack_score": (d.get("attacking") or {}).get("score"),
-                             "defence_score": (d.get("defensive") or {}).get("score")})
+                             "defence_score": (d.get("defensive") or {}).get("score"),
+                             **({"rating": f["rating"]} if f.get("rating") else {})})
         out = rows
 
     return {
@@ -379,8 +383,9 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
         "listed_gameweeks": want_gws,
         "model_horizon": {"gws": model_gws,
                           "gameweeks_covered": [model_gws[0], model_gws[-1]] if model_gws else [],
-                          "note": ("fixtures outside this range are listed with difficulty "
-                                   "null and a reason, never omitted; the build covers "
+                          "note": ("fixtures outside this range are scheduled but not rated yet: they are listed "
+                                   "with difficulty null, a rating line and a reason, never omitted and never 'not "
+                                   "scheduled'; the build covers "
                                    + (f"GW{model_gws[0]}-GW{model_gws[-1]}" if model_gws else "no gameweek")
                                    + f" while this answer lists GW{want_gws[0]}-GW{want_gws[-1]}"
                                    + (" -- a club with no fixture listed here may still have one in a covered gameweek this answer does not list"

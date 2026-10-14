@@ -107,7 +107,7 @@ def shared_block(record):
 # The judge treated them as unsupported claims (8 of 21 M3a FAILs on the v4.4 re-run). Each one must appear in
 # prompts/system_prompt.md or in a tool module's source -- Tests/test_judge_part_d.py checks that they do not drift.
 REQUIRED_SENTENCES = [
-    ("prompt", "Our model doesn't account for bonus points"),
+    ("prompt", "Our model doesn't account for bonus points; top-ranked players tend to pick up a few extra points from bonus."),        # batch 3 F8: the whole sentence
     ("prompt", "our numbers don't fully count penalties, so treat the figure as a floor if a tool says he takes penalties"),
     ("prompt", "priced off the betting market"),
     ("prompt", "the longer-range estimate from team strengths, with no odds, lineups or team news yet"),

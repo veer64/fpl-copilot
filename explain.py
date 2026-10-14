@@ -57,7 +57,7 @@ CONSTANT_LABELS = {
     "pen_fallback": "fallback 0.05",
     "neutral_fixture": "league-average fixture",
     "x0_fixture": "the fit's starting point",
-    "bonus_off": "our model doesn't account for bonus points",
+    "bonus_off": "Our model doesn't account for bonus points; top-ranked players tend to pick up a few extra points from bonus.",   # batch 3 F8: the one bonus sentence
     "sub_chance": "flat 0.30 sub chance",
     "card_rates": "position rates",
     "linear_scale": "linear scale",
@@ -386,7 +386,7 @@ def breakdown(row, step_rows=None):
     # bonus
     if bonus_mode == "delete":
         add("bonus", "exp_bonus", "no bonus term", {"bonus_mode": bonus_mode}, "constant", CONSTANT_LABELS["bonus_off"],
-            ["our model doesn't account for bonus points; no estimate is made"])
+            [CONSTANT_LABELS["bonus_off"]])
     else:
         add("bonus", "exp_bonus", f"exp_bonus (bonus_mode = {bonus_mode})", {"bonus_mode": bonus_mode}, "model")
 

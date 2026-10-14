@@ -406,6 +406,147 @@ def _lead_with_availability(result, element, flags):
     return {**flag, **result} if flag else result
 
 
+# ---- the chance of playing, labelled at the source (batch 3 F4 / F5 / F1, 2026-10-14) ----
+# Measured 2026-10-13: the agent read FPL's 0% for Foden (chance_of_playing_NEXT_round, taken 29 Sep, so about GW6)
+# as a GW7 verdict and turned "Suspended until 17 Oct" into "returns in GW8"; a transfer plan started a doubtful Isak
+# (status d) with no flag anywhere (propose_transfers:4). Every chance the tools show now says which gameweek it is
+# for and when FPL said it, and a flagged player's row in a squad or a plan carries his status word and chance.
+FLAG_STATUSES = ("d", "i", "s", "u", "n")
+FORCED_WARN_STATUSES = ("d", "i", "s")       # u / n stay refused by _check_lock_ban (locked_player_unavailable)
+
+
+def _as_of_words(as_of):
+    """'29 Sep 2026' from a datetime or an ISO string; None when unreadable."""
+    if as_of is None:
+        return None
+    try:
+        t = as_of if isinstance(as_of, datetime) else datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+        return f"{t.day} {t:%b %Y}"
+    except (TypeError, ValueError):
+        return None
+
+
+def _next_round_gw(as_of, deadlines=None):
+    """The gameweek FPL's chance_of_playing_next_round refers to when it was taken at `as_of`: the first gameweek
+    whose deadline is after it (deadlines {gw: ISO time}, default the newest bootstrap snapshot's); None if unknown."""
+    if as_of is None:
+        return None
+    try:
+        t = as_of if isinstance(as_of, datetime) else datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        dls = deadlines if deadlines is not None else (_gw_deadline_times() or {})
+        later = [int(g) for g, dl in dls.items() if datetime.fromisoformat(str(dl).replace("Z", "+00:00")) > t]
+        return min(later) if later else None
+    except Exception:                               # noqa: BLE001 -- a label must never break a tool
+        return None
+
+
+def chance_words(chance, as_of, gw):
+    """'chance of playing in GW6: 75%, FPL as of 29 Sep 2026'; None without a chance. Pure."""
+    if chance is None:
+        return None
+    where = f"in GW{int(gw)}" if gw is not None else "in the next gameweek"
+    when = _as_of_words(as_of)
+    return f"chance of playing {where}: {int(chance)}%" + (f", FPL as of {when}" if when else "")
+
+
+def _flags_for(elements):
+    """{element: {name, status, status_word, chance, news, as_of, gw, chance_words}} for the elements FPL flags
+    (a status other than available, or a chance below 100), from players_live; {} on any failure."""
+    ids = sorted({int(e) for e in (elements or []) if e is not None})
+    if not ids:
+        return {}
+    try:
+        rows = _q("SELECT element, name, status, chance, news, updated_at FROM players_live WHERE element = ANY(%s)", (ids,))
+    except Exception:                               # noqa: BLE001 -- cosmetic, never fatal
+        return {}
+    out = {}
+    for r in rows:
+        st, ch = r.get("status"), r.get("chance")
+        if st in FLAG_STATUSES or (ch is not None and int(ch) < 100):
+            gw = _next_round_gw(r.get("updated_at"))
+            out[int(r["element"])] = {"name": r.get("name"), "status": st, "status_word": STATUS_WORDS.get(st, st),
+                                      "chance": ch, "news": (r.get("news") or "").strip() or None,
+                                      "as_of": r.get("updated_at"), "gw": gw,
+                                      "chance_words": chance_words(ch, r.get("updated_at"), gw)}
+    return out
+
+
+def _with_flags(out):
+    """`out` with every flagged player's row annotated in place: a player row (player_id / element) gains
+    status_word and, when FPL gives one, chance and chance_words; a transfer row gains the same keys suffixed
+    _out / _in. Unflagged players are left exactly as they were. One players_live query per output."""
+    if not isinstance(out, dict) or "error" in out:
+        return out
+    ids = []
+
+    def _collect(x):
+        if isinstance(x, dict):
+            for k in ("player_id", "element", "out_id", "in_id"):
+                v = x.get(k)
+                if isinstance(v, int) and not isinstance(v, bool):
+                    ids.append(v)
+            for v in x.values():
+                _collect(v)
+        elif isinstance(x, list):
+            for v in x:
+                _collect(v)
+    _collect(out)
+    flags = _flags_for(ids)
+    if not flags:
+        return out
+
+    def _mark(row, f, suffix=""):
+        row.setdefault("status_word" + suffix, f["status_word"])
+        if f["chance"] is not None:
+            row.setdefault("chance" + suffix, f["chance"])
+            row.setdefault("chance_words" + suffix, f["chance_words"])
+
+    def _walk(x):
+        if isinstance(x, dict):
+            if "out_id" in x or "in_id" in x:
+                for side in ("out", "in"):
+                    v = x.get(f"{side}_id")
+                    if isinstance(v, int) and v in flags:
+                        _mark(x, flags[v], "_" + side)
+            else:
+                v = x.get("player_id", x.get("element"))
+                if isinstance(v, int) and not isinstance(v, bool) and v in flags:
+                    _mark(x, flags[v])
+            for v in list(x.values()):
+                _walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                _walk(v)
+    _walk(out)
+    return out
+
+
+def forced_availability_warning(forced, flags):
+    """The plain warning for players the USER forced in although FPL flags them injured, suspended or doubtful
+    (or at 0%); None when none is. `forced`: element ids in the user's order; `flags`: _flags_for's map. Pure."""
+    lines = []
+    for e in forced:
+        f = (flags or {}).get(int(e))
+        if not f or not (f["status"] in FORCED_WARN_STATUSES or f["chance"] == 0):
+            continue
+        detail = f["chance_words"] or (f"FPL as of {_as_of_words(f['as_of'])}" if _as_of_words(f["as_of"]) else "")
+        note = f" (FPL's note: {f['news']})" if f["news"] else ""
+        lines.append(f"{f['name']} is in because you forced him in, but FPL lists him as {f['status_word']}: "
+                     f"{detail}{note}. The squad is built around him as you asked.")
+    return " ".join(lines) or None
+
+
+def _with_forced_warning(out, forced):
+    """`out` with forced_availability_warning FIRST when a forced player is flagged injured / suspended / doubtful
+    or at 0%; the order is the point -- the agent reads the warning before the squad."""
+    if not isinstance(out, dict) or "error" in out or not forced:
+        return out
+    warn = forced_availability_warning(forced, _flags_for(forced))
+    return {"forced_availability_warning": warn, **out} if warn else out
+
+
 # ---- the horizon: one answer for a gameweek outside the run's range (B20, 2026-10-04) ----
 # A run predicts its own gameweek and five ahead (run 24: GW6-11). Every gameweek outside
 # that -- played, too far ahead, or not a gameweek at all -- used to come back as the same
@@ -716,6 +857,12 @@ def get_player_card(player_id: int):
                             "chance_of_playing_next_round": card.get("chance"), "news": card.get("news"),
                             "as_of": str(card.get("updated_at")),
                             "source": "FPL's availability flag (players_live, taken by the build at updated_at)"}
+    # batch 3 F4: which gameweek the chance is for, and when FPL said it -- never a later gameweek's verdict
+    gw_next = _next_round_gw(card.get("updated_at"))
+    card["availability"]["chance_gameweek"] = gw_next
+    if card.get("chance") is not None:
+        card["availability"]["chance_words"] = chance_words(card.get("chance"), card.get("updated_at"), gw_next)
+        card["chance_words"] = card["availability"]["chance_words"]
     pred = get_prediction(player_id)
     if "error" not in pred:
         card["prediction"] = pred
@@ -1063,7 +1210,7 @@ def get_picks(gw: int = None, shadow: bool = False):
                WHERE run_id = %s AND config = %s""", (run["run_id"], PRODUCTION_CONFIG))}
         here = {r["player_id"] for r in rows}
         out["differs_from_production_by"] = sorted(here ^ prod)
-    return _with_meanings(_with_started_note(out, run.get("gw")))
+    return _with_flags(_with_meanings(_with_started_note(out, run.get("gw"))))
 
 
 def get_best_squad(budget: float = None):
@@ -1112,9 +1259,9 @@ def get_my_squad(user_id: int = None):
     except RuntimeError as e:
         current, current_err = None, str(e)
     scores = _q(squad_store.SCORES_LATEST_SQL, (user_id, record["season"]))
-    return squad_store.summary(record, prices, latest_run=_latest_run(),
-                               current_gw=current, current_gw_error=current_err,
-                               scores=scores)
+    return _with_flags(squad_store.summary(record, prices, latest_run=_latest_run(),
+                                           current_gw=current, current_gw_error=current_err,
+                                           scores=scores))
 
 
 # Part 1 of the smoke fixes (2026-10-10): "How's my line-up looking?" ended with "Want me to apply this
@@ -1227,7 +1374,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
                              f"{target - cutoff} gameweek(s) stale. Fresh predictions land with the "
                              f"update 90 minutes before the GW{target} deadline"
                              + (f" ({nd[1]})" if nd else ""))
-    return _with_meanings(_with_started_note(out, target))
+    return _with_flags(_with_meanings(_with_started_note(out, target)))
 
 
 def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_ids: list,
@@ -1975,7 +2122,8 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "applied_check": "passed squad_store.plan_change (legality + money conservation) as a dry run",
         "apply_with": {**req, "gw": current, "proposal_id": proposal_id, "confirm": True},
     }
-    return _with_meanings(_with_started_note(out, current))
+    forced = list(dict.fromkeys(int(x) for x in (lock_player_ids or [])))      # batch 3 F1: kept / bought as the user asked
+    return _with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), current)))
 
 
 def _check_lock_ban(lock, ban, pool_elements=None):
@@ -2087,7 +2235,10 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
                       "e_points": round(float(r["e_points"]), 2), "role": r["role"]}
                      for _, r in team.iterrows()],
            "squad_cost": round(team["value"].sum() / 10, 1)}
-    return _with_meanings(_with_started_note(out, cutoff))
+    # batch 3 F1 (2026-10-14, the user's decision): a player the user FORCED in although FPL flags him injured,
+    # suspended or doubtful is built in, and the result says so first; u / n were refused above.
+    forced = list(dict.fromkeys([int(x) for x in (start_player_ids or [])] + [int(x) for x in (lock_player_ids or [])]))
+    return _with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), cutoff)))
 
 
 def _check_squad_rules(lock, pool):
@@ -2549,9 +2700,21 @@ def _captain_words(row):
 
 
 def _plain_score_row(row):
-    """The scorer's row with captain_bonus replaced by the plain-words pair; every other key as is."""
-    out = {k: v for k, v in row.items() if k != "captain_bonus"}
+    """The scorer's row with captain_bonus replaced by the plain-words pair, and (batch 3 F7, 2026-10-14) every player
+    by NAME: the substitutions as {off, on} names, the final XI as names, the doubled player as a name. The scorer's
+    element ids never reach the agent -- it printed them ("autosub 213 -> 455")."""
+    out = {k: v for k, v in row.items() if k not in ("captain_bonus", "final_xi", "subs_made", "doubled")}
     out.update(_captain_words(row))
+    ids = [e for e in (row.get("final_xi") or [])] + [e for pair in (row.get("subs_made") or []) for e in pair]
+    if row.get("doubled") is not None:
+        ids.append(row["doubled"])
+    meta = _player_meta(ids)
+
+    def nm(e):
+        return (meta.get(int(e)) or {}).get("name") or "a player no longer in FPL's list"
+    out["final_xi"] = [nm(e) for e in (row.get("final_xi") or [])]
+    out["substitutions"] = [{"off": nm(o), "on": nm(i)} for o, i in (row.get("subs_made") or [])]
+    out["doubled"] = nm(row["doubled"]) if row.get("doubled") is not None else None
     return out
 
 
@@ -3866,4 +4029,4 @@ def get_wildcard_gap(user_id: int = None):
                           "were computed; only the gap is withheld. Ask again once the model-degraded "
                           "condition clears.")
         out["condition"] = degraded
-    return _with_meanings(_with_started_note(out, current))
+    return _with_flags(_with_meanings(_with_started_note(out, current)))

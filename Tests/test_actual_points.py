@@ -187,14 +187,20 @@ def test_get_my_points_scores_through_squad_stores_own_scorer(monkeypatch):
     _patch_master(monkeypatch, m)
     monkeypatch.setattr(mt, "_squad_versions_for", lambda user_id: [v])
     monkeypatch.setattr(mt, "_deadline_at", lambda gw: pd.Timestamp("2026-09-04T17:30:00Z"))
+    monkeypatch.setattr(mt, "_player_meta", lambda ids: {int(e): {"name": f"Player {e}"} for e in ids})
     out = mt.get_my_points(gw=3)
     want = squad_store.score_gameweek_for([v], 3, pd.Timestamp("2026-09-04T17:30:00Z"),
                                           at.actuals_frame(m, 3))
     assert "error" not in out, out
-    for k in ("points_net", "points_raw", "hit", "doubled",
-              "doubled_role", "transfers_made", "free_transfers", "final_xi",
-              "subs_made", "bench_points", "version_id"):
+    for k in ("points_net", "points_raw", "hit",
+              "doubled_role", "transfers_made", "free_transfers",
+              "bench_points", "version_id"):
         assert out[k] == want[k], k
+    # batch 3 F7 (2026-10-14): the scorer's ids travel as NAMES -- the same players, field for field
+    assert out["final_xi"] == [f"Player {e}" for e in want["final_xi"]]
+    assert out["substitutions"] == [{"off": f"Player {o}", "on": f"Player {i}"} for o, i in want["subs_made"]]
+    assert out["doubled"] == (f"Player {want['doubled']}" if want["doubled"] is not None else None)
+    assert "subs_made" not in out
     # 2026-10-10: the scorer's captain_bonus travels as captain_doubled_added (Tests/test_captain_wording.py)
     assert out["captain_doubled_added"] == want["captain_bonus"]
     assert out["autosubs_applied"] is True          # the scorer does them; say so
