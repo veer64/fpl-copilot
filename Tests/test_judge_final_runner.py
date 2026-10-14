@@ -39,16 +39,16 @@ def _m3b_ok():
 
 def test_the_runner_default_is_the_trusted_list_and_judge_all_adds_report_only_metrics(monkeypatch):
     import run_agent_evals as rae
-    assert rae.TRUSTED_METRICS == ("M2", "M3b")
-    assert rae.REPORT_ONLY_METRICS == ("M1", "M3a", "M4", "M5")
+    assert rae.TRUSTED_METRICS == ("M2", "M3a", "M3b")         # M3a TRUSTED 2026-10-14: calibration 38/38, fresh 13/13
+    assert rae.REPORT_ONLY_METRICS == ("M1", "M4", "M5")
     calls = [{"tool": "get_player_card", "args": {}, "error": None, "output": str(CARD)}]
     rec = _record("Havertz is flagged 75% to play; expect about 3.7 points if he plays.", calls)
     ok = '{"reason": "fine", "verdict": "PASS"}'
-    fake = _Fake([ok, _m3b_ok()])
+    fake = _Fake([ok, ok, _m3b_ok()])                                     # M2, M3a, M3b
     monkeypatch.setattr(llm, "complete", fake.complete)
     cfg = rae.JudgeConfig(model="claude-opus-5-5", max_calls=50, max_usd=5.0)
     out = rae.judge_record(rec, cfg)
-    assert set(out) == {"M2", "M3b"} and fake.calls == 2
+    assert set(out) == {"M2", "M3a", "M3b"} and fake.calls == 3
     # --judge-all: every metric of ALL_B; the report-only ones carry report_only True and never reach the gate
     fake = _Fake(['{"reason": "jargon", "verdict": "FAIL"}'] * 3 + [ok, ok, _m3b_ok(), ok])   # M1 x3, M2, M3a, M3b, M4; M5 is N/A
     monkeypatch.setattr(llm, "complete", fake.complete)
@@ -56,7 +56,7 @@ def test_the_runner_default_is_the_trusted_list_and_judge_all_adds_report_only_m
     out = rae.judge_record(rec, cfg)
     assert set(out) == {"M1", "M2", "M3a", "M3b", "M4", "M5"}
     assert out["M1"]["report_only"] is True and out["M1"]["verdict"] == "FAIL" and out["M1"]["confirmed_fail"] is True
-    assert out["M2"].get("report_only", False) is False
+    assert out["M2"].get("report_only", False) is False and out["M3a"].get("report_only", False) is False
     assert out["M5"]["applicable"] is False                                       # get_player_card is not an M5 sheet
     assert rae.judge_gate({"judge": out}) == []                                   # M1's confirmed FAIL is report-only
     out["M2"] = {"verdict": "FAIL", "confirmed_fail": True}

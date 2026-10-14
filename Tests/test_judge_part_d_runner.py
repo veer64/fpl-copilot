@@ -41,20 +41,21 @@ def _m3b_ok(n=2):
 
 def test_the_runner_judges_trusted_metrics_only_and_rejudges_a_fail_twice(monkeypatch):
     import run_agent_evals as rae
-    assert rae.TRUSTED_METRICS == ("M2", "M3b")
-    fake = _Fake(['{"reason": "answers it", "verdict": "PASS"}', _m3b_ok()])
+    assert rae.TRUSTED_METRICS == ("M2", "M3a", "M3b")         # M3a TRUSTED 2026-10-14
+    fake = _Fake(['{"reason": "answers it", "verdict": "PASS"}', '{"reason": "sourced", "verdict": "PASS"}', _m3b_ok()])   # M2, M3a, M3b
     monkeypatch.setattr(llm, "complete", fake.complete)
     cfg = rae.JudgeConfig(model="claude-opus-5-5", max_calls=50, max_usd=5.0)
     rec = _rec()
     out = rae.judge_record(rec, cfg)
-    assert set(out) == {"M2", "M3b"} and out["M2"]["verdict"] == "PASS" and out["M3b"]["verdict"] == "PASS"
-    assert out["M2"]["verdicts"] == ["PASS"] and fake.calls == 2 and rec["judge_usd"] > 0
+    assert set(out) == {"M2", "M3a", "M3b"} and out["M2"]["verdict"] == "PASS" and out["M3b"]["verdict"] == "PASS"
+    assert out["M2"]["verdicts"] == ["PASS"] and out["M3a"]["verdict"] == "PASS" and fake.calls == 3 and rec["judge_usd"] > 0
     # a FAIL is re-judged twice; it stands only when all three say FAIL
-    fake = _Fake(['{"reason": "no", "verdict": "FAIL"}', '{"reason": "no", "verdict": "FAIL"}', '{"reason": "fine", "verdict": "PASS"}', _m3b_ok()])
+    fake = _Fake(['{"reason": "no", "verdict": "FAIL"}', '{"reason": "no", "verdict": "FAIL"}', '{"reason": "fine", "verdict": "PASS"}',
+                  '{"reason": "sourced", "verdict": "PASS"}', _m3b_ok()])
     monkeypatch.setattr(llm, "complete", fake.complete)
     out = rae.judge_record(_rec(), cfg)
     assert out["M2"]["verdicts"] == ["FAIL", "FAIL", "PASS"] and out["M2"]["verdict"] == "PASS" and out["M2"]["confirmed_fail"] is False
-    fake = _Fake(['{"reason": "no", "verdict": "FAIL"}'] * 3 + [_m3b_ok()])
+    fake = _Fake(['{"reason": "no", "verdict": "FAIL"}'] * 3 + ['{"reason": "sourced", "verdict": "PASS"}', _m3b_ok()])
     monkeypatch.setattr(llm, "complete", fake.complete)
     out = rae.judge_record(_rec(), cfg)
     assert out["M2"]["verdict"] == "FAIL" and out["M2"]["confirmed_fail"] is True and len(out["M2"]["verdicts"]) == 3

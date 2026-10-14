@@ -193,8 +193,10 @@ def grade(q, calls, setup_calls=None):
 # all three say FAIL (confirmed_fail); untrusted metrics are never run here.
 # The judge's trust table (eval/judge/README.md, judge final 2026-10-13): --judge runs exactly the TRUSTED metrics;
 # --judge-all adds the REPORT-ONLY ones, whose verdicts are report columns only and never reach the gate (judge_gate).
-TRUSTED_METRICS = ("M2", "M3b")
-REPORT_ONLY_METRICS = ("M1", "M3a", "M4", "M5")
+# M3a joined TRUSTED on 2026-10-14: calibration 38/38 (100%) and fresh 13/13 (100%), 0 judge-PASS/gold-FAIL, once the
+# four calibration labels the fixes G1 / F3 / F1 / G2 proved wrong were set to FAIL on evidence.
+TRUSTED_METRICS = ("M2", "M3a", "M3b")
+REPORT_ONLY_METRICS = ("M1", "M4", "M5")
 ALL_JUDGE_METRICS = ("M1", "M2", "M3a", "M3b", "M4", "M5")
 JUDGE_MODEL = "claude-opus-5-5"
 JUDGE_REJUDGES = 2
@@ -208,6 +210,48 @@ class JudgeConfig:
         self.budget = RJ.Budget(max_calls, max_usd)
         self.facts = RJ.allowed_general_facts()
         self.stopped = None
+
+
+# ---------------------------------------------------------------- the gate's regression rule (batch 3 F11)
+# Measured 2026-10-13: three "base 3/3 vs HEAD 1/3" questions were run from a worktree WITHOUT data/, so the base saw
+# "no gameweek has finished yet" and errors where HEAD saw GW5 finished -- a different question. A base run now
+# counts only if its context block (clock line aside) equals HEAD's.
+REGRESSION_RUNS = 3
+
+
+def context_signature(block):
+    """The context block without its clock line ('- Now: ...'): two runs saw the same data iff these are equal."""
+    return "\n".join(l for l in (block or "").splitlines() if not l.strip().startswith("- Now:")).strip()
+
+
+def run_context(rec):
+    """The context block of a runner record's question turn (its last turn); None if absent."""
+    turns = rec.get("turns") or []
+    return turns[-1].get("context_block") if turns else None
+
+
+def classify_regression(base_runs, head_runs, n=REGRESSION_RUNS):
+    """One question's verdict from runner records. CONFIRMED = at least `n` counted base runs, all PASS, AND HEAD fails
+    at least 2 of its runs (at least `n` of them); FLAKY otherwise; NOT DETERMINED when fewer than `n` base runs count
+    (a base run counts only if its context signature equals HEAD's) or the HEAD runs saw different data themselves.
+    Returns {verdict, base_pass, base_counted, base_excluded, head_fail, head_runs, reason}."""
+    head_sigs = {context_signature(run_context(r)) for r in head_runs}
+    out = {"base_pass": 0, "base_counted": 0, "base_excluded": 0, "head_fail": sum(1 for r in head_runs if r.get("result") == "FAIL"),
+           "head_runs": len(head_runs)}
+    if len(head_sigs) != 1 or not head_runs:
+        return {**out, "verdict": "NOT DETERMINED", "reason": "the HEAD runs did not all see the same data"}
+    sig = head_sigs.pop()
+    counted = [r for r in base_runs if context_signature(run_context(r)) == sig]
+    out.update(base_counted=len(counted), base_excluded=len(base_runs) - len(counted),
+               base_pass=sum(1 for r in counted if r.get("result") == "PASS"))
+    if len(counted) < n:
+        return {**out, "verdict": "NOT DETERMINED",
+                "reason": f"only {len(counted)} base run(s) saw HEAD's data ({out['base_excluded']} excluded); {n} needed"}
+    if len(head_runs) < n:
+        return {**out, "verdict": "NOT DETERMINED", "reason": f"only {len(head_runs)} HEAD run(s); {n} needed"}
+    if out["base_pass"] == len(counted) and out["head_fail"] >= 2:
+        return {**out, "verdict": "CONFIRMED", "reason": f"base {out['base_pass']}/{len(counted)} PASS, HEAD {out['head_fail']}/{len(head_runs)} FAIL"}
+    return {**out, "verdict": "FLAKY", "reason": f"base {out['base_pass']}/{len(counted)} PASS, HEAD {out['head_fail']}/{len(head_runs)} FAIL"}
 
 
 def judge_metrics_for(args):

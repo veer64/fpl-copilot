@@ -88,10 +88,15 @@ METRICS = {
         "question": ("For each flagged player the reply engages with: if he is UNAVAILABLE (status u, or injured / suspended with a "
                      "0% or unknown chance of playing), does the reply state his availability flag BEFORE any predicted number for "
                      "him, and never recommend, captain, start or lock him as if he could play? If he is DOUBTFUL (status d, or a "
-                     "chance of playing between 25% and 75%), is his flag clearly stated somewhere in the reply (order does not matter)?"),
+                     "chance of playing between 25% and 75%), is his flag clearly stated somewhere in the reply (order does not matter)? "
+                     "A player marked 'forced in by the user' may be built and started: does the reply state his flag before his "
+                     "numbers and say he was forced in at the user's request?"),
         "definition": ("PASS if every flagged player the reply engages with meets his tier's rule; FAIL if any does not. The tier "
                        "of each such player, from the tool row, is listed under 'Flagged players' below for this answer. A flag "
-                       "stated in the reply's own words counts (\"doubtful\", \"75% to play\", \"out\", \"suspended\", \"injured\")."),
+                       "stated in the reply's own words counts (\"doubtful\", \"75% to play\", \"out\", \"suspended\", \"injured\"). "
+                       "A player the USER forced in by name (marked 'forced in by the user' in the list) may be built, started and "
+                       "given numbers: he PASSES when the reply states his flag before his numbers and says he was forced in at the "
+                       "user's request; the never-recommend rule does not apply to him (batch 3 F12, the user's decision of 2026-10-14)."),
         "pass_example": ("DOUBTFUL: \"Gakpo: 3.2 points -- and he's doubtful (75%).\" UNAVAILABLE: \"Isak is out (thigh injury, 0%). "
                          "His 4.1-point figure is a planning number only.\""),
         "fail_example": ("UNAVAILABLE: \"Isak: 4.1 points, a strong pick\" with the injury flag at the end or missing, or Isak "
@@ -204,9 +209,40 @@ def _flag_detail(fields):
     return ", ".join(parts) or "flagged"
 
 
+FORCING_TOOLS = ("build_squad_from_scratch", "propose_transfers")
+
+
+def forced_in(record):
+    """(ids, warning text) of the players the USER forced in this turn: the lock / start ids passed to the squad build
+    or the transfer plan, and every forced_availability_warning the tools returned (batch 3 F12)."""
+    ids, warnings = set(), []
+    for c in record.get("calls") or []:
+        if c.get("tool") in FORCING_TOOLS:
+            args = c.get("args")
+            if isinstance(args, str):
+                args = parse_output(args)
+            if isinstance(args, dict):
+                for k in ("lock_player_ids", "start_player_ids"):
+                    for v in args.get(k) or []:
+                        if isinstance(v, (int, float)) and not isinstance(v, bool):
+                            ids.add(int(v))
+        out = parse_output(c.get("output"))
+        if isinstance(out, dict) and isinstance(out.get("forced_availability_warning"), str):
+            warnings.append(out["forced_availability_warning"])
+    return ids, " ".join(warnings)
+
+
 def m4_flags(record):
-    """[(name, tier, detail)] for every flagged player the reply engages with -- the list the M4 judge sees."""
-    return [(name, flag_tier(fields), _flag_detail(fields)) for name, fields in flagged_in_reply(record)]
+    """[(name, tier, detail)] for every flagged player the reply engages with -- the list the M4 judge sees. A player
+    the user forced in carries 'forced in by the user' in his detail (batch 3 F12)."""
+    ids, warning = forced_in(record)
+    out = []
+    for name, fields in flagged_in_reply(record):
+        detail = _flag_detail(fields)
+        if fields.get("player_id") in ids or (warning and mentioned(name, warning)):
+            detail += "; forced in by the user"
+        out.append((name, flag_tier(fields), detail))
+    return out
 
 
 # ------------------------------------------------------------------ M4: flagged players in the tool outputs
@@ -234,9 +270,21 @@ def parse_output(text):
         return None
 
 
-def _is_flagged(d):
+STATUS_WORD_LETTER = {"doubtful": "d", "injured": "i", "suspended": "s", "unavailable": "u", "not in squad": "n"}
+
+
+def _status_letter(d):
+    """The FPL status letter of a row: its 'status', else the letter behind its 'status_word' (batch 3 F5 rows)."""
     status = d.get("status")
-    if isinstance(status, str) and status.lower() in UNAVAILABLE_STATUS:
+    if isinstance(status, str) and status:
+        return status.lower()
+    word = d.get("status_word")
+    return STATUS_WORD_LETTER.get(str(word).lower()) if isinstance(word, str) else None
+
+
+def _is_flagged(d):
+    status = _status_letter(d)
+    if status in UNAVAILABLE_STATUS:
         return True
     for k in ("chance", "chance_of_playing", "chance_of_playing_next_round", "chance_of_playing_this_round"):
         v = d.get(k)
@@ -268,7 +316,12 @@ def flagged_players(outputs):
                 key = name.lower()
                 if key not in seen:
                     seen.add(key)
-                    found.append((name, {k: x.get(k) for k in ("status", "chance", "available", "availability_note", "news") if k in x}))
+                    fields = {k: x.get(k) for k in ("status", "chance", "available", "availability_note", "news") if k in x}
+                    if "status" not in fields and _status_letter(x):
+                        fields["status"] = _status_letter(x)
+                    if "player_id" in x or "element" in x:
+                        fields["player_id"] = x.get("player_id", x.get("element"))
+                    found.append((name, fields))
             for v in x.values():
                 walk(v)
         elif isinstance(x, (list, tuple)):

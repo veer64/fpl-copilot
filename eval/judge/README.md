@@ -39,12 +39,12 @@ the gold says FAIL (the dangerous direction). Flips = the same answers judged tw
 |---|---|---|---|---|---|
 | M1 | 38, 86.8%, 0 | 15, 100%, 0 | fresh 0/15; calibration 0/38 (run 3 vs 4; 10.5% on runs 1 vs 2) | REPORT-ONLY | calibration below 90% (5 judge-FAIL where the gold kept the user's label) |
 | M2 | 38, 94.7%, 0 | 15, 100%, 0 | 0/15; 1/38 | **TRUSTED** | >= 90% on both sets, 0 jP/gF |
-| M3a | 38, 89.5%, 0 | 13, 100%, 0 | 1/15; 0/38 | REPORT-ONLY | calibration one answer short of 90% (4 judge-FAIL vs user labels; 0 jP/gF) |
+| M3a | 38, 100%, 0 | 13, 100%, 0 | 1/15; 0/38 | **TRUSTED** (2026-10-14) | the 4 calibration labels it disagreed with were wrong: set to FAIL on evidence, each backed by the fix commit (optimise:2 4cb8671, lineup_value:3 a519e64, propose_transfers:1 561bf17, get_my_points:4 e506b25); re-scored from saved verdicts, no new calls |
 | M3b | 34, 100%, 0 | 11, 100%, 0 | 0/13; 1/33 | **TRUSTED** | quotes verified by code, attribution spot-checked by code (0 conflicts) |
 | M4 | 10, 100%, 0 | 3, 100%, 0 | 0/3; 0/11 | REPORT-ONLY | redefined 2026-10-13 (two tiers); only 3 fresh-gold examples, 10 needed (7 more) |
 | M5 | 14, 92.9%, 1 | 2, 100%, 0 | 0/2; 1/14 | REPORT-ONLY | a judge-PASS/gold-FAIL on calibration; 2 fresh examples |
 
-`run_agent_evals.TRUSTED_METRICS = ("M2", "M3b")` is this table; the gate (`judge_gate`) counts only a confirmed
+`run_agent_evals.TRUSTED_METRICS = ("M2", "M3a", "M3b")` is this table; the gate (`judge_gate`) counts only a confirmed
 FAIL (three FAIL verdicts in a row) on a trusted metric.
 
 ## How to run

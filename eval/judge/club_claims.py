@@ -70,10 +70,16 @@ def _clean_name(text):
 
 
 def _rows_in(obj, out):
-    """Every dict with a 'name' inside a parsed tool output."""
+    """Every dict with a 'name' inside a parsed tool output, and (batch 3 F2, 2026-10-14) every transfer entry's two
+    players as rows: {out, team_out, position_out} and {in, team_in, position_in}. Measured: the 18 'unsourced' clubs
+    of 2026-10-13 were all players the transfer plan names in such entries, with the club in team_in -- 18 false alarms."""
     if isinstance(obj, dict):
         if "name" in obj and isinstance(obj.get("name"), str):
             out.append(obj)
+        for side in ("out", "in"):
+            if isinstance(obj.get(side), str) and (f"team_{side}" in obj or f"{side}_id" in obj):
+                out.append({"name": obj[side], "team": obj.get(f"team_{side}"), "position": obj.get(f"position_{side}"),
+                            "player_id": obj.get(f"{side}_id")})
         for v in obj.values():
             _rows_in(v, out)
     elif isinstance(obj, (list, tuple)):

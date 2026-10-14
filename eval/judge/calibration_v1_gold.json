@@ -87,9 +87,11 @@
     "reason": "the user's original label"
    },
    "M3a": {
-    "verdict": "PASS",
-    "source": "user_label",
-    "reason": "the user's original label (M3, words and numbers)"
+    "verdict": "FAIL",
+    "source": "evidence",
+    "reason": "evidence: the reply blames the infeasible request on budget (\"2 GKs, 5 DEFs and 4 MIDs ... too tight to build a legal squad\", \"the optimiser would need a bit more room\") where FPL's squad rule (5 MID, at most 3 FWD) is the reason; the defect was fixed by 4cb8671 (G1 a squad rule outranks availability)",
+    "finding": "the reply blames the infeasible request on budget (\"2 GKs, 5 DEFs and 4 MIDs ... too tight to build a legal squad\", \"the optimiser would need a bit more room\") where FPL's squad rule (5 MID, at most 3 FWD) is the reason",
+    "fix_commit": "4cb8671"
    },
    "M3b": {
     "verdict": "FAIL",
@@ -407,9 +409,11 @@
     "reason": "the user's original label"
    },
    "M3a": {
-    "verdict": "PASS",
-    "source": "user_label",
-    "reason": "the user's original label (M3, words and numbers)"
+    "verdict": "FAIL",
+    "source": "evidence",
+    "reason": "evidence: the reply calls p_play_any (the chance of playing any minutes) a start probability (\"very low start probabilities right now\", \"53% start probability\"); no tool result gives a chance of starting; the defect was fixed by a519e64 (F3 probability keys travel with a meanings line)",
+    "finding": "the reply calls p_play_any (the chance of playing any minutes) a start probability (\"very low start probabilities right now\", \"53% start probability\"); no tool result gives a chance of starting",
+    "fix_commit": "a519e64"
    },
    "M3b": {
     "verdict": "FAIL",
@@ -727,9 +731,11 @@
     "reason": "the user's original label"
    },
    "M3a": {
-    "verdict": "PASS",
-    "source": "user_label",
-    "reason": "the user's original label (M3, words and numbers)"
+    "verdict": "FAIL",
+    "source": "evidence",
+    "reason": "evidence: the reply attaches positions (\"Kinsky (GK)\", \"Ndiaye (MID)\", \"Haaland (FWD)\") that the transfer plan's result never gave; the defect was fixed by 561bf17 (F1 every player row carries team and position)",
+    "finding": "the reply attaches positions (\"Kinsky (GK)\", \"Ndiaye (MID)\", \"Haaland (FWD)\") that the transfer plan's result never gave",
+    "fix_commit": "561bf17"
    },
    "M3b": {
     "verdict": "PASS",
@@ -1577,9 +1583,11 @@
     "reason": "the user's original label"
    },
    "M3a": {
-    "verdict": "PASS",
-    "source": "user_label",
-    "reason": "the user's original label (M3, words and numbers)"
+    "verdict": "FAIL",
+    "source": "evidence",
+    "reason": "evidence: the reply credits a forward with a clean sheet (\"kept a clean sheet\" among the reasons for Haaland's 9 points); forwards get no clean-sheet points; the defect was fixed by e506b25 (G2 the actual-points tool lists only the events that scored)",
+    "finding": "the reply credits a forward with a clean sheet (\"kept a clean sheet\" among the reasons for Haaland's 9 points); forwards get no clean-sheet points",
+    "fix_commit": "e506b25"
    },
    "M3b": {
     "verdict": "PASS",
@@ -1816,6 +1824,38 @@
    "gold": "FAIL",
    "source": "claude_proposed",
    "reason": "M1 consistency rule: contains cutoff, ingested, optimiser"
+  },
+  {
+   "id": "optimise:2",
+   "metric": "M3a",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "evidence",
+   "reason": "the reply blames the infeasible request on budget (\"2 GKs, 5 DEFs and 4 MIDs ... too tight to build a legal squad\", \"the optimiser would need a bit more room\") where FPL's squad rule (5 MID, at most 3 FWD) is the reason; fixed by 4cb8671"
+  },
+  {
+   "id": "lineup_value:3",
+   "metric": "M3a",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "evidence",
+   "reason": "the reply calls p_play_any (the chance of playing any minutes) a start probability (\"very low start probabilities right now\", \"53% start probability\"); no tool result gives a chance of starting; fixed by a519e64"
+  },
+  {
+   "id": "propose_transfers:1",
+   "metric": "M3a",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "evidence",
+   "reason": "the reply attaches positions (\"Kinsky (GK)\", \"Ndiaye (MID)\", \"Haaland (FWD)\") that the transfer plan's result never gave; fixed by 561bf17"
+  },
+  {
+   "id": "get_my_points:4",
+   "metric": "M3a",
+   "user_label": "PASS",
+   "gold": "FAIL",
+   "source": "evidence",
+   "reason": "the reply credits a forward with a clean sheet (\"kept a clean sheet\" among the reasons for Haaland's 9 points); forwards get no clean-sheet points; fixed by e506b25"
   }
  ],
  "m1_words": {
