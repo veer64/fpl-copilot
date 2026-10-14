@@ -165,6 +165,120 @@ def test_rank_candidates_recency_reorders_like_production():
     assert boosted[1] == pytest.approx(0.60 * ns.recency_multiplier(9.0))
 
 
+# ---- pool v2 (2026-10-14): the ungated dense variant and the reuse of stored query embeddings -------------------------
+
+def test_variants_keep_the_four_production_ones_first_and_add_dense_ungated_last():
+    assert bp.VARIANTS[:4] == ("dense_only", "keyword_only", "hybrid_no_recency", "hybrid_production")
+    assert bp.VARIANTS[-1] == "dense_ungated"
+
+
+def test_gate_active_only_when_a_named_player_resolved():
+    assert bp.gate_active(["Isak"], [379]) is True
+    assert bp.gate_active(["Palmer"], []) is False            # named but ambiguous / unmapped: nothing gated
+    assert bp.gate_active([], []) is False                    # clubs or a vague question: no gate
+    assert bp.gate_active([], [379]) is False                 # ids without names cannot happen in production
+
+
+def test_dense_ungated_ignores_the_gate_and_the_recency_multiplier():
+    as_of = datetime(2026, 10, 9, 9, 0, tzinfo=UTC)
+    t_old, t_new = as_of - timedelta(days=9), as_of - timedelta(hours=2)
+    about = _cand(1, 10, 0.5, t_new, published=t_new, player_ids=[379])
+    filler_old = _cand(2, 11, 0.9, t_old, published=t_old, player_ids=[999])
+    out = bp.dense_ungated([about, filler_old], as_of, requested_ids=[379])
+    assert [c["id"] for c in out] == [2, 1]                   # the filler stays, raw vector order, the old one not demoted
+    assert out[0]["about"] is False and out[1]["about"] is True
+    assert all(c["boosted"] == pytest.approx(c["score"]) for c in out)
+
+
+def test_dense_ungated_keeps_the_two_chunks_per_article_cap_and_the_top():
+    as_of = datetime(2026, 10, 9, 9, 0, tzinfo=UTC)
+    t = as_of - timedelta(days=1)
+    cands = [_cand(i, 10, 1.0 - i / 100, t, published=t) for i in range(1, 5)] + [_cand(9, 11, 0.5, t, published=t)]
+    assert [c["id"] for c in bp.dense_ungated(cands, as_of, requested_ids=[379])] == [1, 2, 9]
+    many = [_cand(i, 100 + i, 1.0 - i / 100, t, published=t) for i in range(1, 9)]
+    assert len(bp.dense_ungated(many, as_of, requested_ids=[379])) == bp.TOP_PER_VARIANT
+
+
+def test_dense_ungated_refuses_a_chunk_fetched_after_as_of():
+    as_of = datetime(2026, 10, 9, 9, 0, tzinfo=UTC)
+    ok = _cand(1, 10, 0.9, as_of - timedelta(hours=1))
+    late = _cand(3, 12, 0.9, as_of + timedelta(seconds=1))
+    with pytest.raises(ValueError):
+        bp.dense_ungated([ok, late], as_of, requested_ids=[379])
+
+
+def test_dense_ungated_is_skipped_when_no_player_is_gated():
+    as_of = datetime(2026, 10, 9, 9, 0, tzinfo=UTC)
+    c = _cand(1, 10, 0.9, as_of - timedelta(hours=1))
+    assert bp.dense_ungated([c], as_of, requested_ids=[]) is None
+
+
+def test_only_by_names_the_rows_a_single_variant_found():
+    t = datetime(2026, 10, 8, tzinfo=UTC)
+    a, b, c = _cand(1, 10, 0.9, t), _cand(2, 11, 0.8, t), _cand(3, 12, 0.7, t)
+    merged = bp.merge_variants({"dense_only": [a], "hybrid_production": [a, c], "dense_ungated": [a, b, c]})
+    assert bp.only_by(merged, "dense_ungated") == [2]
+    assert bp.only_by(merged, "dense_only") == []
+
+
+def test_stored_query_embeddings_are_reused_without_an_embedding_call(monkeypatch):
+    import embeddings as em
+    pool = {"questions": [{"qid": "q01", "query_embedding": [0.1, 0.2]}, {"qid": "q02", "query_embedding": [0.3, 0.4]}]}
+    assert bp.embeddings_from_pool(pool) == {"q01": [0.1, 0.2], "q02": [0.3, 0.4]}
+    assert bp.embeddings_from_pool({"questions": [{"qid": "q01"}]}) == {}
+
+    def boom(*a, **k):
+        raise AssertionError("embeddings.embed must not be called when every question has a stored vector")
+    monkeypatch.setattr(em, "embed", boom)
+    questions = [{"qid": "q01", "question": "a"}, {"qid": "q02", "question": "b"}]
+    stats = {}
+    out = bp.embed_questions(questions, conn=None, stats=stats, reuse=bp.embeddings_from_pool(pool))
+    assert out == {"q01": [0.1, 0.2], "q02": [0.3, 0.4]} and stats.get("reused") == 2
+    with pytest.raises(AssertionError):                       # one vector missing -> the real embed is needed
+        bp.embed_questions(questions + [{"qid": "q03", "question": "c"}], conn=None, stats={}, reuse=bp.embeddings_from_pool(pool))
+
+
+def test_label_row_count_rule():
+    """one outcome row for an ambiguous / no-news question (or any question with no candidates), plus every candidate"""
+    assert bp.label_row_count("ambiguous", 0) == 1
+    assert bp.label_row_count("no_news", 0) == 1
+    assert bp.label_row_count("no_news", 5) == 6                # the tool's verdict row, then the ungated candidates
+    assert bp.label_row_count("player_current_news", 0) == 1
+    assert bp.label_row_count("player_current_news", 4) == 4
+
+
+def test_workbook_shows_the_outcome_row_then_the_candidates_for_a_no_news_question(tmp_path):
+    import openpyxl
+    t = "2026-10-08T12:00:00Z"
+    doc = {"questions": [
+        {"qid": "q24", "situation": "no_news", "question": "any news on marmoush?", "players": ["Marmoush"], "clubs": [],
+         "as_of": t, "expected_outcome": "no_news_for", "right_behaviour": "say none"},
+        {"qid": "q27", "situation": "ambiguous", "question": "is palmer fit?", "players": ["Palmer"], "clubs": [],
+         "as_of": t, "expected_outcome": "ambiguous", "right_behaviour": "ask"}]}
+
+    def cand(cid):
+        return {"chunk_id": cid, "item_id": 100 + cid, "source": "fpl", "club": None, "headline": f"h{cid}",
+                "published_at": "2026-10-07T10:00:00+00:00", "fetched_at": "2026-10-07T10:30:00+00:00",
+                "date_source": "source_field", "chunk_text": f"text {cid}", "found_by": {"dense_ungated": cid}, "about": False}
+    pool = {"questions": [
+        {"qid": "q24", "situation": "no_news", "n_candidates": 2, "candidates": [cand(1), cand(2)],
+         "tool_outcome": {"search_mode": "hybrid", "n_results": 0, "no_news_for": ["Marmoush"], "ambiguous_players": {}}},
+        {"qid": "q27", "situation": "ambiguous", "n_candidates": 0, "candidates": [],
+         "tool_outcome": {"search_mode": "dense_only", "n_results": 0, "no_news_for": [], "ambiguous_players": {"Palmer": ["a", "b"]}}}]}
+    sha = bp.write_workbook(doc, pool, tmp_path / "w.xlsx")
+    assert len(sha) == 12
+    ws = openpyxl.load_workbook(tmp_path / "w.xlsx")["label"]
+    assert ws["A1"].value == bp.LABEL_RULE
+    rows = list(ws.iter_rows(min_row=3, values_only=True))
+    q24 = [r for r in rows if r[0] == "q24"]
+    q27 = [r for r in rows if r[0] == "q27"]
+    assert [r[3] for r in q24] == ["tool", 1, 2] and q24[0][7] == bp.OUTCOME_QUESTION
+    assert sorted(r[8] for r in q24[1:]) == ["text 1", "text 2"]
+    assert [r[3] for r in q27] == ["tool"]
+    header = next(ws.iter_rows(min_row=2, max_row=2, values_only=True))
+    assert not any(k in str(h).lower() for h in header for k in ("variant", "rank", "score"))
+
+
 def test_rank_candidates_date_basis_follows_production():
     """an item whose date_source is not a publisher claim ages from fetched_at (news_search.date_basis)"""
     as_of = datetime(2026, 10, 9, 9, 0, tzinfo=UTC)

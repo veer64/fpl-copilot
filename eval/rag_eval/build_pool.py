@@ -6,16 +6,20 @@ variants are pooled and de-duplicated by chunk id:
   keyword_only        the keyword ranking alone (no vector; empty when the question names no player and no club)
   hybrid_no_recency   the production reciprocal-rank fusion without the recency multiplier
   hybrid_production   the production ranking exactly as search_news applies it (fusion, recency, cap, gate)
+  dense_ungated       (pool v2, 2026-10-14) the vector ranking with NO player gate and no recency -- the gate-miss check;
+                      built only where the gate is active (a named player resolved), skipped elsewhere (it would equal
+                      dense_only)
 The two-chunks-per-article cap and the player gate (named players -> only about-results) are production's for every
-variant (news_search.search_news, step 4). The pool with the variant and rank of every candidate goes to
+variant but dense_ungated (news_search.search_news, step 4). The pool with the variant and rank of every candidate goes to
 eval/reports/rag_pool_v1.json -- the labeller must NOT see it -- and the workbook eval/reports/rag_labels_v1.xlsx shows
 the candidates of each question shuffled (SHUFFLE_SEED) with no variant, rank or score.
 
 Production code is not changed: the variants are built from news_search's own pieces (resolve_players, club_terms,
 _candidates, date_basis, recency_multiplier, source_label, human_age) and config_roles. Every question is embedded
-once, all of them in one embeddings.embed call (purpose "rag_eval"), so the Voyage cost is one request.
+once, all of them in one embeddings.embed call (purpose "rag_eval"), so the Voyage cost is one request; the pool stores
+each query's vector, and --reuse-embeddings <earlier pool> makes a rebuild cost no request at all.
 
-Usage (repo root):  python eval/rag_eval/build_pool.py [--questions P] [--pool P] [--workbook P] [--dry-run]
+Usage (repo root):  python eval/rag_eval/build_pool.py [--questions P] [--pool P] [--workbook P] [--reuse-embeddings P] [--dry-run]
 """
 import argparse
 import hashlib
@@ -36,7 +40,7 @@ import chunking as ch                                      # noqa: E402
 import news_search as ns                                   # noqa: E402
 
 UTC = timezone.utc
-VARIANTS = ("dense_only", "keyword_only", "hybrid_no_recency", "hybrid_production")
+VARIANTS = ("dense_only", "keyword_only", "hybrid_no_recency", "hybrid_production", "dense_ungated")
 TOP_PER_VARIANT = 5
 SHUFFLE_SEED = 20261014
 QUESTIONS_PATH = REPO / "eval" / "rag_eval" / "questions_v1.json"
@@ -145,11 +149,45 @@ def check_as_of(cands, as_of):
     return bad
 
 
+def gate_active(players, requested_ids):
+    """True when production's player gate bites: the question names a player AND at least one resolved."""
+    return bool(players) and bool(requested_ids)
+
+
+def dense_ungated(dense_cands, as_of, requested_ids):
+    """Pool v2: the vector ranking with no player gate and no recency -- the same as_of filter (every candidate must
+    have been fetched at or before as_of, else ValueError) and the same two-chunks-per-article cap. None when no
+    player is gated (then it would equal dense_only). 'about' is still marked so a gate miss can be read off."""
+    if not requested_ids:
+        return None
+    bad = check_as_of(dense_cands, as_of)
+    if bad:
+        raise ValueError(f"{len(bad)} candidate(s) fetched after as_of: {bad[:3]}")
+    return rank_candidates(dense_cands, as_of, requested_ids, players_given=False, recency=False)
+
+
+def only_by(merged, variant):
+    """the chunk ids of the merged rows that exactly one variant -- this one -- found"""
+    return [m["chunk_id"] for m in merged if set(m["found_by"]) == {variant}]
+
+
+def embeddings_from_pool(pool):
+    """{qid: vector} for the questions of an earlier pool document that stored their query vector."""
+    return {e["qid"]: e["query_embedding"] for e in (pool or {}).get("questions") or [] if e.get("query_embedding")}
+
+
 def date_and_age(row, as_of):
     """(the date the age is measured from as YYYY-MM-DD, its basis, the age in words) -- production's date_basis"""
     when, basis = ns.date_basis(row)
     when = ns._utc(when)
     return when.strftime("%Y-%m-%d"), basis, ns.human_age(as_of - when)
+
+
+def label_row_count(situation, n_candidates):
+    """Rows the label sheet gives a question: one "is the tool's outcome right?" row for an ambiguous / no-news question
+    (or for any question with no candidates), plus one row per candidate (pool v2: a no-news question's ungated
+    candidates follow its outcome row -- the gate-miss check needs them seen)."""
+    return (1 if situation in OUTCOME_SITUATIONS or n_candidates == 0 else 0) + n_candidates
 
 
 def outcome_text(tool_outcome):
@@ -159,12 +197,19 @@ def outcome_text(tool_outcome):
 
 # ---- the database-bound part ------------------------------------------------------------------------------------------
 
-def embed_questions(questions, conn, stats=None):
-    """{qid: vector}; one embeddings.embed call for every question text (kind 'query', purpose 'rag_eval')."""
+def embed_questions(questions, conn, stats=None, reuse=None):
+    """{qid: vector}: stored vectors from `reuse` where present (stats['reused'] counts them), one embeddings.embed call
+    (kind 'query', purpose 'rag_eval') for the rest -- none at all when every question is covered."""
     import embeddings as em
-    texts = [q["question"] for q in questions]
-    vecs = em.embed(texts, "query", conn=conn, purpose="rag_eval", stats=stats)
-    return {q["qid"]: v for q, v in zip(questions, vecs)}
+    reuse = reuse or {}
+    out = {q["qid"]: reuse[q["qid"]] for q in questions if q["qid"] in reuse}
+    if stats is not None:
+        stats["reused"] = len(out)
+    missing = [q for q in questions if q["qid"] not in out]
+    if missing:
+        vecs = em.embed([q["question"] for q in missing], "query", conn=conn, purpose="rag_eval", stats=stats)
+        out.update({q["qid"]: v for q, v in zip(missing, vecs)})
+    return out
 
 
 def candidates_for(q, qvec, conn, snaps):
@@ -183,6 +228,7 @@ def candidates_for(q, qvec, conn, snaps):
         "keyword_only": rank_candidates(kw, as_of, ids, players_given, recency=False),
         "hybrid_no_recency": rank_candidates(hyb, as_of, ids, players_given, recency=False),
         "hybrid_production": rank_candidates(hyb, as_of, ids, players_given, recency=True),
+        "dense_ungated": dense_ungated(dense, as_of, ids) if gate_active(q["players"], ids) else None,
     }
     ranked_all = rank_candidates(hyb, as_of, ids, players_given, recency=True, top=max(len(hyb), 1))
     seen = seen_about_ids(ranked_all)
@@ -202,10 +248,11 @@ def _jsonable(v):
     return v
 
 
-def build_pool(doc, conn, snaps, stats=None):
-    """The pool document: meta, one entry per question with its de-duplicated candidates and the tool outcome."""
+def build_pool(doc, conn, snaps, stats=None, reuse=None):
+    """The pool document: meta, one entry per question with its de-duplicated candidates, the tool outcome and the
+    query vector (so a later rebuild can reuse it)."""
     questions = doc["questions"]
-    vectors = embed_questions(questions, conn, stats)
+    vectors = embed_questions(questions, conn, stats, reuse)
     entries = []
     for q in questions:
         per_variant, resolution, tool_outcome = candidates_for(q, vectors[q["qid"]], conn, snaps)
@@ -217,7 +264,10 @@ def build_pool(doc, conn, snaps, stats=None):
         entries.append({"qid": q["qid"], "situation": q["situation"], "question": q["question"], "players": q["players"],
                         "clubs": q["clubs"], "as_of": q["as_of"], "expected_outcome": q["expected_outcome"],
                         "resolution": resolution, "tool_outcome": tool_outcome, "n_candidates": len(merged),
-                        "per_variant_ids": {v: [c["id"] for c in per_variant[v]] for v in VARIANTS},
+                        "gate_active": gate_active(q["players"], [r["id"] for r in resolution["requested"]]),
+                        "per_variant_ids": {v: (None if per_variant[v] is None else [c["id"] for c in per_variant[v]]) for v in VARIANTS},
+                        "only_by_dense_ungated": only_by(merged, "dense_ungated"),
+                        "query_embedding": [float(x) for x in vectors[q["qid"]]],
                         "candidates": [{k: _jsonable(v) for k, v in row.items()} for row in merged]})
     counts = [e["n_candidates"] for e in entries]
     meta = {"built_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), "questions_version": doc.get("version"),
@@ -230,14 +280,17 @@ def build_pool(doc, conn, snaps, stats=None):
             "embedding": dict(stats or {}),
             "candidates_per_question": {"min": min(counts), "median": statistics.median(counts), "max": max(counts),
                                         "total": sum(counts)},
-            "label_rows": sum(1 if e["situation"] in OUTCOME_SITUATIONS or e["n_candidates"] == 0 else e["n_candidates"]
-                              for e in entries)}
+            "label_rows": sum(label_row_count(e["situation"], e["n_candidates"]) for e in entries),
+            "dense_ungated": {"built_for": [e["qid"] for e in entries if e["gate_active"]],
+                              "skipped_for": [e["qid"] for e in entries if not e["gate_active"]],
+                              "added_only_by_it": sum(len(e["only_by_dense_ungated"]) for e in entries)}}
     return {"meta": meta, "questions": entries}
 
 
 def write_workbook(doc, pool, path=WORKBOOK_PATH):
     """The blind labelling workbook: sheet 'questions' first, then 'label' with the candidates shuffled per question
-    and no variant, rank or score. Returns the file's sha256[:12]."""
+    and no variant, rank or score; an ambiguous / no-news question (or one with no candidates) opens with the single
+    "is the tool's outcome right?" row, and any candidates it has follow it. Returns the file's sha256[:12]."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font
     from openpyxl.worksheet.datavalidation import DataValidation
@@ -276,8 +329,7 @@ def write_workbook(doc, pool, path=WORKBOOK_PATH):
         if q["situation"] in OUTCOME_SITUATIONS or e["n_candidates"] == 0:
             wl.append([q["qid"], q["question"], q["as_of"], "tool", "tool outcome", None, None, OUTCOME_QUESTION,
                        outcome_text(e["tool_outcome"]), None, None])
-            continue
-        for i, row in enumerate(shuffle_candidates(e["candidates"], SHUFFLE_SEED, q["qid"]), 1):
+        for i, row in enumerate(shuffle_candidates(e["candidates"], SHUFFLE_SEED, q["qid"]), 1):     # label_row_count
             r = dict(row)
             for k in ("published_at", "fetched_at"):
                 if isinstance(r.get(k), str):
@@ -307,8 +359,11 @@ def main(argv=None):
     ap.add_argument("--questions", default=str(QUESTIONS_PATH))
     ap.add_argument("--pool", default=str(POOL_PATH))
     ap.add_argument("--workbook", default=str(WORKBOOK_PATH))
+    ap.add_argument("--reuse-embeddings", default=None, dest="reuse",
+                    help="an earlier pool json whose stored query vectors are reused (no Voyage request for those questions)")
     ap.add_argument("--dry-run", action="store_true", help="load and validate the questions only; no database, no embedding")
     a = ap.parse_args(argv)
+    reuse = embeddings_from_pool(json.loads(Path(a.reuse).read_text(encoding="utf-8"))) if a.reuse else None
     doc = load_questions(a.questions)
     for q in doc["questions"]:
         parse_as_of(q["as_of"])
@@ -320,7 +375,7 @@ def main(argv=None):
     try:
         snaps = ns._load_snapshots()
         stats = {}
-        pool = build_pool(doc, conn, snaps, stats)
+        pool = build_pool(doc, conn, snaps, stats, reuse)
     finally:
         conn.close()
     Path(a.pool).parent.mkdir(parents=True, exist_ok=True)
@@ -330,6 +385,8 @@ def main(argv=None):
     print(f"pool: {a.pool} | candidates per question min/median/max {m['candidates_per_question']['min']}/"
           f"{m['candidates_per_question']['median']}/{m['candidates_per_question']['max']} | total {m['candidates_per_question']['total']}"
           f" | label rows {m['label_rows']} | embedding {m['embedding']}")
+    print(f"dense_ungated: built for {len(m['dense_ungated']['built_for'])} questions, skipped for "
+          f"{len(m['dense_ungated']['skipped_for'])}, chunks added only by it {m['dense_ungated']['added_only_by_it']}")
     print(f"workbook: {a.workbook} sha256[:12] {sha}")
     return 0
 
