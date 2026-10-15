@@ -451,6 +451,17 @@ def chance_words(chance, as_of, gw):
     return f"chance of playing {where}: {int(chance)}%" + (f", FPL as of {when}" if when else "")
 
 
+def latest_flag_words(chance, as_of, gw):
+    """'latest FPL flag (for GW7, as of 15 Oct 2026): chance of playing 75%' -- what a row for a LATER gameweek than
+    the flag's carries instead of chance_words (Thursday gate F13, 2026-10-15): FPL's chance is for the gameweek it
+    names, never a forecast for a later one. None without a chance. Pure."""
+    if chance is None:
+        return None
+    when = _as_of_words(as_of)
+    inner = ", ".join(x for x in ((f"for GW{int(gw)}" if gw is not None else None), (f"as of {when}" if when else None)) if x)
+    return "latest FPL flag" + (f" ({inner})" if inner else "") + f": chance of playing {int(chance)}%"
+
+
 def _flags_for(elements):
     """{element: {name, status, status_word, chance, news, as_of, gw, chance_words}} for the elements FPL flags
     (a status other than available, or a chance below 100), from players_live; {} on any failure."""
@@ -476,7 +487,12 @@ def _flags_for(elements):
 def _with_flags(out):
     """`out` with every flagged player's row annotated in place: a player row (player_id / element) gains
     status_word and, when FPL gives one, chance and chance_words; a transfer row gains the same keys suffixed
-    _out / _in. Unflagged players are left exactly as they were. One players_live query per output."""
+    _out / _in. Unflagged players are left exactly as they were. One players_live query per output.
+
+    A row belongs to the gameweek of the nearest enclosing dict with an integer `gw` (the output's own `gw`, or a
+    plan step's). When that gameweek is LATER than the one the flag names, chance_words is latest_flag_words
+    ("latest FPL flag (for GW7, as of 15 Oct 2026): chance of playing 75%") instead of the flag's own words: a flag
+    applies only to the gameweek it names (Thursday gate F13, 2026-10-15)."""
     if not isinstance(out, dict) or "error" in out:
         return out
     ids = []
@@ -497,28 +513,33 @@ def _with_flags(out):
     if not flags:
         return out
 
-    def _mark(row, f, suffix=""):
+    def _mark(row, f, suffix="", row_gw=None):
         row.setdefault("status_word" + suffix, f["status_word"])
         if f["chance"] is not None:
             row.setdefault("chance" + suffix, f["chance"])
-            row.setdefault("chance_words" + suffix, f["chance_words"])
+            later = row_gw is not None and f.get("gw") is not None and int(row_gw) > int(f["gw"])
+            row.setdefault("chance_words" + suffix,
+                           latest_flag_words(f["chance"], f["as_of"], f["gw"]) if later else f["chance_words"])
 
-    def _walk(x):
+    def _walk(x, row_gw=None):
         if isinstance(x, dict):
+            g = x.get("gw")
+            if isinstance(g, int) and not isinstance(g, bool):
+                row_gw = g
             if "out_id" in x or "in_id" in x:
                 for side in ("out", "in"):
                     v = x.get(f"{side}_id")
                     if isinstance(v, int) and v in flags:
-                        _mark(x, flags[v], "_" + side)
+                        _mark(x, flags[v], "_" + side, row_gw)
             else:
                 v = x.get("player_id", x.get("element"))
                 if isinstance(v, int) and not isinstance(v, bool) and v in flags:
-                    _mark(x, flags[v])
+                    _mark(x, flags[v], "", row_gw)
             for v in list(x.values()):
-                _walk(v)
+                _walk(v, row_gw)
         elif isinstance(x, list):
             for v in x:
-                _walk(v)
+                _walk(v, row_gw)
     _walk(out)
     return out
 
@@ -955,17 +976,23 @@ def get_prediction(player_id: int, gw: int = None):
     # carry it, and guessing a club by matching lambdas is the recorded mis-pairing trap. A
     # separate, guarded lookup: if it fails the club is simply not named, and the rest of the
     # answer is unaffected -- a cosmetic lookup must never be able to break a prediction read.
-    club = None
+    # The same lookup names the player (Thursday gate F14, 2026-10-15): an id no tool gave -- 328 for "Cole Palmer"
+    # after an ambiguous resolve -- came back as Brighton's numbers under Palmer's name, because the answer named
+    # only the club. With the name, a wrong id shows itself; a failed lookup still never breaks the prediction.
+    club, name = None, None
     try:
-        hit = _q("SELECT team FROM players_live WHERE element = %s LIMIT 1", (player_id,))
+        hit = _q("SELECT name, team FROM players_live WHERE element = %s LIMIT 1", (player_id,))
         club = hit[0]["team"] if hit else None
+        name = hit[0].get("name") if hit else None
     except Exception:                                   # noqa: BLE001
-        club = None
+        club, name = None, None
     for r in rows:
         r["team"] = club
 
     out = _run_meta(run)
     out["player_id"] = player_id
+    if name:
+        out["name"] = name
     out["team"] = club
     out["predictions"] = [{k: (float(v) if isinstance(v, float) else v)
                            for k, v in r.items()
