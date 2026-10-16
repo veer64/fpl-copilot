@@ -21,7 +21,7 @@ tools_schema = [
     },
     {
         "name": "get_player_card",
-        "description": "Full details for one player: identity, price, availability status, and the production model's predictions for the coming gameweeks. For any question about whether a named player is available, fit, injured or suspended, call this FIRST, right after resolve_player: it is FPL's official flag (status, chance of playing with the gameweek it is for, FPL's note) with the time FPL took it, and resolve_player's `status` is not FPL's flag. Search the news after it, for context. available=false means the player cannot play for his club; lead with availability_note.",
+        "description": "Full details for one player: identity, price, availability status, and the production model's predictions for the coming gameweeks. For a question about whether ONE named player can play -- is he available, fit, injured or suspended -- call this FIRST, right after resolve_player: it is FPL's official flag (status, chance of playing with the gameweek it is for, FPL's note) with the time FPL took it, and resolve_player's `status` is not FPL's flag. Search the news after it, for context. A comparison (\"X or Y\", \"who should I pick\") is not that question: it keeps its compare route (compare_predictions). available=false means the player cannot play for his club; lead with availability_note.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -354,7 +354,7 @@ tools_schema = [
         "name": "search_news",
         "description": ("Search the stored team news (FPL's official flags, BBC Sport, the clubs' own sites) for a player "
                         "or a club. Use it for injury, fitness, availability, suspension and team-news questions, AFTER "
-                        "get_player_card: for a named player, get_player_card comes first (the player's FPL status: FPL's "
+                        "get_player_card: for whether one named player can play, get_player_card comes first (the player's FPL status: FPL's "
                         "official flag with its time; resolve_player's `status` is not FPL's flag) and the news second, "
                         "for context. Always pass "
                         "the player names in `players`, and answer in the order the AVAILABILITY ANSWERS rules give. "

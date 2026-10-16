@@ -168,6 +168,9 @@ def _difficulty(tl, ol, pcs, scores=None):
             "score": scores.get("defence"),
             "score_meaning": SCORE_MEANING,
             "reading": "higher is EASIER to keep a clean sheet",
+            # Friday targeted fix F17 (2026-10-16): a team's clean-sheet chance was read as lifting a forward's floor
+            "clean_sheet_points": ("FPL scoring: 4 points for goalkeepers and defenders, 1 point for midfielders, "
+                                   "no clean-sheet points for forwards"),
             "note": ("the clean-sheet chance is not simply derived from the opponent's expected goals: at the "
                      "deadline gameweek the two differ (sd 0.0211, max 0.0782) because the chance blends the "
                      "team-strength estimate with the market, and the opponent's expected goals are pure market"),

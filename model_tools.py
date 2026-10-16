@@ -949,6 +949,25 @@ def _table_columns(table, ttl=COLUMN_CACHE_TTL_S):
     return cols
 
 
+# FPL scoring for a clean sheet, said beside every clean-sheet chance a forward's or a midfielder's prediction shows
+# (Friday targeted fix F17, 2026-10-16): "Should I triple captain Haaland?" read a 46% clean-sheet chance as lifting a
+# forward's floor. Goalkeepers' and defenders' 4 points need no label.
+CS_POINTS_WORDS = {"FWD": "no clean-sheet points for forwards", "MID": "a clean sheet is worth 1 point for midfielders"}
+
+
+def _with_cs_points(row, position):
+    """`row` with clean_sheet_points right after p_cs when the player is a forward or a midfielder; unchanged otherwise."""
+    words = CS_POINTS_WORDS.get(position)
+    if not words or "p_cs" not in row:
+        return row
+    out = {}
+    for k, v in row.items():
+        out[k] = v
+        if k == "p_cs":
+            out["clean_sheet_points"] = words
+    return out
+
+
 def get_prediction(player_id: int, gw: int = None):
     """The production model's view of one player: the target gw if given,
     else every gameweek in the latest run's six-week horizon."""
@@ -979,13 +998,14 @@ def get_prediction(player_id: int, gw: int = None):
     # The same lookup names the player (Thursday gate F14, 2026-10-15): an id no tool gave -- 328 for "Cole Palmer"
     # after an ambiguous resolve -- came back as Brighton's numbers under Palmer's name, because the answer named
     # only the club. With the name, a wrong id shows itself; a failed lookup still never breaks the prediction.
-    club, name = None, None
+    club, name, position = None, None, None
     try:
-        hit = _q("SELECT name, team FROM players_live WHERE element = %s LIMIT 1", (player_id,))
+        hit = _q("SELECT name, team, position FROM players_live WHERE element = %s LIMIT 1", (player_id,))
         club = hit[0]["team"] if hit else None
         name = hit[0].get("name") if hit else None
+        position = hit[0].get("position") if hit else None
     except Exception:                                   # noqa: BLE001
-        club, name = None, None
+        club, name, position = None, None, None
     for r in rows:
         r["team"] = club
 
@@ -994,9 +1014,9 @@ def get_prediction(player_id: int, gw: int = None):
     if name:
         out["name"] = name
     out["team"] = club
-    out["predictions"] = [{k: (float(v) if isinstance(v, float) else v)
-                           for k, v in r.items()
-                           if k not in PRED_INTERNAL_COLS and k != "team"} for r in rows]
+    out["predictions"] = [_with_cs_points({k: (float(v) if isinstance(v, float) else v)
+                                           for k, v in r.items()
+                                           if k not in PRED_INTERNAL_COLS and k != "team"}, position) for r in rows]
     out["horizon_e_points_sum"] = round(sum(r["e_points"] or 0 for r in rows), 2)
     out["quantiles"] = _quantile_block(rows)
     _with_started_note(out, rows[0].get("gw") if gw is None else None)   # the first row is the build's own gameweek
@@ -3987,10 +4007,31 @@ def get_prediction_history(player_id: int, gw: int):
     # Friday gate R2 (2026-10-16): a move no build can break down is said to have no reason, in plain words and
     # FIRST -- the per-build start chance and minutes are facts, not the reason (measured 2026-10-15: "likely
     # reflecting updated minutes/fitness information" was read into them twice).
-    lead = ({"summary_plain": (f"{NO_WHY} {name}'s expected points for GW{x} went from {biggest['e_points_before']:.1f} "
-                               f"({biggest['from_built']}) to {biggest['e_points_after']:.1f} ({biggest['to_built']}); "
-                               "one of those builds stored no breakdown, so no reason for the move is available.")}
-            if biggest and not biggest["explainable"] else {})
+    # Friday targeted fix F16 (2026-10-16): the text must not read as a full stop -- "Compare run 3 and run 9" then
+    # never reached compare_runs (3/3) -- so it points onward in TOOL-FACING text (next_step, never shown to users),
+    # and it states the two builds' measured inputs as facts our numbers don't attribute the move to.
+    lead = {}
+    if biggest and not biggest["explainable"]:
+        a_row = next(h for h in hist if h["run_id"] == biggest["from_run_id"])
+        b_row = next(h for h in hist if h["run_id"] == biggest["to_run_id"])
+        moves = {k: {"from": a_row[k], "to": b_row[k]} for k in ("p_start", "e_minutes")
+                 if a_row.get(k) is not None and b_row.get(k) is not None}
+        facts = []
+        if "p_start" in moves:
+            facts.append(f"chance of starting {moves['p_start']['from']:.0%} then {moves['p_start']['to']:.0%}")
+        if "e_minutes" in moves:
+            facts.append(f"expected minutes {moves['e_minutes']['from']:.0f} then {moves['e_minutes']['to']:.0f}")
+        lead = {"summary_plain": (f"{NO_WHY} {name}'s expected points for GW{x} went from {biggest['e_points_before']:.1f} "
+                                  f"({biggest['from_built']}) to {biggest['e_points_after']:.1f} ({biggest['to_built']})."
+                                  + (f" The two builds' inputs moved as well ({'; '.join(facts)}), but our numbers don't "
+                                     "attribute the move to them." if facts else "")
+                                  + " One of those builds stored no breakdown."),
+                # a structured pointer, like explain_with: the tool's name is a field value, never prose
+                "next_step": {"for": "a breakdown between two builds", "tool": "compare_runs",
+                              "needs": "the player id, the gameweek and the two builds' run ids",
+                              "note": "a build from before 14 Sep 2026 stored no breakdown, and the comparison says so"}}
+        if moves:
+            lead["input_moves"] = moves
     out = {**lead, "player_id": pid, "name": name, "position": meta.get("position"), "team": meta.get("team"), "gw": x, "runs": len(hist),
            "first": first["built"], "latest": last["built"],
            "latest_e_points": last["e_points"],
