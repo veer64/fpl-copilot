@@ -1244,9 +1244,11 @@ def get_best_squad(budget: float = None):
     """The optimal fifteen. At the full 100.0 budget this is the STORED
     production solve (a database read); a custom budget runs the real MIP
     against the latest frame (seconds, not instant)."""
-    if budget is None or abs(budget - 100.0) < 1e-9:
-        return get_picks()
-    return optimise(budget=budget)
+    out = get_picks() if budget is None or abs(budget - 100.0) < 1e-9 else optimise(budget=budget)
+    if not isinstance(out, dict) or "error" in out:
+        return out
+    ids = [r["player_id"] for k in PICK_ROW_KEYS for r in (out.get(k) or []) if isinstance(r, dict) and r.get("player_id") is not None]
+    return _with_pick_basis(out, out.get("gw"), _fixture_counts(out.get("gw"), ids))   # Friday gate R2
 
 
 # -------------------------------------------------------------- my squad
@@ -1615,7 +1617,7 @@ def _explain_from_run(run_id, player_id, gw):
     try:
         step = _rows_from_db(run, PRODUCTION_CONFIG, gw)
     except ValueError as e:
-        return None, None, {"error": str(e)}
+        return None, None, {"error": str(e), "error_kind": "no_recorded_terms"}
     if step is None:
         lo, hi = _run_horizon(run)
         outside = _horizon_check(gw, lo, hi, run_id)
@@ -1639,6 +1641,33 @@ def _plain_first(out, detail_keys):
     detail = {k: out[k] for k in detail_keys if k in out}
     rest = {k: v for k, v in out.items() if k not in detail_keys and k != "summary_plain"}
     return {"summary_plain": out.get("summary_plain"), **rest, "detail": detail}
+
+
+NO_WHY = "Our numbers don't show why this changed."
+
+
+def _no_breakdown(err, player_id, gw, run_ids):
+    """The answer when a build has no recorded breakdown (Friday gate R2, 2026-10-16): the error stays, and
+    summary_plain says FIRST, in plain words, that our numbers don't show why the number changed, with the totals
+    the builds did store and reasons_available False. Measured 2026-10-15: on "Compare run 3 and run 9 for Isak"
+    the agent filled the gap with reasons no tool gave ("fixture pricing offset the minutes drop")."""
+    name = _player_name(player_id) or f"player {player_id}"
+    try:
+        rows = _q("""SELECT p.run_id, p.e_points, r.finished_at
+                     FROM model_predictions p JOIN model_runs r ON r.run_id = p.run_id
+                     WHERE p.element = %s AND p.gw = %s AND p.config = %s AND p.run_id = ANY(%s)
+                     ORDER BY r.finished_at, p.run_id""",
+                  (int(player_id), int(gw), PRODUCTION_CONFIG, [int(x) for x in run_ids]))
+    except Exception:                                   # noqa: BLE001 -- the totals are a courtesy, never fatal
+        rows = []
+    fmt = _dp()._fmt
+    totals = [{"run_id": int(r["run_id"]), "built": f"the update built {fmt(r['finished_at'])}",
+               "e_points": round(float(r["e_points"]), 2)} for r in rows if r.get("e_points") is not None]
+    said = "; ".join(f"{t['e_points']:.1f} in {t['built']}" for t in totals)
+    summary = (NO_WHY + (f" {name}'s expected points for GW{int(gw)}: {said}." if said else "")
+               + " An update from before 14 Sep 2026 stored no breakdown, so no reason for the number is available.")
+    return {"summary_plain": summary, "reasons_available": False, **err, "player_id": int(player_id), "name": name,
+            "gw": int(gw), "totals": totals}
 
 
 def _plain_leads_with_availability(out):
@@ -1668,6 +1697,8 @@ def explain_prediction(player_id: int, gw: int = None, run_id: int = None):
             return {"error": "gw is required with run_id"}
         bd, run, cutoff = _explain_from_run(run_id, player_id, int(gw))
         if bd is None:
+            if cutoff.get("error_kind") == "no_recorded_terms":
+                return _no_breakdown(cutoff, player_id, gw, [run_id])
             return cutoff                      # the error dict
         m = _run_meta(run)
         return _plain_first({**bd, "run_id": run["run_id"], "predictions_as_of_cutoff_gw": cutoff,
@@ -1703,11 +1734,13 @@ def compare_runs(player_id: int, gw: int, run_id_a: int, run_id_b: int):
     terms and answer with an error."""
     import explain
     a, run_a, cut_a = _explain_from_run(run_id_a, player_id, int(gw))
-    if a is None:
+    if a is None and cut_a.get("error_kind") != "no_recorded_terms":
         return cut_a
     b, run_b, cut_b = _explain_from_run(run_id_b, player_id, int(gw))
-    if b is None:
+    if b is None and cut_b.get("error_kind") != "no_recorded_terms":
         return cut_b
+    if a is None or b is None:                 # a build without a breakdown: say so, never leave room to guess
+        return _no_breakdown(cut_a if a is None else cut_b, player_id, gw, [run_id_a, run_id_b])
     fmt = _dp()._fmt
     c = explain.compare(a, b, label_a=f"build {run_a['run_id']}", label_b=f"build {run_b['run_id']}",
                         plain_a=f"the update built {fmt(run_a.get('finished_at'))}",
@@ -2193,6 +2226,68 @@ def _check_lock_ban(lock, ban, pool_elements=None):
     return None
 
 
+PICK_ROW_KEYS = ("squad", "xi", "bench_in_order", "picks")
+
+
+def _fixture_counts(gw, elements):
+    """{element: its number of fixtures in `gw`} from the production frame -- the n_fixtures the model priced (2 = a
+    double gameweek, 0 = a blank) -- read at the frame's own vantage; {} when it cannot be read. Pure facts."""
+    try:
+        df, vantage, _ = _load_frame()
+    except Exception:                                   # noqa: BLE001 -- the basis falls back to the points alone
+        return {}
+    if gw is None or "n_fixtures" not in df.columns:
+        return {}
+    d = df[df["gw"] == int(gw)]
+    if "cutoff" in d.columns:
+        d = d[d["cutoff"] == vantage]
+    d = d[d["element"].isin([int(e) for e in elements])]
+    return {int(e): int(n) for e, n in zip(d["element"], d["n_fixtures"]) if n is not None and n == n}
+
+
+def _basis_words(e_points, gw, n):
+    """'4.6 predicted points for GW10, from 1 fixture' (a double / a blank said as such). Pure."""
+    pts = f"{float(e_points or 0.0):.1f} predicted points for GW{int(gw)}"
+    if n is None:
+        return pts
+    if n == 0:
+        return f"{pts}, from no fixture (a blank gameweek)"
+    if n == 1:
+        return f"{pts}, from 1 fixture"
+    return f"{pts}, from {n} fixtures" + (" (a double gameweek)" if n == 2 else "")
+
+
+def _with_pick_basis(out, gw, counts):
+    """A squad build's result with the ONLY basis the build has, on every pick row (Friday gate R2, 2026-10-16):
+    its predicted points for the planned gameweek and that gameweek's number of fixtures; and, before the rows, that
+    no other reasons are available. Measured 2026-10-15: "the best squad for gameweek 10" was explained with reasons
+    no tool gave ("reflects the GW10 fixture landscape", "the Bournemouth double ... reflect the longer-range fixture
+    estimates"). Idempotent; an error or a result without pick rows is returned unchanged."""
+    if not isinstance(out, dict) or "error" in out or "basis" in out or gw is None:
+        return out
+    keys = [k for k in PICK_ROW_KEYS if isinstance(out.get(k), list) and out[k]]
+    if not keys:
+        return out
+    counts = counts or {}
+    any_fix = False
+    for k in keys:
+        for r in out[k]:
+            if not isinstance(r, dict) or r.get("player_id") is None:
+                continue
+            n = counts.get(int(r["player_id"]))
+            if n is not None:
+                r["fixtures"] = int(n)
+                any_fix = True
+            r["basis"] = _basis_words(r.get("e_points"), gw, n)
+    basis = (f"Each pick's basis is on its row: its predicted points for GW{int(gw)}"
+             + (f" and its number of GW{int(gw)} fixtures" if any_fix else "")
+             + ". The build picks the fifteen with the most predicted points that FPL's squad rules and the budget "
+               "allow. No other reasons are available.")
+    items = list(out.items())
+    at = min(i for i, (k, _) in enumerate(items) if k in keys)
+    return dict(items[:at] + [("basis", basis), ("reasons_available", False)] + items[at:])
+
+
 def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
              budget: float = None, gw: int = None, start_player_ids: list = None):
     """Run the production MIP (gapRel=0) on the latest frame from the model
@@ -2265,6 +2360,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
     # batch 3 F1 (2026-10-14, the user's decision): a player the user FORCED in although FPL flags him injured,
     # suspended or doubtful is built in, and the result says so first; u / n were refused above.
     forced = list(dict.fromkeys([int(x) for x in (start_player_ids or [])] + [int(x) for x in (lock_player_ids or [])]))
+    out = _with_pick_basis(out, cutoff, _fixture_counts(cutoff, [r["player_id"] for r in out["squad"]]))
     return _with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), cutoff)))
 
 
@@ -3886,13 +3982,22 @@ def get_prediction_history(player_id: int, gw: int):
                                    if biggest["explainable"] else None)
         if not biggest["explainable"]:
             biggest["explain_note"] = "one of the two builds has no recorded terms (before 2026-09-14), so the move cannot be broken down term by term"
+        biggest["reasons_available"] = bool(biggest["explainable"])
     first, last = hist[0], hist[-1]
-    out = {"player_id": pid, "name": name, "position": meta.get("position"), "team": meta.get("team"), "gw": x, "runs": len(hist),
+    # Friday gate R2 (2026-10-16): a move no build can break down is said to have no reason, in plain words and
+    # FIRST -- the per-build start chance and minutes are facts, not the reason (measured 2026-10-15: "likely
+    # reflecting updated minutes/fitness information" was read into them twice).
+    lead = ({"summary_plain": (f"{NO_WHY} {name}'s expected points for GW{x} went from {biggest['e_points_before']:.1f} "
+                               f"({biggest['from_built']}) to {biggest['e_points_after']:.1f} ({biggest['to_built']}); "
+                               "one of those builds stored no breakdown, so no reason for the move is available.")}
+            if biggest and not biggest["explainable"] else {})
+    out = {**lead, "player_id": pid, "name": name, "position": meta.get("position"), "team": meta.get("team"), "gw": x, "runs": len(hist),
            "first": first["built"], "latest": last["built"],
            "latest_e_points": last["e_points"],
            "latest_minus_first": (None if first["e_points"] is None or last["e_points"] is None
                                   else round(last["e_points"] - first["e_points"], 2)),
            "history": hist, "biggest_move": biggest,
+           "reasons_available": (bool(biggest["explainable"]) if biggest else None),
            "kinds": ("nightly = the daily rebuild; post_ingest = the rebuild after FPL confirmed a gameweek; "
                      "t90 / t30 / t10 = the deadline-day rebuilds 90, 30 and 10 minutes before the deadline"),
            "note": (f"oldest to newest: what each stored build predicted {name} would score in GW{x}. "

@@ -55,15 +55,19 @@ def test_the_refusal_names_what_was_sent():
 
 
 # ---- B27: the widened window ---------------------------------------------------------
-def test_a_widened_window_says_so_in_the_same_block(monkeypatch):
+def test_a_widened_window_says_so_in_the_same_block(tmp_path):
+    # Data-independent since 2026-10-16: the live archive (205 snapshots after the 15 Oct refresh) is dense enough
+    # that a 1-day window no longer widens, so the test skipped. Two snapshots three days apart -- the burst sampling
+    # of B27 in miniature -- make a 1-day window widen on every machine; the assertions are unchanged.
+    import gzip
+    import json
     import prices_tool as pt
-    out = pt.movements(window_days=1, directory=None)
-    if out.get("error"):
-        pytest.skip(f"no price snapshots on this machine: {out['error'][:60]}")
+    for stamp in ("20261001T120000Z", "20261004T120000Z"):
+        with gzip.open(tmp_path / f"{stamp}.json.gz", "wt", encoding="utf-8") as fh:
+            json.dump({"elements": [{"id": 1, "first_name": "A", "second_name": "Player", "now_cost": 50,
+                                     "cost_change_start": 0, "cost_change_start_fall": 0, "cost_change_event": 0}]}, fh)
+    out = pt.movements(window_days=1, directory=tmp_path)
     obs = out["observation"]
-    asked_hours = obs["window_days_requested"] * 24
-    if obs["window_hours_actual"] <= asked_hours * 1.05:
-        pytest.skip("the archive is dense enough that a 1-day window was not widened")
     assert obs["window_widened"] is True
     note = obs["window_widened_note"]
     assert "1 day" in note and "widened" in note
@@ -105,7 +109,12 @@ def test_the_constants_count_counts_lines_only():
                 ("%Nicolas Jackson%",))
     if not hit:
         pytest.skip("Nicolas Jackson is not in this data")
-    out = mt.explain_prediction(hit[0]["element"], gw=6)
+    # The frame's own gameweek, computed (2026-10-16): a fixed gw=6 skipped once GW6 had been played.
+    try:
+        _, frame_gw, _ = mt._frame_raw()
+    except (FileNotFoundError, RuntimeError) as e:
+        pytest.skip(f"no production frame: {e}")
+    out = mt.explain_prediction(hit[0]["element"], gw=int(frame_gw))
     if "error" in out:
         pytest.skip(f"no breakdown available: {out['error'][:60]}")
     d = out["detail"]                                            # 2026-10-09: the technical parts sit under detail
