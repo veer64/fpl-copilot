@@ -18,7 +18,7 @@
 
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg2
@@ -462,6 +462,74 @@ def latest_flag_words(chance, as_of, gw):
     return "latest FPL flag" + (f" ({inner})" if inner else "") + f": chance of playing {int(chance)}%"
 
 
+def flag_dates_words(news_added, as_of, flagged):
+    """'FPL flag set 10 Oct 2026, last checked 15 Oct 2026' -- both dates of FPL's flag in plain words (Friday gate v2
+    F18, 2026-10-16): when FPL added the news (the bootstrap's news_added) and when the build last took the flag
+    (players_live.updated_at). Only 'last checked <date>' when no flag is up -- FPL keeps an old news_added after it
+    clears one -- or the set date is unknown. Measured 2026-10-16: with only the as-of date on the card, "What's Reece
+    James' chance of playing?" answered "That flag was set on 15 October" (FPL set it on 10 Oct). None without a
+    readable check date. Pure."""
+    checked = _as_of_words(as_of)
+    set_on = _as_of_words(news_added) if (flagged and news_added) else None
+    if set_on and checked:
+        return f"FPL flag set {set_on}, last checked {checked}"
+    return f"last checked {checked}" if checked else None
+
+
+_SNAPSHOT_NEWS = {"path": None, "map": {}}
+
+
+def _snapshot_news(as_of=None):
+    """{element: (news, news_added)} from the newest raw bootstrap snapshot taken at or before `as_of` (the snapshot
+    the build read players_live from), cached per file; {} when none can be read. A cosmetic read: never fatal."""
+    try:
+        import gzip
+        import json as _json
+        import prices_tool as pt
+        snaps = pt.snapshots()
+        if not snaps:
+            return {}
+        t = None
+        if as_of is not None:
+            t = as_of if isinstance(as_of, datetime) else datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+        upto = [sp for sp in snaps if t is None or sp[0] <= t + timedelta(minutes=2)]
+        path = str((upto or snaps)[-1][1])
+        if _SNAPSHOT_NEWS["path"] != path:
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                doc = _json.load(fh)
+            _SNAPSHOT_NEWS.update(path=path, map={int(e["id"]): ((e.get("news") or "").strip(), e.get("news_added"))
+                                                  for e in doc.get("elements", []) if e.get("id") is not None})
+        return _SNAPSHOT_NEWS["map"]
+    except Exception:                               # noqa: BLE001 -- the set date is a courtesy, never fatal
+        return {}
+
+
+def _player_status(elements):
+    """{element: {status_word, chance[, chance_words]}} for EVERY given player, flagged or not, from players_live --
+    what a comparison carries so it needs no player card (Friday gate v2 F19, 2026-10-16: "Who's better over the
+    next six weeks, Haaland or Isak?" went to the cards, not compare_players). chance_words names the gameweek the
+    chance is for. Rows without a status are skipped; {} on any failure."""
+    ids = sorted({int(e) for e in (elements or []) if e is not None})
+    if not ids:
+        return {}
+    try:
+        rows = _q("SELECT element, status, chance, updated_at FROM players_live WHERE element = ANY(%s)", (ids,))
+    except Exception:                               # noqa: BLE001 -- cosmetic, never fatal
+        return {}
+    out = {}
+    for r in rows:
+        if not isinstance(r, dict) or "status" not in r or r.get("element") is None:
+            continue
+        st, ch = r.get("status"), r.get("chance")
+        d = {"status_word": STATUS_WORDS.get(st, st), "chance": ch}
+        if ch is not None:
+            d["chance_words"] = chance_words(ch, r.get("updated_at"), _next_round_gw(r.get("updated_at")))
+        out[int(r["element"])] = d
+    return out
+
+
 def _flags_for(elements):
     """{element: {name, status, status_word, chance, news, as_of, gw, chance_words}} for the elements FPL flags
     (a status other than available, or a chance below 100), from players_live; {} on any failure."""
@@ -884,6 +952,15 @@ def get_player_card(player_id: int):
     if card.get("chance") is not None:
         card["availability"]["chance_words"] = chance_words(card.get("chance"), card.get("updated_at"), gw_next)
         card["chance_words"] = card["availability"]["chance_words"]
+    # Friday gate v2 F18: both dates of the flag -- when FPL set it and when it was last checked
+    news = (card.get("news") or "").strip()
+    flagged = card.get("status") in FLAG_STATUSES or bool(news) or (card.get("chance") is not None and int(card["chance"]) < 100)
+    snap = _snapshot_news(card.get("updated_at")).get(int(player_id))
+    added = snap[1] if snap and snap[0] == news else None          # FPL's set date only for the same news text
+    dates = flag_dates_words(added, card.get("updated_at"), flagged)
+    if dates:
+        card["availability"]["flag_dates"] = dates
+        card["flag_dates"] = dates
     pred = get_prediction(player_id)
     if "error" not in pred:
         card["prediction"] = pred
@@ -1110,6 +1187,7 @@ def compare_players(player_id_a: int, player_id_b: int):
     names = {e: r["name"] for e, r in live.items()}
 
     flags = _availability_for([player_id_a, player_id_b])
+    status = _player_status([player_id_a, player_id_b])            # Friday gate v2 F19: no card needed to compare
 
     def brief(p):
         first = p["predictions"][0]
@@ -1120,6 +1198,7 @@ def compare_players(player_id_a: int, player_id_b: int):
         return _lead_with_availability(
             {"player_id": p["player_id"], "name": names.get(p["player_id"]),
              "position": meta.get("position"), "team": meta.get("team"),
+             **status.get(int(p["player_id"]), {}),
              "first_gw": first["gw"],
              "first_gw_e_points": first["e_points"],
              "first_gw_p_start": first["p_start"],
@@ -1803,10 +1882,12 @@ def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
     if not out["reconciles"]:
         out["finding"] = "at least one of the two rows does not reconcile -- see the breakdowns' `finding`; do not present the comparison as sound"
     meta = _player_meta([player_id_a, player_id_b])
+    status = _player_status([player_id_a, player_id_b])            # Friday gate v2 F19: no card needed to compare
     for side, pid in (("a", player_id_a), ("b", player_id_b)):
         if isinstance(out.get(side), dict):
             m = meta.get(int(pid)) or {}
-            out[side] = _lead_with_availability({**out[side], "position": m.get("position"), "team": m.get("team")}, pid, flags)
+            out[side] = _lead_with_availability({**out[side], "position": m.get("position"), "team": m.get("team"),
+                                                 **status.get(int(pid), {})}, pid, flags)
     note = _stale_note(target, cutoff, built)
     if note:
         out["note_stale"] = note
