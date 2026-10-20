@@ -378,7 +378,7 @@ tools_schema = [
 
 import os
 from dotenv import load_dotenv
-import anthropic
+import llm
 from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
@@ -392,10 +392,15 @@ from news_search import search_news as _search_news, cited_ids, citation_violati
 from numeric_grounding import check as numeric_check, record_numeric_check
 from now_context import context_block
 from db_write import record_chat_usage
-from pricing import usd as _price_usd
+from pricing import turn_usd as _price_usd
 
 load_dotenv()
-client = anthropic.Anthropic()
+# The client every turn goes out on, built by llm.py since 2026-10-19 (the SDK's own retries off: llm.chat
+# retries a 429, a 5xx or a timeout itself, and fails fast on anything else). timeout_s=None keeps the SDK's
+# default timeout (600 s read, 5 s connect), the value the agent always had. The eval runner and the canaries
+# replace this attribute with a counting wrapper, so the call below must read it from the module at call
+# time, never bind it.
+client = llm.default_client(timeout_s=None)
 
 # The system prompt (master plan 5.5): a reviewed, diffable file, not a
 # string in code. Loaded once at import; a missing file is a startup error,
@@ -531,6 +536,49 @@ def _system_for_turn():
     return f"{block}\n\n{SYSTEM_PROMPT}" if block else SYSTEM_PROMPT
 
 
+# Prompt caching (2026-10-19). Three breakpoints per request, in the order the API caches a prefix: the last tool
+# definition (the schema never changes between calls), the whole system prompt (the context block and the reviewed
+# prompt, one text block, built once per turn), and the last block of the messages (so every later call of a turn
+# reads the earlier calls' prefix instead of paying for it again). The markers go on REQUEST-TIME COPIES only:
+# tools_schema, the system string and the conversation history are left exactly as they were, so the history never
+# accumulates markers (the API allows four) and every other reader of those objects sees the old shapes.
+CACHE_CONTROL = {"type": "ephemeral"}
+
+
+def _tools_for_request(tools):
+    """The tool list with a breakpoint on its last definition."""
+    return list(tools[:-1]) + [{**tools[-1], "cache_control": dict(CACHE_CONTROL)}]
+
+
+def _system_for_request(system):
+    """The system prompt as one text block carrying a breakpoint."""
+    return [{"type": "text", "text": system, "cache_control": dict(CACHE_CONTROL)}]
+
+
+def _messages_for_request(messages):
+    """The messages with a breakpoint on the last block of the last message. That message is always the user's
+    (the question as a string on the first call, the tool results afterwards); a string becomes the single text
+    block it is to the API. Earlier messages are passed through as they are."""
+    if not messages:
+        return []
+    last = messages[-1]
+    content = last["content"]
+    if isinstance(content, str):
+        marked = [{"type": "text", "text": content, "cache_control": dict(CACHE_CONTROL)}]
+    else:
+        marked = list(content)
+        if marked and isinstance(marked[-1], dict):
+            marked[-1] = {**marked[-1], "cache_control": dict(CACHE_CONTROL)}
+    return list(messages[:-1]) + [{**last, "content": marked}]
+
+
+def system_text(system):
+    """The text of a system prompt as sent: the string itself, or the concatenated text of its blocks."""
+    if isinstance(system, str):
+        return system
+    return "".join(b.get("text", "") for b in system)
+
+
 def call_tool(tool_name, tool_input):
     """One tool call under the failure contract: an unknown tool or an
     exception inside a tool becomes an {"error": ...} result naming the tool
@@ -626,7 +674,8 @@ def _usage_log(turn_id, usage, tool_names_replaced):
         model = usage.get("model") or AGENT_MODEL
         seen = bool(usage.get("seen_usage"))
         toks = {k: (usage[k] if seen else None) for k in ("input", "output", "cache_read", "cache_write")}
-        cost = _price_usd(model, toks["input"], toks["output"]) if seen else None
+        cost = (_price_usd(model, toks["input"], toks["output"], cache_read=toks["cache_read"], cache_write=toks["cache_write"])
+                if seen else None)                                               # the cache rates since 2026-10-19
         record_chat_usage(turn_id, model, usage["calls"], toks["input"], toks["output"],
                           toks["cache_read"], toks["cache_write"], cost, tool_names_replaced)
     except Exception as e:  # noqa: BLE001 -- the log must never take the reply down
@@ -673,13 +722,11 @@ def run_agent(user_message: str, messages: list = None):
              "model": None, "seen_usage": False}     # Part 7c: this turn's API usage, logged with the reply
 
     while True:
-        response = client.messages.create(
-            model=AGENT_MODEL,
-            max_tokens=1024,
-            system=system,
-            tools=tools_schema,
-            messages=messages
-        )
+        request = {"model": AGENT_MODEL, "max_tokens": 1024,                     # the agent's parameters, unchanged
+                   "system": _system_for_request(system),
+                   "tools": _tools_for_request(tools_schema),
+                   "messages": _messages_for_request(messages)}
+        response = llm.chat("agent", request, client=client)                      # conn=None: chat_usage is the ledger
         _tally_usage(usage, response)
 
         messages.append({"role": "assistant", "content": response.content})

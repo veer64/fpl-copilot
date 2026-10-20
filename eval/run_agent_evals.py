@@ -64,6 +64,7 @@ COLUMNS = ["num", "question", "exploits", "must_call", "must_not", "setup",
 # usage log, so the two cannot drift apart. Cost lines only -- nothing here depends
 # on the price being exact.
 from pricing import USD_PER_MTOK as _PRICES          # noqa: E402
+import pricing as _pricing                           # noqa: E402  (turn_usd: the cache rates, 2026-10-19)
 
 USD_IN_PER_MTOK = _PRICES["claude-sonnet-4-6"]["input"]
 USD_OUT_PER_MTOK = _PRICES["claude-sonnet-4-6"]["output"]
@@ -320,6 +321,8 @@ class Budget:
         self.max_calls, self.max_usd, self.max_voyage = max_calls, max_usd, max_voyage
         self.calls = self.voyage = 0
         self.tok_in = self.tok_out = 0
+        self.cache_read = self.cache_write = 0       # 2026-10-19: the agent caches its prefix; both are priced
+        self.call_log = []                           # one dict per Anthropic call, in order (the turn record cuts it)
         self.usd = 0.0
 
     def claim_anthropic(self):
@@ -334,16 +337,27 @@ class Budget:
             raise BudgetExceeded(f"Voyage call cap {self.max_voyage} reached")
         self.voyage += 1
 
-    def add_usage(self, usage):
+    def add_usage(self, usage, model="claude-sonnet-4-6"):
         i = int(getattr(usage, "input_tokens", 0) or 0)
         o = int(getattr(usage, "output_tokens", 0) or 0)
+        cr = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        cw = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
         self.tok_in += i
         self.tok_out += o
-        self.usd += i / 1e6 * USD_IN_PER_MTOK + o / 1e6 * USD_OUT_PER_MTOK
+        self.cache_read += cr
+        self.cache_write += cw
+        cost = _pricing.turn_usd(model, i, o, cache_read=cr, cache_write=cw)
+        if cost is None:                             # a model with no price row: the old line, so the cap still counts
+            cost = i / 1e6 * USD_IN_PER_MTOK + o / 1e6 * USD_OUT_PER_MTOK
+        self.usd += cost
+        self.call_log.append({"model": model, "input": i, "output": o, "cache_read": cr, "cache_write": cw,
+                              "usd": round(cost, 6)})
 
     def snapshot(self):
         return {"anthropic_calls": self.calls, "voyage_calls": self.voyage,
                 "input_tokens": self.tok_in, "output_tokens": self.tok_out,
+                "cache_read_tokens": self.cache_read, "cache_write_tokens": self.cache_write,
+                "api_calls_logged": len(self.call_log),
                 "usd": round(self.usd, 4)}
 
 
@@ -355,7 +369,7 @@ class CountingMessages:
         self.budget.claim_anthropic()
         resp = self.inner.create(**kw)
         if getattr(resp, "usage", None) is not None:
-            self.budget.add_usage(resp.usage)
+            self.budget.add_usage(resp.usage, kw.get("model", "claude-sonnet-4-6"))
         return resp
 
 
@@ -512,6 +526,9 @@ def run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg=None):
                           "anthropic_calls": after["anthropic_calls"] - before["anthropic_calls"],
                           "input_tokens": after["input_tokens"] - before["input_tokens"],
                           "output_tokens": after["output_tokens"] - before["output_tokens"],
+                          "cache_read_tokens": after["cache_read_tokens"] - before["cache_read_tokens"],
+                          "cache_write_tokens": after["cache_write_tokens"] - before["cache_write_tokens"],
+                          "api_usage": budget.call_log[before["api_calls_logged"]:after["api_calls_logged"]],
                           "usd": round(after["usd"] - before["usd"], 4)})
     except BudgetExceeded as e:
         rec.update(result="NOT RUN", reason=str(e), turns=turns)
@@ -529,6 +546,8 @@ def run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg=None):
     rec["anthropic_calls"] = sum(t["anthropic_calls"] for t in turns)
     rec["input_tokens"] = sum(t["input_tokens"] for t in turns)
     rec["output_tokens"] = sum(t["output_tokens"] for t in turns)
+    rec["cache_read_tokens"] = sum(t["cache_read_tokens"] for t in turns)
+    rec["cache_write_tokens"] = sum(t["cache_write_tokens"] for t in turns)
     rec["usd"] = round(sum(t["usd"] for t in turns), 4)
     rec["citation_check_ids"] = new_ids(conn, "citation_checks", cit_before) if cit_before is not None else []
     rec["numeric_check_ids"] = new_ids(conn, "numeric_checks", num_before) if num_before is not None else []

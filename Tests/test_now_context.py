@@ -186,12 +186,13 @@ def test_the_agent_prepends_a_fresh_block_to_the_system_prompt_every_turn(monkey
     _, messages = ag.run_agent("q1")
     assert len(fake.calls) == 2
     for c in fake.calls:                                                   # both API calls of the turn
-        assert c["system"].startswith(nc.TITLE) and c["system"].endswith(ag.SYSTEM_PROMPT)
-        assert "Thursday 2026-10-08 18:42 UTC" in c["system"]
+        s = ag.system_text(c["system"])                                   # one text block since 2026-10-19
+        assert s.startswith(nc.TITLE) and s.endswith(ag.SYSTEM_PROMPT)
+        assert "Thursday 2026-10-08 18:42 UTC" in s
     clock["now"] = NOW + timedelta(days=2)
     ag.run_agent("q2", messages)
-    assert "GW6 is in progress" in fake.calls[-1]["system"]              # rebuilt for the second turn
-    assert "GW6 is in progress" not in fake.calls[0]["system"]
+    assert "GW6 is in progress" in ag.system_text(fake.calls[-1]["system"])     # rebuilt for the second turn
+    assert "GW6 is in progress" not in ag.system_text(fake.calls[0]["system"])
 
 
 def test_a_block_that_fails_to_build_does_not_take_the_turn_down(monkeypatch):
@@ -208,4 +209,4 @@ def test_a_block_that_fails_to_build_does_not_take_the_turn_down(monkeypatch):
     monkeypatch.setitem(ag.available_functions, "get_picks", lambda **kw: {"captain": "X"})
     answer, _ = ag.run_agent("q")
     assert answer == "done"
-    assert fake.calls[0]["system"] == ag.SYSTEM_PROMPT                   # the prompt alone, never a half block
+    assert ag.system_text(fake.calls[0]["system"]) == ag.SYSTEM_PROMPT   # the prompt alone, never a half block

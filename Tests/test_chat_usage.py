@@ -127,8 +127,10 @@ def test_one_row_per_reply_with_the_shared_turn_id_and_the_runners_price(conn, m
         cur.execute("SELECT turn_id FROM citation_checks ORDER BY id DESC LIMIT 1")
         assert cur.fetchone()[0] == turn_id
     assert (model, calls, ti, to, cr, cw, replaced) == ("claude-sonnet-4-6", 2, 2200, 130, 300, 200, 1)
-    want = pricing.usd("claude-sonnet-4-6", 2200, 130)
-    assert want == round(2200 / 1e6 * 3.00 + 130 / 1e6 * 15.00, 6)
+    # since 2026-10-19 the cache tokens are priced too (write x1.25, read x0.10 of the $3 input rate)
+    want = pricing.turn_usd("claude-sonnet-4-6", 2200, 130, cache_read=300, cache_write=200)
+    assert want == round(2200 / 1e6 * 3.00 + 200 / 1e6 * 3.00 * 1.25 + 300 / 1e6 * 3.00 * 0.10 + 130 / 1e6 * 15.00, 6)
+    assert want > pricing.usd("claude-sonnet-4-6", 2200, 130)             # the old line undercounted a cached turn
     assert float(usd) == want
 
 

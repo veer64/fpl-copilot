@@ -1,6 +1,11 @@
-"""The one Anthropic call site for batch jobs (2026-09-26): complete() sends a system + user
-prompt, retries what is worth retrying, and writes one llm_calls row per HTTP attempt so the
-spend is countable from the database. agent.py keeps its own client for the chat loop.
+"""The one Anthropic call site (2026-09-26): complete() sends a system + user prompt for the
+batch jobs, retries what is worth retrying, and writes one llm_calls row per HTTP attempt so the
+spend is countable from the database. Since 2026-10-19 the agent's chat loop goes through chat()
+too (tools + a multi-turn message list in, the whole response out), with the same retry rule.
+
+Ledger rule (2026-10-19): the agent's spend is chat_usage (one row per reply, written by agent.py);
+agent.py calls chat() with conn=None, so llm_calls never holds an agent row and the two tables
+never overlap -- llm_calls is the batch jobs' (and the canaries') ledger only.
 
 temperature: sent as given (0 for the filter) to every model EXCEPT those in config
 MODELS_WITHOUT_TEMPERATURE, which reject the parameter outright; each llm_calls row records
@@ -51,12 +56,16 @@ class LLMRepeatedError(LLMError):
 
 def default_client(timeout_s=30):
     """anthropic.Anthropic() with the SDK's retries off; the key comes from the environment
-    or the repo's .env (loaded here by path, never by search)."""
+    or the repo's .env (loaded here by path, never by search). timeout_s=None keeps the SDK's
+    own default (600 s read / write, 5 s connect): the agent's value since it first ran."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
         from dotenv import load_dotenv
         load_dotenv(REPO / ".env")
     import anthropic
-    return anthropic.Anthropic(max_retries=0, timeout=timeout_s)
+    kw = {"max_retries": 0}
+    if timeout_s is not None:
+        kw["timeout"] = timeout_s
+    return anthropic.Anthropic(**kw)
 
 
 def signature(exc):
@@ -143,4 +152,46 @@ def complete(purpose, system, user, model, max_tokens, temperature=0, timeout_s=
                 stop_reason=stop_reason, content_block_types=usage["content_block_types"],
                 thinking_chars=usage["thinking_chars"], text_chars=usage["text_chars"], item_id=item_id, prompt_version=prompt_version)
         return text, usage
+    raise LLMError(last or "no attempt made")      # pragma: no cover -- the loop always returns or raises
+
+
+def chat(purpose, request, *, client=None, conn=None, sleep=time.sleep, retries=RETRIES, timeout_s=600):
+    """The agent's path (2026-10-19). `request` is the complete keyword set for the API call -- model,
+    max_tokens, system, tools, messages and whatever else the caller chose -- and is sent exactly as
+    given: nothing is added or defaulted here (no temperature, no timeout keyword; the client's own
+    timeout applies). Returns the SDK response whole: content blocks, stop_reason, usage.
+
+    Retries and fail-fast as complete(): a 429, a 5xx or a timeout is retried up to `retries` more
+    times with BACKOFF_S; a 401 / 403 raises LLMAuthError at once; any other status raises LLMError at
+    once. An exception that is neither an API status nor a timeout (the eval runner's budget cap, a
+    connection error) is re-raised UNCHANGED, so the caller sees exactly what the SDK would have
+    given it. Every attempt is an llm_calls row under `purpose` when conn is given; the agent passes
+    conn=None (see the ledger rule in the module docstring)."""
+    if client is None:
+        client = default_client(timeout_s)
+    model = request.get("model")
+    last = None
+    for attempt in range(1, retries + 2):
+        try:
+            resp = client.messages.create(**request)
+        except Exception as e:                       # noqa: BLE001 -- classified below
+            status, etype = signature(e)
+            if status is None and etype != "timeout":
+                raise                                # not an API failure: the caller's own exception, untouched
+            kind, last = classify(e)
+            _record(conn, purpose, model, False, error=last)
+            if kind == "auth":
+                raise LLMAuthError(last, status, etype) from e
+            if kind == "fail" or attempt == retries + 1:
+                raise LLMError(last, status, etype) from e
+            sleep(BACKOFF_S[min(attempt - 1, len(BACKOFF_S) - 1)])
+            continue
+        blocks = list(getattr(resp, "content", None) or [])
+        stop_reason = getattr(resp, "stop_reason", None)
+        u = getattr(resp, "usage", None)
+        _record(conn, purpose, model, True, error=REPLY_ERRORS.get(stop_reason),
+                input_tokens=getattr(u, "input_tokens", None), output_tokens=getattr(u, "output_tokens", None),
+                stop_reason=stop_reason, content_block_types=[str(getattr(b, "type", type(b).__name__)) for b in blocks],
+                text_chars=sum(len(getattr(b, "text", "") or "") for b in blocks if getattr(b, "type", "") == "text"))
+        return resp
     raise LLMError(last or "no attempt made")      # pragma: no cover -- the loop always returns or raises
