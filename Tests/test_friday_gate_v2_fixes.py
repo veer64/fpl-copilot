@@ -60,21 +60,22 @@ def _james():
 
 def test_f18_the_card_shows_when_fpl_set_the_flag_and_when_it_was_last_checked(monkeypatch):
     card = _card(monkeypatch, _james(), {142: (JAMES_NEWS, "2026-10-10T13:30:08.699019Z")})
-    assert card["flag_dates"] == "FPL flag set 10 Oct 2026, last checked 15 Oct 2026"
+    # fix batch #4 F21 (2026-10-22): the flag's gameweek now sits inside this sentence, the one the agent copies
+    assert card["flag_dates"] == "FPL flag set 10 Oct 2026 (for GW7), last checked 15 Oct 2026"
     assert card["availability"]["flag_dates"] == card["flag_dates"]
     assert card["chance_words"] == "chance of playing in GW7: 75%, FPL as of 15 Oct 2026"     # the chance line keeps its gameweek
 
 
 def test_f18_a_set_date_for_different_news_is_not_used(monkeypatch):
     card = _card(monkeypatch, _james(), {142: ("Knock - 50% chance of playing", "2026-10-12T09:00:00Z")})
-    assert card["flag_dates"] == "last checked 15 Oct 2026"
+    assert card["flag_dates"] == "FPL flag (for GW7), last checked 15 Oct 2026"          # F21: the gameweek, no set date
 
 
 def test_f18_a_player_without_a_flag_is_only_last_checked(monkeypatch):
     row = {"element": 398, "name": "Phil Foden", "position": "MID", "team": "Man City", "price_tenths": 68,
            "status": "a", "chance": 100, "news": None, "updated_at": AS_OF}
     card = _card(monkeypatch, row, {398: ("", "2026-09-13T17:00:09.433455Z")})
-    assert card["flag_dates"] == "last checked 15 Oct 2026"
+    assert card["flag_dates"] == "No FPL flag for GW7, last checked 15 Oct 2026"           # F21: a fit player names the gameweek too
 
 
 # ---- F19 ------------------------------------------------------------------------------------------------

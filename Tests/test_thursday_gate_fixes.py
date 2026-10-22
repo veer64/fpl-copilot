@@ -61,7 +61,7 @@ def test_f13_plan_rows_for_later_gameweeks_carry_the_latest_flag_label(monkeypat
     assert out["this_deadline"]["xi"][0]["chance_words"] == "chance of playing in GW7: 75%, FPL as of 15 Oct 2026"
     later = out["later_steps_indicative"][0]["transfers"][0]
     assert later["chance_words_out"] == "latest FPL flag (for GW7, as of 15 Oct 2026): chance of playing 75%"
-    assert later["status_word_out"] == "doubtful" and later["chance_out"] == 75       # the flag itself is kept
+    assert later["status_word_out"].startswith("doubtful (latest FPL flag: for GW") and later["chance_out"] == 75   # the flag itself is kept; F21 (2026-10-22): the later row's word carries the flag's gameweek
 
 
 def test_f13_a_flag_for_an_earlier_gameweek_is_the_latest_flag_on_every_plan_row(monkeypatch):

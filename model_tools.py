@@ -462,15 +462,26 @@ def latest_flag_words(chance, as_of, gw):
     return "latest FPL flag" + (f" ({inner})" if inner else "") + f": chance of playing {int(chance)}%"
 
 
-def flag_dates_words(news_added, as_of, flagged):
+def flag_dates_words(news_added, as_of, flagged, gw=None):
     """'FPL flag set 10 Oct 2026, last checked 15 Oct 2026' -- both dates of FPL's flag in plain words (Friday gate v2
     F18, 2026-10-16): when FPL added the news (the bootstrap's news_added) and when the build last took the flag
     (players_live.updated_at). Only 'last checked <date>' when no flag is up -- FPL keeps an old news_added after it
     clears one -- or the set date is unknown. Measured 2026-10-16: with only the as-of date on the card, "What's Reece
     James' chance of playing?" answered "That flag was set on 15 October" (FPL set it on 10 Oct). None without a
-    readable check date. Pure."""
+    readable check date. Pure.
+
+    gw (fix batch #4 F21, 2026-10-22): the gameweek the flag is for goes INTO this sentence -- 'FPL flag set 27 Sep
+    2026 (for GW7), last checked 17 Oct 2026', 'FPL flag (for GW7), last checked ...', and for a fit player 'No FPL
+    flag for GW7, last checked 17 Oct 2026' -- because it is the sentence the agent copies (the 19 Oct smoke copied
+    "last checked 17 Oct 2026" and dropped the gameweek, which sat only in chance_words). Without gw, the F18 words."""
     checked = _as_of_words(as_of)
     set_on = _as_of_words(news_added) if (flagged and news_added) else None
+    where = f"for GW{int(gw)}" if gw is not None else None
+    if where and checked:
+        if not flagged:
+            return f"No FPL flag {where}, last checked {checked}"
+        return (f"FPL flag set {set_on} ({where}), last checked {checked}" if set_on
+                else f"FPL flag ({where}), last checked {checked}")
     if set_on and checked:
         return f"FPL flag set {set_on}, last checked {checked}"
     return f"last checked {checked}" if checked else None
@@ -582,10 +593,17 @@ def _with_flags(out):
         return out
 
     def _mark(row, f, suffix="", row_gw=None):
-        row.setdefault("status_word" + suffix, f["status_word"])
+        later = row_gw is not None and f.get("gw") is not None and int(row_gw) > int(f["gw"])
+        # fix batch #4 F21 (2026-10-22): on a LATER gameweek's row the status word itself carries the flag's gameweek
+        # ("doubtful (latest FPL flag: for GW7, as of 17 Oct 2026)") -- it is the token the agent copies; the re-check
+        # of 20 Oct wrote "GW11: Gakpo -> Sávio -- if Gakpo remains doubtful" from a row whose chance_words said GW7.
+        word = f["status_word"]
+        if later and word:
+            when = _as_of_words(f.get("as_of"))
+            word = f"{word} (latest FPL flag: for GW{int(f['gw'])}" + (f", as of {when})" if when else ")")
+        row.setdefault("status_word" + suffix, word)
         if f["chance"] is not None:
             row.setdefault("chance" + suffix, f["chance"])
-            later = row_gw is not None and f.get("gw") is not None and int(row_gw) > int(f["gw"])
             row.setdefault("chance_words" + suffix,
                            latest_flag_words(f["chance"], f["as_of"], f["gw"]) if later else f["chance_words"])
 
@@ -957,7 +975,18 @@ def get_player_card(player_id: int):
     flagged = card.get("status") in FLAG_STATUSES or bool(news) or (card.get("chance") is not None and int(card["chance"]) < 100)
     snap = _snapshot_news(card.get("updated_at")).get(int(player_id))
     added = snap[1] if snap and snap[0] == news else None          # FPL's set date only for the same news text
-    dates = flag_dates_words(added, card.get("updated_at"), flagged)
+    # fix batch #4 F20 (2026-10-22): what a force-in does, said on the card. Measured 21 Oct ("Build me a squad with
+    # Semenyo in it", 3 of 3): the agent read an injured player's 0% as "cannot play for his club", said the build
+    # would refuse him and asked instead of calling it. Only FPL's u / n (left the club, not in the squad) refuse.
+    if card.get("status") in FORCED_WARN_STATUSES:
+        card["availability"]["force_in"] = ("can be forced into a squad build or a transfer plan: when the user names him, call the build "
+                                            "at once -- it builds around him and its result opens with forced_availability_warning; "
+                                            "never ask first")
+        card["force_in"] = card["availability"]["force_in"]
+    elif card.get("status") in UNAVAILABLE_STATUSES:
+        card["availability"]["force_in"] = "cannot be locked into a build or a plan (he has left the club or is not in the squad): ban him instead"
+        card["force_in"] = card["availability"]["force_in"]
+    dates = flag_dates_words(added, card.get("updated_at"), flagged, gw=gw_next)
     if dates:
         card["availability"]["flag_dates"] = dates
         card["flag_dates"] = dates
@@ -4075,15 +4104,20 @@ def get_prediction_history(player_id: int, gw: int):
                       "e_points_before": a["e_points"], "e_points_after": b["e_points"],
                       "change": round(b["e_points"] - a["e_points"], 2),
                       "explainable": a["terms_recorded"] and b["terms_recorded"]})
-    biggest = max(moves, key=lambda m: abs(m["change"])) if moves else None
-    if biggest:
-        biggest = dict(biggest)
-        biggest["explain_with"] = ({"tool": "compare_runs", "player_id": pid, "gw": x,
-                                    "run_id_a": biggest["from_run_id"], "run_id_b": biggest["to_run_id"]}
-                                   if biggest["explainable"] else None)
-        if not biggest["explainable"]:
-            biggest["explain_note"] = "one of the two builds has no recorded terms (before 2026-09-14), so the move cannot be broken down term by term"
-        biggest["reasons_available"] = bool(biggest["explainable"])
+    def _annotate(m):
+        m = dict(m)
+        m["explain_with"] = ({"tool": "compare_runs", "player_id": pid, "gw": x,
+                              "run_id_a": m["from_run_id"], "run_id_b": m["to_run_id"]} if m["explainable"] else None)
+        if not m["explainable"]:
+            m["explain_note"] = "one of the two builds has no recorded terms (before 2026-09-14), so the move cannot be broken down term by term"
+        m["reasons_available"] = bool(m["explainable"])
+        return m
+    # Fix batch #4 F22 (2026-10-22): the LATEST move -- the newest two builds -- leads and is what the breakdown pointer
+    # names; the all-time biggest move stays, second. Measured 19 Oct (production smoke 8, "Why did Haaland's
+    # prediction change since last week?"): only biggest_move carried a pointer, so the agent compared runs 37 -> 38
+    # (10 -> 13 Oct), the biggest move in the whole history, and never looked at the newest builds.
+    latest = _annotate(moves[-1]) if moves else None
+    biggest = _annotate(max(moves, key=lambda m: abs(m["change"]))) if moves else None
     first, last = hist[0], hist[-1]
     # Friday gate R2 (2026-10-16): a move no build can break down is said to have no reason, in plain words and
     # FIRST -- the per-build start chance and minutes are facts, not the reason (measured 2026-10-15: "likely
@@ -4092,9 +4126,9 @@ def get_prediction_history(player_id: int, gw: int):
     # never reached compare_runs (3/3) -- so it points onward in TOOL-FACING text (next_step, never shown to users),
     # and it states the two builds' measured inputs as facts our numbers don't attribute the move to.
     lead = {}
-    if biggest and not biggest["explainable"]:
-        a_row = next(h for h in hist if h["run_id"] == biggest["from_run_id"])
-        b_row = next(h for h in hist if h["run_id"] == biggest["to_run_id"])
+    if latest and not latest["explainable"]:
+        a_row = next(h for h in hist if h["run_id"] == latest["from_run_id"])
+        b_row = next(h for h in hist if h["run_id"] == latest["to_run_id"])
         moves = {k: {"from": a_row[k], "to": b_row[k]} for k in ("p_start", "e_minutes")
                  if a_row.get(k) is not None and b_row.get(k) is not None}
         facts = []
@@ -4102,8 +4136,8 @@ def get_prediction_history(player_id: int, gw: int):
             facts.append(f"chance of starting {moves['p_start']['from']:.0%} then {moves['p_start']['to']:.0%}")
         if "e_minutes" in moves:
             facts.append(f"expected minutes {moves['e_minutes']['from']:.0f} then {moves['e_minutes']['to']:.0f}")
-        lead = {"summary_plain": (f"{NO_WHY} {name}'s expected points for GW{x} went from {biggest['e_points_before']:.1f} "
-                                  f"({biggest['from_built']}) to {biggest['e_points_after']:.1f} ({biggest['to_built']})."
+        lead = {"summary_plain": (f"{NO_WHY} {name}'s expected points for GW{x} went from {latest['e_points_before']:.1f} "
+                                  f"({latest['from_built']}) to {latest['e_points_after']:.1f} ({latest['to_built']})."
                                   + (f" The two builds' inputs moved as well ({'; '.join(facts)}), but our numbers don't "
                                      "attribute the move to them." if facts else "")
                                   + " One of those builds stored no breakdown."),
@@ -4118,12 +4152,13 @@ def get_prediction_history(player_id: int, gw: int):
            "latest_e_points": last["e_points"],
            "latest_minus_first": (None if first["e_points"] is None or last["e_points"] is None
                                   else round(last["e_points"] - first["e_points"], 2)),
-           "history": hist, "biggest_move": biggest,
-           "reasons_available": (bool(biggest["explainable"]) if biggest else None),
+           "history": hist, "latest_move": latest, "biggest_move": biggest,
+           "reasons_available": (bool(latest["explainable"]) if latest else None),
            "kinds": ("nightly = the daily rebuild; post_ingest = the rebuild after FPL confirmed a gameweek; "
                      "t90 / t30 / t10 = the deadline-day rebuilds 90, 30 and 10 minutes before the deadline"),
            "note": (f"oldest to newest: what each stored build predicted {name} would score in GW{x}. "
-                    "To explain a move, compare the two builds biggest_move.explain_with names.")}
+                    "To explain the latest change, compare the two builds latest_move.explain_with names; "
+                    "biggest_move is the largest change anywhere in the history.")}
     return _with_meanings(_lead_with_availability(out, pid, _availability_for([pid])))
 
 
