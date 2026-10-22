@@ -353,11 +353,16 @@ tools_schema = [
     {
         "name": "search_news",
         "description": ("Search the stored team news (FPL's official flags, BBC Sport, the clubs' own sites) for a player "
-                        "or a club. Use it for injury, fitness, availability, suspension and team-news questions, AFTER "
+                        "or a club. Use it for injury, fitness, availability, suspension and team-news questions, and for "
+                        "what a club's manager or head coach said (press conferences, programme notes), AFTER "
                         "get_player_card: for whether one named player can play, get_player_card comes first (the player's FPL status: FPL's "
                         "official flag with its time; resolve_player's `status` is not FPL's flag) and the news second, "
                         "for context. Always pass "
-                        "the player names in `players`, and answer in the order the AVAILABILITY ANSWERS rules give. "
+                        "the player names in `players` when the question names players; pass the club in `clubs` when it "
+                        "names a club; when the person named is not a player (a manager, a coach) and the club is not "
+                        "stated, search with the query alone: never guess the club and never ask first, the search is "
+                        "the answer. Not for prediction, comparison, who-to-pick or transfer questions: those have their "
+                        "own tools. Answer in the order the AVAILABILITY ANSWERS rules give. "
                         "Results carry an id (c<number>) to cite, "
                         "the source, the date and its basis, the age, whether the result is about a requested player, and "
                         "the text. `no_news_for` lists requested players with no news; `ambiguous_players` lists names that "
