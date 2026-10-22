@@ -122,14 +122,46 @@ def _match(text, rows):
     return out
 
 
+PREFIX_MIN = 3                                                       # a token prefix must be at least this long ("Ant" ~ "António"), initials never match
+
+
+def _tool_match(text, rows):
+    """The tool rows the reply name matches under the resolver definition (2026-10-22): the full name or the FPL
+    display name (web_name) equal to the text, accent-folded, wins outright; else every reply word that matches any
+    row must be a whole token or a token prefix (PREFIX_MIN+ chars) of this row's name or display-name tokens, and at
+    least one word must match ("Nuno Tavares" ~ 'António ... Tavares da Silva' by "tavares"; "Antón" ~ "António").
+    Returns every matching row; the caller treats 2+ distinct players as unresolved."""
+    t = norm(text)
+    if not t:
+        return []
+    words = t.split()
+    exact = [r for r in rows if norm(r.get("name") or "") == t or (r.get("web_name") and norm(r["web_name"]) == t)]
+    if exact:
+        return exact
+    toks = {id(r): set(norm(r.get("name") or "").split()) | set(norm(r.get("web_name") or "").split()) for r in rows}
+
+    def hits(w, r):
+        return any(tok == w or (len(w) >= PREFIX_MIN and tok.startswith(w)) for tok in toks[id(r)])
+    live = [w for w in words if any(hits(w, r) for r in rows)]          # the reply words that match some row
+    if not live:
+        return []
+    return [r for r in rows if all(hits(w, r) for w in live)]
+
+
 def resolve(text, rows, players):
     """The player the reply means: unique among the turn's tool rows first, else unique in the players table.
-    Returns (player dict or None, how) with how in exact/tool/table/ambiguous/unknown."""
+    Returns (player dict or None, how) with how in exact/tool/table/ambiguous/unknown.
+
+    DEFINITION (club resolver, 2026-10-22, written before the code change): a player named in a reply is matched FIRST
+    against the player rows in that turn's tool outputs: full name, FPL display name, first or last name,
+    accent-folded; a reply name that is a whole token or a token prefix of exactly one tool row's name (e.g. 'Antón' ~
+    'António ... Tavares da Silva') resolves to that row. Only when no tool row matches is the players table used. A
+    name that matches more than one player at either step is not resolved (no club claim is scored)."""
     text = _clean_name(text)
     if not text or norm(text) in ("", "bench", "captain", "vice", "total", "order"):
         return None, "unknown"
     seen, cands = set(), []
-    for r in _match(text, rows):
+    for r in _tool_match(text, rows):
         key = norm(r["name"])
         if key not in seen:
             seen.add(key)
