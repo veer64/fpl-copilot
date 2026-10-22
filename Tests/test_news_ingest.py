@@ -87,7 +87,8 @@ def test_parse_fixture_rows():
     items, errors = ns.parse_rss(FIXTURE.read_bytes())
     assert len(items) == 50 and errors == []
     first = items[0]
-    assert first["guid"] == "https://www.bbc.co.uk/sport/football/articles/c639merx84jno#0"
+    # fix batch #4 N2 (2026-10-22): the guid is the canonical link -- the feed's '#0' fragment changes between fetches
+    assert first["guid"] == "https://bbc.co.uk/sport/football/articles/c639merx84jno"
     assert first["url"] == "https://www.bbc.co.uk/sport/football/articles/c639merx84jno?at_medium=RSS&at_campaign=rss"
     assert first["headline"] == "Uefa fears impact of Premier League spending on transfer market"
     assert first["body"] == ('Uefa believes "a clear two-speed system" is emerging in the transfer market due to '
@@ -105,7 +106,7 @@ def test_rss_guid_falls_back_to_the_canonical_link():
            b'<item><title>A</title><link>https://example.org/a?utm=1</link><description>d</description>'
            b'<pubDate>Thu, 24 Sep 2026 22:09:28 GMT</pubDate></item></channel></rss>')
     items, errors = ns.parse_rss(xml)
-    assert errors == [] and items[0]["guid"] == "https://example.org/a?utm=1" and items[0]["url"] == items[0]["guid"]
+    assert errors == [] and items[0]["guid"] == "https://example.org/a" and items[0]["url"] == "https://example.org/a?utm=1"   # N2: the key is canonical, the link keeps its query
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -163,7 +164,7 @@ def test_edit_makes_v2_and_keeps_v1(conn):
     later = datetime(2026, 9, 25, 5, 45, tzinfo=UTC)
     counts = ns.ingest_rss(conn, edited, raw_ref="r2", fetched_at=later)
     assert counts == {"fetched": 50, "new": 0, "new_versions": 1, "skipped": 49, "errors": 0}
-    guid = "https://www.bbc.co.uk/sport/football/articles/c639merx84jno#0"
+    guid = "https://bbc.co.uk/sport/football/articles/c639merx84jno"                   # N2: the canonical link
     with conn.cursor() as cur:
         cur.execute("SELECT version, body, fetched_at, raw_ref FROM news_items WHERE guid = %s ORDER BY version", (guid,))
         v = cur.fetchall()
@@ -297,7 +298,7 @@ def test_fpl_rederive_changes_nothing(conn, tmp_path):
 def test_embed_text_exact_strings(conn, tmp_path):
     ns.ingest_rss(conn, FIXTURE.read_bytes(), raw_ref="r1", fetched_at=FETCHED)
     ns.derive_fpl(conn, _archive(tmp_path), season="2026-27")
-    bbc = _view(conn, "source = 'bbc' AND guid = %s", ("https://www.bbc.co.uk/sport/football/articles/c639merx84jno#0",))
+    bbc = _view(conn, "source = 'bbc' AND guid = %s", ("https://bbc.co.uk/sport/football/articles/c639merx84jno",))   # N2: canonical
     assert len(bbc) == 1
     expected_bbc = ("[BBC Sport | 2026-09-24 22:09Z] Uefa fears impact of Premier League spending on transfer market\n"
                     'Uefa believes "a clear two-speed system" is emerging in the transfer market due to huge spending '
@@ -382,7 +383,7 @@ def test_rss_edit_then_revert_is_v3(conn):
     assert counts == {"fetched": 50, "new": 0, "new_versions": 1, "skipped": 49, "errors": 0}, counts
     with conn.cursor() as cur:
         cur.execute("SELECT version, raw_ref FROM news_items WHERE guid = %s ORDER BY version",
-                    ("https://www.bbc.co.uk/sport/football/articles/c639merx84jno#0",))
+                    ("https://bbc.co.uk/sport/football/articles/c639merx84jno",))             # N2: the canonical link
         assert cur.fetchall() == [(1, "r1"), (2, "r2"), (3, "r3")]
 
 

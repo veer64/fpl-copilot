@@ -160,7 +160,9 @@ def test_run_uses_the_page_body_only_when_the_extract_is_a_link_list(conn, tmp_p
                                                                            {"id": 15, "name": "Newcastle", "short_name": "NEW"}]))
     rows = {r[0]: r for r in _rows(conn)}
     assert rows[MUN_SIDEBAR][3] == "page_embedded" and rows[MUN_SIDEBAR][4].startswith("The Netherlands international")
-    assert rows[MUN_NOBODY][3] == "tavily_extract" and rows[MUN_NOBODY][2] == len(SIDEBAR_EXTRACT), "nothing better on the page: the extract stays, flagged in the log"
+    # fix batch #4 N1 (2026-10-22): nothing better on the page -> the link list is NOT stored as the body (it polluted
+    # search: the De Ligt chunk of the RAG eval was "You might also like ..."); the body is dropped, the headline kept
+    assert rows[MUN_NOBODY][3] == "link_list_dropped" and rows[MUN_NOBODY][2] == 0, "nothing better on the page: the link list is dropped, flagged in the log"
     assert rows[NEW_CLEAN][3] == "tavily_extract" and rows[NEW_CLEAN][4].startswith("The head coach reported"), "a clean extract is never replaced, even though the page has JSON-LD"
     assert any("page_embedded" in ln and "manutd.com" in ln for ln in lines) and any("link list" in ln and "striker-closing" in ln for ln in lines)
 

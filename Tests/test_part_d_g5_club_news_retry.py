@@ -47,12 +47,15 @@ class _DatedEmpty:
         return {"results": [], "failed_results": list(urls)}
 
 
-def test_a_dated_search_with_no_results_is_retried_once_without_dates_and_others_are_untouched():
+def test_a_dated_search_with_no_results_is_not_retried_and_others_are_untouched():
+    # Fix batch #4 N4 (2026-10-22) removed the G5 retry: on 21 Oct the four undated retries (Arsenal, Brentford,
+    # Newcastle, Spurs) returned 40 results, every one "dated outside window" -- 4 credits for nothing. A dated
+    # search that returns nothing now returns nothing: one request, one credit.
     tv = _DatedEmpty()
     plan = cn.search_plan(tv, "Arsenal team news injury update", "arsenal.com", "2026-10-13", "2026-10-14")
-    assert [(r.get("start_date"), r.get("end_date")) for r in tv.requests] == [("2026-10-13", "2026-10-14"), (None, None)]
-    assert plan["retried_without_dates"] is True and plan["credits"] == 2 and len(plan["results"]) == 1
+    assert [(r.get("start_date"), r.get("end_date")) for r in tv.requests] == [("2026-10-13", "2026-10-14")]
+    assert plan["retried_without_dates"] is False and plan["credits"] == 1 and plan["results"] == []
     tv2 = _DatedEmpty()
     plan2 = cn.search_plan(tv2, "Chelsea team news injury update", "chelseafc.com", "2026-10-13", "2026-10-14")
     assert len(tv2.requests) == 1 and plan2["retried_without_dates"] is False and plan2["credits"] == 1
-    assert cn.planned_credits(9) == 9 * cn.SEARCH_CREDITS * 2 + cn.extract_credits(cn.MAX_RESULTS * 9)   # the guard plans for the retries
+    assert cn.planned_credits(9) == 9 * cn.SEARCH_CREDITS + cn.extract_credits(cn.MAX_RESULTS * 9)   # no retry in the plan

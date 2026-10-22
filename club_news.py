@@ -128,13 +128,27 @@ def on_domain(url, domain):
     return h == d or h.endswith("." + d)
 
 
+# Fix batch #4 N2 (2026-10-22): a club site's language copies of one article (liverpoolfc.com/pt/news/..., /es/,
+# /fr/: items 1091 / 1093 / 1094 beside the English 1090 of 7 Oct) are one article. The leading language segment is
+# not part of the canonical guid, and a result whose URL carries one is dropped (the English page is the one
+# searched for). /en/ is kept: it is the stored form of manutd.com guids.
+_LANG_PATH = re.compile(r"^/(?:pt|es|fr|de|it|nl|ar|ja|ko|zh|id|th|ms|vi|tr|ru|sv|no|da|fi|pl|cs|hu|el|he|hi)(?:-[a-z]{2,4})?(?=/|$)", re.I)
+
+
+def language_copy(url):
+    """The language path segment ('/pt') when the URL is a non-English copy, else None."""
+    m = _LANG_PATH.match(urlparse(url.strip()).path or "")
+    return m.group(0) if m else None
+
+
 def canonical_guid(url):
-    """https, lowercase host without 'www.', path without trailing slash, no query, no fragment."""
+    """https, lowercase host without 'www.', path without a leading language segment (/pt/, /es/, ...) and without a
+    trailing slash, no query, no fragment."""
     p = urlparse(url.strip())
     host = _host(url)
     if host.startswith("www."):
         host = host[4:]
-    path = p.path or ""
+    path = _LANG_PATH.sub("", p.path or "")
     path = path.rstrip("/")
     return f"https://{host}{path}"
 
@@ -181,6 +195,10 @@ def filter_results(results, domain):
             continue
         if not on_domain(url, domain):
             dropped.append((url, f"off-domain: {_host(url)}"))
+            continue
+        lang = language_copy(url)
+        if lang:
+            dropped.append((url, f"language copy: {lang}/"))
             continue
         why = listing_reason(url)
         if why:
@@ -250,11 +268,13 @@ def month_credits(conn, now):
         return int(cur.fetchone()[0])
 
 
-def record_call(conn, endpoint, club, query, n_results, credits, called_at=None):
+def record_call(conn, endpoint, club, query, n_results, credits, called_at=None, http_status=None):
+    """One tavily_calls row per request. http_status (fix batch #4 N5, 2026-10-22): the HTTP status the client saw
+    for that request (TavilyClient.last_status), NULL for a replay or a fake without one."""
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO tavily_calls (called_at, endpoint, club, query, n_results, credits) "
-                    "VALUES (%s, %s, %s, %s, %s, %s)",
-                    (called_at or datetime.now(timezone.utc), endpoint, club, query, n_results, int(credits)))
+        cur.execute("INSERT INTO tavily_calls (called_at, endpoint, club, query, n_results, credits, http_status) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (called_at or datetime.now(timezone.utc), endpoint, club, query, n_results, int(credits), http_status))
     conn.commit()
 
 
@@ -304,6 +324,7 @@ class TavilyClient:
         self._key = key or os.environ.get("TAVILY_API_KEY", "")
         if not self._key:
             raise RuntimeError("TAVILY_API_KEY is not set")
+        self.last_status = None                      # the HTTP status of the latest request (N5: goes into the ledger)
         try:
             import certifi
             self._ctx = ssl.create_default_context(cafile=certifi.where())
@@ -316,8 +337,10 @@ class TavilyClient:
                                "User-Agent": USER_AGENT})
         try:
             with urlopen(req, timeout=90, context=self._ctx) as r:
+                self.last_status = getattr(r, "status", None)
                 return json.loads(r.read().decode("utf-8"))
         except HTTPError as e:
+            self.last_status = e.code
             raise RuntimeError(f"Tavily HTTP {e.code} from {url}: {e.read().decode('utf-8', 'replace')[:200]}") from None
 
     def search(self, query, domain, start_date=None, end_date=None):
@@ -343,29 +366,20 @@ def parse_iso(v):
 
 
 def planned_credits(n_clubs):
-    """The guard's worst case for one run: a dated search per club, a second undated search per club when
-    the dated one returns nothing (search_plan), and an extract credit per five results."""
-    return n_clubs * SEARCH_CREDITS * 2 + extract_credits(MAX_RESULTS * n_clubs)
+    """The guard's worst case for one run: one dated search per club (no retry since fix batch #4 N4) and an
+    extract credit per five results."""
+    return n_clubs * SEARCH_CREDITS + extract_credits(MAX_RESULTS * n_clubs)
 
 
 def search_plan(tavily, query, domain, start_date, end_date):
-    """One club's search: the dated request, and -- only when it returns NO results -- the same query once
-    more without dates (Part D G5, 2026-10-12: arsenal.com and cpfc.co.uk answered 0 results to the dated
-    request on 8 and 9 Oct and 10 / 5 results to an undated one, so the date filter, not the query, was
-    empty; the old-article guard still decides what is kept). Returns {results, request, credits,
-    retried_without_dates}; a club whose dated search returns results sends exactly what it sent before."""
+    """One club's search: the dated request, once. Fix batch #4 N4 (2026-10-22) removed the Part D G5 retry
+    without dates: on 21 Oct the four retries (Arsenal, Brentford, Newcastle, Spurs) returned 40 results, every
+    one "dated outside window" -- 4 credits for nothing. A dated search that returns nothing returns nothing.
+    Returns {results, request, response, credits, retried_without_dates} (the last always False, kept for callers)."""
     resp = tavily.search(query, domain, start_date, end_date)
     request = search_request(query, [domain], start_date, end_date)
     results = resp.get("results", []) if isinstance(resp, dict) else []
-    retried = False
-    credits = SEARCH_CREDITS
-    if not results:
-        resp = tavily.search(query, domain)
-        request = search_request(query, [domain])
-        results = resp.get("results", []) if isinstance(resp, dict) else []
-        retried = True
-        credits += SEARCH_CREDITS
-    return {"results": results, "request": request, "response": resp, "credits": credits, "retried_without_dates": retried}
+    return {"results": results, "request": request, "response": resp, "credits": SEARCH_CREDITS, "retried_without_dates": False}
 
 
 def search_dates(window_start, now):
@@ -377,6 +391,15 @@ def search_dates(window_start, now):
     if start == end:
         start = f"{now - timedelta(days=1):%Y-%m-%d}"
     return start, end
+
+
+def search_window(window, now):
+    """(start_date, end_date, accept_from): the Tavily dates (search_dates) and the DAY the old-article guard
+    accepts from -- the search's own first day. Fix batch #4 N3 (2026-10-22): on the window's first day the search
+    asked for 13 -> 14 Oct (GW7) while the guard kept 14 -> 17 Oct, so what the search was sent for was dropped
+    as old; the guard now accepts the same range the search requested."""
+    start, end = search_dates(window[0], now)
+    return start, end, date.fromisoformat(start)
 
 
 def gate(now, events, days=WINDOW_DAYS):
@@ -549,11 +572,13 @@ def best_date(meta_dt, url, body, fetched_at):
     return None, "first_seen"
 
 
-def guard(text, best_dt, window, opponents, aliases):
-    """KEEP if the best date's DAY lies inside the window; KEEP if undated and the text names
+def guard(text, best_dt, window, opponents, aliases, accept_from=None):
+    """KEEP if the best date's DAY lies inside the window -- from `accept_from` (the day the search asked from,
+    search_window; fix batch #4 N3) when given, else the window's first day; KEEP if undated and the text names
     one of the club's opponents this gameweek (a double accepts either); else DROP."""
     if best_dt is not None:
-        inside = window[0].date() <= best_dt.date() <= window[1].date()
+        lo = accept_from or window[0].date()
+        inside = lo <= best_dt.date() <= window[1].date()
         return inside, "dated inside window" if inside else "dated outside window"
     if any(names_team(text, o, aliases) for o in (opponents or [])):
         return True, "undated, opponent named"
@@ -622,6 +647,28 @@ def looks_like_link_list(body):
     titleish = [ln for ln in lines if len(ln) < TITLE_LINE_MAX and not ln.endswith((".", "!", "?", '"', "\u201d", ":"))]
     if lines and len(titleish) > len(lines) / 2:
         reasons.append("more than half the lines are short title-like lines")
+    return bool(reasons), "; ".join(reasons)
+
+
+SIDEBAR_MARKERS = ("you might also like", "related content", "related articles", "related news", "more news", "latest news",
+                   "read more", "more from")
+
+
+def structural_link_list(body):
+    """(True, reason) when a body that looks_like_link_list() shows a navigation SIGNATURE, not just brevity: a
+    title-like line repeated verbatim (the manutd.com sidebar lists each related piece twice or three times), or a
+    related-links heading such as "You might also like". A short post of a banner line, a headline, a dateline and
+    one sentence has neither and is kept (fix batch #4 N1, 2026-10-22)."""
+    lines = [ln.strip() for ln in (body or "").splitlines() if ln.strip()]
+    reasons = []
+    counts = {}
+    for ln in lines:
+        if len(ln) < TITLE_LINE_MAX and not ln.endswith((".", "!", "?", '"', "”", ":")):
+            counts[ln] = counts.get(ln, 0) + 1
+    if counts and max(counts.values()) >= 2:
+        reasons.append("a title-like line repeated")
+    if any(ln.lower().rstrip(":") in SIDEBAR_MARKERS for ln in lines):
+        reasons.append("a related-links heading")
     return bool(reasons), "; ".join(reasons)
 
 
@@ -810,21 +857,22 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
     summary = {"clubs": {}, "dropped": [], "credits": 0, "new": 0, "already_seen": 0, "extracted": 0,
                "seed": seed, "replay": replay, "window": window}
     pending, queued = [], set()
+    accept_from = None
+    if v2:
+        start_date, end_date, accept_from = search_window(window, now)          # N3: the guard accepts from start_date
+        log(f"search dates {start_date} -> {end_date}; the guard accepts articles dated from {accept_from:%Y-%m-%d}")
     for club, domain in clubs.items():
         query = QUERY.format(club=club)
         if v2:
-            start_date, end_date = search_dates(window[0], now)
             plan = search_plan(tavily, query, domain, start_date, end_date)
             resp, request, search_credits = plan["response"], plan["request"], plan["credits"]
-            if plan["retried_without_dates"]:
-                log(f"{club}: dated search returned nothing; retried once without dates")
         else:
             resp = tavily.search(query, domain)
             request = search_request(query, [domain])
             search_credits = SEARCH_CREDITS
         results = resp.get("results", []) if isinstance(resp, dict) else []
         if not replay:
-            record_call(conn, "search", club, query, len(results), search_credits, now)
+            record_call(conn, "search", club, query, len(results), search_credits, now, http_status=getattr(tavily, "last_status", None))
             summary["credits"] += search_credits
             save_raw(raw_dir, f"{stamp}_{domain}.search.json.gz",
                      {"request": request, "fetched_at": now.isoformat(), "club": club, "response": resp})
@@ -863,7 +911,7 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
             # first, so a dateline lands in the first lines exactly as it does in the stored body
             snippet = clean_markdown(f"{r.get('title') or ''}\n{r.get('content') or ''}")
             bdt, _src = best_date(mdt, r["url"], snippet, now)
-            keep, why = guard(snippet, bdt, window, opponents.get(club, []), aliases)
+            keep, why = guard(snippet, bdt, window, opponents.get(club, []), aliases, accept_from=accept_from)
             if keep:
                 passing.append((club, domain, r, g))
             else:
@@ -880,7 +928,7 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
         credits = 0 if replay else extract_credits(len(urls))
         raw_ref = None
         if not replay:
-            record_call(conn, "extract", None, None, len(got_list), credits, now)
+            record_call(conn, "extract", None, None, len(got_list), credits, now, http_status=getattr(tavily, "last_status", None))
             summary["credits"] += credits
             path = save_raw(raw_dir, f"{stamp}_{i // EXTRACT_BATCH + 1}.extract.json.gz",
                             {"urls": urls, "fetched_at": now.isoformat(), "response": resp})
@@ -903,8 +951,17 @@ def run(conn, clubs, tavily, now=None, seed=False, raw_dir=None, log=print,
                 if alt:
                     log(f"  body from {alt_src} [{club}] (extract was {why}): {r['url']}")
                     body, body_source = alt, alt_src
+                elif not structural_link_list(body)[0]:
+                    log(f"  extract body is short or title-like [{club}] ({why}), no page-derived body, no navigation signature: kept as is: {r['url']}")
                 else:
-                    log(f"  extract body is a link list [{club}] ({why}), no page-derived body, kept as is: {r['url']}")
+                    # fix batch #4 N1 (2026-10-22): the server's page fetch of manutd.com answers 403 (37 of 37 saved
+                    # page records), so nothing better ever came and the sidebar was stored as the article (7 of 7
+                    # Man Utd rows; the RAG eval's De Ligt chunk read "You might also like ..."). A STRUCTURAL link
+                    # list (repeated lines, title-like lines) is not the article: the body is dropped and the headline
+                    # kept (an empty body chunks to its headline). A body that is merely short stays: short prose
+                    # with its dateline is still the article.
+                    log(f"  extract body is a link list [{club}] ({why}), no page-derived body: body dropped, headline kept: {r['url']}")
+                    body, body_source = "", "link_list_dropped"
             headline = trim_headline(r.get("title") or er.get("title") or "") or g
             if v2:
                 mdt = meta.get(g, (None, None, None, ""))[0]

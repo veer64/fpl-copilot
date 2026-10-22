@@ -328,7 +328,7 @@ def test_runner_inside_window_searches_the_nine_clubs_only(conn, tmp_path, monke
     dated = [r for r in tv.requests if r.get("start_date")]
     undated = [r for r in tv.requests if not r.get("start_date")]
     assert len(dated) == len(config_roles.CLUB_NEWS_CLUBS) == 9                       # one dated search per club
-    assert len(undated) == 9 - len(SEARCHES)                                           # Part D G5: a dated search with no results is retried once without dates
+    assert len(undated) == 0                                                           # fix batch #4 N4 (2026-10-22): the Part D G5 retry without dates is gone
     assert {d for r in undated for d in r["include_domains"]}.isdisjoint(SEARCHES)
     assert {d for r in tv.requests for d in r["include_domains"]} <= set(config_roles.CLUB_DOMAINS.values())
 

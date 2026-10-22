@@ -15,7 +15,8 @@ run by ensure_schema() on every connect, no migration tool exists in this repo):
     re-flag; the constraint is dropped by the DDL on existing tables.
   * fetched_at is indexed for the as-of reads.
 
-BBC: guid = <guid> text, falling back to the canonical <link>; content_hash over
+BBC: guid = the canonical link of the <guid> text (fragment and query dropped; fix batch #4 N2,
+2026-10-22 -- the feed's guid carries a changing '#n' fragment), falling back to the <link>; content_hash over
 (headline, body); published_at = pubDate as UTC (RFC 822 numeric offsets and the named
 zones in NAMED_ZONES -- an unknown zone is an ERROR, never a guess); fetched_at = the
 fetch time; raw_ref = the gzipped response saved BEFORE parsing (raw first). Fetches are
@@ -124,6 +125,8 @@ CREATE TABLE IF NOT EXISTS tavily_calls (
     credits    INT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_tavily_calls_at ON tavily_calls (called_at);
+-- fix batch #4 N5 (2026-10-22): the HTTP status the client saw for the request (NULL before this column, and for replays)
+ALTER TABLE tavily_calls ADD COLUMN IF NOT EXISTS http_status INT;
 
 -- The exact chunk string the embedding layer will see (2026-09-25 spec):
 --   RSS: "[BBC Sport | YYYY-MM-DD HH:MMZ] <headline>\\n<body>"
@@ -495,10 +498,25 @@ def strip_html(s):
     return _WS.sub(" ", html.unescape(_TAG.sub(" ", str(s)))).strip()
 
 
+def canonical_link(url):
+    """One article, one key (fix batch #4 N2, 2026-10-22): https, lowercase host without 'www.', the path without a
+    trailing slash, no query, no fragment. BBC's RSS <guid> is the link plus a position fragment ('#0', then '#2'
+    on a later fetch), so the same article was stored again on every re-delivery: 125 BBC URLs held 2+ guids on
+    the laptop copy of 21 Oct, and three such pairs sit in the RAG labels. A non-URL guid is returned as given."""
+    from urllib.parse import urlparse
+    p = urlparse((url or "").strip())
+    if not p.scheme or not p.netloc:
+        return (url or "").strip()
+    host = p.netloc.lower().split("@")[-1].split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    return f"https://{host}{(p.path or '').rstrip('/')}"
+
+
 def parse_rss(xml_bytes):
     """RSS 2.0 bytes -> ([item dict], [error string]). An item without guid AND link is an
     error and is dropped; an unparseable pubDate is an error and the item keeps
-    published_at None."""
+    published_at None. The guid is the canonical link (canonical_link) since fix batch #4 N2."""
     root = ET.fromstring(xml_bytes)
     channel = root.find("channel")
     nodes = (channel if channel is not None else root).findall("item")
@@ -509,7 +527,7 @@ def parse_rss(xml_bytes):
         if not guid and not link:
             errors.append(f"item {i}: no guid and no link; dropped")
             continue
-        guid = guid or link
+        guid = canonical_link(guid or link)
         pub_text = (it.findtext("pubDate") or "").strip()
         published = parse_rfc822(pub_text) if pub_text else None
         if pub_text and published is None:
