@@ -4,7 +4,12 @@ and Newcastle in three answers); build_squad_from_scratch rows carried no 'team'
 
 Used by the gold labels (rule 4: a club with no tool source is an M3a FAIL) and by the eval's code checks
 (wrong clubs vs the players table, unsourced clubs). Pure functions over the record and a player list; the
-player list comes from players_live (load_players) or is passed in."""
+player list comes from players_live (load_players) or is passed in.
+
+DEFINITION (fix batch #4 close, 2026-10-22, written before the code change): unsourced / wrong clubs fire only on
+a CLUB CLAIM about a player: the player tied to a club as his own club -- "Isak (FWD, Newcastle)", "Newcastle's
+Isak", "Isak, who plays for Newcastle", "Isak at Newcastle" used as his club. A fixture is NOT a club claim:
+"Haaland at Aston Villa (away, Sat 24 Oct)", "Haaland vs Arsenal", "away at X", "home to X", "X (H)/(A)"."""
 import re
 import unicodedata
 
@@ -179,7 +184,13 @@ def _prose_claims(reply, teams):
     name = r"(?P<name>[A-ZÀ-Ž][\w'’.\-À-ž]+(?:\s[A-ZÀ-Ž][\w'’.\-À-ž]+){0,3})"
     out = []
     club = r"(?P<club>(?i:" + clubs + r"))"                            # clubs case-insensitive, names capitalised
-    for m in re.finditer(name + r"\**\s*(?:\(|—|–|-|,|\bof\b|\bat\b|\bfrom\b)\s*\**" + club + r"\b", text):
+    # fix batch #4 close (2026-10-22): a club followed by a fixture marker -- "(away", "(home", "(A)", "(H)", ", away",
+    # "(a)", "(h)" -- is a FIXTURE, not the player's club (the definition in the module docstring)
+    not_fixture = r"(?!\s*,?\s*\(?\s*(?:away|home|[AHah])\b)"
+    pos = r"(?:(?:GK|GKP|DEF|MID|FWD)\s*[,/|·\-–—]\s*\**)?"           # "Isak (FWD, Newcastle)": the position before the club
+    who = r",?\s+who\s+(?:plays\s+(?:for|at)|is\s+(?:at|with))\s+"      # "Isak, who plays for Newcastle"
+    sep = r"(?:\(\s*\**" + pos + r"|(?:—|–|-|,|\bof\b|\bat\b|\bfrom\b)\s*\**|" + who + r")"
+    for m in re.finditer(name + r"\**\s*" + sep + club + r"\b" + not_fixture, text):
         out.append((m.group("name"), m.group("club"), "prose"))
     for m in re.finditer(r"\b" + club + r"(?:'s|’s)\s+\**" + name, text):
         out.append((m.group("name"), m.group("club"), "prose"))
