@@ -394,6 +394,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_wildcard_gap)
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
+from reply_locks import apply_locks, players_table, year_from_context   # M3a push (2026-10-23): the club and weekday locks
 from numeric_grounding import check as numeric_check, record_numeric_check
 from now_context import context_block
 from db_write import record_chat_usage
@@ -723,6 +724,7 @@ def run_agent(user_message: str, messages: list = None):
     system = _system_for_turn()                      # the "now" block, rebuilt once per turn (2026-10-08)
     returned_ids = []                                # every result id search_news returned in THIS turn
     returned_results = []                            # the result dicts themselves, for the rendered citations (Part C)
+    turn_outputs = []                                # every tool output of THIS turn, as the model saw it (the reply locks)
     usage = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0,
              "model": None, "seen_usage": False}     # Part 7c: this turn's API usage, logged with the reply
 
@@ -744,11 +746,16 @@ def run_agent(user_message: str, messages: list = None):
                     _numeric_check(turn_id, raw, messages)                         # log only; never alters the reply
                     plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
                     plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
+                    plain, lock_log = apply_locks(plain, turn_outputs, players_table(), year_from_context(system))   # M3a push L1 + L2
+                    for c in lock_log:
+                        who = f" ({c.get('player')}, tool {c.get('tool_club')})" if c.get("player") else f" ({c.get('date')})"
+                        print(f"  [lock {c['lock']}: {c['before']} -> {c['after']}{who}]")
                     rendered = render_citations(plain, returned_results)           # Part C: [1], [2] + Sources
                     if rendered != raw:
                         print(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
                     LAST_TURN.clear()
-                    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
+                    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words,
+                                     lock_corrections=len(lock_log), **usage)
                     _usage_log(turn_id, usage, n_names)
                     return rendered, messages
 
@@ -768,6 +775,7 @@ def run_agent(user_message: str, messages: list = None):
                     returned_results.extend(hits)
                 if isinstance(result, dict) and "error" in result:
                     print(f"  [tool error: {tool_name}: {str(result['error'])[:200]}]")
+                turn_outputs.append(str(result))
 
                 tool_results.append({
                     "type": "tool_result",

@@ -207,14 +207,13 @@ def _table_claims(reply, teams):
     return out
 
 
-def _prose_claims(reply, teams):
-    """(player text, club text) from "Name (Club", "Name — Club", "Name, Club", "Name of Club", "Name at Club",
-    "Club's Name" in prose (tables excluded)."""
-    text = "\n".join(l for l in reply.splitlines() if not l.strip().startswith("|"))
+def prose_patterns(teams):
+    """The two compiled prose-claim patterns for a club vocabulary (shared with the reply lock, M3a push 2026-10-23):
+    "Name (Club", "Name (POS, Club", "Name — Club", "Name, Club", "Name of/at/from Club", "Name, who plays for Club";
+    and "Club's Name". Each has the groups `name` and `club`."""
     names = sorted(set(list(teams) + list(ALIASES)), key=len, reverse=True)
     clubs = "|".join(re.escape(n) for n in names)
     name = r"(?P<name>[A-ZÀ-Ž][\w'’.\-À-ž]+(?:\s[A-ZÀ-Ž][\w'’.\-À-ž]+){0,3})"
-    out = []
     club = r"(?P<club>(?i:" + clubs + r"))"                            # clubs case-insensitive, names capitalised
     # fix batch #4 close (2026-10-22): a club followed by a fixture marker -- "(away", "(home", "(A)", "(H)", ", away",
     # "(a)", "(h)" -- is a FIXTURE, not the player's club (the definition in the module docstring)
@@ -222,10 +221,18 @@ def _prose_claims(reply, teams):
     pos = r"(?:(?:GK|GKP|DEF|MID|FWD)\s*[,/|·\-–—]\s*\**)?"           # "Isak (FWD, Newcastle)": the position before the club
     who = r",?\s+who\s+(?:plays\s+(?:for|at)|is\s+(?:at|with))\s+"      # "Isak, who plays for Newcastle"
     sep = r"(?:\(\s*\**" + pos + r"|(?:—|–|-|,|\bof\b|\bat\b|\bfrom\b)\s*\**|" + who + r")"
-    for m in re.finditer(name + r"\**\s*" + sep + club + r"\b" + not_fixture, text):
-        out.append((m.group("name"), m.group("club"), "prose"))
-    for m in re.finditer(r"\b" + club + r"(?:'s|’s)\s+\**" + name, text):
-        out.append((m.group("name"), m.group("club"), "prose"))
+    return (re.compile(name + r"\**\s*" + sep + club + r"\b" + not_fixture),
+            re.compile(r"\b" + club + r"(?:'s|’s)\s+\**" + name))
+
+
+def _prose_claims(reply, teams):
+    """(player text, club text) from "Name (Club", "Name — Club", "Name, Club", "Name of Club", "Name at Club",
+    "Club's Name" in prose (tables excluded)."""
+    text = "\n".join(l for l in reply.splitlines() if not l.strip().startswith("|"))
+    out = []
+    for pat in prose_patterns(teams):
+        for m in pat.finditer(text):
+            out.append((m.group("name"), m.group("club"), "prose"))
     return out
 
 
