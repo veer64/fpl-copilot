@@ -5,9 +5,11 @@ L1 clubs: a club claim about a player whose club CONTRADICTS the turn's tool row
    eval/judge/club_claims.py, tool rows first) -> the club is replaced with the tool's; players-table-only or ambiguous
    names -> no change (logged only). Measured: four 'Alexander Isak (FWD, Newcastle)' answers with team_out Liverpool
    in the plan.
-L2 weekdays: '<weekday> <day> <month>' whose weekday does not match the calendar date -> the weekday is corrected (year
-   from the context block). Measured: 'on Tuesday' for Wed 21 Oct 2026.
-Both: the text outside the corrected span stays byte-identical; the raw reply is kept for the canary and the checkers."""
+L2 weekdays was DROPPED in the gate of the same day (fallback: a lock that breaks its neighbours is dropped): live, on
+   get_player_card:9, it turned a sourced 'Monday' (the club's "Monday's press conference") into 'Tuesday' three times
+   out of three because the model had attached the wrong date (20 Oct) -- the date, not the weekday, was the slip. The
+   lock trusted the date. Pinned below: a weekday is never touched.
+The text outside the corrected span stays byte-identical; the raw reply is kept for the canary and the checkers."""
 import json
 import sys
 from pathlib import Path
@@ -67,25 +69,13 @@ def test_l1_leaves_everything_else_byte_identical(text):
     assert new == text and all(c.get("after") is None for c in log)
 
 
-@pytest.mark.parametrize("text,want", [
-    ("Saka came off on Tuesday 21 Oct with a quad injury.", "Saka came off on Wednesday 21 Oct with a quad injury."),
-    ("Built Tue 21 Oct 2026 at 11:01.", "Built Wed 21 Oct 2026 at 11:01."),
-    ("the GW9 deadline, Friday 31 October 11:00 UTC", "the GW9 deadline, Saturday 31 October 11:00 UTC"),
-    ("Wednesday 21 Oct 2026 was the match.", "Wednesday 21 Oct 2026 was the match."),
-    ("Sat 24 Oct 2026, 11:30 UTC", "Sat 24 Oct 2026, 11:30 UTC"),
-    ("on 21 Oct he was fine", "on 21 Oct he was fine"),
-])
-def test_l2_a_wrong_weekday_is_corrected_in_place_and_a_right_one_kept(text, want):
-    new, log = rl.lock_weekdays(text, 2026)
-    assert new == want
-    assert (len(log) == 1) == (new != text)
-
-
-def test_apply_locks_runs_both_and_keeps_the_raw():
-    raw = "Isak (FWD, Newcastle) came off on Tuesday 21 Oct."
-    out, log = rl.apply_locks(raw, [PLAN], PLAYERS, year=2026)
-    assert out == "Isak (FWD, Liverpool) came off on Wednesday 21 Oct." and raw == "Isak (FWD, Newcastle) came off on Tuesday 21 Oct."
-    assert [c["lock"] for c in log] == ["clubs", "weekdays"]
+def test_apply_locks_corrects_clubs_only_keeps_the_raw_and_never_touches_a_weekday():
+    raw = "Isak (FWD, Newcastle) came off on Monday 20 Oct; the deadline is Friday 31 October 11:00 UTC."
+    out, log = rl.apply_locks(raw, [PLAN], PLAYERS)
+    assert out == "Isak (FWD, Liverpool) came off on Monday 20 Oct; the deadline is Friday 31 October 11:00 UTC."
+    assert raw.startswith("Isak (FWD, Newcastle)")
+    assert [c["lock"] for c in log] == ["clubs"]
+    assert not hasattr(rl, "lock_weekdays") and not hasattr(rl, "year_from_context")
 
 
 def test_the_agent_applies_the_locks_before_rendering_citations(monkeypatch):

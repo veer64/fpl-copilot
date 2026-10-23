@@ -394,7 +394,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_wildcard_gap)
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
-from reply_locks import apply_locks, players_table, year_from_context   # M3a push (2026-10-23): the club and weekday locks
+from reply_locks import apply_locks, players_table   # M3a push (2026-10-23): the club lock (the weekday lock was dropped in its gate)
 from numeric_grounding import check as numeric_check, record_numeric_check
 from now_context import context_block
 from db_write import record_chat_usage
@@ -746,7 +746,7 @@ def run_agent(user_message: str, messages: list = None):
                     _numeric_check(turn_id, raw, messages)                         # log only; never alters the reply
                     plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
                     plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
-                    plain, lock_log = apply_locks(plain, turn_outputs, players_table(), year_from_context(system))   # M3a push L1 + L2
+                    plain, lock_log = apply_locks(plain, turn_outputs, players_table())   # M3a push L1 (clubs)
                     for c in lock_log:
                         who = f" ({c.get('player')}, tool {c.get('tool_club')})" if c.get("player") else f" ({c.get('date')})"
                         print(f"  [lock {c['lock']}: {c['before']} -> {c['after']}{who}]")

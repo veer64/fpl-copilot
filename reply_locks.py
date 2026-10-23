@@ -7,13 +7,14 @@ L1 clubs: every club claim about a player in the reply ("Isak (FWD, Newcastle)",
    replaced with the tool's. A player found only in the players table, an ambiguous name or an unknown name changes
    nothing (logged). Measured before the lock: four 'Alexander Isak (FWD, Newcastle)' answers with team_out Liverpool
    in the plan the agent had just been given.
-L2 weekdays: '<weekday> <day> <month>' whose weekday does not match the calendar (the year from the context block)
-   -> the weekday is corrected in place, keeping its spelling length ('Tue' -> 'Wed', 'Tuesday' -> 'Wednesday').
+L2 weekdays (a wrong weekday before a date corrected to the calendar) was DROPPED in the same day's gate: live, it fired
+   three times out of three on one answer and each time turned a sourced 'Monday' (the club's "Monday's press conference")
+   into 'Tuesday', because the model had attached the wrong date -- the date was the slip, not the weekday. A lock that
+   breaks its neighbour is dropped (the task's fallback). Weekdays are never touched.
 
-Both locks edit only the corrected span; everything else stays byte-identical. Pure functions; no I/O."""
+The lock edits only the corrected span; everything else stays byte-identical. Pure functions; no I/O."""
 import re
 import sys
-from datetime import date
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent
@@ -22,14 +23,6 @@ for _p in (str(_REPO / "eval"),):
         sys.path.insert(0, _p)
 from judge import club_claims as CC          # noqa: E402  (the checker's resolver: one definition for check and lock)
 from judge import metrics as M               # noqa: E402
-
-MONTHS = {m.lower(): i for i, m in enumerate(("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), start=1)}
-DAYS_SHORT = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-DAYS_LONG = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-WEEKDAY_DATE = re.compile(r"\b(?P<wd>Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)"
-                          r"\s+(?P<d>\d{1,2})\s+(?P<mon>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|"
-                          r"Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b(?:\s+(?P<y>20\d\d))?")
-
 
 def _tool_rows(tool_outputs):
     rows = []
@@ -129,35 +122,6 @@ def lock_clubs(text, tool_outputs, players):
     return "".join(out), log
 
 
-def lock_weekdays(text, year):
-    """(new_text, log): every '<weekday> <day> <month>[ <year>]' whose weekday is wrong for that date is corrected, in the
-    spelling length written ('Tue' -> 'Wed', 'Tuesday' -> 'Wednesday'). The year comes from the context block (the date's
-    own year when written)."""
-    if not text:
-        return text, []
-    log, out, last = [], [], 0
-    for m in WEEKDAY_DATE.finditer(text):
-        wd, d, mon = m.group("wd"), int(m.group("d")), m.group("mon")
-        y = int(m.group("y")) if m.group("y") else int(year)
-        try:
-            real = date(y, MONTHS[mon[:3].lower()], d)
-        except (ValueError, KeyError):
-            continue
-        want_short, want_long = DAYS_SHORT[real.weekday()], DAYS_LONG[real.weekday()]
-        if wd[:3] in (want_short,) and (wd == want_short or wd == want_long):
-            continue
-        if wd[:3] == want_short:
-            continue
-        rep = want_long if len(wd) > 3 else want_short
-        s, e = m.span("wd")
-        out.append(text[last:s]); out.append(rep); last = e
-        log.append({"lock": "weekdays", "before": wd, "after": rep, "date": real.isoformat()})
-    if not log:
-        return text, []
-    out.append(text[last:])
-    return "".join(out), log
-
-
 def players_table():
     """The players table for the locks ([] on any failure: the locks then change nothing and log nothing)."""
     try:
@@ -171,14 +135,7 @@ def players_table():
         return []
 
 
-def year_from_context(system_text):
-    """The year of the context block's 'Now:' line (the agent's system text), else today's."""
-    m = re.search(r"Now:\s+\w+\s+(20\d\d)-", system_text or "")
-    return int(m.group(1)) if m else date.today().year
-
-
-def apply_locks(text, tool_outputs, players, year):
-    """Both locks in order (clubs, then weekdays); returns (text, the corrections that changed something)."""
+def apply_locks(text, tool_outputs, players):
+    """The club lock; returns (text, the corrections that changed something)."""
     t1, log1 = lock_clubs(text, tool_outputs, players)
-    t2, log2 = lock_weekdays(t1, year)
-    return t2, [c for c in log1 if c.get("after")] + log2
+    return t1, [c for c in log1 if c.get("after")]
