@@ -17,6 +17,7 @@
 # each run) through squad/optimize.py -- the same MIP the pipeline uses, gapRel=0.
 
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -274,7 +275,9 @@ def _with_started_note(out, gw):
 
 
 def _player_meta(elements):
-    """{element: {name, position, team}} from players_live for the ids given; {} on any failure."""
+    """{element: {name, position, team, display_name}} from players_live for the ids given; {} on any failure.
+    display_name = FPL's web_name from the newest bootstrap snapshot (M3a push S1, 2026-10-23: the agent shortened
+    'António João Pereira de Albuquerque Tavares da Silva' to 'Antón' and 'Nuno Tavares'); the full name when none."""
     ids = sorted({int(x) for x in elements if x is not None})
     if not ids:
         return {}
@@ -282,17 +285,29 @@ def _player_meta(elements):
         rows = _q("SELECT element, name, position, team FROM players_live WHERE element = ANY(%s)", (ids,))
     except Exception:                               # noqa: BLE001 -- cosmetic, never fatal
         return {}
-    return {int(r["element"]): {"name": r.get("name"), "position": r.get("position"), "team": r.get("team")} for r in rows}
+    web = _web_names_safe()
+    return {int(r["element"]): {"name": r.get("name"), "position": r.get("position"), "team": r.get("team"),
+                                "display_name": web.get(int(r["element"])) or r.get("name")} for r in rows}
+
+
+def _web_names_safe():
+    """{element: web_name} or {} -- never raises (the snapshot is a file on the volume)."""
+    try:
+        return {k: v for k, v in _web_names().items() if v}
+    except Exception:                               # noqa: BLE001
+        return {}
 
 
 def _squad_rows_from_team(team, roles, names):
     """The fifteen as rows carrying club and position, from a role-tagged team frame."""
     order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
     meta = {int(r.element): (str(r.position), str(r.team)) for r in team.itertuples(index=False)}
+    web = _web_names_safe()                                                     # S1: the display name leads every row
     rows = []
     for e, (r, bo) in roles.items():
         pos, club = meta.get(int(e), (None, None))
-        rows.append({"player_id": e, "name": names.get(e, str(e)), "position": pos, "team": club, "role": r,
+        rows.append({"display_name": web.get(int(e)) or names.get(e, str(e)), "player_id": e, "name": names.get(e, str(e)),
+                     "position": pos, "team": club, "role": r,
                      "bench_order": bo, "e_points": round(float(team.loc[team["element"] == e, "e_points"].iloc[0]), 2)})
     return sorted(rows, key=lambda x: (order[x["role"]], x["bench_order"] or 0, -x["e_points"]))
 
@@ -309,7 +324,8 @@ def _transfer_row_meta(row, meta):
     """A transfer row {out, out_id, in, in_id, ...} with team_out / position_out / team_in / position_in."""
     o, i = row.get("out_id"), row.get("in_id")
     mo, mi = (meta.get(int(o)) if o is not None else None) or {}, (meta.get(int(i)) if i is not None else None) or {}
-    return {**row, "team_out": mo.get("team"), "position_out": mo.get("position"),
+    return {"out_display": mo.get("display_name") or row.get("out"), "in_display": mi.get("display_name") or row.get("in"),   # S1
+            **row, "team_out": mo.get("team"), "position_out": mo.get("position"),
             "team_in": mi.get("team"), "position_in": mi.get("position")}
 
 
@@ -349,15 +365,55 @@ def _transfer_summary(current, change, hold_comparison, free_before):
         head = f"For GW{int(current)}: {n} transfer{'s' if n != 1 else ''}, {int(change.get('hits') or 0)} hit{'s' if change.get('hits') != 1 else ''}"
         head += f" ({moves})" if moves else ""
     parts = [head + "."]
+    gain_said = False
     if hold_comparison and not hold_comparison.get("refused"):
         g6, g1 = hold_comparison.get("gap_objective"), hold_comparison.get("gap_this_gw")
         if g6 is not None and g1 is not None:
             parts.append(f"Against holding: {g6:+.2f} over the next six gameweeks (weighted towards the nearer ones), "
                          f"{g1:+.2f} for this deadline alone.")
+            gain_said = True
     elif hold_comparison and hold_comparison.get("refused"):
         parts.append("The hold-versus-move gap is withheld this week.")
-    parts.append("This plan covers up to six gameweeks; check back each week.")
+    if gain_said:
+        parts.append(GAIN_IS_ONE_FIGURE)                                        # S4 (M3a push): no per-player split, no ranking
+    parts.append("This plan covers up to six gameweeks; check back each week.")   # F7: always the last sentence
     return " ".join(parts)
+
+
+GAIN_IS_ONE_FIGURE = ("The gain is one figure for the whole plan: nothing in our data splits it by player or ranks the "
+                      "moves.")
+NOT_IN_OUR_DATA = ("Shots, shot rate, form and minutes played so far: not in our data; expected goals per 90 and expected "
+                   "assists per 90 are the attacking inputs we have.")
+
+
+def _drivers_words(bd):
+    """S5 (M3a push, 2026-10-23): the inputs a breakdown was computed from, as ONE plain sentence, so a 'because' has a
+    source: start chance, chance of 60+ minutes, expected goals per 90, expected assists per 90, clean-sheet chance,
+    fixture scale -- then what is not in our data. 35 of 89 confirmed M3a failures were reasons no tool gave."""
+    if not isinstance(bd, dict):
+        return None
+    lines = {l.get("term"): (l.get("inputs") or {}) for l in (bd.get("lines") or []) if isinstance(l, dict)}
+    parts = []
+    app, goals, assists, cs = lines.get("appearance", {}), lines.get("goals", {}), lines.get("assists", {}), lines.get("clean_sheet", {})
+
+    def pct(v):
+        return f"{round(float(v) * 100):d}%" if isinstance(v, (int, float)) and v == v else None
+    if pct(app.get("p_start")):
+        parts.append(f"start chance {pct(app['p_start'])}")
+    if pct(app.get("p_60plus")):
+        parts.append(f"chance of 60+ minutes {pct(app['p_60plus'])}")
+    if isinstance(goals.get("npxg90"), (int, float)):
+        parts.append(f"expected goals per 90 {float(goals['npxg90']):.2f}")
+    if isinstance(assists.get("xa90"), (int, float)):
+        parts.append(f"expected assists per 90 {float(assists['xa90']):.2f}")
+    if pct(cs.get("p_cs")):
+        parts.append(f"clean-sheet chance {pct(cs['p_cs'])}")
+    fs = (bd.get("fixture") or {}).get("fixture_scale_cal", goals.get("fixture_scale_cal"))
+    if isinstance(fs, (int, float)) and fs == fs:
+        parts.append(f"fixture scale {float(fs):.2f} (above 1 = easier than average)")
+    if not parts:
+        return None
+    return f"{bd.get('name') or 'The player'}'s inputs: " + ", ".join(parts) + ". Shots, form and minutes played so far: not in our data."
 
 
 # ---------------------------------------------------------------- reference
@@ -460,6 +516,35 @@ def latest_flag_words(chance, as_of, gw):
     when = _as_of_words(as_of)
     inner = ", ".join(x for x in ((f"for GW{int(gw)}" if gw is not None else None), (f"as of {when}" if when else None)) if x)
     return "latest FPL flag" + (f" ({inner})" if inner else "") + f": chance of playing {int(chance)}%"
+
+
+NO_RETURN_DATE = "Return date: not given by FPL; a source's own timeline is quoted with its date or not at all."
+_RETURN_RE = re.compile(r"(?i)\b(expected back|suspended until|back on|out until)\s+(\d{1,2})\s+([A-Za-z]{3,9})\b")
+
+
+def return_words(status, news, as_of):
+    """S3 (M3a push, 2026-10-23): the player's return timeline as FPL states it, with its weekday and year, or the
+    sentence that FPL gives none -- four answers stretched a club's 'eight weeks' into 'late December at the earliest'.
+    None for an unflagged player. The year is the as-of year, or the next one when the date would fall >60 days before
+    the as-of day (a January return said in December)."""
+    if status not in ("d", "i", "s") or not as_of:
+        return None
+    text = (news or "").strip()
+    m = _RETURN_RE.search(text)
+    if not m:
+        return NO_RETURN_DATE
+    try:
+        asof = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+        when = datetime.strptime(f"{int(m.group(2))} {m.group(3)[:3].title()} {asof.year}", "%d %b %Y")
+        if (asof.replace(tzinfo=None) - when).days > 60:
+            when = when.replace(year=asof.year + 1)
+    except ValueError:
+        return NO_RETURN_DATE
+    day = f"{when:%a} {when.day} {when:%b %Y}"
+    kind = m.group(1).lower()
+    if kind == "suspended until":
+        return f"FPL: suspended until {day}."
+    return f"FPL expects him back {day}."
 
 
 def flag_dates_words(news_added, as_of, flagged, gw=None):
@@ -990,6 +1075,10 @@ def get_player_card(player_id: int):
     if dates:
         card["availability"]["flag_dates"] = dates
         card["flag_dates"] = dates
+    ret = return_words(card.get("status"), news, card.get("updated_at"))        # S3: FPL's own return wording or its absence
+    if ret:
+        card["availability"]["return_words"] = ret
+        card["return_words"] = ret
     pred = get_prediction(player_id)
     if "error" not in pred:
         card["prediction"] = pred
@@ -1239,7 +1328,9 @@ def compare_players(player_id_a: int, player_id_b: int):
            "recovered_post_deadline": a["recovered_post_deadline"],
            "a": brief(a), "b": brief(b),
            "verdict": "a" if a["horizon_e_points_sum"] >= b["horizon_e_points_sum"] else "b",
-           "verdict_basis": "horizon_e_points_sum"}
+           "verdict_basis": "horizon_e_points_sum",
+           "not_in_our_data": NOT_IN_OUR_DATA + " Why a later gameweek's figure is what it is: not in this comparison; "
+                              "the per-gameweek comparison gives the inputs."}                           # S4 (M3a push)
     try:
         nxt = _current_gw()
     except RuntimeError:
@@ -1844,7 +1935,8 @@ def explain_prediction(player_id: int, gw: int = None, run_id: int = None):
     if err:
         return err
     bd = explain.breakdown(row, step)
-    out = {**bd, "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
+    out = {**bd, "drivers_plain": _drivers_words(bd), "not_in_our_data": NOT_IN_OUR_DATA,     # S5 / S4 (M3a push)
+           "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
            "frame_built_at": str(built), **_frame_built(cutoff)}
     out = _lead_with_availability(out, player_id, _availability_for([player_id]))
     note = _stale_note(target, cutoff, built)
@@ -1905,7 +1997,9 @@ def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
         return err
     a, b = explain.breakdown(ra, step), explain.breakdown(rb, step)
     flags = _availability_for([player_id_a, player_id_b])
-    out = {**explain.compare(a, b), "breakdown_a": a, "breakdown_b": b,
+    out = {**explain.compare(a, b), "drivers_plain": {"a": _drivers_words(a), "b": _drivers_words(b)},   # S5 (M3a push)
+           "not_in_our_data": NOT_IN_OUR_DATA,                                                          # S4
+           "breakdown_a": a, "breakdown_b": b,
            "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
            "frame_built_at": str(built), **_frame_built(cutoff)}
     if not out["reconciles"]:
@@ -2387,32 +2481,46 @@ def _basis_words(e_points, gw, n):
     return f"{pts}, from {n} fixtures" + (" (a double gameweek)" if n == 2 else "")
 
 
-def _with_pick_basis(out, gw, counts):
+NO_OTHER_BUDGET = "No other budget was built: nothing in our data says what the lower budget cost."
+
+
+def _with_pick_basis(out, gw, counts, budget=None):
     """A squad build's result with the ONLY basis the build has, on every pick row (Friday gate R2, 2026-10-16):
     its predicted points for the planned gameweek and that gameweek's number of fixtures; and, before the rows, that
     no other reasons are available. Measured 2026-10-15: "the best squad for gameweek 10" was explained with reasons
     no tool gave ("reflects the GW10 fixture landscape", "the Bournemouth double ... reflect the longer-range fixture
-    estimates"). Idempotent; an error or a result without pick rows is returned unchanged."""
+    estimates"). Idempotent; an error or a result without pick rows is returned unchanged.
+    M3a push (2026-10-23): every pick row leads with FPL's display name (S1); a build on a budget other than 100.0 says
+    that no other budget was built (S4: four answers explained 'what the £4m saving cost' with no £100m build run)."""
     if not isinstance(out, dict) or "error" in out or "basis" in out or gw is None:
         return out
     keys = [k for k in PICK_ROW_KEYS if isinstance(out.get(k), list) and out[k]]
     if not keys:
         return out
     counts = counts or {}
+    web = _web_names_safe()
     any_fix = False
     for k in keys:
+        rows = []
         for r in out[k]:
             if not isinstance(r, dict) or r.get("player_id") is None:
+                rows.append(r)
                 continue
             n = counts.get(int(r["player_id"]))
             if n is not None:
                 r["fixtures"] = int(n)
                 any_fix = True
             r["basis"] = _basis_words(r.get("e_points"), gw, n)
+            if "display_name" not in r:
+                r = {"display_name": web.get(int(r["player_id"])) or r.get("name"), **r}
+            rows.append(r)
+        out[k] = rows
     basis = (f"Each pick's basis is on its row: its predicted points for GW{int(gw)}"
              + (f" and its number of GW{int(gw)} fixtures" if any_fix else "")
              + ". The build picks the fifteen with the most predicted points that FPL's squad rules and the budget "
                "allow. No other reasons are available.")
+    if budget is not None and abs(float(budget) - 100.0) > 1e-9:
+        basis += " " + NO_OTHER_BUDGET
     items = list(out.items())
     at = min(i for i, (k, _) in enumerate(items) if k in keys)
     return dict(items[:at] + [("basis", basis), ("reasons_available", False)] + items[at:])
@@ -2490,7 +2598,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
     # batch 3 F1 (2026-10-14, the user's decision): a player the user FORCED in although FPL flags him injured,
     # suspended or doubtful is built in, and the result says so first; u / n were refused above.
     forced = list(dict.fromkeys([int(x) for x in (start_player_ids or [])] + [int(x) for x in (lock_player_ids or [])]))
-    out = _with_pick_basis(out, cutoff, _fixture_counts(cutoff, [r["player_id"] for r in out["squad"]]))
+    out = _with_pick_basis(out, cutoff, _fixture_counts(cutoff, [r["player_id"] for r in out["squad"]]), budget=budget)
     return _with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), cutoff)))
 
 

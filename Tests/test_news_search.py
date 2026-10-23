@@ -399,7 +399,8 @@ def test_output_shape_golden_and_search_log_row(conn):
         "as_of": "2026-09-18T17:30:00Z", "search_mode": "hybrid", "no_news_for": [], "ambiguous_players": {},
         "results": [{"id": f"c{cid}", "source": "FPL official", "headline": "Saka (ARS, MID)", "url": None, "date": "2026-09-17", "date_basis": "FPL",
                      "age": "1 day ago", "about_requested_player": True, "players": ["Saka"],
-                     "text": "[FPL official | 2026-09-17 11:00Z] Saka (ARS, MID)\nStatus: doubtful. 75% chance of playing. Knock - 75% chance of playing"}]}
+                     "text": "[FPL official | 2026-09-17 11:00Z] Saka (ARS, MID)\nStatus: doubtful. 75% chance of playing. Knock - 75% chance of playing"}],
+        "managers_note": nsr.MANAGERS_NOTE}                                       # M3a push S4 (2026-10-23)
     with conn.cursor() as cur:
         cur.execute("SELECT query, players, clubs, resolved_ids, as_of, search_mode, candidates, returned_ids, embed_ms, sql_ms, total_ms, error "
                     "FROM search_log ORDER BY id DESC LIMIT 1")
@@ -471,10 +472,12 @@ def test_prompt_carries_the_availability_rules_verbatim(monkeypatch):
     # 2026-10-01: two more rules in section 2e, verbatim
     assert ("If the user's player name could match more than one player, ask\n"
             "which one they mean before answering. Never pick one yourself.") in p
-    assert ("Never name managers, coaches or club staff from memory. Mention them\n"
-            "only if they appear in a tool result.") in p
+    # M3a push (2026-10-23): the managers line moved into the one invented-facts rule near the top ("a manager -- say
+    # what our data doesn't show instead"); section 2e no longer repeats it
+    assert "Never name managers, coaches or club staff from memory" not in p
+    assert "a reason, a club, a date, a return timeline, a manager -- say what our data doesn't show instead" in p
     section = p[p.index("# 2e."):p.index("# 3. Freshness")]
-    assert "Never pick one yourself." in section and "only if they appear in a tool result." in section
+    assert "Never pick one yourself." in section
     # Piece 9 (2026-10-01): the official status comes from the player card, never from a search result
     assert ("The player's official FPL status always comes from the player card\n"
             "tool (its availability block and as-of time), never from news search\n"

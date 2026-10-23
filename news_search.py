@@ -305,6 +305,10 @@ def _log(conn, query, players, clubs, resolved_ids, as_of, mode, cands, returned
         conn.rollback()
 
 
+MANAGERS_NOTE = ("Managers and coaches: known only as these results name them (a result's text and date); otherwise not in "
+                 "our data -- which club a manager leads, what he said elsewhere, or why, is not stated by any tool.")
+
+
 def search_news(query, players=None, clubs=None, *, as_of=None, conn=None, embed_client=None, snapshots=None):
     """See the module docstring. Returns the JSON-ready dict the agent receives."""
     global _pacer
@@ -362,7 +366,8 @@ def search_news(query, players=None, clubs=None, *, as_of=None, conn=None, embed
         results = [_result(c, as_of, about(c) if ids else False) for c in chosen]
         timings["total_ms"] = int((time.perf_counter() - t0) * 1000)
         _log(conn, query, players, clubs, requested_ids, as_of, mode, cands, [int(r["id"][1:]) for r in results], timings, error)
-        return {"as_of": _iso(as_of), "search_mode": mode, "no_news_for": no_news, "ambiguous_players": ambiguous, "results": results}
+        return {"as_of": _iso(as_of), "search_mode": mode, "no_news_for": no_news, "ambiguous_players": ambiguous, "results": results,
+                "managers_note": MANAGERS_NOTE}                                 # S4 (M3a push, 2026-10-23)
     finally:
         if own_conn:
             conn.close()
