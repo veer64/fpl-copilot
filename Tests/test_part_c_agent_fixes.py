@@ -241,9 +241,8 @@ def test_section_0_carries_the_scoring_basics_from_scoring_py():
 def test_the_penalty_sentence_does_not_call_the_player_a_taker_and_invented_facts_are_forbidden():
     assert "for a regular taker treat it as a floor" not in PROMPT
     assert "if a tool says he takes penalties" in PROMPT
-    # M3a push (2026-10-23): the invented-facts rule is the one short rule near the top, with its BAD / GOOD pair
-    assert "State only what a tool returned in this turn, the context block or the user's message." in PROMPT
-    assert "a reason, a club, a date, a return timeline, a manager -- say what our data doesn't show instead" in PROMPT
+    assert "Never state a fact about a player, club, fixture or result that no tool result or the context block gives" in PROMPT
+    assert "the reason behind a number" in PROMPT
 
 
 # ================================================================ F7

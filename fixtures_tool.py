@@ -138,23 +138,6 @@ def fixture_scores(rows):
     return {k: {"attack": att[k], "defence": dfn[k]} for k in keys}
 
 
-_TENTHS = {1: "bottom", 2: "second", 3: "third", 4: "fourth", 5: "fifth", 6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth", 10: "top"}
-
-
-def score_words(score):
-    """S6 (M3a push, 2026-10-23): a 1-10 score as the words the agent copies -- '9/10: the ninth tenth from hardest ...
-    (10 = the top tenth, not 'the easiest fixture')'. Four answers read 9 as 'the easiest tenth' and 3 as 'the hardest
-    tier' with score_meaning present; the tenth is now said on the row itself. None for a missing score."""
-    try:
-        k = int(score)
-    except (TypeError, ValueError):
-        return None
-    if k not in _TENTHS:
-        return None
-    tail = "(10 = the top tenth, not 'the easiest fixture')" if k >= 6 else "(1 = the bottom tenth, not 'the hardest fixture')"
-    return f"{k}/10: the {_TENTHS[k]} tenth from hardest among every fixture the build priced {tail}"
-
-
 def _difficulty(tl, ol, pcs, scores=None):
     """The two quantities, never one composite.
 
@@ -175,7 +158,6 @@ def _difficulty(tl, ol, pcs, scores=None):
             "measure": "expected goals FOR this team in this fixture (team_lambda)",
             "value": None if tl is None or tl != tl else round(float(tl), 4),
             "score": scores.get("attack"),
-            "score_words": score_words(scores.get("attack")),
             "score_meaning": SCORE_MEANING,
             "reading": "higher is EASIER to score in",
         },
@@ -184,7 +166,6 @@ def _difficulty(tl, ol, pcs, scores=None):
             "value": None if pcs is None or pcs != pcs else round(float(pcs), 4),
             "opp_lambda": None if ol is None or ol != ol else round(float(ol), 4),
             "score": scores.get("defence"),
-            "score_words": score_words(scores.get("defence")),
             "score_meaning": SCORE_MEANING,
             "reading": "higher is EASIER to keep a clean sheet",
             # Friday targeted fix F17 (2026-10-16): a team's clean-sheet chance was read as lifting a forward's floor
