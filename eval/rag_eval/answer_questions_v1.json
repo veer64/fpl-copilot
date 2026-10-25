@@ -1,0 +1,1316 @@
+{
+ "version": "answer_questions_v1",
+ "written": "2026-10-25T02:40Z",
+ "source": "eval/rag_eval/questions_v1.json (sha256[:12] 5146447f9290)",
+ "frozen_now": "2026-10-23T20:00:00Z",
+ "data": "laptop copy of the server dump of 2026-10-23 19:54Z: news_items 1,161 (newest fetched_at 2026-10-23 16:37Z), availability as of 2026-10-23 17:21Z",
+ "pick_rule": "within each situation sort by id, take the first k: current 3, club 2, name variant 2, conflict 2, stale 2, no news 2, ambiguous 1, vague 1; a pick that no longer fits its situation as of the frozen clock -> the next id of the same situation; none left -> re-classified to the situation it now fits (noted per question). 'Current' = a live item naming the player dated within 7 days of the frozen clock; 'stale' = only older items; 'conflict' = FPL's flag and the newest news disagree at the frozen clock.",
+ "tool_clock_note": "search_news's own as_of is the wall clock (datetime.now), not the frozen clock; the laptop data ends 2026-10-23 16:37Z, so nothing newer than the frozen instant exists and only the 'age' words differ.",
+ "situation_counts": {
+  "player_current_news": 6,
+  "club_news": 2,
+  "name_variant": 2,
+  "conflict": 0,
+  "stale": 1,
+  "no_news": 2,
+  "ambiguous": 1,
+  "vague": 1
+ },
+ "questions": [
+  {
+   "id": "rag:6",
+   "qid": "q06",
+   "situation": "player_current_news",
+   "original_situation": "player_current_news",
+   "question": "damsgaard a doubt for brentford?",
+   "players": [
+    "Damsgaard"
+   ],
+   "clubs": [],
+   "pick_note": "replaced q01/q02/q03 (their newest items are 10, 8 and 15 days old; q04, q05 older still): Brentford preview 21 Oct + FPL notice 17 Oct",
+   "expected": {
+    "situation": "player_current_news",
+    "rule": "search_news called; FPL's flag (status/chance, with its time) stated before the first news citation; the newest items (within 7 days of the frozen clock) cited with their dates.",
+    "fpl_flag_at_frozen": {
+     "Damsgaard": {
+      "status": "a",
+      "chance": 100,
+      "news": null,
+      "chance_words": "chance of playing in GW8: 100%, FPL as of 23 Oct 2026",
+      "flag_dates": "No FPL flag for GW8, last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1389",
+       "date": "2026-10-21",
+       "age_at_frozen": "2 days ago",
+       "source": "Brentford official site",
+       "about_requested_player": true,
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      },
+      {
+       "id": "c1396",
+       "date": "2026-10-21",
+       "age_at_frozen": "2 days ago",
+       "source": "Brentford official site",
+       "about_requested_player": true,
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      },
+      {
+       "id": "c1225",
+       "date": "2026-10-17",
+       "age_at_frozen": "6 days ago",
+       "source": "FPL official",
+       "about_requested_player": true,
+       "headline": "Damsgaard (BRE, MID)"
+      }
+     ]
+    },
+    "live_chunks_naming_player": {
+     "Damsgaard": [
+      {
+       "chunk": "c1386",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      },
+      {
+       "chunk": "c1387",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      },
+      {
+       "chunk": "c1388",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      },
+      {
+       "chunk": "c1389",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      },
+      {
+       "chunk": "c1390",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      },
+      {
+       "chunk": "c1391",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      },
+      {
+       "chunk": "c1392",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      },
+      {
+       "chunk": "c1393",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Hull City v Brentford - Match preview, kick-off time & more"
+      }
+     ]
+    },
+    "live_chunks_naming_player_count": {
+     "Damsgaard": 12
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:7",
+   "qid": "q07",
+   "situation": "player_current_news",
+   "original_situation": "player_current_news",
+   "question": "what's happened to hincapie?",
+   "players": [
+    "Hincapie"
+   ],
+   "clubs": [],
+   "pick_note": "next fitting id: Arsenal preview 21 Oct, BBC 12 Oct, FPL 12 Oct; card doubtful 75% (flag set 12 Oct)",
+   "expected": {
+    "situation": "player_current_news",
+    "rule": "search_news called; FPL's flag (status/chance, with its time) stated before the first news citation; the newest items (within 7 days of the frozen clock) cited with their dates.",
+    "fpl_flag_at_frozen": {
+     "Hincapie": {
+      "status": "d",
+      "chance": 75,
+      "news": "Ankle injury - 75% chance of playing",
+      "chance_words": "chance of playing in GW8: 75%, FPL as of 23 Oct 2026",
+      "flag_dates": "FPL flag set 12 Oct 2026 (for GW8), last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1343",
+       "date": "2026-10-21",
+       "age_at_frozen": "2 days ago",
+       "source": "Arsenal official site",
+       "about_requested_player": true,
+       "headline": "Preview: Bayern Munich v Arsenal"
+      },
+      {
+       "id": "c1120",
+       "date": "2026-10-12",
+       "age_at_frozen": "11 days ago",
+       "source": "BBC Sport",
+       "about_requested_player": true,
+       "headline": "Hincapie and Zubimendi injured in post-match training session"
+      },
+      {
+       "id": "c1149",
+       "date": "2026-10-12",
+       "age_at_frozen": "11 days ago",
+       "source": "BBC Sport",
+       "about_requested_player": true,
+       "headline": "Hincapie and Zubimendi injured in post-match training session"
+      },
+      {
+       "id": "c1292",
+       "date": "2026-10-12",
+       "age_at_frozen": "11 days ago",
+       "source": "FPL official",
+       "about_requested_player": true,
+       "headline": "Hincapie (ARS, DEF)"
+      },
+      {
+       "id": "c1121",
+       "date": "2026-10-10",
+       "age_at_frozen": "13 days ago",
+       "source": "BBC Sport",
+       "about_requested_player": true,
+       "headline": "Hincapie injury adds to Arsenal issues after Guimaraes rescue act"
+      }
+     ]
+    },
+    "live_chunks_naming_player": {
+     "Hincapie": [
+      {
+       "chunk": "c1340",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Preview: Bayern Munich v Arsenal"
+      },
+      {
+       "chunk": "c1341",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Preview: Bayern Munich v Arsenal"
+      },
+      {
+       "chunk": "c1342",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Preview: Bayern Munich v Arsenal"
+      },
+      {
+       "chunk": "c1343",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Preview: Bayern Munich v Arsenal"
+      },
+      {
+       "chunk": "c1344",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Preview: Bayern Munich v Arsenal"
+      },
+      {
+       "chunk": "c1345",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Preview: Bayern Munich v Arsenal"
+      },
+      {
+       "chunk": "c1346",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Preview: Bayern Munich v Arsenal"
+      },
+      {
+       "chunk": "c1347",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Preview: Bayern Munich v Arsenal"
+      }
+     ]
+    },
+    "live_chunks_naming_player_count": {
+     "Hincapie": 15
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:9",
+   "qid": "q09",
+   "situation": "player_current_news",
+   "original_situation": "player_current_news",
+   "question": "does gravenberch miss liverpool's next match?",
+   "players": [
+    "Gravenberch"
+   ],
+   "clubs": [],
+   "pick_note": "next fitting id (q08's newest is 12-13 days old): FPL notice 17 Oct (5 days)",
+   "expected": {
+    "situation": "player_current_news",
+    "rule": "search_news called; FPL's flag (status/chance, with its time) stated before the first news citation; the newest items (within 7 days of the frozen clock) cited with their dates.",
+    "fpl_flag_at_frozen": {
+     "Gravenberch": {
+      "status": "a",
+      "chance": 100,
+      "news": null,
+      "chance_words": "chance of playing in GW8: 100%, FPL as of 23 Oct 2026",
+      "flag_dates": "No FPL flag for GW8, last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1236",
+       "date": "2026-10-17",
+       "age_at_frozen": "5 days ago",
+       "source": "FPL official",
+       "about_requested_player": true,
+       "headline": "Gravenberch (LIV, MID)"
+      },
+      {
+       "id": "c1118",
+       "date": "2026-10-11",
+       "age_at_frozen": "11 days ago",
+       "source": "BBC Sport",
+       "about_requested_player": true,
+       "headline": "Rooney gives verdict on Gravenberch red card"
+      },
+      {
+       "id": "c1206",
+       "date": "2026-10-11",
+       "age_at_frozen": "11 days ago",
+       "source": "BBC Sport",
+       "about_requested_player": true,
+       "headline": "Rooney gives verdict on Gravenberch red card"
+      },
+      {
+       "id": "c1115",
+       "date": "2026-10-11",
+       "age_at_frozen": "12 days ago",
+       "source": "BBC Sport",
+       "about_requested_player": true,
+       "headline": "'I didn't like the refereeing' - Iraola unhappy with Gravenberch red"
+      },
+      {
+       "id": "c1207",
+       "date": "2026-10-11",
+       "age_at_frozen": "12 days ago",
+       "source": "BBC Sport",
+       "about_requested_player": true,
+       "headline": "'I didn't like the refereeing' - Iraola unhappy with Gravenberch red"
+      }
+     ]
+    },
+    "live_chunks_naming_player": {
+     "Gravenberch": [
+      {
+       "chunk": "c1118",
+       "published_at": "2026-10-11",
+       "source": "bbc",
+       "headline": "Rooney gives verdict on Gravenberch red card"
+      },
+      {
+       "chunk": "c1206",
+       "published_at": "2026-10-11",
+       "source": "bbc",
+       "headline": "Rooney gives verdict on Gravenberch red card"
+      },
+      {
+       "chunk": "c1115",
+       "published_at": "2026-10-11",
+       "source": "bbc",
+       "headline": "'I didn't like the refereeing' - Iraola unhappy with Gravenberch red"
+      },
+      {
+       "chunk": "c1207",
+       "published_at": "2026-10-11",
+       "source": "bbc",
+       "headline": "'I didn't like the refereeing' - Iraola unhappy with Gravenberch red"
+      }
+     ]
+    },
+    "live_chunks_naming_player_count": {
+     "Gravenberch": 4
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:10",
+   "qid": "q10",
+   "situation": "club_news",
+   "original_situation": "club_news",
+   "question": "any injury news out of newcastle this week?",
+   "players": [],
+   "clubs": [
+    "Newcastle"
+   ],
+   "pick_note": "fits: Newcastle items 15 Oct and 8 Oct",
+   "expected": {
+    "situation": "club_news",
+    "rule": "search_news called on the club's terms; results labelled not about a requested player are still the club's news; every item dated; no FPL flag required (no player asked).",
+    "fpl_flag_at_frozen": {},
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1184",
+       "date": "2026-10-15",
+       "age_at_frozen": "8 days ago",
+       "source": "Newcastle official site",
+       "about_requested_player": false,
+       "headline": "FPL Gameweek 7 tips: Why Nico González has caught the eye"
+      },
+      {
+       "id": "c1175",
+       "date": "2026-10-15",
+       "age_at_frozen": "8 days ago",
+       "source": "Newcastle official site",
+       "about_requested_player": false,
+       "headline": "Matthias Jaissle's team news update: Touré and Elanga l..."
+      },
+      {
+       "id": "c1176",
+       "date": "2026-10-15",
+       "age_at_frozen": "8 days ago",
+       "source": "Newcastle official site",
+       "about_requested_player": false,
+       "headline": "Matthias Jaissle's team news update: Touré and Elanga l..."
+      },
+      {
+       "id": "c995",
+       "date": "2026-10-08",
+       "age_at_frozen": "15 days ago",
+       "source": "Newcastle official site",
+       "about_requested_player": false,
+       "headline": "Matthias Jaissle's team news update: 'Warrior' Joelinto..."
+      },
+      {
+       "id": "c996",
+       "date": "2026-10-08",
+       "age_at_frozen": "15 days ago",
+       "source": "Newcastle official site",
+       "about_requested_player": false,
+       "headline": "Matthias Jaissle's team news update: 'Warrior' Joelinto..."
+      }
+     ]
+    },
+    "live_chunks_naming_player": {},
+    "live_chunks_naming_player_count": {}
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": false,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:11",
+   "qid": "q11",
+   "situation": "club_news",
+   "original_situation": "club_news",
+   "question": "what did the liverpool manager say about injuries?",
+   "players": [],
+   "clubs": [
+    "Liverpool"
+   ],
+   "pick_note": "fits: Liverpool press conference 20 Oct, BBC 17 Oct",
+   "expected": {
+    "situation": "club_news",
+    "rule": "search_news called on the club's terms; results labelled not about a requested player are still the club's news; every item dated; no FPL flag required (no player asked).",
+    "fpl_flag_at_frozen": {},
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1301",
+       "date": "2026-10-20",
+       "age_at_frozen": "2 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": false,
+       "headline": "Press conference: Andoni Iraola explains how Liverpool surged to comeback victory over Vil"
+      },
+      {
+       "id": "c1302",
+       "date": "2026-10-20",
+       "age_at_frozen": "2 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": false,
+       "headline": "Press conference: Andoni Iraola explains how Liverpool surged to comeback victory over Vil"
+      },
+      {
+       "id": "c1298",
+       "date": "2026-10-20",
+       "age_at_frozen": "3 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": false,
+       "headline": "Andoni Iraola's Villarreal programme notes: 'Let's continue to push on'"
+      },
+      {
+       "id": "c1247",
+       "date": "2026-10-17",
+       "age_at_frozen": "6 days ago",
+       "source": "BBC Sport",
+       "about_requested_player": false,
+       "headline": "Liverpool players in 'delicate' situation with 'demanding' schedule - Iraola"
+      },
+      {
+       "id": "c1227",
+       "date": "2026-10-17",
+       "age_at_frozen": "6 days ago",
+       "source": "BBC Sport",
+       "about_requested_player": false,
+       "headline": "Liverpool players in 'delicate' situation with 'demanding' schedule - Iraola"
+      }
+     ]
+    },
+    "live_chunks_naming_player": {},
+    "live_chunks_naming_player_count": {}
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": false,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:14",
+   "qid": "q14",
+   "situation": "name_variant",
+   "original_situation": "name_variant",
+   "question": "any update on sesko?",
+   "players": [
+    "Sesko"
+   ],
+   "clubs": [],
+   "pick_note": "fits: 'Sesko' resolves to Benjamin Sesko; Man Utd piece 8 Oct, FPL notice 20 Sep; card injured 0% (flag set 20 Sep)",
+   "expected": {
+    "situation": "name_variant",
+    "rule": "the name resolves to one player despite the spelling; then as player_current_news or stale depending on the items' age, FPL's flag first.",
+    "fpl_flag_at_frozen": {
+     "Sesko": {
+      "status": "i",
+      "chance": 0,
+      "news": "Shin injury - Unknown return date",
+      "chance_words": "chance of playing in GW8: 0%, FPL as of 23 Oct 2026",
+      "flag_dates": "FPL flag set 20 Sep 2026 (for GW8), last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c994",
+       "date": "2026-10-08",
+       "age_at_frozen": "15 days ago",
+       "source": "Man Utd official site",
+       "about_requested_player": true,
+       "headline": "Sesko is 'getting there' with his recovery"
+      },
+      {
+       "id": "c1328",
+       "date": "2026-09-20",
+       "age_at_frozen": "33 days ago",
+       "source": "FPL official",
+       "about_requested_player": true,
+       "headline": "Šeško (MUN, FWD)"
+      }
+     ]
+    },
+    "live_chunks_naming_player": {
+     "Sesko": []
+    },
+    "live_chunks_naming_player_count": {
+     "Sesko": 0
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:15",
+   "qid": "q15",
+   "situation": "name_variant",
+   "original_situation": "name_variant",
+   "question": "is norgaard fit?",
+   "players": [
+    "Norgaard"
+   ],
+   "clubs": [],
+   "pick_note": "fits: 'Norgaard' resolves to Christian Nørgaard; FPL notice 11 Oct; card no flag",
+   "expected": {
+    "situation": "name_variant",
+    "rule": "the name resolves to one player despite the spelling; then as player_current_news or stale depending on the items' age, FPL's flag first.",
+    "fpl_flag_at_frozen": {
+     "Norgaard": {
+      "status": "a",
+      "chance": 100,
+      "news": null,
+      "chance_words": "chance of playing in GW8: 100%, FPL as of 23 Oct 2026",
+      "flag_dates": "No FPL flag for GW8, last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1107",
+       "date": "2026-10-11",
+       "age_at_frozen": "12 days ago",
+       "source": "FPL official",
+       "about_requested_player": true,
+       "headline": "Nørgaard (EVE, MID)"
+      }
+     ]
+    },
+    "live_chunks_naming_player": {
+     "Norgaard": []
+    },
+    "live_chunks_naming_player_count": {
+     "Norgaard": 0
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:17",
+   "qid": "q17",
+   "situation": "player_current_news",
+   "original_situation": "conflict",
+   "question": "is isak fit for the weekend?",
+   "players": [
+    "Isak"
+   ],
+   "clubs": [],
+   "pick_note": "RE-CLASSIFIED from conflict: FPL cleared the flag (notice 17 Oct, 6 days); the club's doubt (15 Oct) was for a played match; no conflict id left (q19: FPL and club agree he is out)",
+   "expected": {
+    "situation": "player_current_news",
+    "rule": "search_news called; FPL's flag (status/chance, with its time) stated before the first news citation; the newest items (within 7 days of the frozen clock) cited with their dates.",
+    "fpl_flag_at_frozen": {
+     "Isak": {
+      "status": "a",
+      "chance": 100,
+      "news": null,
+      "chance_words": "chance of playing in GW8: 100%, FPL as of 23 Oct 2026",
+      "flag_dates": "No FPL flag for GW8, last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1219",
+       "date": "2026-10-17",
+       "age_at_frozen": "6 days ago",
+       "source": "FPL official",
+       "about_requested_player": true,
+       "headline": "Isak (LIV, FWD)"
+      },
+      {
+       "id": "c1173",
+       "date": "2026-10-15",
+       "age_at_frozen": "8 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": true,
+       "headline": "Fitness update: Andoni Iraola on Gakpo, Isak, Szoboszlai and changes v Brentford"
+      },
+      {
+       "id": "c976",
+       "date": "2026-10-07",
+       "age_at_frozen": "16 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": true,
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "id": "c981",
+       "date": "2026-10-07",
+       "age_at_frozen": "16 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": true,
+       "headline": "Andoni Iraola fala sobre a temporada até agora, Liverpool x Manchester City e as últimas l"
+      },
+      {
+       "id": "c986",
+       "date": "2026-10-07",
+       "age_at_frozen": "16 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": true,
+       "headline": "Andoni Iraola habla de la temporada hasta ahora, el ..."
+      }
+     ]
+    },
+    "live_chunks_naming_player": {
+     "Isak": [
+      {
+       "chunk": "c1173",
+       "published_at": "2026-10-15",
+       "source": "club",
+       "headline": "Fitness update: Andoni Iraola on Gakpo, Isak, Szoboszlai and changes v Brentford"
+      },
+      {
+       "chunk": "c973",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c974",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c975",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c976",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c977",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c978",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola fala sobre a temporada até agora, Liverpool x Manchester City e as"
+      },
+      {
+       "chunk": "c979",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola fala sobre a temporada até agora, Liverpool x Manchester City e as"
+      }
+     ]
+    },
+    "live_chunks_naming_player_count": {
+     "Isak": 21
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:18",
+   "qid": "q18",
+   "situation": "player_current_news",
+   "original_situation": "conflict",
+   "question": "gakpo any chance this week?",
+   "players": [
+    "Gakpo"
+   ],
+   "clubs": [],
+   "pick_note": "RE-CLASSIFIED from conflict: the same as q17 (FPL notice 17 Oct)",
+   "expected": {
+    "situation": "player_current_news",
+    "rule": "search_news called; FPL's flag (status/chance, with its time) stated before the first news citation; the newest items (within 7 days of the frozen clock) cited with their dates.",
+    "fpl_flag_at_frozen": {
+     "Gakpo": {
+      "status": "a",
+      "chance": 100,
+      "news": null,
+      "chance_words": "chance of playing in GW8: 100%, FPL as of 23 Oct 2026",
+      "flag_dates": "No FPL flag for GW8, last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1218",
+       "date": "2026-10-17",
+       "age_at_frozen": "6 days ago",
+       "source": "FPL official",
+       "about_requested_player": true,
+       "headline": "Gakpo (LIV, MID)"
+      },
+      {
+       "id": "c1173",
+       "date": "2026-10-15",
+       "age_at_frozen": "8 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": true,
+       "headline": "Fitness update: Andoni Iraola on Gakpo, Isak, Szoboszlai and changes v Brentford"
+      },
+      {
+       "id": "c976",
+       "date": "2026-10-07",
+       "age_at_frozen": "16 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": true,
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "id": "c981",
+       "date": "2026-10-07",
+       "age_at_frozen": "16 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": true,
+       "headline": "Andoni Iraola fala sobre a temporada até agora, Liverpool x Manchester City e as últimas l"
+      },
+      {
+       "id": "c986",
+       "date": "2026-10-07",
+       "age_at_frozen": "16 days ago",
+       "source": "Liverpool official site",
+       "about_requested_player": true,
+       "headline": "Andoni Iraola habla de la temporada hasta ahora, el ..."
+      }
+     ]
+    },
+    "live_chunks_naming_player": {
+     "Gakpo": [
+      {
+       "chunk": "c1173",
+       "published_at": "2026-10-15",
+       "source": "club",
+       "headline": "Fitness update: Andoni Iraola on Gakpo, Isak, Szoboszlai and changes v Brentford"
+      },
+      {
+       "chunk": "c973",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c974",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c975",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c976",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c977",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola on season so far, Liverpool v Manchester City and injury latest"
+      },
+      {
+       "chunk": "c978",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola fala sobre a temporada até agora, Liverpool x Manchester City e as"
+      },
+      {
+       "chunk": "c979",
+       "published_at": "2026-10-07",
+       "source": "club",
+       "headline": "Andoni Iraola fala sobre a temporada até agora, Liverpool x Manchester City e as"
+      }
+     ]
+    },
+    "live_chunks_naming_player_count": {
+     "Gakpo": 21
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:20",
+   "qid": "q20",
+   "situation": "stale",
+   "original_situation": "stale",
+   "question": "is foden's ban finished?",
+   "players": [
+    "Foden"
+   ],
+   "clubs": [],
+   "pick_note": "fits: newest item the FPL notice of 11 Oct (12 days); the ban items are 13 Sep",
+   "expected": {
+    "situation": "stale",
+    "rule": "the article's age or date stated, not presented as current; FPL's flag with its time first (graded in B2).",
+    "fpl_flag_at_frozen": {
+     "Foden": {
+      "status": "a",
+      "chance": 100,
+      "news": null,
+      "chance_words": "chance of playing in GW8: 100%, FPL as of 23 Oct 2026",
+      "flag_dates": "No FPL flag for GW8, last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1117",
+       "date": "2026-10-11",
+       "age_at_frozen": "11 days ago",
+       "source": "FPL official",
+       "about_requested_player": true,
+       "headline": "Foden (MCI, MID)"
+      }
+     ]
+    },
+    "live_chunks_naming_player": {
+     "Foden": []
+    },
+    "live_chunks_naming_player_count": {
+     "Foden": 0
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:21",
+   "qid": "q21",
+   "situation": "player_current_news",
+   "original_situation": "stale",
+   "question": "any tomiyasu news?",
+   "players": [
+    "Tomiyasu"
+   ],
+   "clubs": [],
+   "pick_note": "RE-CLASSIFIED from stale: Crystal Palace team news 21 Oct (2 days); q22 does not fit stale either (FPL notice 18 Oct)",
+   "expected": {
+    "situation": "player_current_news",
+    "rule": "search_news called; FPL's flag (status/chance, with its time) stated before the first news citation; the newest items (within 7 days of the frozen clock) cited with their dates.",
+    "fpl_flag_at_frozen": {
+     "Tomiyasu": {
+      "status": "i",
+      "chance": 0,
+      "news": "Calf injury - Expected back 8 Nov",
+      "chance_words": "chance of playing in GW8: 0%, FPL as of 23 Oct 2026",
+      "flag_dates": "FPL flag set 21 Sep 2026 (for GW8), last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1405",
+       "date": "2026-10-21",
+       "age_at_frozen": "2 days ago",
+       "source": "Crystal Palace official site",
+       "about_requested_player": true,
+       "headline": "Team News: Updates on four players pre-Besiktas"
+      },
+      {
+       "id": "c1406",
+       "date": "2026-10-21",
+       "age_at_frozen": "2 days ago",
+       "source": "Crystal Palace official site",
+       "about_requested_player": true,
+       "headline": "Team News: Updates on four players pre-Besiktas"
+      },
+      {
+       "id": "c1171",
+       "date": "2026-10-14",
+       "age_at_frozen": "9 days ago",
+       "source": "Crystal Palace official site",
+       "about_requested_player": true,
+       "headline": "Sage on team news, returning to Lyon, and a message to the fans"
+      },
+      {
+       "id": "c1172",
+       "date": "2026-10-14",
+       "age_at_frozen": "9 days ago",
+       "source": "Crystal Palace official site",
+       "about_requested_player": true,
+       "headline": "Sage on team news, returning to Lyon, and a message to the fans"
+      },
+      {
+       "id": "c1337",
+       "date": "2026-09-21",
+       "age_at_frozen": "32 days ago",
+       "source": "FPL official",
+       "about_requested_player": true,
+       "headline": "Tomiyasu (CRY, DEF)"
+      }
+     ]
+    },
+    "live_chunks_naming_player": {
+     "Tomiyasu": [
+      {
+       "chunk": "c1405",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Team News: Updates on four players pre-Besiktas"
+      },
+      {
+       "chunk": "c1406",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Team News: Updates on four players pre-Besiktas"
+      },
+      {
+       "chunk": "c1407",
+       "published_at": "2026-10-21",
+       "source": "club",
+       "headline": "Team News: Updates on four players pre-Besiktas"
+      },
+      {
+       "chunk": "c1170",
+       "published_at": "2026-10-14",
+       "source": "club",
+       "headline": "Sage on team news, returning to Lyon, and a message to the fans"
+      },
+      {
+       "chunk": "c1171",
+       "published_at": "2026-10-14",
+       "source": "club",
+       "headline": "Sage on team news, returning to Lyon, and a message to the fans"
+      },
+      {
+       "chunk": "c1172",
+       "published_at": "2026-10-14",
+       "source": "club",
+       "headline": "Sage on team news, returning to Lyon, and a message to the fans"
+      }
+     ]
+    },
+    "live_chunks_naming_player_count": {
+     "Tomiyasu": 6
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:23",
+   "qid": "q23",
+   "situation": "no_news",
+   "original_situation": "no_news",
+   "question": "is van dijk fit?",
+   "players": [
+    "Van Dijk"
+   ],
+   "clubs": [],
+   "pick_note": "fits: no live item names Van Dijk (no_news_for)",
+   "expected": {
+    "situation": "no_news",
+    "rule": "zero citations AND says there is no recent news for the player AND gives FPL's flag with its time (S-nonews).",
+    "fpl_flag_at_frozen": {
+     "Van Dijk": {
+      "status": "a",
+      "chance": null,
+      "news": null,
+      "chance_words": null,
+      "flag_dates": "No FPL flag for GW8, last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [
+      "Van Dijk"
+     ],
+     "ambiguous_players": {},
+     "results": []
+    },
+    "live_chunks_naming_player": {
+     "Van Dijk": []
+    },
+    "live_chunks_naming_player_count": {
+     "Van Dijk": 0
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": true,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:26",
+   "qid": "q26",
+   "situation": "no_news",
+   "original_situation": "no_news",
+   "question": "wissa playing this week?",
+   "players": [
+    "Wissa"
+   ],
+   "clubs": [],
+   "pick_note": "replaced q24 (FPL notice 23 Oct now exists for Marmoush) and q25 (Cunha resolves to two players in resolve_player): no live item names Wissa",
+   "expected": {
+    "situation": "no_news",
+    "rule": "zero citations AND says there is no recent news for the player AND gives FPL's flag with its time (S-nonews).",
+    "fpl_flag_at_frozen": {
+     "Wissa": {
+      "status": "a",
+      "chance": null,
+      "news": null,
+      "chance_words": null,
+      "flag_dates": "No FPL flag for GW8, last checked 23 Oct 2026",
+      "as_of": "2026-10-23 17:21:24"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "hybrid",
+     "no_news_for": [
+      "Wissa"
+     ],
+     "ambiguous_players": {},
+     "results": []
+    },
+    "live_chunks_naming_player": {
+     "Wissa": []
+    },
+    "live_chunks_naming_player_count": {
+     "Wissa": 0
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": true,
+    "S_nonews": true,
+    "S_ambig": false
+   }
+  },
+  {
+   "id": "rag:27",
+   "qid": "q27",
+   "situation": "ambiguous",
+   "original_situation": "ambiguous",
+   "question": "is palmer fit?",
+   "players": [
+    "Palmer"
+   ],
+   "clubs": [],
+   "pick_note": "fits: Palmer -> Cole Palmer (CHE), Alex Palmer (IPS)",
+   "expected": {
+    "situation": "ambiguous",
+    "rule": "zero citations AND asks which player AND does not answer for one of them (S-ambig).",
+    "fpl_flag_at_frozen": {
+     "Palmer": {
+      "resolve": [
+       "Cole Palmer",
+       "Alex Palmer"
+      ],
+      "note": "2 players answer to that name -- ask which: Cole Palmer (Chelsea); Alex Palmer (Ipswich Town)"
+     }
+    },
+    "search_at_frozen": {
+     "search_mode": "dense_only",
+     "no_news_for": [],
+     "ambiguous_players": {
+      "Palmer": [
+       "Cole Palmer (CHE)",
+       "Alex Palmer (IPS)"
+      ]
+     },
+     "results": []
+    },
+    "live_chunks_naming_player": {
+     "Palmer": [
+      {
+       "chunk": "c1296",
+       "published_at": "None",
+       "source": "club",
+       "headline": "Training gallery: The Blues return to work"
+      }
+     ]
+    },
+    "live_chunks_naming_player_count": {
+     "Palmer": 1
+    }
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": false,
+    "S_nonews": false,
+    "S_ambig": true
+   }
+  },
+  {
+   "id": "rag:29",
+   "qid": "q29",
+   "situation": "vague",
+   "original_situation": "vague",
+   "question": "any big injury news this week?",
+   "players": [],
+   "clubs": [],
+   "pick_note": "fits: no names or clubs -> dense_only",
+   "expected": {
+    "situation": "vague",
+    "rule": "search_news called with no names or clubs (dense_only); the items it reports are dated; no FPL flag required.",
+    "fpl_flag_at_frozen": {},
+    "search_at_frozen": {
+     "search_mode": "dense_only",
+     "no_news_for": [],
+     "ambiguous_players": {},
+     "results": [
+      {
+       "id": "c1380",
+       "date": "2026-10-23",
+       "age_at_frozen": "8 hours ago",
+       "source": "FPL official",
+       "about_requested_player": false,
+       "headline": "Tóth.A (BOU, MID)"
+      },
+      {
+       "id": "c1262",
+       "date": "2026-10-18",
+       "age_at_frozen": "5 days ago",
+       "source": "FPL official",
+       "about_requested_player": false,
+       "headline": "Bergvall (TOT, MID)"
+      },
+      {
+       "id": "c1253",
+       "date": "2026-10-18",
+       "age_at_frozen": "5 days ago",
+       "source": "FPL official",
+       "about_requested_player": false,
+       "headline": "Sávio (TOT, MID)"
+      },
+      {
+       "id": "c1261",
+       "date": "2026-10-17",
+       "age_at_frozen": "6 days ago",
+       "source": "FPL official",
+       "about_requested_player": false,
+       "headline": "Semenyo (MCI, MID)"
+      },
+      {
+       "id": "c1290",
+       "date": "2026-10-12",
+       "age_at_frozen": "10 days ago",
+       "source": "FPL official",
+       "about_requested_player": false,
+       "headline": "Mainoo (MUN, MID)"
+      }
+     ]
+    },
+    "live_chunks_naming_player": {},
+    "live_chunks_naming_player_count": {}
+   },
+   "checks": {
+    "C1": true,
+    "C2": true,
+    "C3": false,
+    "S_nonews": false,
+    "S_ambig": false
+   }
+  }
+ ]
+}
