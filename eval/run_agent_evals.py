@@ -673,13 +673,22 @@ def wrap_context(agent):
     agent.LAST_CONTEXT = {}
     original = agent.context_block
 
-    def capture():
+    def with_now_line(text, now):
+        """The block as the model saw it (2026-10-24): the clock line travels in the user message now, so it is put back
+        after the title here, in the pre-move shape, for the judge and context_signature (which strips it)."""
+        if now is None or not text or any(l.startswith("- Now:") for l in text.splitlines()):
+            return text
+        import now_context
+        lines = text.splitlines()
+        return "\n".join(lines[:1] + [now_context.now_line(now)] + lines[1:])
+
+    def capture(now=None):
         try:
-            text = original()
+            text = original(now) if now is not None else original()
         except Exception:
             agent.LAST_CONTEXT["text"] = None
             raise
-        agent.LAST_CONTEXT["text"] = text
+        agent.LAST_CONTEXT["text"] = with_now_line(text, now)
         return text
 
     agent.context_block = capture

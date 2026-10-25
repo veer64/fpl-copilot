@@ -32,7 +32,8 @@ def test_freeze_clock_replaces_the_shared_clock_and_the_block_follows(monkeypatc
     assert nc.clock() == frozen
     text, _ = nc.build(deadlines={9: datetime(2026, 10, 31, 11, 0, tzinfo=timezone.utc)}, finished=[1, 2, 3, 4, 5, 6, 7],
                        clubs=["Arsenal"], dispatch_state={}, policy=rae_policy())
-    assert "Sunday 2026-10-25 14:30 UTC" in text
+    assert nc.now_line() == "- Now: Sunday 2026-10-25 14:30 UTC."          # the clock line (on the user message since 2026-10-24)
+    assert "next deadline GW9, Saturday 2026-10-31 11:00 UTC" in text      # the block follows the same clock (seeded: GW9 only)
 
 
 def rae_policy():

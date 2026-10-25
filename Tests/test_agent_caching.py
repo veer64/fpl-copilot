@@ -61,7 +61,7 @@ def _agent(monkeypatch):
     import importlib
     import agent as ag
     importlib.reload(ag)
-    monkeypatch.setattr(ag, "context_block", lambda: "CONTEXT BLOCK\n- Now: Monday 2026-10-19 23:00 UTC.")
+    monkeypatch.setattr(ag, "context_block", lambda now=None: "CONTEXT BLOCK\n- Gameweeks: GW7 is the last finished gameweek.")
     monkeypatch.setattr(ag, "record_chat_usage", lambda *a, **k: None)
     monkeypatch.setattr(ag, "_citation_check", lambda *a, **k: None)
     monkeypatch.setattr(ag, "_numeric_check", lambda *a, **k: None)
@@ -111,13 +111,16 @@ def test_every_call_carries_exactly_three_breakpoints_tools_system_last_block(mo
     n_tools = len(ag.tools_schema)
     # call 1: the user text is the last block
     m = _markers(fake.calls[0])
-    assert m == [("tool", n_tools - 1, CC), ("system", 0, CC), ("message", 0, 0, CC)]
-    assert fake.calls[0]["messages"][0]["content"] == [{"type": "text", "text": "who should I captain?", "cache_control": CC}]
+    assert m == [("tool", n_tools - 1, CC), ("system", 0, CC), ("message", 0, 1, CC)]     # the question block, after the Now line
+    first = fake.calls[0]["messages"][0]["content"]
+    assert first[0]["type"] == "text" and first[0]["text"].startswith("- Now: ") and "cache_control" not in first[0]
+    assert first[1] == {"type": "text", "text": "who should I captain?", "cache_control": CC}
     # call 2: the tool_result is the last block; the user text no longer carries a marker
     m = _markers(fake.calls[1])
     assert m == [("tool", n_tools - 1, CC), ("system", 0, CC), ("message", 2, 0, CC)]
     assert fake.calls[1]["messages"][2]["content"][0]["type"] == "tool_result"
-    assert fake.calls[1]["messages"][0]["content"] == "who should I captain?"      # history form, unmarked
+    again = fake.calls[1]["messages"][0]["content"]                                 # the question message, unmarked now
+    assert again == [{"type": "text", "text": first[0]["text"]}, {"type": "text", "text": "who should I captain?"}]
     # the system prompt is one block whose text is the whole prompt the agent built this turn
     assert len(fake.calls[0]["system"]) == 1
     assert ag.system_text(fake.calls[0]["system"]) == f"{ag.context_block()}\n\n{ag.SYSTEM_PROMPT}"

@@ -395,7 +395,8 @@ from model_tools import (list_players, resolve_player, get_player_card,
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
-from now_context import context_block
+import now_context
+from now_context import context_block, now_line
 from db_write import record_chat_usage
 from pricing import turn_usd as _price_usd
 
@@ -528,13 +529,15 @@ def plain_words(text):
 LAST_TURN = {}
 
 
-def _system_for_turn():
-    """The system prompt for one turn: the "now" context block (today, the gameweek state, the run
-    schedule, the 20 clubs -- now_context.py, from local data) prepended to the reviewed prompt. Built
-    once per user turn so every API call inside the turn reads the same facts. If the block cannot be
-    built at all the prompt goes alone: a turn must never die for want of a date line."""
+def _system_for_turn(now=None):
+    """The system prompt for one turn: the "now" context block (the gameweek state, the run schedule,
+    the 20 clubs -- now_context.py, from local data, computed at `now`) prepended to the reviewed prompt.
+    Built once per user turn so every API call inside the turn reads the same facts. Since 2026-10-24 the
+    block carries no "- Now:" line: that line rides on the turn's user message (_messages_for_request), so
+    this text is byte-identical from one minute to the next and the cache serves it. If the block cannot
+    be built at all the prompt goes alone: a turn must never die for want of a date line."""
     try:
-        block = context_block()
+        block = context_block(now)
     except Exception as e:                           # noqa: BLE001 -- the block is help, not a dependency
         print(f"  [context block not built: {type(e).__name__}: {str(e)[:200]}]")
         return SYSTEM_PROMPT
@@ -547,6 +550,9 @@ def _system_for_turn():
 # reads the earlier calls' prefix instead of paying for it again). The markers go on REQUEST-TIME COPIES only:
 # tools_schema, the system string and the conversation history are left exactly as they were, so the history never
 # accumulates markers (the API allows four) and every other reader of those objects sees the old shapes.
+# Since 2026-10-24 the clock line ("- Now: ...") is not in the system prompt but the first text block of the turn's
+# question message, also a request-time copy: measured on the server, the system block (~12.5k tokens) was written
+# to the cache fresh on most turns because its second line changed every minute.
 CACHE_CONTROL = {"type": "ephemeral"}
 
 
@@ -560,13 +566,22 @@ def _system_for_request(system):
     return [{"type": "text", "text": system, "cache_control": dict(CACHE_CONTROL)}]
 
 
-def _messages_for_request(messages):
-    """The messages with a breakpoint on the last block of the last message. That message is always the user's
-    (the question as a string on the first call, the tool results afterwards); a string becomes the single text
-    block it is to the API. Earlier messages are passed through as they are."""
+def _messages_for_request(messages, now_text=None, question_index=None):
+    """The messages as sent: the turn's question message (messages[question_index], the user's string) gains the clock
+    line `now_text` as its FIRST text block, on every call of the turn (2026-10-24: the line left the system block so
+    the system prompt caches; the question message carries it instead, and the stored history never does -- this is a
+    request-time copy, like the markers); then a breakpoint goes on the last block of the last message. That message
+    is always the user's (the question on the first call, the tool results afterwards); a string becomes the single
+    text block it is to the API. Earlier messages are passed through as they are."""
     if not messages:
         return []
-    last = messages[-1]
+    out = list(messages)
+    if now_text is not None and question_index is not None and 0 <= question_index < len(out):
+        q = out[question_index]
+        content = q["content"]
+        blocks = [{"type": "text", "text": content}] if isinstance(content, str) else list(content)
+        out[question_index] = {**q, "content": [{"type": "text", "text": now_text}] + blocks}
+    last = out[-1]
     content = last["content"]
     if isinstance(content, str):
         marked = [{"type": "text", "text": content, "cache_control": dict(CACHE_CONTROL)}]
@@ -574,7 +589,7 @@ def _messages_for_request(messages):
         marked = list(content)
         if marked and isinstance(marked[-1], dict):
             marked[-1] = {**marked[-1], "cache_control": dict(CACHE_CONTROL)}
-    return list(messages[:-1]) + [{**last, "content": marked}]
+    return list(out[:-1]) + [{**last, "content": marked}]
 
 
 def system_text(system):
@@ -719,8 +734,11 @@ def run_agent(user_message: str, messages: list = None):
         messages = []
 
     messages.append({"role": "user", "content": user_message})
+    question_index = len(messages) - 1               # the turn's question: the clock line rides on it at send time
     turn_id = uuid.uuid4().hex                       # Piece 7: one id per reply, for citation_checks
-    system = _system_for_turn()                      # the "now" block, rebuilt once per turn (2026-10-08)
+    now = now_context.clock()                        # ONE instant per turn: the block's lines and the Now line agree
+    system = _system_for_turn(now)                   # the "now" block, rebuilt once per turn (2026-10-08), clock line apart
+    now_text = now_line(now)                         # "- Now: <weekday> <date> <HH:MM> UTC." -> the user message (2026-10-24)
     returned_ids = []                                # every result id search_news returned in THIS turn
     returned_results = []                            # the result dicts themselves, for the rendered citations (Part C)
     usage = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0,
@@ -730,7 +748,7 @@ def run_agent(user_message: str, messages: list = None):
         request = {"model": AGENT_MODEL, "max_tokens": 1024,                     # the agent's parameters, unchanged
                    "system": _system_for_request(system),
                    "tools": _tools_for_request(tools_schema),
-                   "messages": _messages_for_request(messages)}
+                   "messages": _messages_for_request(messages, now_text, question_index)}
         response = llm.chat("agent", request, client=client)                      # conn=None: chat_usage is the ledger
         _tally_usage(usage, response)
 

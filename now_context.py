@@ -8,7 +8,10 @@ saw in the Premier League (Coventry City, promoted for 2026-27) was sometimes ca
 League club". The block states those facts, from LOCAL data only, at the top of every turn.
 
 WHERE EACH LINE COMES FROM -- nothing here is typed in:
-  * the clock            datetime.now(UTC), or the `now` the caller passes (tests freeze it)
+  * the clock            datetime.now(UTC), or the `now` the caller passes (tests freeze it). Since 2026-10-24 the
+                         "- Now:" line itself is now_line(), sent as the first text block of the turn's user message
+                         (agent.py) rather than inside this block, so the system prompt caches across minutes; the
+                         gameweek, schedule and run lines below are still computed from the same `now`.
   * deadlines            the newest bootstrap snapshot on the volume, through
                          model_tools._gw_deadline_times (one reader, cached an hour)
   * finished gameweeks   the season master data/history/fpl_api_<season>.parquet, through
@@ -135,8 +138,17 @@ def _events_for_policy(deadlines):
 
 
 def clock():
-    """The clock every caller shares; tests monkeypatch it to freeze time."""
+    """The clock every caller shares; tests monkeypatch it to freeze time (the eval runner's --now does the same)."""
     return datetime.now(UTC)
+
+
+def now_line(now=None):
+    """The clock line, "- Now: Saturday 2026-10-10 10:00 UTC." Until 2026-10-24 it was the block's second line, so the
+    system prompt (one cached text block of ~50k characters) changed every minute and was written to the cache fresh
+    on most turns. It is no longer part of build()'s text: agent.run_agent sends it, unchanged, as the first text block
+    of the turn's user message (agent._messages_for_request), never into the stored history, and every other line of
+    the block -- which the same `now` still drives -- stays in the system prompt and caches."""
+    return f"- Now: {_fmt(now or clock())}."
 
 
 def _promise(now, deadlines, finished, state, dp):
@@ -200,7 +212,7 @@ def build(now=None, *, deadlines=None, finished=None, clubs=None, dispatch_state
     raises or returns nothing drops its line and records why. The text is always <= MAX_CHARS."""
     now = now or clock()
     omitted = {}
-    lines = [TITLE, f"- Now: {_fmt(now)}."]
+    lines = [TITLE]                                   # the clock line is now_line(), sent on the user message (2026-10-24)
 
     # deadlines + finished gameweeks -> the gameweek line
     try:

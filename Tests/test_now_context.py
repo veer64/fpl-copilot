@@ -38,10 +38,12 @@ def seeded(now=NOW, **over):
 
 
 # ---------------------------------------------------------------- the lines
-def test_the_block_states_today_with_its_weekday():
+def test_the_block_has_no_clock_line_and_now_line_states_today_with_its_weekday():
+    # 2026-10-24: the clock line left the block (it rides on the user message, agent.py) so the system prompt caches
     text, omitted = seeded()
     assert text.startswith(nc.TITLE)
-    assert "- Now: Thursday 2026-10-08 18:42 UTC." in text
+    assert "- Now:" not in text                        # ("due now (Thursday 2026-10-08 18:42 UTC)" may still name the instant)
+    assert nc.now_line(NOW) == "- Now: Thursday 2026-10-08 18:42 UTC."
     assert omitted == {}, omitted
 
 
@@ -106,7 +108,7 @@ def test_a_piece_that_cannot_be_built_is_left_out_and_named():
     assert "next deadline" not in text and "Premier League clubs" not in text
     assert "GW5 is the last finished gameweek" in text            # the pieces that could be built stay
     assert set(omitted) >= {"deadlines", "clubs"}, omitted
-    assert "- Now:" in text
+    assert text.startswith(nc.TITLE) and "- Now:" not in text          # the title stays; the clock line is now_line()
 
 
 def test_no_finished_gameweek_yet_is_said_not_guessed():
@@ -178,8 +180,9 @@ def test_the_agent_prepends_a_fresh_block_to_the_system_prompt_every_turn(monkey
     import agent as ag
     importlib.reload(ag)
     clock = {"now": NOW}
-    monkeypatch.setattr(ag, "context_block", lambda: nc.build(clock["now"], deadlines=DL, finished=[1, 2, 3, 4, 5],
-                                                                 clubs=CLUBS, dispatch_state={}, policy=dp)[0])
+    monkeypatch.setattr(nc, "clock", lambda: clock["now"])              # the agent reads the clock once per turn
+    monkeypatch.setattr(ag, "context_block", lambda now=None: nc.build(now, deadlines=DL, finished=[1, 2, 3, 4, 5],
+                                                                          clubs=CLUBS, dispatch_state={}, policy=dp)[0])
     fake = _Fake()
     monkeypatch.setattr(ag, "client", types.SimpleNamespace(messages=fake))
     monkeypatch.setitem(ag.available_functions, "get_picks", lambda **kw: {"captain": "X"})
@@ -188,7 +191,8 @@ def test_the_agent_prepends_a_fresh_block_to_the_system_prompt_every_turn(monkey
     for c in fake.calls:                                                   # both API calls of the turn
         s = ag.system_text(c["system"])                                   # one text block since 2026-10-19
         assert s.startswith(nc.TITLE) and s.endswith(ag.SYSTEM_PROMPT)
-        assert "Thursday 2026-10-08 18:42 UTC" in s
+        assert "- Now:" not in s                                           # 2026-10-24: the clock line rides on the user message
+        assert c["messages"][0]["content"][0]["text"] == "- Now: Thursday 2026-10-08 18:42 UTC."
     clock["now"] = NOW + timedelta(days=2)
     ag.run_agent("q2", messages)
     assert "GW6 is in progress" in ag.system_text(fake.calls[-1]["system"])     # rebuilt for the second turn
