@@ -1,0 +1,649 @@
+{
+ "version": "answer_labels_v1",
+ "locked": "2026-10-25T05:05Z",
+ "labels_xlsx": "eval/reports/rag_answer_labels_v1.xlsx",
+ "labels_xlsx_sha256": "bad30afebcff09badcf09238333e626fba82b3b1e0ea7c6c062c91b3cbf98ca7",
+ "results_sha256": "955677d9421eaf9a09bbf86470845769a634a47c12b0c411f4884e60e178a1ec",
+ "questions_sha256": "bed77276407f556bf99387b640011b1b86b2b59943ba4038273bf9555d5f32b3",
+ "seed": 20261025,
+ "rows": 51,
+ "counts": {
+  "y": 49,
+  "partly": 1,
+  "n": 1,
+  "blank": 0,
+  "unrecognised": 0
+ },
+ "row_mapping_verified": true,
+ "mismatched_rows": [],
+ "definitions": {
+  "y": "the article says it (different wording is fine)",
+  "partly": "some of it is in the article, some isn't",
+  "n": "the article doesn't say it, or says something different"
+ },
+ "labels": [
+  {
+   "row": 1,
+   "answer_id": "rag:17#r2",
+   "question_id": "rag:17",
+   "run": 2,
+   "sentence": "The Liverpool fitness update from 15 October left the door open for his return [c1173], and his flag has since been fully cleared.",
+   "cited_chunk_ids": [
+    "c1173"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 2,
+   "answer_id": "rag:18#r1",
+   "question_id": "rag:18",
+   "run": 1,
+   "sentence": "**FPL's official flag (as of 23 Oct 17:21 UTC): fully available, no injury flag, 100% chance of playing in GW8.** [c1218]",
+   "cited_chunk_ids": [
+    "c1218"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 3,
+   "answer_id": "rag:7#r1",
+   "question_id": "rag:7",
+   "run": 1,
+   "sentence": "He missed Arsenal's Champions League match against Bayern Munich (21 Oct), where he was doing only individual work on the eve of the game [c1343].",
+   "cited_chunk_ids": [
+    "c1343"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 4,
+   "answer_id": "rag:29#r2",
+   "question_id": "rag:29",
+   "run": 2,
+   "sentence": "[c1417]",
+   "cited_chunk_ids": [
+    "c1417"
+   ],
+   "label": "partly",
+   "note": "Very open ended question, we need to flag this and ask that please be more specific for a certain player or for a team."
+  },
+  {
+   "row": 5,
+   "answer_id": "rag:29#r2",
+   "question_id": "rag:29",
+   "run": 2,
+   "sentence": "[c1416]",
+   "cited_chunk_ids": [
+    "c1416"
+   ],
+   "label": "n",
+   "note": "Very open ended question, we need to flag this and ask that please be more specific for a certain player or for a team."
+  },
+  {
+   "row": 6,
+   "answer_id": "rag:14#r1",
+   "question_id": "rag:14",
+   "run": 1,
+   "sentence": "**Latest news:** The Man Utd official site reported on 8 October (16 days ago) that he is *\"getting there\"* with his recovery [c994], which is mildly encouraging but vague — no timeline given.",
+   "cited_chunk_ids": [
+    "c994"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 7,
+   "answer_id": "rag:17#r1",
+   "question_id": "rag:17",
+   "run": 1,
+   "sentence": "- By **17 Oct** [c1219], FPL cleared his flag entirely: status back to available, no injury news.",
+   "cited_chunk_ids": [
+    "c1219"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 8,
+   "answer_id": "rag:6#r2",
+   "question_id": "rag:6",
+   "run": 2,
+   "sentence": "Brentford's own match preview for Sunday's trip to Hull (published 21 Oct) [c1389] names Damsgaard alongside Mathias Jensen as key to unlocking Hull's deep defence — no suggestion of any fitness concern.",
+   "cited_chunk_ids": [
+    "c1389"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 9,
+   "answer_id": "rag:11#r2",
+   "question_id": "rag:11",
+   "run": 2,
+   "sentence": "**Earlier (17 Oct, after Brentford)** [c1247, c1227]:",
+   "cited_chunk_ids": [
+    "c1247",
+    "c1227"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 10,
+   "answer_id": "rag:10#r1",
+   "question_id": "rag:10",
+   "run": 1,
+   "sentence": "**Joelinton** — was nearing a return as of 8 Oct [c995]; no further update on him in the 15 Oct briefing, which suggests he may have been back in contention.",
+   "cited_chunk_ids": [
+    "c995"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 11,
+   "answer_id": "rag:15#r2",
+   "question_id": "rag:15",
+   "run": 2,
+   "sentence": "That flag cleared around 11 Oct [c1107] and nothing has changed since.",
+   "cited_chunk_ids": [
+    "c1107"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 12,
+   "answer_id": "rag:10#r2",
+   "question_id": "rag:10",
+   "run": 2,
+   "sentence": "Here's what the Newcastle news has, mostly from their pre-GW7 press conference on **15 October** (9 days ago) [c1175, c1176]:",
+   "cited_chunk_ids": [
+    "c1175",
+    "c1176"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 13,
+   "answer_id": "rag:18#r2",
+   "question_id": "rag:18",
+   "run": 2,
+   "sentence": "**FPL has him fully available** — status: available, 100% chance of playing in GW8, as of 23 Oct 17:21 UTC [c1218].",
+   "cited_chunk_ids": [
+    "c1218"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 14,
+   "answer_id": "rag:10#r2",
+   "question_id": "rag:10",
+   "run": 2,
+   "sentence": "**Joelinton** – from the GW6 briefing (8 Oct) [c995], was nearing a return from injury at that point.",
+   "cited_chunk_ids": [
+    "c995"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 15,
+   "answer_id": "rag:11#r1",
+   "question_id": "rag:11",
+   "run": 1,
+   "sentence": "**Post-match vs Villarreal (20 Oct) [c1301/c1302]:** He also noted that **Ronald Araujo** was substituted at half-time (replaced by Wirtz, with Gravenberch moving to right-back), though he didn't explicitly label it an injury there.",
+   "cited_chunk_ids": [
+    "c1301",
+    "c1302"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 16,
+   "answer_id": "rag:6#r1",
+   "question_id": "rag:6",
+   "run": 1,
+   "sentence": "The news backs that up: Brentford's own match preview for Sunday's game at Hull (published 21 Oct [c1389]) mentions Damsgaard by name as one of their likely midfield starters, praising him as one of \"the most intelligent passers in the Premier League.\" No fitness concerns raised at all.",
+   "cited_chunk_ids": [
+    "c1389"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 17,
+   "answer_id": "rag:11#r2",
+   "question_id": "rag:11",
+   "run": 2,
+   "sentence": "**Most recent (20 Oct, programme notes for the Villarreal game)** [c1298]:",
+   "cited_chunk_ids": [
+    "c1298"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 18,
+   "answer_id": "rag:21#r2",
+   "question_id": "rag:21",
+   "run": 2,
+   "sentence": "He's been out for at least the last three matchday squads, and has missed Europa League fixtures against Lyon (14 Oct [c1172]) and Besiktas (21 Oct) as well.",
+   "cited_chunk_ids": [
+    "c1172"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 19,
+   "answer_id": "rag:10#r1",
+   "question_id": "rag:10",
+   "run": 1,
+   "sentence": "Here's a summary of Newcastle's injury picture based on the most recent news (from the club's official site on **15 October**, ahead of GW7 vs Aston Villa — so around 8–9 days old now) [c1175, c1176]:",
+   "cited_chunk_ids": [
+    "c1175",
+    "c1176"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 20,
+   "answer_id": "rag:17#r1",
+   "question_id": "rag:17",
+   "run": 1,
+   "sentence": "- On **15 Oct** [c1173], Liverpool's head coach was still cautious — \"leave the chance open\" — ahead of the Brentford game.",
+   "cited_chunk_ids": [
+    "c1173"
+   ],
+   "label": "y",
+   "note": "Just note when you mean this week, should it be against Brentford which was technically last week. As of today which is the 25th of Oct, it should have been against Brighton, just confirm this once please."
+  },
+  {
+   "row": 21,
+   "answer_id": "rag:15#r1",
+   "question_id": "rag:15",
+   "run": 1,
+   "sentence": "A news item from 11 Oct [c1107] also confirms his flag was cleared at that point, with no injury news.",
+   "cited_chunk_ids": [
+    "c1107"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 22,
+   "answer_id": "rag:17#r2",
+   "question_id": "rag:17",
+   "run": 2,
+   "sentence": "The most recent news backs that up: FPL cleared his flag on 17 October [c1219], after an earlier injury concern (he'd left international duty hurt in early October [c976]).",
+   "cited_chunk_ids": [
+    "c1219",
+    "c976"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 23,
+   "answer_id": "rag:11#r2",
+   "question_id": "rag:11",
+   "run": 2,
+   "sentence": "The most recent press conference content I have (post-Villarreal, 20 Oct) [c1301–c1302] focused on the comeback win itself and didn't add further detail on those injuries.",
+   "cited_chunk_ids": [
+    "c1301",
+    "c1302"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 24,
+   "answer_id": "rag:17#r2",
+   "question_id": "rag:17",
+   "run": 2,
+   "sentence": "[c1219]",
+   "cited_chunk_ids": [
+    "c1219"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 25,
+   "answer_id": "rag:29#r2",
+   "question_id": "rag:29",
+   "run": 2,
+   "sentence": "[c1412]",
+   "cited_chunk_ids": [
+    "c1412"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 26,
+   "answer_id": "rag:20#r1",
+   "question_id": "rag:20",
+   "run": 1,
+   "sentence": "The FPL flag was cleared on 11 October [c1117].",
+   "cited_chunk_ids": [
+    "c1117"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 27,
+   "answer_id": "rag:18#r1",
+   "question_id": "rag:18",
+   "run": 1,
+   "sentence": "The most recent Liverpool press conference news (15 Oct) showed the manager leaving the door open for his involvement vs Brentford [c1173] — and given the flag was cleared two days later, he appears to have come through.",
+   "cited_chunk_ids": [
+    "c1173"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 28,
+   "answer_id": "rag:7#r1",
+   "question_id": "rag:7",
+   "run": 1,
+   "sentence": "**Ankle injury**, picked up in a post-match training session around 12 October [c1120].",
+   "cited_chunk_ids": [
+    "c1120"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 29,
+   "answer_id": "rag:18#r2",
+   "question_id": "rag:18",
+   "run": 2,
+   "sentence": "The news trail tells the story: he picked up an injury during the September/October international break [c976], was still doubtful for the Brentford fixture on 15 Oct [c1173], but FPL cleared him shortly after [c1218].",
+   "cited_chunk_ids": [
+    "c976",
+    "c1173",
+    "c1218"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 30,
+   "answer_id": "rag:9#r2",
+   "question_id": "rag:9",
+   "run": 2,
+   "sentence": "**FPL has no injury flag on him** — he's listed as fully available with a 100% chance of playing, as of 23 Oct 2026 17:21 UTC [c1236].",
+   "cited_chunk_ids": [
+    "c1236"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 31,
+   "answer_id": "rag:18#r1",
+   "question_id": "rag:18",
+   "run": 1,
+   "sentence": "He had picked up an injury during the international break in early October [c976], but by 17 October FPL had cleared his flag [c1218].",
+   "cited_chunk_ids": [
+    "c976",
+    "c1218"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 32,
+   "answer_id": "rag:9#r2",
+   "question_id": "rag:9",
+   "run": 2,
+   "sentence": "The earlier red card (two yellows vs Man City on 11 Oct) appears to have been served and his flag was cleared by 17 Oct [c1236].",
+   "cited_chunk_ids": [
+    "c1236"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 33,
+   "answer_id": "rag:9#r1",
+   "question_id": "rag:9",
+   "run": 1,
+   "sentence": "The context here: he was sent off against Man City on 11 Oct (two yellows) [c1118], but FPL cleared his flag on 17 Oct [c1236], meaning any suspension has been served.",
+   "cited_chunk_ids": [
+    "c1118",
+    "c1236"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 34,
+   "answer_id": "rag:29#r1",
+   "question_id": "rag:29",
+   "run": 1,
+   "sentence": "The Man Utd site also reported he picked up an \"issue\" in the Fulham draw [c1416], consistent with the FPL flag.",
+   "cited_chunk_ids": [
+    "c1416"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 35,
+   "answer_id": "rag:29#r2",
+   "question_id": "rag:29",
+   "run": 2,
+   "sentence": "[c1262]",
+   "cited_chunk_ids": [
+    "c1262"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 36,
+   "answer_id": "rag:29#r2",
+   "question_id": "rag:29",
+   "run": 2,
+   "sentence": "[c1419]",
+   "cited_chunk_ids": [
+    "c1419"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 37,
+   "answer_id": "rag:21#r2",
+   "question_id": "rag:21",
+   "run": 2,
+   "sentence": "At Crystal Palace's pre-Besiktas press conference on 21 Oct [c1405], manager Pierre Sage confirmed: *\"Tomiyasu is out until the next international break because he has another injury.\"* That aligns with the 8 Nov return date FPL shows, which would be after the international break.",
+   "cited_chunk_ids": [
+    "c1405"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 38,
+   "answer_id": "rag:21#r1",
+   "question_id": "rag:21",
+   "run": 1,
+   "sentence": "Crystal Palace's manager Pierre Sage said at his pre-Besiktas press conference on 21 October: *\"Tomiyasu is out until the next international break because he has another injury.\"* [c1405] He has missed Palace's last three matchday squads.",
+   "cited_chunk_ids": [
+    "c1405"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 39,
+   "answer_id": "rag:7#r1",
+   "question_id": "rag:7",
+   "run": 1,
+   "sentence": "The more relevant piece of news: Arteta said before the Bayern game that he was **hopeful Hincapie could return for Arsenal's Premier League match with Everton** [c1343] — which would be GW9 (deadline 31 Oct).",
+   "cited_chunk_ids": [
+    "c1343"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 40,
+   "answer_id": "rag:11#r1",
+   "question_id": "rag:11",
+   "run": 1,
+   "sentence": "**After Brentford (17 Oct) [c1247]:** Iraola said the demanding schedule is putting his players in a **\"delicate situation\"**, after **Dominik Szoboszlai** was forced off with a first-half injury during the 2-1 win at Brentford.",
+   "cited_chunk_ids": [
+    "c1247"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 41,
+   "answer_id": "rag:11#r1",
+   "question_id": "rag:11",
+   "run": 1,
+   "sentence": "**Programme notes for the Villarreal match (20 Oct) [c1298]:** He confirmed that both **Jeremie Frimpong** and **Szoboszlai** picked up injuries at Brentford, saying: *\"The win came at a cost of course with Jeremie Frimpong and Dominik Szoboszlai picking up injuries, so we wish both of them a speedy recovery.\"*",
+   "cited_chunk_ids": [
+    "c1298"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 42,
+   "answer_id": "rag:29#r1",
+   "question_id": "rag:29",
+   "run": 1,
+   "sentence": "FPL flagged him with a knee injury on 18 Oct, with an expected return of 31 Oct [c1262].",
+   "cited_chunk_ids": [
+    "c1262"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 43,
+   "answer_id": "rag:6#r2",
+   "question_id": "rag:6",
+   "run": 2,
+   "sentence": "An FPL notice from 17 Oct [c1225] also confirmed his flag was cleared.",
+   "cited_chunk_ids": [
+    "c1225"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 44,
+   "answer_id": "rag:9#r1",
+   "question_id": "rag:9",
+   "run": 1,
+   "sentence": "**FPL has no injury or suspension flag on him** — he is listed as fully available with a 100% chance of playing, as of FPL's check at 17:21 UTC today (23 Oct) [c1236].",
+   "cited_chunk_ids": [
+    "c1236"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 45,
+   "answer_id": "rag:7#r2",
+   "question_id": "rag:7",
+   "run": 2,
+   "sentence": "The more recent news [c1343] is the key bit: Arsenal's pre-Bayern press conference on 21 October confirmed he was doing only individual work and would **miss the Bayern Munich match**, but Arteta said he's hopeful Hincapie can return for the **Premier League game against Everton** — that would be GW9.",
+   "cited_chunk_ids": [
+    "c1343"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 46,
+   "answer_id": "rag:14#r2",
+   "question_id": "rag:14",
+   "run": 2,
+   "sentence": "**Latest news:** The Man Utd official site reported on 8 Oct (16 days ago, [c994]) that Sesko is \"getting there\" with his recovery — which is mildly encouraging but clearly hasn't translated into an FPL flag update yet, and there's still no return date.",
+   "cited_chunk_ids": [
+    "c994"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 47,
+   "answer_id": "rag:20#r2",
+   "question_id": "rag:20",
+   "run": 2,
+   "sentence": "The suspension flag was cleared on 11 October [c1117].",
+   "cited_chunk_ids": [
+    "c1117"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 48,
+   "answer_id": "rag:14#r1",
+   "question_id": "rag:14",
+   "run": 1,
+   "sentence": "The FPL flag hasn't budged since September [c1328].",
+   "cited_chunk_ids": [
+    "c1328"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 49,
+   "answer_id": "rag:17#r1",
+   "question_id": "rag:17",
+   "run": 1,
+   "sentence": "- On **7 Oct** [c976], Isak had picked up an injury during the international break and left his national team early.",
+   "cited_chunk_ids": [
+    "c976"
+   ],
+   "label": "y",
+   "note": "One can ask what is the status as of now, that is current date, but it is good that it said as of oct 7. We need to check what it would say after a follow up which mentions as of today."
+  },
+  {
+   "row": 50,
+   "answer_id": "rag:29#r1",
+   "question_id": "rag:29",
+   "run": 1,
+   "sentence": "**Brentford injury absentees** — the Hull City preview [c1386/c1387] mentioned Janelt, Yarmoliuk, Jensen, Damsgaard and M.",
+   "cited_chunk_ids": [
+    "c1386",
+    "c1387"
+   ],
+   "label": "y",
+   "note": null
+  },
+  {
+   "row": 51,
+   "answer_id": "rag:7#r2",
+   "question_id": "rag:7",
+   "run": 2,
+   "sentence": "**Hincapie has an ankle injury** picked up in a post-match training session around 12 October [c1120].",
+   "cited_chunk_ids": [
+    "c1120"
+   ],
+   "label": "y",
+   "note": null
+  }
+ ]
+}
