@@ -36,5 +36,6 @@ def test_turn_usd_on_hand_made_cases():
 
 
 def test_a_model_without_a_price_row_prices_to_none():
-    assert pricing.turn_usd("claude-opus-5-5", 1000, 100, cache_read=10) is None
-    assert pricing.usd("claude-opus-5-5", 1000, 100) is None
+    # claude-opus-5-5 was the example until 2026-10-24, when it got a row (Tests/test_pricing_models.py)
+    assert pricing.turn_usd("claude-test-unpriced", 1000, 100, cache_read=10) is None
+    assert pricing.usd("claude-test-unpriced", 1000, 100) is None

@@ -225,6 +225,33 @@ def context_signature(block):
     return "\n".join(l for l in (block or "").splitlines() if not l.strip().startswith("- Now:")).strip()
 
 
+# ---------------------------------------------------------------- the frozen clock (eval-only, 2026-10-24)
+# A gate compares two trees on the same questions; until now each answer carried the wall clock of its own minute, so
+# "how long until the deadline" could never be scored against one expected value. `--now <ISO>` (default: the
+# environment's FPL_EVAL_NOW, read HERE and nowhere else) replaces now_context.clock in this process only: the
+# context block, the Now line and every tool that reads now_context.clock (model_tools._gw_in_progress) see the same
+# instant. Production code never reads the flag or the variable (Tests/test_eval_clock.py drives /chat with it set).
+FROZEN_NOW = None
+
+
+def frozen_now_from(args):
+    """The ISO instant to freeze at: the --now flag, else FPL_EVAL_NOW from the environment, else None."""
+    return getattr(args, "now", None) or os.environ.get("FPL_EVAL_NOW") or None
+
+
+def freeze_clock(iso):
+    """Replace now_context.clock with a constant for the rest of this process; returns the frozen datetime (UTC)."""
+    global FROZEN_NOW
+    import now_context
+    dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(timezone.utc)
+    now_context.clock = lambda: dt
+    FROZEN_NOW = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dt
+
+
 def run_context(rec):
     """The context block of a runner record's question turn (its last turn); None if absent."""
     turns = rec.get("turns") or []
@@ -493,6 +520,8 @@ def run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg=None):
            "must_call": q["must_call"], "must_not": q["must_not"], "setup": q["setup"],
            "needs_squad": q["needs_squad"], "core": q["core"], "bug": q["bug"],
            "started_at": datetime.now(timezone.utc).isoformat()}
+    if FROZEN_NOW:
+        rec["frozen_now"] = FROZEN_NOW                    # the instant the context block's clock was held at
 
     if q["needs_squad"].upper() == "Y":
         ok, note = keeper.ensure(q["id"])
@@ -730,6 +759,8 @@ def build_parser():
     ap.add_argument("--max-voyage", type=int, default=200)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--user-id", type=int, default=9001)
+    ap.add_argument("--now", help="freeze the context block's clock at this UTC instant (ISO 8601) for the whole run; "
+                                  "default: the environment's FPL_EVAL_NOW; eval-only, production never reads it")
     ap.add_argument("--out")
     ap.add_argument("--judge", action="store_true", help="judge the TRUSTED metrics (TRUSTED_METRICS) after each answer, through llm.py")
     ap.add_argument("--judge-all", action="store_true", dest="judge_all",
@@ -756,6 +787,11 @@ def main(argv=None):
     import agent
     import main as app_main
     from fastapi.testclient import TestClient
+
+    frozen = frozen_now_from(a)
+    if frozen:
+        dt = freeze_clock(frozen)
+        print(f"clock frozen at {dt:%A %Y-%m-%d %H:%M} UTC (eval-only: now_context.clock in this process)")
 
     budget = Budget(a.max_calls, a.max_usd, a.max_voyage)
     recorder = Recorder()

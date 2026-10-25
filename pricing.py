@@ -12,10 +12,20 @@ claude-opus-5-5 and claude-sonnet-5-5 and 0.025x for claude-fable-5-1 / claude-m
 API's input_tokens are the UNCACHED input; cache_creation_input_tokens and cache_read_input_tokens
 come beside them, so a turn costs
     uncached input + 1.25 x write + read multiplier x read + output.
+
+Three rows added 2026-10-24 from platform.claude.com/docs/en/about-claude/pricing.md (fetched 2026-10-24 23:28Z):
+claude-sonnet-5 (the relevance filter and the extraction; "Claude Sonnet 5": $2 in, $2.50 5-minute cache write,
+$0.20 cache hit, $10 out -- the launch price is now the standard price, footnote 3), claude-opus-5-5 (the judge and
+the shadow judge: $4 / $5 / $0.20 / $20, hit 0.05x) and claude-haiku-4-5-20251001 ("Claude Haiku 4.5", the dated
+id the relevance tables carry: $1 / $1.25 / $0.10 / $5). Until then every call on those models priced to None.
+The 1-hour cache write (2x) is not modelled: nothing here sends a ttl, so every write is the 5-minute one.
 """
 
 USD_PER_MTOK = {
     "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
+    "claude-sonnet-5": {"input": 2.00, "output": 10.00},
+    "claude-opus-5-5": {"input": 4.00, "output": 20.00},
+    "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
 }
 
 CACHE_WRITE_MULT = 1.25
