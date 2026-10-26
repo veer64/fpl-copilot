@@ -416,6 +416,148 @@ def verify(claims, items, sources):
     return rows, missing, sorted(set(unverified), key=lambda x: int(x[1:]))
 
 
+# ------------------------------------------------------------------ durations computed by code (time batch, 2026-10-26)
+# DEFINITION: a duration, difference or count in a reply is SUPPORTED if code computes the same value from dates present in
+# that turn's tool outputs or message lines, at the precision the reply states (rounded or truncated both accepted; "about /
+# roughly / just under / over" widen it to +- half the smallest unit stated, and "just under / over" must be on the right side).
+# Measured need (Prompt A, 25 Oct): the judge typed "5 days, 20 hours and 30 minutes" WRONG (inputs not verified) although the
+# Now line and the deadline line give exactly that; "just under 5 days" and "roughly 6 days and 20 hours" were real errors.
+_DUR_UNITS = {"week": 604800, "weeks": 604800, "wk": 604800, "wks": 604800, "day": 86400, "days": 86400, "d": 86400,
+              "hour": 3600, "hours": 3600, "hr": 3600, "hrs": 3600, "h": 3600, "minute": 60, "minutes": 60, "min": 60, "mins": 60, "m": 60}
+_DUR_WORDS = "|".join(w for w in WORDS if w != "a dozen")
+_DUR_COMP = re.compile(r"(~\s*)?(\d+(?:\.\d+)?|" + _DUR_WORDS + r")\s*\**\s*(?:(weeks?|wks?|days?|hours?|hrs?|minutes?|mins?)\b|(?<=\d)\s+(d|h|m)\b)", re.I)
+_DUR_JOIN = re.compile(r"^(?:\s|,|\*|&|and)*$", re.I)
+_DUR_HEDGE = re.compile(r"(just under|just over|about|around|roughly|approximately|approx\.?|nearly|almost|close to|under|over|~|≈)[\s\*]*$", re.I)
+_MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), start=1)}
+_DT_ISO = re.compile(r"(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?\s*(?:Z|UTC|\+00:00)?", re.I)
+_DT_WORDS = re.compile(r"\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?(?:\s+(\d{4}))?(?:,?\s+(?:at\s+)?(\d{1,2}):(\d{2})\s*(?:Z|UTC)?)?", re.I)
+
+
+def datetime_candidates(sources):
+    """Every datetime (UTC) the material states: ISO dates and date-times ('2026-10-21 11:01:46.377+00:00',
+    '2026-10-31T11:00:00Z', '2026-10-25 14:30 UTC'), and day-month(-year) forms with an optional time ('Sat 31 Oct 2026
+    11:00 UTC', 'Fri 23 Oct 17:21Z'); a date without a time is midnight; a day-month without a year takes the year the
+    ISO dates in the same material use (else this year). Sorted, deduplicated."""
+    out, years = set(), []
+    text = "\n".join(s for s in (sources or []) if s)
+    for m in _DT_ISO.finditer(text):
+        y, mo, d, hh, mm, ss = m.groups()
+        try:
+            out.add(datetime(int(y), int(mo), int(d), int(hh or 0), int(mm or 0), int(ss or 0), tzinfo=timezone.utc))
+            years.append(int(y))
+        except ValueError:
+            continue
+    year = max(set(years), key=years.count) if years else datetime.now(timezone.utc).year
+    for m in _DT_WORDS.finditer(text):
+        d, mon, y, hh, mm = m.groups()
+        try:
+            out.add(datetime(int(y or year), _MONTHS[mon.lower()[:3]], int(d), int(hh or 0), int(mm or 0), tzinfo=timezone.utc))
+        except ValueError:
+            continue
+    return sorted(out)
+
+
+def parse_duration_at(context, offset):
+    """The duration expression in `context` whose span covers `offset` (the claim's position), as {seconds, unit (the
+    smallest unit stated, in seconds, divided by 10^decimals of its number), hedge (None | 'about' | 'just under' |
+    'just over' | 'under' | 'over'), values (the numbers stated), span}; None when the number at `offset` is not part of
+    a duration ('5 goals in 20 games')."""
+    comps = [(m.start(), m.end(), m.group(1), m.group(2), (m.group(3) or m.group(4)).lower()) for m in _DUR_COMP.finditer(context or "")]
+    groups, cur = [], []
+    for c in comps:
+        if cur and not _DUR_JOIN.match(context[cur[-1][1]:c[0]]):
+            groups.append(cur)
+            cur = []
+        cur.append(c)
+    if cur:
+        groups.append(cur)
+    for g in groups:
+        s, e = g[0][0], g[-1][1]
+        if not (s <= offset < e):
+            continue
+        seconds, unit, values, tilde = 0.0, None, [], False
+        for _s, _e, tl, num, u in g:
+            v = float(WORDS[num.lower()]) if num.lower() in WORDS else float(num)
+            secs = _DUR_UNITS[u]
+            dec = len(num.split(".")[1]) if "." in num else 0
+            seconds += v * secs
+            unit = min(unit, secs / (10 ** dec)) if unit is not None else secs / (10 ** dec)
+            values.append(v)
+            tilde = tilde or bool(tl)
+        hm = _DUR_HEDGE.search(context[max(0, s - 30):s])
+        hedge = (hm.group(1).lower() if hm else None)
+        if hedge in ("about", "around", "roughly", "approximately", "approx", "approx.", "nearly", "almost", "close to", "~", "≈"):
+            hedge = "about"
+        if tilde and hedge is None:
+            hedge = "about"
+        return {"seconds": seconds, "unit": unit, "hedge": hedge, "values": values, "span": (s, e)}
+    return None
+
+
+def _round_half_up(x):
+    return int(x + 0.5) if x >= 0 else -int(-x + 0.5)
+
+
+def duration_supported(claim, sources):
+    """(ok, why): is the duration the claim belongs to computable from two datetimes in the material at the stated
+    precision? why names the pair and the rule ('code: computed ...'), or the failure."""
+    d = parse_duration_at(claim.get("context") or "", min(int(claim.get("start") or 0), CONTEXT))
+    if d is None or float(claim.get("value")) not in d["values"]:
+        return False, "not a duration"
+    cands = datetime_candidates(sources)
+    if len(cands) < 2:
+        return False, "no two dates in the material"
+    S, u, hedge = d["seconds"], d["unit"], d["hedge"]
+    stated = S / u
+    best = None
+    for i in range(len(cands)):
+        for j in range(i + 1, len(cands)):
+            D = (cands[j] - cands[i]).total_seconds()
+            Du = D / u
+            if hedge == "just under":
+                ok = (S - u / 2) <= D < S
+            elif hedge == "under":
+                ok = (S - u / 2) <= D < S
+            elif hedge == "just over":
+                ok = S < D <= (S + u / 2)
+            elif hedge == "over":
+                ok = S < D <= (S + u / 2)
+            else:
+                ok = int(Du) == stated or _round_half_up(Du) == stated or (hedge == "about" and abs(D - S) <= u / 2)
+            if ok:
+                return True, (f"code: computed {S:.0f} s = {cands[j].strftime('%Y-%m-%d %H:%M:%S')} - {cands[i].strftime('%Y-%m-%d %H:%M:%S')} "
+                              f"({D:.0f} s) at the stated precision ({u:g} s" + (f", {hedge}" if hedge else "") + ")")
+            if best is None or abs(D - S) < abs(best[0] - S):
+                best = (D, cands[i], cands[j])
+    if best is None:
+        return False, "no date pair"
+    D, a, b = best
+    side = ""
+    if hedge in ("just under", "under", "just over", "over"):
+        side = " -- wrong side" if ((hedge.endswith("under") and D >= S) or (hedge.endswith("over") and D <= S)) else " -- outside the half-unit band"
+    return False, f"code: nearest pair {b.strftime('%Y-%m-%d %H:%M')} - {a.strftime('%Y-%m-%d %H:%M')} = {D:.0f} s vs stated {S:.0f} s{side}"
+
+
+def apply_duration_check(rows, claims, sources):
+    """Rows the judge or the code left WRONG / UNSUPPORTED whose claim is a component of a duration the material supports
+    become DERIVED with why 'code: computed ...'; every other row is left as it is."""
+    by_id = {c["id"]: c for c in claims}
+    for r in rows:
+        if r.get("final") not in ("WRONG", "UNSUPPORTED"):
+            continue
+        c = by_id.get(r.get("id"))
+        if c is None:
+            continue
+        ok, why = duration_supported(c, sources)
+        if why == "not a duration":
+            continue
+        r.setdefault("code", {})["duration_ok"] = ok
+        if ok:
+            r["final"] = "DERIVED"
+            r["why"] = why
+    return rows
+
+
 def code_verdict(rows):
     return "FAIL" if any(r["final"] in ("WRONG", "UNSUPPORTED") for r in rows) else "PASS"
 
@@ -569,6 +711,8 @@ def judge_numbers(record, model, budget, client=None, conn=None, facts=None, str
         reasons.append(reason)
         jverdicts.append(jv)
         row["retries"] += retried
+    rows = apply_duration_check(rows, claims, sources)            # time batch (2026-10-26): a duration code can compute passes
+    row["checks"]["durations_computed"] = sum(1 for r in rows if (r.get("code") or {}).get("duration_ok") is True)
     row["checks"]["quotes_unverified_final"] = sum(1 for r in rows if r["code"].get("quote_found") is False and r["final"] == "UNSUPPORTED")
     row["items"] = rows
     row["type_counts"] = {t: sum(1 for r in rows if r["final"] == t) for t in TYPES if any(r["final"] == t for r in rows)}

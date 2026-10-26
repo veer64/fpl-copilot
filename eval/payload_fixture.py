@@ -213,6 +213,7 @@ def build(out=OUT, sheet=SHEET, context_text=None, now=None):
     doc = {"built_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "agent_head": head,
            "sheet": sheet.name, "n_core": len(questions), "context_text": context_text,
            "frozen_now": frozen.strftime("%Y-%m-%dT%H:%M:%SZ"), "now_line": now_context.now_line(frozen),
+           "countdown_line": now_context.countdown_line(frozen),        # v3 (2026-10-26): the code-computed second line
            "shared": shared, "first_calls": first_calls,
            "tool_turn": {"question": TOOL_TURN_QUESTION, "calls": [req["messages"] for req in turn]}}
     Path(out).parent.mkdir(parents=True, exist_ok=True)

@@ -215,7 +215,7 @@ tools_schema = [
                 "team": {"type": "string", "description": "Club name; omit for all 20 clubs"},
                 "gw": {"type": "integer", "description": "One gameweek; omit to use horizon"},
                 "horizon": {"type": "integer",
-                            "description": "How many gameweeks from the current one (default 5)"}
+                            "description": "How many fixtures still to come to list, counted from the clock (default 5): a kicked-off match is not among them"}
             },
             "required": []
         }
@@ -739,6 +739,9 @@ def run_agent(user_message: str, messages: list = None):
     now = now_context.clock()                        # ONE instant per turn: the block's lines and the Now line agree
     system = _system_for_turn(now)                   # the "now" block, rebuilt once per turn (2026-10-08), clock line apart
     now_text = now_line(now)                         # "- Now: <weekday> <date> <HH:MM> UTC." -> the user message (2026-10-24)
+    countdown = now_context.countdown_line(now)      # "Next deadline: GW9, Sat 31 Oct 2026 11:00 UTC — in 5 d 20 h 30 m" (2026-10-26)
+    if countdown:
+        now_text = f"{now_text}\n{countdown}"        # computed by code, beside the Now line, never in the block or the history
     returned_ids = []                                # every result id search_news returned in THIS turn
     returned_results = []                            # the result dicts themselves, for the rendered citations (Part C)
     usage = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0,

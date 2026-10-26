@@ -192,7 +192,7 @@ def test_the_agent_prepends_a_fresh_block_to_the_system_prompt_every_turn(monkey
         s = ag.system_text(c["system"])                                   # one text block since 2026-10-19
         assert s.startswith(nc.TITLE) and s.endswith(ag.SYSTEM_PROMPT)
         assert "- Now:" not in s                                           # 2026-10-24: the clock line rides on the user message
-        assert c["messages"][0]["content"][0]["text"] == "- Now: Thursday 2026-10-08 18:42 UTC."
+        assert c["messages"][0]["content"][0]["text"].splitlines()[0] == "- Now: Thursday 2026-10-08 18:42 UTC."   # + the countdown line (2026-10-26)
     clock["now"] = NOW + timedelta(days=2)
     ag.run_agent("q2", messages)
     assert "GW6 is in progress" in ag.system_text(fake.calls[-1]["system"])     # rebuilt for the second turn

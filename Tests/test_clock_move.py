@@ -55,6 +55,7 @@ class _Raw:
 def _agent(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
     monkeypatch.setattr(nc, "clock", lambda: FROZEN)
+    monkeypatch.setattr(nc, "_load_deadlines", lambda: {})          # no deadline known -> no countdown line (Tests/test_time_batch.py covers it)
     import agent as ag
     ag = importlib.reload(ag)
     monkeypatch.setattr(ag, "context_block", lambda now=None: BLOCK)

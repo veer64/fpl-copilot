@@ -16,8 +16,14 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
 
 import payload_fixture as pf                               # noqa: E402
 
-FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v2.json"
+FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v3.json"   # v3 (2026-10-26): the countdown line beside the Now line
 V1 = REPO / "Tests" / "fixtures" / "agent_payloads_v1.json"
+V2 = REPO / "Tests" / "fixtures" / "agent_payloads_v2.json"
+
+
+def _first_block(doc):
+    """The first text block of the question message: the Now line, then the code-computed countdown when one exists."""
+    return doc["now_line"] + (f"\n{doc['countdown_line']}" if doc.get("countdown_line") else "")
 
 
 def _agent(monkeypatch):
@@ -42,7 +48,8 @@ def test_the_fixture_describes_the_core_set():
     assert doc["frozen_now"] and doc["now_line"].startswith("- Now: ")
     assert pf.now_from_context(doc["context_text"]) is None and "- Now:" not in doc["context_text"]
     assert pf.now_from_context(doc["now_line"]).strftime("%Y-%m-%dT%H:%M:00Z") == doc["frozen_now"]
-    assert V1.exists()                                     # the pre-move record is kept
+    assert doc["countdown_line"].startswith("Next deadline: GW") and " UTC — in " in doc["countdown_line"]
+    assert V1.exists() and V2.exists()                     # the earlier records are kept
 
 
 def test_the_normalizer_treats_a_string_and_its_single_text_block_alike():
@@ -80,7 +87,7 @@ def test_every_first_call_opens_with_the_now_line_and_the_system_has_none():
     doc = _fixture()
     for item in doc["first_calls"]:
         content = item["messages"][0]["content"]
-        assert content[0] == {"type": "text", "text": doc["now_line"]}, item["id"]
+        assert content[0] == {"type": "text", "text": _first_block(doc)}, item["id"]
         assert content[1]["text"] == item["question"]
     assert "- Now:" not in "".join(b["text"] for b in doc["shared"]["system"])
 
@@ -95,7 +102,7 @@ def test_the_three_call_tool_turn_matches_the_fixture(monkeypatch):
         assert req["messages"] == doc["tool_turn"]["calls"][i], f"call {i + 1}: messages differ"
     # the Now line stays on the question message on every call of the turn; a tool_result message never carries it
     for call in doc["tool_turn"]["calls"]:
-        assert call[0]["content"][0] == {"type": "text", "text": doc["now_line"]}
+        assert call[0]["content"][0] == {"type": "text", "text": _first_block(doc)}
         assert all(m["content"][0]["type"] == "tool_result" for m in call[1:] if m["role"] == "user")
 
 

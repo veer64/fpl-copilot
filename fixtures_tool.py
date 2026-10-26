@@ -226,9 +226,12 @@ def kickoff_day(kickoff):
 
 
 def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
-          step_rows_by_gw=None, skeleton_age_hours=None, now=None):
+          step_rows_by_gw=None, skeleton_age_hours=None, now=None, results=None):
     """PURE. `rows` are the per-(team, gw) model rows; `cal` is calendar()'s mapping; `now` (optional)
-    gives every fixture a status against the clock.
+    gives every fixture a status against the clock. With `now` and no `gw`, the listing is "the next
+    `horizon` fixtures still to come" per club (kickoff after the clock; time batch, 2026-10-26); with a
+    `gw` every fixture of that gameweek is kept and a kicked-off one is marked played, with its score when
+    `results` ({(team, gw, kickoff): "Home 2-1 Away"}) holds it.
 
     A fixture beyond the model's horizon is RETURNED WITH difficulty None and a reason, never
     omitted and never given a fabricated number -- the same rule the quantile block uses for a
@@ -262,6 +265,11 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                     "fixtures": [], "gameweeks": [int(gw)],
                     "calendar_covers": {"first_gw": cal_gws[0], "last_gw": cal_gws[-1]}}
         want_gws = [int(gw)]
+    elif now is not None:
+        # "next N / upcoming" (time batch, 2026-10-26): only fixtures with kickoff after the clock count, club by
+        # club -- the listing holds each club's next `horizon` fixtures still to come, grouped by gameweek; a
+        # kicked-off match is not among them (the 25 Oct gate listed Arsenal's played GW8 match under "next three").
+        want_gws = None
     else:
         start = model_gws[0] if model_gws else min((k[1] for k in cal), default=1)
         want_gws = list(range(start, start + horizon))
@@ -271,8 +279,18 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
 
     out = []
     for t in teams:
-        for g in want_gws:
+        if want_gws is None:
+            coming = sorted(((g, f) for (tt, g), fl in cal.items() if tt == t for f in fl
+                             if fixture_status(f.get("kickoff"), now) == "to come"),
+                            key=lambda gf: (str(gf[1].get("kickoff")), gf[0]))[:horizon]
+            t_gws = sorted({g for g, _ in coming})
+            keep = {(g, str(f.get("kickoff"))) for g, f in coming}
+        else:
+            t_gws, keep = want_gws, None
+        for g in t_gws:
             fixtures = cal.get((t, g), [])
+            if keep is not None:
+                fixtures = [f for f in fixtures if (g, str(f.get("kickoff"))) in keep]
             if not fixtures:
                 out.append({"team": t, "gw": g, "fixtures": [], "blank_gameweek": True,
                             "note": "no fixture for this team in this gameweek (a blank)"})
@@ -284,6 +302,10 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                 status = fixture_status(e.get("kickoff"), now)
                 if status:
                     e["status"] = status
+                    if results and status != "to come":
+                        sc = results.get((t, g, str(e.get("kickoff"))))
+                        if sc:
+                            e["score"] = sc                      # the stored result of a kicked-off match (time batch, 2026-10-26)
                 day = kickoff_day(e.get("kickoff"))
                 if day:
                     e["kickoff_day"] = day
@@ -368,7 +390,7 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
             for f in e["fixtures"]:
                 d = f.get("difficulty") or {}
                 rows.append({"team": e["team"], "gw": e["gw"], "opponent": f.get("opponent"),
-                             "home": f.get("home"),
+                             "home": f.get("home"), "status": f.get("status"), "kickoff_day": f.get("kickoff_day"),
                              "attacking": (d.get("attacking") or {}).get("value"),
                              "defensive": (d.get("defensive") or {}).get("value"),
                              "attack_score": (d.get("attacking") or {}).get("score"),
@@ -376,23 +398,24 @@ def build(rows, cal, n_team_names, team=None, gw=None, horizon=5,
                              **({"rating": f["rating"]} if f.get("rating") else {})})
         out = rows
 
+    listed = want_gws if want_gws is not None else sorted({int(b["gw"]) for b in out if isinstance(b, dict) and b.get("gw") is not None})
     return {
         "compact": compact,
         "fixtures": out,
         "season_summary": season_summary,
         "teams_requested": teams,
         "unknown_teams": unknown,
-        "gameweeks": want_gws,
-        "listed_gameweeks": want_gws,
+        "gameweeks": listed,
+        "listed_gameweeks": listed,
         "model_horizon": {"gws": model_gws,
                           "gameweeks_covered": [model_gws[0], model_gws[-1]] if model_gws else [],
                           "note": ("fixtures outside this range are scheduled but not rated yet: they are listed "
                                    "with difficulty null, a rating line and a reason, never omitted and never 'not "
                                    "scheduled'; the build covers "
                                    + (f"GW{model_gws[0]}-GW{model_gws[-1]}" if model_gws else "no gameweek")
-                                   + f" while this answer lists GW{want_gws[0]}-GW{want_gws[-1]}"
+                                   + (f" while this answer lists GW{listed[0]}-GW{listed[-1]}" if listed else " while this answer lists no gameweek")
                                    + (" -- a club with no fixture listed here may still have one in a covered gameweek this answer does not list"
-                                      if model_gws and want_gws[-1] < model_gws[-1] else ""))},
+                                      if model_gws and listed and listed[-1] < model_gws[-1] else ""))},
         "score_meaning": SCORE_PLAIN,
         "meanings": {"kickoff_day": "the weekday, date and UTC kickoff time of the fixture, from the calendar",
                      "status": "played = kicked off more than two hours ago; in progress = kicked off within the last two hours; "

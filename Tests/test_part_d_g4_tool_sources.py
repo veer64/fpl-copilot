@@ -57,13 +57,16 @@ def test_fixtures_carry_a_status_against_the_clock_and_plain_score_meanings():
     now = datetime(2026, 10, 12, 20, 0, tzinfo=UTC)
     out = ft.build(rows, cal, 20, team="Liverpool", horizon=2, now=now)
     fx = {e["gw"]: e for e in out["fixtures"]}
-    assert fx[6]["fixtures"][0]["status"] == "played" and fx[7]["fixtures"][0]["status"] == "to come"
+    assert 6 not in fx and fx[7]["fixtures"][0]["status"] == "to come"          # "next 2" from the clock lists only matches still to come (2026-10-26)
+    out6 = ft.build(rows, cal, 20, team="Liverpool", gw=6, now=now)              # a gameweek listing keeps the played match, marked
+    fx6 = out6["fixtures"][0]["fixtures"][0]
+    assert fx6["status"] == "played"
     out2 = ft.build(rows, cal, 20, team="Spurs", gw=6, now=now)
     assert out2["fixtures"][0]["fixtures"][0]["status"] == "in progress"          # kicked off 60 min ago
-    assert out["model_horizon"]["gameweeks_covered"] == [6, 7] and out["listed_gameweeks"] == [6, 7]
+    assert out["model_horizon"]["gameweeks_covered"] == [6, 7] and out["listed_gameweeks"] == [7]
     assert "a score of 10 is not 'the easiest fixture'" in out["score_meaning"] and "k-th tenth" in out["score_meaning"]
     assert "status" in out["meanings"] and "to come" in out["meanings"]["status"]
     out3 = ft.build(rows, cal, 20, team="Liverpool", horizon=2)                   # no clock: no status claimed
     assert "status" not in out3["fixtures"][0]["fixtures"][0]
-    assert fx[6]["fixtures"][0]["kickoff_day"] == "Sunday 11 Oct 2026, 15:30 UTC"      # the weekday comes from the tool
+    assert fx6["kickoff_day"] == "Sunday 11 Oct 2026, 15:30 UTC"                      # the weekday comes from the tool
     assert ft.kickoff_day("2026-10-17T14:00:00Z") == "Saturday 17 Oct 2026, 14:00 UTC" and ft.kickoff_day(None) is None

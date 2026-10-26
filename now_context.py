@@ -151,6 +151,28 @@ def now_line(now=None):
     return f"- Now: {_fmt(now or clock())}."
 
 
+def countdown_line(now=None, deadlines=None):
+    """'Next deadline: GW9, Sat 31 Oct 2026 11:00 UTC — in 5 d 20 h 30 m' -- computed by code from the clock and the
+    stored deadline table (the same table the block's gameweek line reads), sent beside the Now line in the user
+    message (agent.py; time batch, 2026-10-26: the 25 Oct gate's time:8 answers counted "just under 5 days" and
+    "roughly 6 days and 20 hours" for 5 d 20 h 30 m). None when no deadline is ahead or none is known; never in
+    the block, never stored."""
+    now = now or clock()
+    try:
+        table = _load_deadlines() if deadlines is None else dict(deadlines)
+    except Exception:                                 # noqa: BLE001 -- no line is better than a guessed one
+        return None
+    nxt = next(((g, table[g]) for g in sorted(table) if table[g] > now), None)
+    if not nxt:
+        return None
+    g, dl = nxt
+    secs = int((dl - now).total_seconds())
+    d, rem = divmod(secs, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    return f"Next deadline: GW{g}, {dl.astimezone(UTC):%a %d %b %Y %H:%M} UTC — in {d} d {h} h {m} m"
+
+
 def _promise(now, deadlines, finished, state, dp):
     """(expected_next, source): the dispatcher's own promise when the state file holds one (the server),
     else the same policy function the dispatcher calls, on the state it has (or an empty one) and the

@@ -123,7 +123,8 @@ def test_a_fully_verified_answer_passes_and_records_every_item(monkeypatch):
     assert [i["final"] for i in row["items"]] == ["DIRECT", "DIRECT"] and row["n_claims"] == 2
     assert row["retries"] == 0 and len(fake.prompts) == 1
     assert "<tool_result " in fake.prompts[0] and "c1" in fake.prompts[0] and "about 9.2" in fake.prompts[0]
-    assert row["checks"] == {"coverage_missing_first": 0, "quotes_unverified_first": 0, "quotes_unverified_final": 0, "overrides": 0}
+    assert row["checks"] == {"coverage_missing_first": 0, "quotes_unverified_first": 0, "quotes_unverified_final": 0, "overrides": 0,
+                             "durations_computed": 0}                       # the duration check (2026-10-26) counts its flips here
 
 
 def test_missing_items_are_retried_once_then_unsupported(monkeypatch):

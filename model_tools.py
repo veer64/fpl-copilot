@@ -451,6 +451,29 @@ def chance_words(chance, as_of, gw):
     return f"chance of playing {where}: {int(chance)}%" + (f", FPL as of {when}" if when else "")
 
 
+def fpl_figure_note(chance_gw, now=None, deadlines=None, finished=None):
+    """"FPL's figure is for GW8 (in progress); FPL has not given a GW9 figure yet." when FPL's chance is for a gameweek
+    other than the next deadline's (time batch, 2026-10-26: the 25 Oct gate's time:4 answers presented GW8's 100% as
+    GW9 availability on both sides); "(finished)" when that gameweek is finished. None when the two gameweeks are equal
+    or either is unknowable. Pure with the seeds; otherwise the deadline table and the finished list are loaded the
+    way the context block loads them, at the shared clock. Carried by every tool that shows the chance: the card,
+    _player_status (the comparisons) and _flags_for (the flags of the squad, build and plan tools)."""
+    if chance_gw is None:
+        return None
+    try:
+        import now_context as nc
+        now = now or nc.clock()
+        dl = nc._load_deadlines() if deadlines is None else dict(deadlines)
+        fin = nc._load_finished() if finished is None else list(finished)
+        _, _in_progress, nxt = nc.gameweek_state(now, dl, fin)
+    except Exception:                               # noqa: BLE001 -- a note must never break a tool
+        return None
+    if not nxt or int(chance_gw) == int(nxt[0]):
+        return None
+    state = "finished" if int(chance_gw) in set(fin or []) else "in progress"
+    return f"FPL's figure is for GW{int(chance_gw)} ({state}); FPL has not given a GW{int(nxt[0])} figure yet."
+
+
 def latest_flag_words(chance, as_of, gw):
     """'latest FPL flag (for GW7, as of 15 Oct 2026): chance of playing 75%' -- what a row for a LATER gameweek than
     the flag's carries instead of chance_words (Thursday gate F13, 2026-10-15): FPL's chance is for the gameweek it
@@ -536,7 +559,11 @@ def _player_status(elements):
         st, ch = r.get("status"), r.get("chance")
         d = {"status_word": STATUS_WORDS.get(st, st), "chance": ch}
         if ch is not None:
-            d["chance_words"] = chance_words(ch, r.get("updated_at"), _next_round_gw(r.get("updated_at")))
+            gw = _next_round_gw(r.get("updated_at"))
+            d["chance_words"] = chance_words(ch, r.get("updated_at"), gw)
+            note = fpl_figure_note(gw)                  # time batch (2026-10-26)
+            if note:
+                d["fpl_figure_note"] = note
         out[int(r["element"])] = d
     return out
 
@@ -560,6 +587,9 @@ def _flags_for(elements):
                                       "chance": ch, "news": (r.get("news") or "").strip() or None,
                                       "as_of": r.get("updated_at"), "gw": gw,
                                       "chance_words": chance_words(ch, r.get("updated_at"), gw)}
+            note = fpl_figure_note(gw)                  # time batch (2026-10-26)
+            if note:
+                out[int(r["element"])]["fpl_figure_note"] = note
     return out
 
 
@@ -990,6 +1020,10 @@ def get_player_card(player_id: int):
     if dates:
         card["availability"]["flag_dates"] = dates
         card["flag_dates"] = dates
+    note = fpl_figure_note(gw_next)                   # time batch (2026-10-26): the chance's gameweek vs the next deadline's
+    if note:
+        card["availability"]["fpl_figure_note"] = note
+        card["fpl_figure_note"] = note
     pred = get_prediction(player_id)
     if "error" not in pred:
         card["prediction"] = pred
@@ -3420,9 +3454,37 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
                          "wrote nothing). No difficulty can be reported.",
                 "required_columns": list(FIXTURE_REQUIRED_COLS)}
     out = _run_meta(run)
+    import now_context as nc                                        # the ONE clock (time batch, 2026-10-26): the block, the
+    now = nc.clock()                                                # Now line and the fixture statuses read the same instant
     out.update(ft.build(rows, cal, n_names, team=resolved, gw=gw, horizon=horizon,
-                        step_rows_by_gw=step_rows, skeleton_age_hours=age_h, now=datetime.now(timezone.utc)))
-    return _with_meanings(_with_started_note(out, int(gw) if gw is not None else run.get("gw")))
+                        step_rows_by_gw=step_rows, skeleton_age_hours=age_h, now=now, results=_fixture_results()))
+    listed = out.get("listed_gameweeks") or []
+    note_gw = int(gw) if gw is not None else (listed[0] if listed else run.get("gw"))
+    return _with_meanings(_with_started_note(out, note_gw))
+
+
+def _fixture_results():
+    """{(team name, gw, kickoff ISO): "Home 2-1 Away"} for every finished match the actuals master holds (the file only
+    takes a gameweek once FPL says finished and data_checked), so a kicked-off match in a gameweek-range listing can
+    carry its score (time batch, 2026-10-26). {} on any failure: a missing score is never guessed."""
+    try:
+        import fixtures_tool as ft
+        master, _ = _actuals_master()
+        names = ft._team_names()
+        cols = [c for c in ("GW", "team", "opponent_team", "was_home", "kickoff_time", "team_h_score", "team_a_score") if c in master.columns]
+        if len(cols) < 7:
+            return {}
+        out = {}
+        for r in master[cols].drop_duplicates(["team", "kickoff_time"]).itertuples(index=False):
+            gw, team, opp, home, kick, hs, as_ = r
+            if hs is None or as_ is None or hs != hs or as_ != as_:
+                continue
+            t, o = names.get(int(team), str(team)), names.get(int(opp), str(opp))
+            h, a = (t, o) if bool(home) else (o, t)
+            out[(t, int(gw), str(kick))] = f"{h} {int(hs)}-{int(as_)} {a}"
+        return out
+    except Exception:                                   # noqa: BLE001 -- a score is a courtesy, never fatal
+        return {}
 
 
 def get_price_movements(window_days: int = 7, user_id: int = None, include_squad: bool = True):
