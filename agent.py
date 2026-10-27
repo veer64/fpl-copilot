@@ -170,7 +170,7 @@ tools_schema = [
     },
     {
         "name": "set_my_squad",
-        "description": "Record a NEW version of the user's own squad: the full fifteen after any transfers, plus captain, vice-captain and the four bench players in order. Money is derived, never supplied: players sold are valued by FPL's sell rule (purchase price plus half any rise, rounded down; falls in full), players bought cost their current price, free transfers are used first and extra transfers cost 4 points each (reported as hits). Illegal or unaffordable squads are refused with the reason. ALWAYS call with confirm=false first and show the user the preview (transfers, proceeds, cost, bank after, hits); call again with confirm=true ONLY when the user explicitly says to make the change.",
+        "description": "Record a NEW version of the user's own squad: the full fifteen after any transfers, plus captain, vice-captain and the four bench players in order. Money is derived, never supplied: players sold are valued by FPL's sell rule (purchase price plus half any rise, rounded down; falls in full), players bought cost their current price, free transfers are used first and extra transfers cost 4 points each (reported as hits). Illegal or unaffordable squads are refused with the reason. ALWAYS call with confirm=false first and show the user the preview (transfers, proceeds, cost, bank after, hits); call again with confirm=true ONLY when the user explicitly says to make the change. A preview issues a ticket: confirm=true needs preview_ticket from a preview shown in an EARLIER turn for the same change, else nothing is written.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -181,7 +181,8 @@ tools_schema = [
                 "gw": {"type": "integer", "description": "Gameweek the squad is set for. Defaults to, and must equal, the next deadline's gameweek; any other is refused"},
                 "note": {"type": "string", "description": "Optional short reason, recorded with the version"},
                 "confirm": {"type": "boolean", "description": "false = preview only (default); true = write it"},
-                "proposal_id": {"type": "integer", "description": "When applying a propose_transfers result, its proposal_id (recorded in the version's provenance)"}
+                "proposal_id": {"type": "integer", "description": "When applying a propose_transfers result, its proposal_id (recorded in the version's provenance)"},
+                "preview_ticket": {"type": "string", "description": "The preview ticket from the earlier confirm=false call for this same change (required with confirm=true)"}
             },
             "required": ["player_ids", "captain_id", "vice_id", "bench_order_ids"]
         }
@@ -384,6 +385,7 @@ tools_schema = [
 import os
 from dotenv import load_dotenv
 import llm
+import turn_context                                     # Prompt E (2026-10-27): the loop's turn channel (the write lock reads it)
 from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
@@ -527,6 +529,11 @@ def plain_words(text):
 
 # What the latest reply cost and did, for the process that served it (the eval runner reads it).
 LAST_TURN = {}
+
+# Prompt E loop guard (2026-10-27). A response with no text block and no tool_use block -- measured on the sonnet-5
+# gate (eval/reports/agent_sonnet5_gate_v1.md): stop_reason max_tokens with a lone thinking block -- used to become
+# an EMPTY tool_results user message and an HTTP 400 on the next call. Now the turn ends with this fixed reply.
+GUARD_REPLY = "I couldn't finish that answer. Please ask again."
 
 
 def _system_for_turn(now=None):
@@ -730,12 +737,23 @@ available_functions = {
 }
 
 def run_agent(user_message: str, messages: list = None):
+    """One turn: the user's message in, the rendered reply and the updated history out. The turn is open on
+    turn_context for its whole duration (Prompt E, 2026-10-27: the squad-write lock reads which turn a tool runs
+    in) and closed on every exit, a raised exception included."""
+    try:
+        return _run_turn(user_message, messages)
+    finally:
+        turn_context.end()
+
+
+def _run_turn(user_message: str, messages: list = None):
     if messages is None:
         messages = []
 
     messages.append({"role": "user", "content": user_message})
     question_index = len(messages) - 1               # the turn's question: the clock line rides on it at send time
     turn_id = uuid.uuid4().hex                       # Piece 7: one id per reply, for citation_checks
+    turn_context.begin(turn_id)                      # Prompt E: the loop's channel; tools read it, the model cannot set it
     now = now_context.clock()                        # ONE instant per turn: the block's lines and the Now line agree
     system = _system_for_turn(now)                   # the "now" block, rebuilt once per turn (2026-10-08), clock line apart
     now_text = now_line(now)                         # "- Now: <weekday> <date> <HH:MM> UTC." -> the user message (2026-10-24)
@@ -746,6 +764,20 @@ def run_agent(user_message: str, messages: list = None):
     returned_results = []                            # the result dicts themselves, for the rendered citations (Part C)
     usage = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0,
              "model": None, "seen_usage": False}     # Part 7c: this turn's API usage, logged with the reply
+
+    def finish(raw):
+        """The reply path: the checks (log only), the plain-words locks, the citations, the usage row."""
+        _citation_check(turn_id, raw, returned_ids)
+        _numeric_check(turn_id, raw, messages)                         # log only; never alters the reply
+        plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
+        plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
+        rendered = render_citations(plain, returned_results)           # Part C: [1], [2] + Sources
+        if rendered != raw:
+            print(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
+        LAST_TURN.clear()
+        LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
+        _usage_log(turn_id, usage, n_names)
+        return rendered, messages
 
     while True:
         request = {"model": AGENT_MODEL, "max_tokens": 1024,                     # the agent's parameters, unchanged
@@ -760,18 +792,7 @@ def run_agent(user_message: str, messages: list = None):
         if response.stop_reason != "tool_use":
             for block in response.content:
                 if block.type == "text":
-                    raw = block.text
-                    _citation_check(turn_id, raw, returned_ids)
-                    _numeric_check(turn_id, raw, messages)                         # log only; never alters the reply
-                    plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
-                    plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
-                    rendered = render_citations(plain, returned_results)           # Part C: [1], [2] + Sources
-                    if rendered != raw:
-                        print(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
-                    LAST_TURN.clear()
-                    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
-                    _usage_log(turn_id, usage, n_names)
-                    return rendered, messages
+                    return finish(block.text)
 
         tool_results = []
         for block in response.content:
@@ -795,6 +816,20 @@ def run_agent(user_message: str, messages: list = None):
                     "tool_use_id": tool_id,
                     "content": str(result)
                 })
+
+        if not tool_results:                                            # Prompt E loop guard: no tool call this response
+            text_block = next((b for b in response.content if getattr(b, "type", None) == "text"), None)
+            if text_block is not None:                                  # stop_reason tool_use without a call: the text is the reply
+                return finish(text_block.text)
+            block_types = [str(getattr(b, "type", "?")) for b in (response.content or [])]
+            print(f"  [loop guard: no text and no tool_use (stop_reason={response.stop_reason}); turn {turn_id} "
+                  f"ends with the fixed reply; blocks {block_types}]")
+            messages[-1] = {"role": "assistant", "content": [{"type": "text", "text": GUARD_REPLY}]}   # never an empty message
+            LAST_TURN.clear()
+            LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0,
+                             guard={"stop_reason": response.stop_reason, "block_types": block_types}, **usage)
+            _usage_log(turn_id, usage, 0)
+            return GUARD_REPLY, messages
 
         messages.append({"role": "user", "content": tool_results})
 

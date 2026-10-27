@@ -28,6 +28,8 @@ from dotenv import load_dotenv
 from config_roles import (CONFIGS, PRODUCTION_CONFIG, SHADOW_CONFIG, MAX_AVAILABILITY_AGE,
                           DEFAULT_USER_ID)
 import squad_store
+import squad_previews                                   # Prompt E (2026-10-27): the preview-ticket lock on squad writes
+import turn_context                                     # the agent loop's turn channel the lock reads (never the model's input)
 
 load_dotenv()
 REPO = Path(__file__).resolve().parent
@@ -1570,7 +1572,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
 
 def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_ids: list,
                  gw: int = None, note: str = None, confirm: bool = False, user_id: int = None,
-                 proposal_id: int = None):
+                 proposal_id: int = None, preview_ticket: str = None):
     """Write a NEW version of the user's squad (and supersede the active one).
     The caller states the fifteen and the roles; the money is derived: the
     change is the difference from the active fifteen, outgoing players are
@@ -1581,8 +1583,17 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
 
     confirm=False (default) is a PREVIEW: the write runs and is rolled back;
     the response shows exactly what confirm=True would record. gw defaults
-    to the next deadline's gameweek."""
+    to the next deadline's gameweek.
+
+    THE LOCK (Prompt E, 2026-10-27; squad_previews): a preview issues a
+    ticket for this change against the active version; confirm=True needs
+    preview_ticket from a preview shown in an EARLIER turn (the loop's own
+    turn channel, turn_context -- never the model's input) for the SAME change
+    against the SAME active version, unused, uncancelled, unexpired. Any other
+    confirm writes NOTHING and answers the fixed refusal naming the reason."""
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
+    if confirm and not preview_ticket:                       # refused before any read: a write needs its ticket
+        return {"error": squad_previews.refusal("missing"), "refused": True, "reason": "missing"}
     try:
         active = squad_store.read_active(user_id)
     except squad_store.SquadStateError as e:
@@ -1599,26 +1610,50 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
     live = {r["element"]: r for r in rows}
     priced_from = f"players_live as of {max((r['updated_at'] for r in rows), default=None)}"
     import db_write
+    turn = turn_context.current() or turn_context.adhoc()   # Prompt E: the loop's turn (or this direct call's own)
+    extra = {"turn_id": turn["turn_id"], "turn_started_at": turn["started_at"].isoformat()}   # the write's turn, in the record
+    if proposal_id is not None:
+        extra["proposal_id"] = int(proposal_id)
+    if confirm:
+        extra["preview_ticket"] = str(preview_ticket)         # the ticket this write spends (checked below before writing)
     try:
         new_doc, change = squad_store.plan_change(
             active, player_ids, captain_id, vice_id, bench_order_ids, gw, live,
             priced_from=priced_from,
             created_by=f"model_tools.set_my_squad @ {db_write.git_sha() or 'unknown'}",
             next_deadline_gw=current,
-            extra_provenance=({"proposal_id": int(proposal_id)} if proposal_id is not None else None))
+            extra_provenance=extra)
     except ValueError as e:
         return {"error": f"refused: {e}", "refused": True, "active_version": active["version_id"]}
+    # Prompt E: the ticket. A preview writes (and rolls back) as before, then issues a ticket for this change against
+    # this active version; a confirm spends its ticket and writes in ONE transaction (consume marks it used on the
+    # same connection write_version commits -- or rolls back -- on).
+    fp = squad_previews.fingerprint(player_ids, captain_id, vice_id, bench_order_ids, gw)
+    ticket = None
+    conn = db_write.connect()
     try:
-        row = squad_store.write_version(active, new_doc, gw, note, confirm, user_id=user_id)
-    except squad_store.SquadStateError as e:
-        return {"error": str(e)}
+        squad_previews.ensure_schema(conn)
+        if confirm:
+            reason = squad_previews.consume(conn, user_id, preview_ticket, turn, fp, active["version_id"])
+            if reason:
+                conn.rollback()
+                return {"error": squad_previews.refusal(reason), "refused": True, "reason": reason,
+                        "preview_ticket": str(preview_ticket), "active_version": active["version_id"]}
+        try:
+            row = squad_store.write_version(active, new_doc, gw, note, confirm, conn=conn, user_id=user_id)
+        except squad_store.SquadStateError as e:
+            return {"error": str(e)}
+        if not confirm:
+            ticket = squad_previews.issue(conn, user_id, turn, fp, active["version_id"])
+    finally:
+        conn.close()
 
     def m(t):
         return None if t is None else round(t / 10, 1)
 
     prices = {e: live[e]["price_tenths"] for e in involved}
     latest = _latest_run()
-    return {
+    out = {
         "committed": row["committed"],
         "preview": not row["committed"],
         "message": ("version written and now active" if row["committed"] else
@@ -1643,6 +1678,11 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
         },
         "squad": squad_store.summary(row, prices, latest_run=latest, current_gw=current),
     }
+    if ticket is not None:                                   # the preview's ticket and how to spend it (Prompt E)
+        out["preview_ticket"] = ticket["id"]
+        out["preview_expires_at"] = ticket["expires_at"].isoformat()
+        out["message"] = f"{out['message']} {squad_previews.ticket_sentence(ticket['id'])}"
+    return out
 
 
 # ---------------------------------------------------------------- the solve

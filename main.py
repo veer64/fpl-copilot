@@ -52,6 +52,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent import run_agent
+import squad_previews                                   # Prompt E (2026-10-27): /reset cancels the user's preview tickets
 
 app = FastAPI()
 
@@ -210,7 +211,8 @@ def chat(request: ChatRequest):
 def reset_conversation():
     global conversation_history
     conversation_history = []
-    return {"status": "conversation reset"}
+    cancelled = squad_previews.cancel_for_default_user()     # Prompt E: a fresh conversation holds no open preview ticket
+    return {"status": "conversation reset", "preview_tickets_cancelled": cancelled}
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
