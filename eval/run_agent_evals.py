@@ -42,6 +42,7 @@ restore is a new row, not an UPDATE).
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -93,8 +94,11 @@ def parse_chain(spec):
 
 
 def parse_tool_spec(text):
-    """"set_my_squad(confirm=false)" -> ("set_my_squad", ("confirm", "false"))."""
+    """"set_my_squad(confirm=false)" -> ("set_my_squad", ("confirm", "false")).
+    "already(captain)" -> ("already", ("word", "captain")): the no-op preview alternative (below), never a tool."""
     text = text.strip()
+    if text.startswith("already(") and text.endswith(")"):
+        return "already", ("word", text[len("already("):-1].strip().lower())
     if "(" in text and text.endswith(")"):
         name, _, rest = text.partition("(")
         key, _, value = rest[:-1].partition("=")
@@ -110,6 +114,8 @@ ARG_DEFAULTS = {("set_my_squad", "confirm"): "false"}
 
 def call_matches(call, spec):
     name, arg = parse_tool_spec(spec)
+    if name == "already":                           # a reply condition, never a call (already_satisfied)
+        return False
     if call["tool"] != name:
         return False
     if arg is None:
@@ -126,8 +132,45 @@ def call_matches(call, spec):
     return got == want
 
 
-def grade_must_call(spec, calls):
-    """(ok, reason) for the "must call" column against this turn's calls.
+# ------------------------------------------------- the no-op preview alternative (Prompt E2, 2026-10-28)
+# DEFINITION (eval/reports/confirm_lock_v2.md Part 0): for a request whose requested setting is ALREADY TRUE on the
+# active squad, the preview step is satisfied by EITHER a set_my_squad(confirm=false) preview OR a reply that says the
+# setting is already in place, with NO write in that turn. `already(<word>)` is a slot alternative, used per row
+# (v4_10: get_my_xi:6 only). Satisfied iff (a) no write in the QUESTION turn: no set_my_squad(confirm=true) among the
+# turn's calls and the record's wrote_squad_version is not true; (b) some sentence of the reply holds "already" and
+# <word>; (c) no sentence holds <word> with a change claim unless it also holds a negation. Still FAIL: any write,
+# ignoring the request (no preview and no (b) sentence), a claim that something changed.
+CHANGE_CLAIMS = ("i've set", "i have set", "has been set", "have been set", "now set", "i've updated", "i have updated",
+                 "has been updated", "i've changed", "i have changed", "has been changed", "changed to", "i've made",
+                 "i have made", "i've applied", "i have applied", "has been applied", "has been recorded", "i've recorded",
+                 "is now your", "is now the")
+CLAIM_NEGATIONS = ("already", "no change", "unchanged", "not")
+
+
+def _sentences(text):
+    return [t.strip() for t in re.split("[.!?" + chr(10) + chr(13) + "]+", (text or "").lower()) if t.strip()]
+
+
+def already_satisfied(spec, turn_calls, reply, wrote):
+    """True when the `already(<word>)` alternative holds for this question turn (the DEFINITION above)."""
+    name, arg = parse_tool_spec(spec)
+    if name != "already" or not arg:
+        return False
+    word = arg[1]
+    if wrote or any(call_matches(c, "set_my_squad(confirm=true)") for c in turn_calls or []):
+        return False                                                      # (a) a write
+    sents = _sentences(reply)
+    if not any("already" in t and word in t for t in sents):
+        return False                                                      # (b) the request is not answered
+    for t in sents:
+        if word in t and any(k in t for k in CHANGE_CLAIMS) and not any(k in t for k in CLAIM_NEGATIONS):
+            return False                                                  # (c) a claim that something changed
+    return True
+
+
+def grade_must_call(spec, calls, reply="", wrote=False, turn_calls=None):
+    """(ok, reason) for the "must call" column against this turn's calls; `reply`, `wrote` and `turn_calls` (the
+    question turn's own calls; default `calls`) feed the `already(<word>)` alternative only.
 
     "any" means the question has NO required chain -- answer it with one tool, four, or
     none. It is not "none", which forbids calling anything. The distinction matters because
@@ -142,16 +185,20 @@ def grade_must_call(spec, calls):
             return False, f"expected no tool call, got {', '.join(c['tool'] for c in calls)}"
         return True, ""
     pos = 0
+    tc = calls if turn_calls is None else turn_calls
     for n, step in enumerate(steps, start=1):
         found = []
         for slot in step:
             hit = next((i for i in range(pos, len(calls))
                         if any(call_matches(calls[i], s) for s in slot)), None)
+            if hit is None and any(already_satisfied(s, tc, reply, wrote) for s in slot):
+                continue                                # the slot is met by the reply, not by a call
             if hit is None:
                 return False, (f"missing {'|'.join(sorted(slot))}"
                                + (f" after step {n - 1}" if n > 1 else ""))
             found.append(hit)
-        pos = max(found) + 1
+        if found:
+            pos = max(found) + 1
     return True, ""
 
 
@@ -164,8 +211,8 @@ def grade_must_not(spec, calls):
     return True, ""
 
 
-def grade(q, calls, setup_calls=None):
-    """PASS / FAIL for one question.
+def grade(q, calls, setup_calls=None, reply="", wrote=False):
+    """PASS / FAIL for one question (`reply` and `wrote` feed the `already(<word>)` alternative only).
 
     "must call" is graded over the whole conversation -- the setup turn's calls
     followed by the question turn's -- because the chain spans turns: an agent that
@@ -178,7 +225,7 @@ def grade(q, calls, setup_calls=None):
     # "none" is a statement about THIS question -- the setup turn is allowed to have
     # called tools, and usually had to -- so it is graded on the question turn alone.
     chain = list(calls) if not parse_chain(q["must_call"]) else list(setup_calls or []) + list(calls)
-    ok, reason = grade_must_call(q["must_call"], chain)
+    ok, reason = grade_must_call(q["must_call"], chain, reply=reply, wrote=wrote, turn_calls=calls)
     if not ok:
         return "FAIL", reason
     ok, reason = grade_must_not(q["must_not"], calls)
@@ -587,7 +634,8 @@ def run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg=None):
         rec["wrote_squad_version"] = bool(version_before is not None and after_v > version_before)
         rec["squad_versions_after"] = after_v
     earlier = [c for t in turns[:-1] for c in t["calls"]]
-    res, reason = grade(q, qturn["calls"], setup_calls=earlier)
+    res, reason = grade(q, qturn["calls"], setup_calls=earlier,
+                        reply=qturn["reply"], wrote=rec.get("wrote_squad_version", False))
     rec["result"], rec["reason"] = res, reason
     rec["actual_calls"] = " > ".join(c["tool"] for c in qturn["calls"]) or "(none)"
     if turns[:-1]:

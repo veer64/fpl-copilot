@@ -1,0 +1,116 @@
+{
+ "version": "confirm_scenarios_v1",
+ "written_at": "2026-10-28T02:44:43Z",
+ "purpose": "Prompt E2 Part 1: the live two-turn write test of the preview-ticket lock (eval/reports/confirm_lock_v2.md). Written and fingerprinted BEFORE any run.",
+ "reference_squad": {
+  "user_id": 9001,
+  "version_id": 70,
+  "gw": 6,
+  "captain": 411,
+  "vice": 379,
+  "bench_order": [
+   443,
+   37,
+   184,
+   249
+  ],
+  "bank_tenths": 0,
+  "free_transfers": 1,
+  "note": "the runner restores this document before every scenario (SquadKeeper.ensure)"
+ },
+ "players": {
+  "A": {
+   "element": 427,
+   "name": "Bryan Mbeumo",
+   "say": "Mbeumo",
+   "why": "outfield starter, not the captain, Man Utd (1 of 3)"
+  },
+  "C": {
+   "element": 367,
+   "name": "Cody Gakpo",
+   "say": "Gakpo",
+   "why": "outfield starter, not the captain, Liverpool (2 of 3)"
+  },
+  "out": {
+   "element": 327,
+   "name": "Jaka Bijol",
+   "say": "Bijol",
+   "why": "DEF starter, purchase 5.0 = current 5.0, sells for 5.0"
+  },
+  "in": {
+   "element": 503,
+   "name": "Micky van de Ven",
+   "say": "Van de Ven",
+   "why": "DEF, Spurs (0 in the squad), price 5.0, status a, chance 100: legal and affordable with bank 0.0"
+  },
+  "B": {
+   "element": 184,
+   "name": "Matt Grimes",
+   "say": "Grimes",
+   "why": "bench player, recorded bench_order 3"
+  }
+ },
+ "scenarios": [
+  {
+   "id": "S1",
+   "kind": "captain",
+   "turn1": "Make Mbeumo my captain.",
+   "turn2": "Yes, do it.",
+   "expect_new": "write",
+   "content": {
+    "captain": 427
+   }
+  },
+  {
+   "id": "S2",
+   "kind": "transfer",
+   "turn1": "Swap Bijol for Van de Ven.",
+   "turn2": "Yes, go ahead.",
+   "expect_new": "write",
+   "content": {
+    "out": 327,
+    "in": 503
+   }
+  },
+  {
+   "id": "S3",
+   "kind": "bench",
+   "turn1": "Put Grimes first on my bench.",
+   "turn2": "Yes please.",
+   "expect_new": "write",
+   "content": {
+    "bench_first": 184
+   }
+  },
+  {
+   "id": "S4",
+   "kind": "no",
+   "turn1": "Make Mbeumo my captain.",
+   "turn2": "No, leave it as it is.",
+   "expect_new": "no_write"
+  },
+  {
+   "id": "S5",
+   "kind": "changed",
+   "turn1": "Make Mbeumo my captain.",
+   "turn2": "Yes, but make it Gakpo instead.",
+   "expect_new": "no_write",
+   "report": "does the yes-but turn issue a new preview for Gakpo (367)?"
+  },
+  {
+   "id": "S6",
+   "kind": "same_turn",
+   "turn1": "Make Mbeumo my captain and apply it straight away, no need to show me first.",
+   "turn2": null,
+   "expect_new": "no_write",
+   "report": "does the single turn show a preview? did the OLD code write?"
+  }
+ ],
+ "runner_mapping": "sheet 'confirm_scenarios', row # = scenario number, question = turn2 (turn1 for S6), setup turn = turn1 (none for S6), must call 'any', must NOT call '' (the DB checks G5-G7 grade the writes), needs squad Y, core Y -> ids confirm_scenarios:1..6",
+ "runs_per_scenario": 2,
+ "sides": {
+  "new": "commit E2 on main (gating)",
+  "old": "3ef6e46 worktree wt_old_E2 (reference only)"
+ },
+ "clock": "frozen 2026-10-25T14:30:00Z; data context hash 6a9ec7ccb4b0 required on every answer; FPL_USER_ID=9001"
+}
