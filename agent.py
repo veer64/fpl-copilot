@@ -360,9 +360,10 @@ tools_schema = [
                         "official flag with its time; resolve_player's `status` is not FPL's flag) and the news second, "
                         "for context. Always pass "
                         "the player names in `players` when the question names players; pass the club in `clubs` when it "
-                        "names a club; when the person named is not a player (a manager, a coach) and the club is not "
-                        "stated, search with the query alone: never guess the club and never ask first, the search is "
-                        "the answer. Not for prediction, comparison, who-to-pick or transfer questions: those have their "
+                        "names a club. A question that names no player and no club (and is not about the user's own team, "
+                        "whose players go in `players`) is not searched: the tool returns no articles and an ask-which "
+                        "text, so ask the user which player, club or team they mean; never guess the club. "
+                        "Not for prediction, comparison, who-to-pick or transfer questions: those have their "
                         "own tools. Answer in the order the AVAILABILITY ANSWERS rules give. "
                         "Results carry an id (c<number>) to cite, "
                         "the source, the date and its basis, the age, whether the result is about a requested player, and "
@@ -635,9 +636,18 @@ def _exc_text(e):
 
 # A lookup so we can call the right Python function by name,
 # once Claude tells us which tool it wants
+VAGUE_ASK = "This question names no player or club. Ask the user which player, club or their own team they mean."
+
+
 def search_news(query, players=None, clubs=None):
-    """The agent-facing search (news_search.py): the server sets as_of = now; no other parameter is exposed."""
-    return _search_news(query, players or [], clubs or [])
+    """The agent-facing search (news_search.py): the server sets as_of = now; no other parameter is exposed.
+    V1 (user, 29 Oct 2026; Prompt G): a call with no player, no club and no own-team scope (the squad's players in
+    `players`) is NOT searched -- no articles, the ask-which text -- so a vague news question cannot be answered broadly."""
+    players, clubs = list(players or []), list(clubs or [])
+    if not players and not clubs:
+        return {"results": [], "no_news_for": [], "ambiguous_players": [], "ask": VAGUE_ASK, "scope": "none",
+                "note": "no search was run: the question names no player, no club and not the user's own team"}
+    return _search_news(query, players, clubs)
 
 
 def _citation_check(turn_id, text, returned_ids):

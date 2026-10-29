@@ -52,6 +52,14 @@ DEFAULT_WINDOW_DAYS = 7
 MAX_MOVERS = 25
 
 
+import datewords                                     # Prompt G (2026-10-29)
+
+
+def observed_words(x):
+    """'Sat 12 Sep 2026 10:00 UTC' for a snapshot stamp (the one formatter, datewords.when_words)."""
+    return datewords.when_words(x)
+
+
 def snapshot_time(path):
     m = STAMP.search(Path(path).name)
     if not m:
@@ -145,6 +153,7 @@ def movements(window_days=DEFAULT_WINDOW_DAYS, squad=None, directory=None, now=N
     observation = {
         "observed_from": t0.isoformat().replace("+00:00", "Z"),
         "observed_to": t1.isoformat().replace("+00:00", "Z"),
+        "observed_from_words": observed_words(t0), "observed_to_words": observed_words(t1),
         "window_days_requested": window_days,
         "window_hours_actual": round((t1 - t0).total_seconds() / 3600.0, 1),
         "snapshots_in_window": len(inside),

@@ -212,7 +212,8 @@ def fixture_status(kickoff, now):
 
 
 def kickoff_day(kickoff):
-    """'Sunday 11 Oct 2026, 15:30 UTC' for a kickoff ISO string (Part D G4: the agent called 2026-10-11 'Saturday')."""
+    """'Sun 11 Oct 2026 15:30 UTC' for a kickoff ISO string (Part D G4: the agent called 2026-10-11 'Saturday'; Prompt G,
+    2026-10-29: through the one formatter, datewords.when_words)."""
     if not kickoff:
         return None
     try:
@@ -220,7 +221,8 @@ def kickoff_day(kickoff):
         k = datetime.fromisoformat(str(kickoff).replace("Z", "+00:00"))
         if k.tzinfo is None:
             k = k.replace(tzinfo=timezone.utc)
-        return k.astimezone(timezone.utc).strftime("%A %d %b %Y, %H:%M UTC")
+        import datewords
+        return datewords.when_words(k)
     except ValueError:
         return None
 

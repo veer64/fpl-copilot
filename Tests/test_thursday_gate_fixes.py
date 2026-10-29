@@ -48,8 +48,8 @@ def test_f13_the_prompt_says_a_flag_applies_only_to_the_gameweek_it_names():
 
 
 def test_f13_latest_flag_words():
-    assert mt.latest_flag_words(75, NOW, 7) == "latest FPL flag (for GW7, as of 15 Oct 2026): chance of playing 75%"
-    assert mt.latest_flag_words(0, OLD, 6) == "latest FPL flag (for GW6, as of 29 Sep 2026): chance of playing 0%"
+    assert mt.latest_flag_words(75, NOW, 7) == "latest FPL flag (for GW7, as of Thu 15 Oct 2026): chance of playing 75%"
+    assert mt.latest_flag_words(0, OLD, 6) == "latest FPL flag (for GW6, as of Tue 29 Sep 2026): chance of playing 0%"
     assert mt.latest_flag_words(None, NOW, 7) is None
 
 
@@ -57,10 +57,10 @@ def test_f13_plan_rows_for_later_gameweeks_carry_the_latest_flag_label(monkeypat
     monkeypatch.setattr(mt, "_flags_for", lambda ids: _flag(7))
     out = mt._with_flags(_plan())
     now_row = out["this_deadline"]["transfers"][0]
-    assert now_row["chance_words_in"] == "chance of playing in GW7: 75%, FPL as of 15 Oct 2026"
-    assert out["this_deadline"]["xi"][0]["chance_words"] == "chance of playing in GW7: 75%, FPL as of 15 Oct 2026"
+    assert now_row["chance_words_in"] == "chance of playing in GW7: 75%, FPL as of Thu 15 Oct 2026"
+    assert out["this_deadline"]["xi"][0]["chance_words"] == "chance of playing in GW7: 75%, FPL as of Thu 15 Oct 2026"
     later = out["later_steps_indicative"][0]["transfers"][0]
-    assert later["chance_words_out"] == "latest FPL flag (for GW7, as of 15 Oct 2026): chance of playing 75%"
+    assert later["chance_words_out"] == "latest FPL flag (for GW7, as of Thu 15 Oct 2026): chance of playing 75%"
     assert later["status_word_out"].startswith("doubtful (latest FPL flag: for GW") and later["chance_out"] == 75   # the flag itself is kept; F21 (2026-10-22): the later row's word carries the flag's gameweek
 
 
@@ -68,15 +68,15 @@ def test_f13_a_flag_for_an_earlier_gameweek_is_the_latest_flag_on_every_plan_row
     monkeypatch.setattr(mt, "_flags_for", lambda ids: _flag(6, OLD, 0))
     out = mt._with_flags(_plan())
     assert out["this_deadline"]["transfers"][0]["chance_words_in"] == \
-        "latest FPL flag (for GW6, as of 29 Sep 2026): chance of playing 0%"
+        "latest FPL flag (for GW6, as of Tue 29 Sep 2026): chance of playing 0%"
     assert out["later_steps_indicative"][0]["transfers"][0]["chance_words_out"] == \
-        "latest FPL flag (for GW6, as of 29 Sep 2026): chance of playing 0%"
+        "latest FPL flag (for GW6, as of Tue 29 Sep 2026): chance of playing 0%"
 
 
 def test_f13_rows_with_no_gameweek_keep_the_flag_words(monkeypatch):
     monkeypatch.setattr(mt, "_flags_for", lambda ids: _flag(7))
     out = mt._with_flags({"players": [{"player_id": 532, "name": "Daniel Ballard"}]})
-    assert out["players"][0]["chance_words"] == "chance of playing in GW7: 75%, FPL as of 15 Oct 2026"
+    assert out["players"][0]["chance_words"] == "chance of playing in GW7: 75%, FPL as of Thu 15 Oct 2026"
 
 
 def _prediction_fakes(monkeypatch, lookup_row):

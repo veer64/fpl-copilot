@@ -48,6 +48,9 @@ TOOL_MODULES = ["model_tools.py", "squad_store.py", "fixtures_tool.py", "explain
 ALLOWED = (
     lambda s: s.startswith("model_tools."),                         # created_by provenance stamps
     lambda s: s in ("compare_runs", "set_my_squad", "search_news"),  # explain_with.tool, kind, purpose
+    lambda s: s.startswith("To change the squad, call set_my_squad with confirm=false"),  # Prompt G Part 3: the preview nudge, an
+                                                                    # instruction for the model's next CALL (the tool name is the point);
+                                                                    # a reply that echoes it still goes through replace_tool_names
     lambda s: s.startswith("tool surface: "),                       # health() reasons (diagnostics)
     lambda s: s.startswith("get_prediction only"),                  # health() covers line
     lambda s: s.lstrip().upper().startswith(("SELECT", "INSERT", "UPDATE", "WITH")),

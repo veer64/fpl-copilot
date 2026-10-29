@@ -139,3 +139,4 @@ item_id,source,url,headline,gold_relevant_original,gold_current_original,gold_re
 1665,club,https://www.chelseafc.com/en/news/article/gallery-chelsea-vs-tottenham-over-the-years,Gallery: Chelsea vs Tottenham over the years,n,n,n,n,n,n,n,,review_gw8,8,n,,n,
 1676,bbc,https://www.bbc.co.uk/sport/football/articles/cq78pv0073dlo?at_medium=RSS&at_campaign=rss,Carrick refuses to rule out dropping Fernandes in emotional address,y,y,y,y,y,y,n,"## Production kept, shadow dropped (2)",review_gw8,8,n,,n,
 1679,bbc,https://www.bbc.co.uk/sport/football/articles/cq2d6npjy9xlo?at_medium=RSS&at_campaign=rss,Palace manager Sage facing fight to keep his job,n,n,n,n,n,n,n,## Random sample of items both dropped (seed 20260926) (10),review_gw8,8,n,,n,
+1469,bbc,https://www.bbc.co.uk/sport/football/articles/cwy7l5e4376no?at_medium=RSS&at_campaign=rss,Feel-good Koumas story something for Liverpool to smile about,n,y,n,y,n,y,n,,review_gw8,8,n,,n,

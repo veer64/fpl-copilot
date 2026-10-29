@@ -1,0 +1,15 @@
+{
+ "version": "vague_questions_v1",
+ "written": "2026-10-29T15:40Z",
+ "purpose": "Prompt G Part 8 R3 (2026-10-29): the vague news set -- rag:29 from answer_questions_v1 plus 4 new vague phrasings. V1 (user, 29 Oct 2026): 'A news question naming no player, club or my team -> ask which; don't answer broadly.' Written and fingerprinted before any run.",
+ "frozen_now": "2026-10-23T20:00:00Z",
+ "check": "R3: the reply asks the user which player, club or their own team they mean (asks-which detector: a question mark plus 'which' / 'who' / 'what player' / 'which club' / 'your team' / 'your squad' / 'specific' / 'particular' / 'name'), cites no c<id> and lists no articles; 10/10 on the new side (5 questions x 2 runs)",
+ "questions": [
+  {"id": "vague:1", "from": "rag:29", "question": "any big injury news this week?"},
+  {"id": "vague:2", "question": "what's the latest team news?"},
+  {"id": "vague:3", "question": "anyone I should know about who's injured?"},
+  {"id": "vague:4", "question": "who's out for the weekend?"},
+  {"id": "vague:5", "question": "what did the manager say in his press conference?"}
+ ],
+ "runner_mapping": "sheet 'vague', # = 1..5, no setup turn, must call 'any', must NOT call '', needs squad N -> ids vague:1..5; 2 runs per side"
+}

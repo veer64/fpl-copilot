@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from config_roles import (CONFIGS, PRODUCTION_CONFIG, SHADOW_CONFIG, MAX_AVAILABILITY_AGE,
                           DEFAULT_USER_ID)
 import squad_store
+import datewords                                    # Prompt G (2026-10-29): the one formatter for every date a tool hands the model
 import squad_previews                                   # Prompt E (2026-10-27): the preview-ticket lock on squad writes
 import turn_context                                     # the agent loop's turn channel the lock reads (never the model's input)
 
@@ -208,6 +209,7 @@ KEY_MEANINGS = {
     "predictions_as_of_cutoff_gw": "the gameweek the predictions were built for; later gameweeks are as seen from there",
     "stale_by_gameweeks": "how many gameweeks old the predictions are for this gameweek",
     "frame_built_at": "when the predictions were built",
+    "frame_built": "when the predictions were built, with the weekday (frame_built_at is the same instant in ISO form)",
     "solve_seconds": "how long the squad build took, in seconds",
     "hold_solve_seconds": "how long the hold plan took, in seconds",
     "hold_re_solved": "whether the hold plan was computed separately",
@@ -418,14 +420,9 @@ FORCED_WARN_STATUSES = ("d", "i", "s")       # u / n stay refused by _check_lock
 
 
 def _as_of_words(as_of):
-    """'29 Sep 2026' from a datetime or an ISO string; None when unreadable."""
-    if as_of is None:
-        return None
-    try:
-        t = as_of if isinstance(as_of, datetime) else datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
-        return f"{t.day} {t:%b %Y}"
-    except (TypeError, ValueError):
-        return None
+    """'Tue 29 Sep 2026' from a datetime or an ISO string; None when unreadable (Prompt G, 2026-10-29: datewords.day_words,
+    the weekday computed from the instant, never typed)."""
+    return datewords.day_words(as_of)
 
 
 def _next_round_gw(as_of, deadlines=None):
@@ -995,6 +992,7 @@ def get_player_card(player_id: int):
     card["availability"] = {"status": card.get("status"), "status_word": STATUS_WORDS.get(card.get("status"), card.get("status")),
                             "chance_of_playing_next_round": card.get("chance"), "news": card.get("news"),
                             "as_of": str(card.get("updated_at")),
+                            "as_of_words": datewords.when_words(card.get("updated_at")),
                             "source": "FPL's availability flag (players_live, taken by the build at updated_at)"}
     # batch 3 F4: which gameweek the chance is for, and when FPL said it -- never a later gameweek's verdict
     gw_next = _next_round_gw(card.get("updated_at"))
@@ -1361,7 +1359,7 @@ def get_picks(gw: int = None, shadow: bool = False):
         rows = [{"player_id": r["player_id"], "name": r["name"], "position": r["position"],
                  "team": r.get("team"), "role": r["role"], "price": r["price"],
                  "e_points": r["e_points"]} for r in got["squad"]]
-        out = {k: got[k] for k in ("gw", "solve_seconds", "frame_built_at", "built", "note_gw_started")
+        out = {k: got[k] for k in ("gw", "solve_seconds", "frame_built_at", "frame_built", "built", "note_gw_started")
                if k in got}
         out.update({"config": PRODUCTION_CONFIG + " (production)",
                     "stored": False, "computed": True,
@@ -1535,7 +1533,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
     nd = _next_deadline()
     out = {
         "gw": target, "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
-        "frame_built_at": str(built), **_frame_built(cutoff),
+        **_frame_fields(cutoff, built),
         "run_id": run["run_id"] if run else None,
         "model_version": _version(run, PRODUCTION_CONFIG) if run else None,
         "squad_version_id": record["version_id"],
@@ -1546,6 +1544,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
         "predicted_xi_points": comparison["optimal_xi_points"],
         "missing_from_frame": missing,
         "recorded_roles": {"as_of_gw": record["gw"], "recorded_at": str(record["created_at"]),
+                           "recorded_at_words": datewords.when_words(record["created_at"]),
                            **_recorded_armband(doc["players"]), **comparison},
         "adopt_with": {"player_ids": sorted(elements),
                        "captain_id": next(r["player_id"] for r in xi if r["role"] == "CAPTAIN"),
@@ -1554,6 +1553,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
                        "gw": target, "confirm": False},
         "next_question": LINEUP_NEXT_QUESTION,
         "next_step": LINEUP_NEXT_STEP,
+        "to_change": squad_store.TO_CHANGE,                      # Prompt G Part 3: the preview-from-memory nudge
     }
     if missing:
         out["note_missing"] = (f"{len(missing)} owned player(s) have no row for GW{target} in the "
@@ -1562,7 +1562,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
     if xi_note:
         out["note"] = xi_note
     if target != cutoff:
-        out["note_stale"] = (f"the predictions were last built for GW{cutoff} (built {built:%Y-%m-%d %H:%M}Z); "
+        out["note_stale"] = (f"the predictions were last built for GW{cutoff} (built {datewords.when_words(built)}); "
                              f"GW{target}'s figures here are as the model saw them before GW{cutoff}, "
                              f"{target - cutoff} gameweek(s) stale. Fresh predictions land with the "
                              f"update 90 minutes before the GW{target} deadline"
@@ -1608,7 +1608,9 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
     rows = _q("""SELECT element, name, position, team, price_tenths, updated_at
                  FROM players_live WHERE element = ANY(%s)""", (involved,))
     live = {r["element"]: r for r in rows}
-    priced_from = f"players_live as of {max((r['updated_at'] for r in rows), default=None)}"
+    _pf = max((r['updated_at'] for r in rows), default=None)
+    priced_from_words = datewords.when_words(_pf)
+    priced_from = f"players_live as of {_pf}" + (f" ({priced_from_words})" if priced_from_words else "")
     import db_write
     turn = turn_context.current() or turn_context.adhoc()   # Prompt E: the loop's turn (or this direct call's own)
     extra = {"turn_id": turn["turn_id"], "turn_started_at": turn["started_at"].isoformat()}   # the write's turn, in the record
@@ -1681,6 +1683,7 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
     if ticket is not None:                                   # the preview's ticket and how to spend it (Prompt E)
         out["preview_ticket"] = ticket["id"]
         out["preview_expires_at"] = ticket["expires_at"].isoformat()
+        out["preview_expires_words"] = datewords.when_words(ticket["expires_at"])
         out["message"] = f"{out['message']} {squad_previews.ticket_sentence(ticket['id'])}"
     return out
 
@@ -1767,7 +1770,7 @@ def _stale_note(target, cutoff, built):
     if target == cutoff:
         return None
     nd = _next_deadline()
-    return (f"the predictions were last built for GW{cutoff} (built {built:%Y-%m-%d %H:%M}Z); GW{target}'s "
+    return (f"the predictions were last built for GW{cutoff} (built {datewords.when_words(built)}); GW{target}'s "
             f"figures here are as the model saw them before GW{cutoff}, {target - cutoff} gameweek(s) stale. "
             f"Fresh predictions land with the update 90 minutes before the GW{target} deadline"
             + (f" ({nd[1]})" if nd else ""))
@@ -1919,7 +1922,7 @@ def explain_prediction(player_id: int, gw: int = None, run_id: int = None):
         return err
     bd = explain.breakdown(row, step)
     out = {**bd, "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
-           "frame_built_at": str(built), **_frame_built(cutoff)}
+           **_frame_fields(cutoff, built)}
     out = _lead_with_availability(out, player_id, _availability_for([player_id]))
     note = _stale_note(target, cutoff, built)
     if note:
@@ -1981,7 +1984,7 @@ def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
     flags = _availability_for([player_id_a, player_id_b])
     out = {**explain.compare(a, b), "breakdown_a": a, "breakdown_b": b,
            "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": target - cutoff,
-           "frame_built_at": str(built), **_frame_built(cutoff)}
+           **_frame_fields(cutoff, built)}
     if not out["reconciles"]:
         out["finding"] = "at least one of the two rows does not reconcile -- see the breakdowns' `finding`; do not present the comparison as sound"
     meta = _player_meta([player_id_a, player_id_b])
@@ -2008,6 +2011,29 @@ def _frame_built(cutoff):
     m = _run_meta(run)
     return {"built": m["built"], "next_run_expected": m["next_run_expected"], "next_run_words": m["next_run_words"],
             "deadline_day_runs": m["deadline_day_runs"], "run_id": m["run_id"], "model_version": m["model_version"]}
+
+
+def _frame_fields(cutoff, built):
+    """frame_built_at (ISO, unchanged) + frame_built (the weekday form) + _frame_built's run fields; when no run record
+    matches the cutoff, `built` becomes the frame's own stamp in words instead of None (Prompt G, 2026-10-29: the
+    computed-squad outputs carried built: None + an ISO frame_built_at, and the agent typed weekdays from memory)."""
+    fb = _frame_built(cutoff)
+    words = datewords.when_words(built)
+    if fb.get("built") is None and words:
+        fb = {**fb, "built": f"predictions built {words} (from the predictions file on disk; no run record for GW{cutoff})"}
+    return {"frame_built_at": str(built), "frame_built": words, **fb}
+
+
+def _priced_from(live):
+    """'players_live as of <ISO> (<weekday words>)' for an {element: row} map (Prompt G)."""
+    pf = max((r["updated_at"] for r in live.values()), default=None)
+    words = datewords.when_words(pf)
+    return f"players_live as of {pf}" + (f" ({words})" if words else "")
+
+
+def _fetched_words(x):
+    """'Tue 27 Oct 2026 11:02 UTC' for an actuals fetched_at stamp (the one formatter)."""
+    return datewords.when_words(x)
 
 
 def _load_pool(gw=None):
@@ -2142,7 +2168,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     try:
         new_doc, change = squad_store.plan_change(
             record, req["player_ids"], req["captain_id"], req["vice_id"], req["bench_order_ids"],
-            current, live2, priced_from=f"players_live as of {max(r['updated_at'] for r in live2.values())}",
+            current, live2, priced_from=_priced_from(live2),
             created_by="model_tools.propose_transfers (dry run)", next_deadline_gw=current)
     except ValueError as e:
         return {"error": f"PROPOSAL NOT APPLICABLE -- a bug, not a suggestion: {e}", "bug": True,
@@ -2211,7 +2237,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
             _, hold_change = squad_store.plan_change(
                 record, hold_req["player_ids"], hold_req["captain_id"], hold_req["vice_id"],
                 hold_req["bench_order_ids"], current, live2,
-                priced_from=f"players_live as of {max(r['updated_at'] for r in live2.values())}",
+                priced_from=_priced_from(live2),
                 created_by="model_tools.propose_transfers (hold baseline, dry run)",
                 next_deadline_gw=current)
         except ValueError as e:
@@ -2357,7 +2383,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "proposal_id": proposal_id, "source": source,
         "wait_note": "two full plans are computed (the move plan and the hold baseline): typically twenty to sixty seconds, occasionally longer",
         "gw": current, "path": header["note"], "predictions_as_of_cutoff_gw": cutoff,
-        "stale_by_gameweeks": current - cutoff, "frame_built_at": str(built), **_frame_built(cutoff),
+        "stale_by_gameweeks": current - cutoff, **_frame_fields(cutoff, built),
         "run_id": header["run_id"], "model_version": (_version(run, PRODUCTION_CONFIG) if run else None),
         "squad_version_id": record["version_id"],
         "horizon": horizon, "effective_horizon": int(eff_h), "decay": float(DEFAULT_DECAY),
@@ -2550,7 +2576,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
     team = sim.solution_to_squad(pool, sol)
     out = {"gw": cutoff, "solve_seconds": round(time.time() - t0, 1),
            **({"note": note} if note else {}),
-           "frame_built_at": str(frame_mtime), **_frame_built(cutoff),
+           **_frame_fields(cutoff, frame_mtime),
            "constraints": {"locked": lock_player_ids or [], "banned": ban_player_ids or [],
                            "budget": budget or 100.0,
                            **({"start": start} if start else {})},
@@ -2967,6 +2993,7 @@ def get_actual_points(player_id: int, gw: int = None):
             w["predicted_minus_actual"] = (None if not p or p["e_points"] is None
                                            else round(p["e_points"] - w["total_points"], 2))
             w["provisional"], w["fetched_at"] = actuals_tool.provisional_for(prov, w["gw"])
+            w["fetched_at_words"] = _fetched_words(w["fetched_at"])
         return {**base, "gameweeks": weeks, "total_points": total,
                 "gameweeks_scored": [w["gw"] for w in weeks]}
 
@@ -2985,7 +3012,7 @@ def get_actual_points(player_id: int, gw: int = None):
            "scoring_events": ev["events"], "events_total": ev["events_total"], "unexplained_points": ev["unexplained_points"],
            "events_note": ("scoring_events lists only what scored, each with its points; the raw FPL stats beside it "
                            "(clean_sheets, goals_conceded, ...) are facts, not points -- " + ev["note"]),
-           "provisional": provisional, "fetched_at": fetched_at,
+           "provisional": provisional, "fetched_at": fetched_at, "fetched_at_words": _fetched_words(fetched_at),
            "predicted": pred,
            "predicted_minus_actual": (None if not pred or pred["e_points"] is None
                                       else round(pred["e_points"] - week["total_points"], 2))}
@@ -3112,14 +3139,14 @@ def get_my_points(gw: int = None, user_id: int = None):
                                       "cannot be scored; the record starts later"),
                     "error_kind": "no_squad_for_gw"}
         pr, fetched = actuals_tool.provisional_for(prov, x)
-        return {**base, **_plain_score_row(row), "provisional": pr, "fetched_at": fetched}
+        return {**base, **_plain_score_row(row), "provisional": pr, "fetched_at": fetched, "fetched_at_words": _fetched_words(fetched)}
 
     weeks, problems = [], {}
     for g in held:
         row, err = score_one(g)
         if row is not None:
             pr, fetched = actuals_tool.provisional_for(prov, g)
-            weeks.append({**_plain_score_row(row), "provisional": pr, "fetched_at": fetched})
+            weeks.append({**_plain_score_row(row), "provisional": pr, "fetched_at": fetched, "fetched_at_words": _fetched_words(fetched)})
         elif err:
             problems[g] = err
     if not weeks:
@@ -3662,7 +3689,7 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
     if not dated_by_cutoff_day.any():
         out = _run_meta(run)
         out.update({"season": None, "table": [], "n_matches_in_table": 0,
-                    "as_of": {"cutoff": stamp, "source": source, "rule": AS_OF_RULE,
+                    "as_of": {"cutoff": stamp, "cutoff_words": datewords.when_words(cutoff), "source": source, "rule": AS_OF_RULE,
                               "status": "before_first_match",
                               "archive_first_match": f"{archive_first:%Y-%m-%d}",
                               "statement": (f"as_of {stamp} is before the archive's first match "
@@ -3707,7 +3734,7 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
         statement = f"no result of {season} is in the archive yet; every club's row is null"
     elif cutoff.normalize() > latest_result + pd.Timedelta(days=1):
         status = "after_latest_result"
-        statement = (f"the archive's latest result is dated {latest_result:%Y-%m-%d} and the "
+        statement = (f"the archive's latest result is dated {latest_result:%Y-%m-%d} ({datewords.day_words(latest_result)}) and the "
                      f"as-of time is {stamp}; "
                      + (f"{n_missing} fixture(s) dated before the as-of day carry no result "
                         f"(results_missing_before_cutoff) -- the table is INCOMPLETE as of that "
@@ -3725,7 +3752,7 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
     out = _run_meta(run)
     out.update({
         "season": season,
-        "as_of": {"cutoff": stamp, "source": source, "rule": AS_OF_RULE, "status": status,
+        "as_of": {"cutoff": stamp, "cutoff_words": datewords.when_words(cutoff), "source": source, "rule": AS_OF_RULE, "status": status,
                   "statement": statement,
                   "archive_first_match": f"{archive_first:%Y-%m-%d}",
                   "season_first_fixture": f"{ms_s['date_parsed'].min():%Y-%m-%d}",
@@ -4138,7 +4165,7 @@ def _past_picks(gw, shadow=False):
                   "subs_made": [[int(o), int(i)] for o, i in res["subs_made"]],
                   "bench_points": int(res["bench_points"]),
                   "autosubs_applied": True, "hit": 0,
-                  "provisional": provisional, "fetched_at": fetched_at,
+                  "provisional": provisional, "fetched_at": fetched_at, "fetched_at_words": _fetched_words(fetched_at),
                   "meaning": ("points is what this fifteen would have scored as a team: the XI after "
                               "automatic substitutions, the captain doubled (the vice instead if the "
                               "captain did not play); bench points are reported but not scored")}
@@ -4380,7 +4407,7 @@ def get_wildcard_gap(user_id: int = None):
     out = {
         "gw": current, "horizon_gws": [r["gw"] for r in per_gw],
         "predictions_as_of_cutoff_gw": cutoff, "stale_by_gameweeks": current - cutoff,
-        "frame_built_at": str(built), **_frame_built(cutoff),
+        **_frame_fields(cutoff, built),
         "squad_version_id": record["version_id"],
         "wait_note": "one six-gameweek plan plus one line-up pick per gameweek: twenty to sixty seconds",
         "basis": ("both sides are the expected points of the best XI each gameweek (the XI plus the captain "

@@ -1023,10 +1023,12 @@ def _shadow(conn, prod_script, shadow_script, **kw):
 
 def test_shadow_config_pins():
     assert config_roles.SHADOW_JUDGE_MODEL == "claude-opus-5-5" and config_roles.SHADOW_JUDGE_PROMPT_VERSION == "reference_v1"
-    assert config_roles.SHADOW_JUDGE_ENABLED is True and config_roles.SHADOW_JUDGE_DAILY_CAP == 150
+    assert config_roles.SHADOW_JUDGE_ENABLED is False and config_roles.SHADOW_JUDGE_DAILY_CAP == 150   # Prompt G: STOP (V2)
 
 
-def test_shadow_judges_the_same_items_and_never_touches_news_to_embed(conn):
+def test_shadow_judges_the_same_items_and_never_touches_news_to_embed(conn, monkeypatch):
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_ENABLED", True)      # Prompt G: the shadow is OFF by V2; its machinery is tested switched on
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_SAMPLE_PCT", 100)   # and at a full sample (ids are DB serials; 20% would vary)
     _insert(conn, "fpl", "Palmer (CHE, MID)", "Knock")
     _insert(conn, "bbc", "New stadium roof", "The roof was repaired.")                                              # keyword NO
     _insert(conn, "club", "Alonso confirms team news", "Cole Palmer is a doubt with a knee injury.", club="Chelsea")   # production keeps
@@ -1046,7 +1048,9 @@ def test_shadow_judges_the_same_items_and_never_touches_news_to_embed(conn):
     assert out["production"]["llm_calls"] == 2 and out["shadow"]["llm_calls"] == 2
 
 
-def test_shadow_failure_leaves_production_standing(conn):
+def test_shadow_failure_leaves_production_standing(conn, monkeypatch):
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_ENABLED", True)      # Prompt G: the shadow is OFF by V2; its machinery is tested switched on
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_SAMPLE_PCT", 100)   # and at a full sample (ids are DB serials; 20% would vary)
     _insert(conn, "club", "Alonso confirms team news", "Cole Palmer is a doubt with a knee injury.", club="Chelsea")
     lines = []
     out, prod, shadow = _shadow(conn, [GOOD], [FakeStatusError(401, "API key is invalid.")], log=lines.append)
@@ -1067,7 +1071,9 @@ def _shadow_rows_today(conn, n):
     conn.commit()
 
 
-def test_shadow_daily_cap(conn):
+def test_shadow_daily_cap(conn, monkeypatch):
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_ENABLED", True)      # Prompt G: the shadow is OFF by V2; its machinery is tested switched on
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_SAMPLE_PCT", 100)   # and at a full sample (ids are DB serials; 20% would vary)
     _three_club_items(conn)
     _shadow_rows_today(conn, 148)
     lines = []
@@ -1199,3 +1205,54 @@ def test_append_gold_from_a_labelled_report(conn, tmp_path):
     b_row = [r for r in rows if r.startswith(f"{ids['B']},")][0]
     assert b_row.endswith(",good catch,review_gw6,6") and ",club," in b_row and ",y,y,y,y,n," in b_row
     assert ag.append_labels(conn, report, csv_path, gw=6)["added"] == [], "already-appended items are not duplicated"
+
+
+# ---------------------------------------------------------------- Prompt G Part 0 (2026-10-29): the shadow decision
+# V2 (user, 29 Oct 2026): "apply the pre-registered rule from Prompt F with #1469 labelled: STOP if P >= S, else keep on a
+# 20% sample." Measured S 7 / P 7 -> STOP: the shadow judge is OFF. The deterministic 20% sample sits beside it, inactive:
+# in_shadow_sample(news_item_id, pct) = int(sha256(str(id))[:8], 16) % 100 < pct. The daily cap is unchanged.
+def test_shadow_decision_off_and_the_sample_rule_pinned():
+    assert config_roles.SHADOW_JUDGE_ENABLED is False
+    assert config_roles.SHADOW_JUDGE_SAMPLE_PCT == 20 and config_roles.SHADOW_JUDGE_DAILY_CAP == 150
+    assert config_roles.SHADOW_JUDGE_MODEL == "claude-opus-5-5" and config_roles.SHADOW_JUDGE_PROMPT_VERSION == "reference_v1"
+
+
+def test_in_shadow_sample_is_deterministic_and_near_the_percentage():
+    import hashlib
+    for i in (1, 1469, 1835, 99999):
+        want = int(hashlib.sha256(str(i).encode()).hexdigest()[:8], 16) % 100 < 20
+        assert rv.in_shadow_sample(i, 20) is want and rv.in_shadow_sample(i, 20) is rv.in_shadow_sample(i, 20)
+        assert rv.in_shadow_sample(i, 100) is True and rv.in_shadow_sample(i, 0) is False
+    share = sum(rv.in_shadow_sample(i, 20) for i in range(1, 10001)) / 10000
+    assert 0.17 <= share <= 0.23, share
+
+
+def test_shadow_sample_selects_only_the_sampled_items_when_enabled(conn, monkeypatch):
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_ENABLED", True)
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_SAMPLE_PCT", 20)
+    for k in range(12):
+        _insert(conn, "club", f"Alonso team news {k}", f"Cole Palmer is a doubt with a knee injury ({k}).", club="Chelsea", guid=f"club:g{k}")
+    out, prod, shadow = _shadow(conn, [GOOD] * 12, [SHADOW_OK] * 12)
+    ids = out["production"]["llm_item_ids"]
+    sampled = [i for i in ids if rv.in_shadow_sample(i, 20)]
+    assert len(prod.calls) == 12 and len(shadow.calls) == len(sampled)
+    assert out["shadow"] is not None and out["shadow"]["llm_calls"] == len(sampled)
+    with conn.cursor() as cur:
+        cur.execute("SELECT news_item_id FROM news_relevance WHERE model = %s AND prompt_version = %s ORDER BY 1",
+                    (config_roles.SHADOW_JUDGE_MODEL, config_roles.SHADOW_JUDGE_PROMPT_VERSION))
+        assert [r[0] for r in cur.fetchall()] == sorted(sampled)
+
+
+def test_shadow_sample_100_judges_all_and_0_judges_none(conn, monkeypatch):
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_ENABLED", True)
+    for k in range(3):
+        _insert(conn, "club", f"Howe team news {k}", f"Cole Palmer is a doubt with a knee injury ({k}).", club="Chelsea", guid=f"club:h{k}")
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_SAMPLE_PCT", 100)
+    out, prod, shadow = _shadow(conn, [GOOD] * 3, [SHADOW_OK] * 3)
+    assert len(shadow.calls) == 3 and out["shadow"]["llm_calls"] == 3
+    for k in range(3):
+        _insert(conn, "club", f"Arteta team news {k}", f"Cole Palmer is a doubt with a knee injury ({k}).", club="Chelsea", guid=f"club:a{k}")
+    monkeypatch.setattr(config_roles, "SHADOW_JUDGE_SAMPLE_PCT", 0)
+    lines = []
+    out, prod, shadow = _shadow(conn, [GOOD] * 3, [SHADOW_OK] * 3, log=lines.append)
+    assert len(shadow.calls) == 0 and out["shadow"] is None and any("sample" in ln for ln in lines)

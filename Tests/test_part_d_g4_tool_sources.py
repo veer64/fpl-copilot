@@ -68,5 +68,5 @@ def test_fixtures_carry_a_status_against_the_clock_and_plain_score_meanings():
     assert "status" in out["meanings"] and "to come" in out["meanings"]["status"]
     out3 = ft.build(rows, cal, 20, team="Liverpool", horizon=2)                   # no clock: no status claimed
     assert "status" not in out3["fixtures"][0]["fixtures"][0]
-    assert fx6["kickoff_day"] == "Sunday 11 Oct 2026, 15:30 UTC"                      # the weekday comes from the tool
-    assert ft.kickoff_day("2026-10-17T14:00:00Z") == "Saturday 17 Oct 2026, 14:00 UTC" and ft.kickoff_day(None) is None
+    assert fx6["kickoff_day"] == "Sun 11 Oct 2026 15:30 UTC"                      # the weekday comes from the tool
+    assert ft.kickoff_day("2026-10-17T14:00:00Z") == "Sat 17 Oct 2026 14:00 UTC" and ft.kickoff_day(None) is None

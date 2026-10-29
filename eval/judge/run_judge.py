@@ -120,7 +120,7 @@ REQUIRED_SENTENCES = [
     ("model_tools.py", "FPL allows at most {cap} {words[pos]}; you asked to force {n}"),
     ("model_tools.py", "FPL allows at most {MAX_PER_CLUB} players from one club; you asked to force {int(n)} from {club}"),
     ("model_tools.py", "no legal squad fits {shown}: the cheapest legal squad{forced} costs £{cost:.1f}m"),
-    ("model_tools.py", "the predictions were last built for GW{cutoff} (built {built:%Y-%m-%d %H:%M}Z); GW{target}'s "),
+    ("model_tools.py", "the predictions were last built for GW{cutoff} (built {datewords.when_words(built)}); GW{target}'s "),   # Prompt G: the weekday form
     ("model_tools.py", "Fresh predictions land with the update 90 minutes before the GW{target} deadline"),
     ("eval/dispatch_policy.py", "knows results through GW{k.get('history_through_gw')} "),
     ("eval/dispatch_policy.py", "next update once "),

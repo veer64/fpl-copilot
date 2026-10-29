@@ -805,6 +805,19 @@ def shadow_calls_today(conn, model, prompt_version):
 _CONTEXT_KW = ("bootstrap", "snapshots", "events", "matches", "sleep")
 
 
+def in_shadow_sample(news_item_id, pct):
+    """Deterministic membership of the shadow sample (Prompt G, 2026-10-29): the first 8 hex digits of
+    sha256(str(news_item_id)) read as an integer, modulo 100, below `pct`. 100 = always, 0 = never; stable per item
+    across runs and machines, so a sampled item stays sampled when the run is replayed."""
+    import hashlib
+    pct = int(pct)
+    if pct >= 100:
+        return True
+    if pct <= 0:
+        return False
+    return int(hashlib.sha256(str(news_item_id).encode()).hexdigest()[:8], 16) % 100 < pct
+
+
 def run_with_shadow(conn, limit=None, *, client=None, shadow_client=None, log=print, **kw):
     """Production run_relevance, then the shadow judge over the same LLM items (config SHADOW_JUDGE_*).
     Returns {"production": summary, "shadow": summary | None}. The shadow never raises: a failure is
@@ -820,10 +833,17 @@ def run_with_shadow(conn, limit=None, *, client=None, shadow_client=None, log=pr
             log(f"shadow: daily cap reached ({used} of {cap} requests today), no shadow calls; production verdicts stand")
             return out
         ctx = {k: v for k, v in kw.items() if k in _CONTEXT_KW}
-        out["shadow"] = run_relevance(conn, ids=prod["llm_item_ids"], model=model, prompt_version=pv, client=shadow_client,
+        pct = getattr(config_roles, "SHADOW_JUDGE_SAMPLE_PCT", 100)
+        ids = [i for i in prod["llm_item_ids"] if in_shadow_sample(i, pct)]
+        if not ids:
+            log(f"shadow: sample {pct}% selected 0 of {len(prod['llm_item_ids'])} production items; no shadow calls")
+            return out
+        out["shadow"] = run_relevance(conn, ids=ids, model=model, prompt_version=pv, client=shadow_client,
                                       max_calls=cap - used, log=log, **ctx)
         sh = out["shadow"]
-        log(f"shadow: {pv} / {model}: judged {sh['llm_ok']} of {len(prod['llm_item_ids'])} production items, refused {sh['refused_replies']}, "
+        log(f"shadow: {pv} / {model}: judged {sh['llm_ok']} of {len(ids)} production items"
+            + (f" (sample {pct}% of {len(prod['llm_item_ids'])})" if len(ids) != len(prod["llm_item_ids"]) else "")
+            + f", refused {sh['refused_replies']}, "
             f"failed {sh['llm_failed'] - sh['refused_replies']}, capped {sh['capped']} (daily {used + sh['llm_calls']} of {cap})")
     except Exception as e:                            # noqa: BLE001 -- the shadow must never take production down
         conn.rollback()

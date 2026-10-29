@@ -280,6 +280,9 @@ def _candidates(conn, as_of, qvec, terms):
 
 # ---- the tool --------------------------------------------------------------------------------------------
 
+import datewords                                     # Prompt G (2026-10-29): the weekday beside the ISO date the Sources line reads
+
+
 def _result(row, as_of, about):
     when, basis = date_basis(row)
     when = _utc(when)
@@ -287,7 +290,8 @@ def _result(row, as_of, about):
     if row["source"] == "fpl" and not players:
         players = [str(row.get("headline") or "").split(" (")[0]]
     return {"id": f"c{row['id']}", "source": source_label(row["source"], row.get("club")), "headline": row.get("headline") or "",
-            "url": row.get("url"), "date": when.strftime("%Y-%m-%d"), "date_basis": basis, "age": human_age(as_of - when),
+            "url": row.get("url"), "date": when.strftime("%Y-%m-%d"), "date_words": datewords.day_words(when), "date_basis": basis,
+            "age": human_age(as_of - when),
             "about_requested_player": bool(about), "players": players, "text": row["chunk_text"]}
 
 

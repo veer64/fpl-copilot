@@ -5,7 +5,7 @@
       ban him instead"), the two build descriptions and prompt line 7 name the ONLY refusal (FPL status u / n,
       `available: false`); u / n stay refused by the lock check.
   F21 every player card names the gameweek of its availability line inside flag_dates, the sentence the agent copies
-      ("No FPL flag for GW7, last checked 17 Oct 2026" / "FPL flag set 27 Sep 2026 (for GW7), last checked ...");
+      ("No FPL flag for GW7, last checked Sat 17 Oct 2026" / "FPL flag set Sun 27 Sep 2026 (for GW7), last checked ...");
       a later-gameweek plan row's status word carries the flag's gameweek ("doubtful (latest FPL flag: for GW7, ...)").
   F22 get_prediction_history leads with the LATEST move (the newest two builds) and points compare_runs at it; the
       all-time biggest move stays, second (the 19 Oct smoke compared runs 37 -> 38 because biggest_move named them).
@@ -29,12 +29,12 @@ AS_OF = "2026-10-17 09:51:19.918536+00:00"
 
 # ================================================================ F21: the gameweek inside flag_dates
 def test_f21_flag_dates_words_carry_the_gameweek_of_the_flag():
-    assert mt.flag_dates_words("2026-09-27T10:00:00Z", AS_OF, True, gw=7) == "FPL flag set 27 Sep 2026 (for GW7), last checked 17 Oct 2026"
-    assert mt.flag_dates_words(None, AS_OF, True, gw=7) == "FPL flag (for GW7), last checked 17 Oct 2026"
-    assert mt.flag_dates_words("2026-09-13T17:00:09Z", AS_OF, False, gw=7) == "No FPL flag for GW7, last checked 17 Oct 2026"
+    assert mt.flag_dates_words("2026-09-27T10:00:00Z", AS_OF, True, gw=7) == "FPL flag set Sun 27 Sep 2026 (for GW7), last checked Sat 17 Oct 2026"
+    assert mt.flag_dates_words(None, AS_OF, True, gw=7) == "FPL flag (for GW7), last checked Sat 17 Oct 2026"
+    assert mt.flag_dates_words("2026-09-13T17:00:09Z", AS_OF, False, gw=7) == "No FPL flag for GW7, last checked Sat 17 Oct 2026"
     # without a gameweek the F18 words are unchanged
-    assert mt.flag_dates_words("2026-10-10T13:30:08Z", AS_OF, True) == "FPL flag set 10 Oct 2026, last checked 17 Oct 2026"
-    assert mt.flag_dates_words("2026-09-13T17:00:09Z", AS_OF, False) == "last checked 17 Oct 2026"
+    assert mt.flag_dates_words("2026-10-10T13:30:08Z", AS_OF, True) == "FPL flag set Sat 10 Oct 2026, last checked Sat 17 Oct 2026"
+    assert mt.flag_dates_words("2026-09-13T17:00:09Z", AS_OF, False) == "last checked Sat 17 Oct 2026"
 
 
 def test_f21_the_card_names_the_gameweek_in_flag_dates_fit_or_flagged():
@@ -131,14 +131,14 @@ def test_f20_u_and_n_stay_refused_by_the_lock_check():
 def test_f21_a_later_gameweek_row_carries_the_flags_gameweek_in_its_status_word(monkeypatch):
     monkeypatch.setattr(mt, "_flags_for", lambda ids: {367: {"name": "Cody Gakpo", "status": "d", "status_word": "doubtful", "chance": 25,
                                                              "news": "Thigh injury", "as_of": "2026-10-17 09:51:19+00:00", "gw": 7,
-                                                             "chance_words": "chance of playing in GW7: 25%, FPL as of 17 Oct 2026"}})
+                                                             "chance_words": "chance of playing in GW7: 25%, FPL as of Sat 17 Oct 2026"}})
     out = {"gw": 7, "this_deadline": {"transfers": [{"out": "Cody Gakpo", "out_id": 367, "in": "X", "in_id": 1}]},
            "later_steps_indicative": [{"gw": 11, "transfers": [{"out": "Cody Gakpo", "out_id": 367, "in": "Sávio", "in_id": 403}]}]}
     out = mt._with_flags(out)
     now_row = out["this_deadline"]["transfers"][0]
     later_row = out["later_steps_indicative"][0]["transfers"][0]
     assert now_row["status_word_out"] == "doubtful" and now_row["chance_words_out"].startswith("chance of playing in GW7")
-    assert later_row["status_word_out"] == "doubtful (latest FPL flag: for GW7, as of 17 Oct 2026)"
+    assert later_row["status_word_out"] == "doubtful (latest FPL flag: for GW7, as of Sat 17 Oct 2026)"
     assert later_row["chance_words_out"].startswith("latest FPL flag (for GW7")
 
 

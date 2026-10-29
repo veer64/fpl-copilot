@@ -140,7 +140,11 @@ MODEL_PRICES_USD_PER_MTOK = {"claude-haiku-4-5-20251001": (1.0, 5.0), "claude-so
 # production on GW6-9 data the prompt was not tuned on (eval/relevance_report.py, weekly, by hand).
 # A shadow failure of any kind is logged and production stands. At most SHADOW_JUDGE_DAILY_CAP shadow
 # requests per UTC day (Opus refuses ~18% of items outright; the report lists them).
-SHADOW_JUDGE_ENABLED = True
+SHADOW_JUDGE_ENABLED = False      # Prompt G (2026-10-29), user decision V2 on Prompt F's rule with #1469 labelled: S 7 / P 7 -> STOP
+# SHADOW_JUDGE_SAMPLE_PCT -- when the shadow is enabled, only items whose in_shadow_sample(news_item_id, pct) is true are
+# judged (relevance.py: int(sha256(str(id))[:8], 16) % 100 < pct, deterministic per item). 100 = every item; the rule of
+# record for a KEEP-SAMPLE verdict is 20. Inactive while SHADOW_JUDGE_ENABLED is False; the daily cap is unchanged.
+SHADOW_JUDGE_SAMPLE_PCT = 20
 SHADOW_JUDGE_MODEL = "claude-opus-5-5"
 SHADOW_JUDGE_PROMPT_VERSION = "reference_v1"
 SHADOW_JUDGE_DAILY_CAP = 150

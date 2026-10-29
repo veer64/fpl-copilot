@@ -107,6 +107,10 @@ from scoring import HIT_COST  # noqa: E402  -- FPL's real charge per paid transf
 from squad_state import MAX_FREE_TRANSFERS, SquadState, money  # noqa: E402
 
 SCHEMA_VERSION = 1
+import datewords                                     # Prompt G (2026-10-29): weekday words beside every stamp the model reads
+# TO_CHANGE -- the preview-from-memory nudge (Prompt G Part 3): the line get_my_squad and get_my_xi carry so the agent
+# calls the real preview instead of composing one from the squad read (E2 saw 3 of 24 scenario turns do that).
+TO_CHANGE = "To change the squad, call set_my_squad with confirm=false; only its preview can be confirmed."
 ROLES = ("CAPTAIN", "VICE", "start", "bench")
 BENCH_SIZE = SQUAD_SIZE - XI_SIZE
 PLAYER_COLS = ["element", "name", "position", "team", "purchase_price", "role", "bench_order"]
@@ -503,19 +507,19 @@ def roles_status(record, latest_run):
 
     latest_run: {run_id, gw, finished_at} of the latest SUCCESS run, or None."""
     out = {"as_of_gw": record["gw"], "recorded_at": str(record["created_at"]),
-           "meaning": ROLES_MEANING}
+           "recorded_at_words": datewords.when_words(record["created_at"]), "meaning": ROLES_MEANING}
     if not latest_run:
         out["status"] = "UNKNOWN"
         out["warning"] = "no successful model run to compare these roles against"
         return out
     out["latest_run"] = {"run_id": latest_run["run_id"], "gw": latest_run["gw"],
-                         "built_at": str(latest_run["finished_at"])}
+                         "built_at": str(latest_run["finished_at"]), "built_at_words": datewords.when_words(latest_run["finished_at"])}
     if latest_run["gw"] > record["gw"] or _dt(latest_run["finished_at"]) > _dt(record["created_at"]):
         out["status"] = "STALE"
         out["warning"] = (
-            f"these roles were recorded at {record['created_at']} for GW{record['gw']}; "
+            f"these roles were recorded at {record['created_at']} ({datewords.when_words(record['created_at'])}) for GW{record['gw']}; "
             f"the model build for GW{latest_run['gw']} was made at "
-            f"{latest_run['finished_at']}, AFTER that. They are a record of what was set, "
+            f"{latest_run['finished_at']} ({datewords.when_words(latest_run['finished_at'])}), AFTER that. They are a record of what was set, "
             f"not a recommendation for GW{latest_run['gw']} -- the line-up pick gives that.")
     else:
         out["status"] = "current"
@@ -588,7 +592,9 @@ def summary(record, prices, latest_run=None, current_gw=None, current_gw_error=N
     return {
         "version_id": record["version_id"], "user_id": record["user_id"],
         "season": record["season"], "gw": record["gw"],
-        "created_at": str(record["created_at"]), "supersedes": record["supersedes"],
+        "created_at": str(record["created_at"]), "created_at_words": datewords.when_words(record["created_at"]),
+        "supersedes": record["supersedes"],
+        "to_change": TO_CHANGE,
         "note": record["note"],
         "hypothetical": bool((doc.get("provenance") or {}).get("hypothetical", False)),
         "roles": roles_status(record, latest_run),

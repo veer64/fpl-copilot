@@ -229,3 +229,10 @@ def test_movers_still_answer_when_there_is_no_squad(monkeypatch, snaps):
     out = mt.get_price_movements()
     assert out["squad_was"] is None
     assert "my_squad_unavailable" in out
+
+
+def test_the_observation_window_carries_weekday_words_beside_the_iso_stamps(snaps):
+    o = pt.movements(window_days=7, directory=snaps, now=T1)["observation"]
+    assert o["observed_from"].startswith("2026-09-12") and o["observed_to"].endswith("Z")
+    assert o["observed_from_words"] == pt.observed_words(o["observed_from"]) and o["observed_from_words"].startswith("Sat 12 Sep 2026")
+    assert o["observed_to_words"] == pt.observed_words(o["observed_to"])

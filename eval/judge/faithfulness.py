@@ -136,3 +136,9 @@ def judge_rows(rows, chunks, model, budget, client=None, conn=None):
             continue
         out.append({**base, **judge_row(r.get("sentence") or "", chunk, model, budget, client=client, conn=conn, streak=streak)})
     return out
+
+
+# ---- rubric v2 (Prompt G Part 4, 2026-10-29): the clause the citation is attached to, against EVERY chunk it cites; the
+# sheet splitter that keeps a bare citation line with its sentence. v1 above is unchanged (its tests pin it).
+from judge.faithfulness_v2 import (INSTRUCTION_V2, PROMPT_VERSION_V2, build_prompt_v2, citation_rows, claims_text,  # noqa: E402,F401
+                                   clauses, judge_row_v2, judge_rows_v2)

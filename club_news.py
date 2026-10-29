@@ -287,6 +287,28 @@ def credit_guard(conn, planned, now, limit=None):
     return used
 
 
+def tavily_stats(conn, now):
+    """Per-day and per-call Tavily statistics for `now`'s month (Prompt G Part 6, 2026-10-29). Endpoint 'opening_balance'
+    (the ledger row carrying the dashboard's reading: 81 of the 21 Oct "97 credits", Prompt F) is EXCLUDED from by_day and
+    calls and reported on its own; month_total_credits is month_credits() unchanged, the number the credit guard uses."""
+    start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, called_at, endpoint, club, query, n_results, credits, http_status FROM tavily_calls "
+                    "WHERE called_at >= %s AND endpoint <> 'opening_balance' ORDER BY called_at, id", (start,))
+        calls = [{"id": r[0], "called_at": r[1].isoformat(), "endpoint": r[2], "club": r[3], "query": r[4], "n_results": r[5],
+                  "credits": int(r[6]), "http_status": r[7]} for r in cur.fetchall()]
+        cur.execute("SELECT COALESCE(SUM(credits), 0) FROM tavily_calls WHERE called_at >= %s AND endpoint = 'opening_balance'", (start,))
+        opening = int(cur.fetchone()[0])
+    by_day = {}
+    for c in calls:
+        d = by_day.setdefault(c["called_at"][:10], {"day": c["called_at"][:10], "calls": 0, "credits": 0})
+        d["calls"] += 1
+        d["credits"] += c["credits"]
+    return {"month": f"{now:%Y-%m}", "month_total_credits": month_credits(conn, now), "opening_balance_credits": opening,
+            "calls_credits": sum(c["credits"] for c in calls), "n_calls": len(calls),
+            "by_day": [by_day[k] for k in sorted(by_day)], "calls": calls}
+
+
 def existing_guids(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT guid FROM news_items WHERE source = 'club'")

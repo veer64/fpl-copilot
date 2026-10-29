@@ -370,3 +370,22 @@ def test_run_sends_the_fixed_dates_on_the_windows_first_day_and_the_old_ones_aft
     _run(conn, tv2, http2, tmp_path / "raw2")                            # NOW = 17 Sep 15:07Z, day 3: unchanged dates
     assert len(tv2.requests) == len(CLUBS)
     assert all(r["start_date"] == "2026-09-15" and r["end_date"] == "2026-09-17" for r in tv2.requests), tv2.requests
+
+
+# ---------------------------------------------------------------- Prompt G Part 6 (2026-10-29): Tavily statistics
+# The 21 Oct "97 credits in 11 calls" was 81 credits of the ledger's opening_balance row counted as a call on that day
+# (Prompt F). Per-day / per-call statistics exclude endpoint 'opening_balance'; the month total (the credit guard's
+# month_credits) keeps it.
+def test_tavily_stats_exclude_the_opening_balance_from_per_day_and_per_call_but_not_the_month_total(conn):
+    from datetime import datetime, timezone
+    cn.record_call(conn, "opening_balance", None, "Tavily dashboard: 81 credits used", None, 81, called_at=datetime(2026, 10, 21, 0, 0, tzinfo=timezone.utc))
+    cn.record_call(conn, "search", "Arsenal", "Arsenal team news injury update", 10, 2, called_at=datetime(2026, 10, 21, 15, 7, 2, tzinfo=timezone.utc), http_status=200)
+    cn.record_call(conn, "extract", None, None, 13, 3, called_at=datetime(2026, 10, 21, 15, 7, 2, tzinfo=timezone.utc), http_status=200)
+    cn.record_call(conn, "search", "Spurs", "Spurs team news injury update", 1, 1, called_at=datetime(2026, 10, 28, 15, 7, 2, tzinfo=timezone.utc), http_status=200)
+    now = datetime(2026, 10, 29, 13, 40, tzinfo=timezone.utc)
+    s = cn.tavily_stats(conn, now)
+    assert s["month_total_credits"] == 87 and cn.month_credits(conn, now) == 87
+    assert s["opening_balance_credits"] == 81
+    assert s["by_day"] == [{"day": "2026-10-21", "calls": 2, "credits": 5}, {"day": "2026-10-28", "calls": 1, "credits": 1}]
+    assert [c["endpoint"] for c in s["calls"]] == ["search", "extract", "search"] and all(c["endpoint"] != "opening_balance" for c in s["calls"])
+    assert s["calls_credits"] == 6 and s["n_calls"] == 3

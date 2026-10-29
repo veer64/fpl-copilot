@@ -39,9 +39,9 @@ def _desc(name):
 
 # ---- F18 ------------------------------------------------------------------------------------------------
 def test_f18_flag_dates_words_say_both_dates_in_plain_words():
-    assert mt.flag_dates_words("2026-10-10T13:30:08.699019Z", AS_OF, True) == "FPL flag set 10 Oct 2026, last checked 15 Oct 2026"
-    assert mt.flag_dates_words(None, AS_OF, True) == "last checked 15 Oct 2026"               # set date unknown
-    assert mt.flag_dates_words("2026-09-13T17:00:09Z", AS_OF, False) == "last checked 15 Oct 2026"   # no flag up
+    assert mt.flag_dates_words("2026-10-10T13:30:08.699019Z", AS_OF, True) == "FPL flag set Sat 10 Oct 2026, last checked Thu 15 Oct 2026"
+    assert mt.flag_dates_words(None, AS_OF, True) == "last checked Thu 15 Oct 2026"               # set date unknown
+    assert mt.flag_dates_words("2026-09-13T17:00:09Z", AS_OF, False) == "last checked Thu 15 Oct 2026"   # no flag up
 
 
 def _card(monkeypatch, row, snapshot_news):
@@ -61,21 +61,21 @@ def _james():
 def test_f18_the_card_shows_when_fpl_set_the_flag_and_when_it_was_last_checked(monkeypatch):
     card = _card(monkeypatch, _james(), {142: (JAMES_NEWS, "2026-10-10T13:30:08.699019Z")})
     # fix batch #4 F21 (2026-10-22): the flag's gameweek now sits inside this sentence, the one the agent copies
-    assert card["flag_dates"] == "FPL flag set 10 Oct 2026 (for GW7), last checked 15 Oct 2026"
+    assert card["flag_dates"] == "FPL flag set Sat 10 Oct 2026 (for GW7), last checked Thu 15 Oct 2026"
     assert card["availability"]["flag_dates"] == card["flag_dates"]
-    assert card["chance_words"] == "chance of playing in GW7: 75%, FPL as of 15 Oct 2026"     # the chance line keeps its gameweek
+    assert card["chance_words"] == "chance of playing in GW7: 75%, FPL as of Thu 15 Oct 2026"     # the chance line keeps its gameweek
 
 
 def test_f18_a_set_date_for_different_news_is_not_used(monkeypatch):
     card = _card(monkeypatch, _james(), {142: ("Knock - 50% chance of playing", "2026-10-12T09:00:00Z")})
-    assert card["flag_dates"] == "FPL flag (for GW7), last checked 15 Oct 2026"          # F21: the gameweek, no set date
+    assert card["flag_dates"] == "FPL flag (for GW7), last checked Thu 15 Oct 2026"          # F21: the gameweek, no set date
 
 
 def test_f18_a_player_without_a_flag_is_only_last_checked(monkeypatch):
     row = {"element": 398, "name": "Phil Foden", "position": "MID", "team": "Man City", "price_tenths": 68,
            "status": "a", "chance": 100, "news": None, "updated_at": AS_OF}
     card = _card(monkeypatch, row, {398: ("", "2026-09-13T17:00:09.433455Z")})
-    assert card["flag_dates"] == "No FPL flag for GW7, last checked 15 Oct 2026"           # F21: a fit player names the gameweek too
+    assert card["flag_dates"] == "No FPL flag for GW7, last checked Thu 15 Oct 2026"           # F21: a fit player names the gameweek too
 
 
 # ---- F19 ------------------------------------------------------------------------------------------------
@@ -85,7 +85,7 @@ def test_f19_player_status_gives_every_player_a_status_word_and_a_labelled_chanc
     monkeypatch.setattr(mt, "_q", lambda sql, params=None: rows)
     monkeypatch.setattr(mt, "_gw_deadline_times", lambda: DEADLINES)
     st = mt._player_status([142, 411])
-    assert st[142] == {"status_word": "doubtful", "chance": 75, "chance_words": "chance of playing in GW7: 75%, FPL as of 15 Oct 2026"}
+    assert st[142] == {"status_word": "doubtful", "chance": 75, "chance_words": "chance of playing in GW7: 75%, FPL as of Thu 15 Oct 2026"}
     assert st[411] == {"status_word": "available", "chance": None}
 
 
@@ -109,7 +109,7 @@ def test_f19_compare_players_carries_each_players_status(monkeypatch):
     monkeypatch.setattr(mt, "_q", fake_q)
     c = mt.compare_players(411, 379)
     assert c["a"]["status_word"] == "available" and "chance_words" not in c["a"]
-    assert c["b"]["status_word"] == "injured" and c["b"]["chance_words"] == "chance of playing in GW7: 0%, FPL as of 15 Oct 2026"
+    assert c["b"]["status_word"] == "injured" and c["b"]["chance_words"] == "chance of playing in GW7: 0%, FPL as of Thu 15 Oct 2026"
 
 
 def test_f19_compare_predictions_carries_each_players_status_on_the_real_frame():

@@ -397,7 +397,7 @@ def test_output_shape_golden_and_search_log_row(conn):
     out = search(conn, "Is Saka fit?", players=["Saka"])
     assert out == {
         "as_of": "2026-09-18T17:30:00Z", "search_mode": "hybrid", "no_news_for": [], "ambiguous_players": {},
-        "results": [{"id": f"c{cid}", "source": "FPL official", "headline": "Saka (ARS, MID)", "url": None, "date": "2026-09-17", "date_basis": "FPL",
+        "results": [{"id": f"c{cid}", "source": "FPL official", "headline": "Saka (ARS, MID)", "url": None, "date": "2026-09-17", "date_words": "Thu 17 Sep 2026", "date_basis": "FPL",
                      "age": "1 day ago", "about_requested_player": True, "players": ["Saka"],
                      "text": "[FPL official | 2026-09-17 11:00Z] Saka (ARS, MID)\nStatus: doubtful. 75% chance of playing. Knock - 75% chance of playing"}]}
     with conn.cursor() as cur:

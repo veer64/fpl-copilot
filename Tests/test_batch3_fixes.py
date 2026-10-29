@@ -51,8 +51,8 @@ def fake_live(monkeypatch):
 
 # ------------------------------------------------------------------ F4: the chance names its gameweek and date
 def test_chance_words_name_the_gameweek_and_the_date():
-    assert mt.chance_words(75, TAKEN, 6) == "chance of playing in GW6: 75%, FPL as of 29 Sep 2026"
-    assert mt.chance_words(0, "2026-10-13T18:32:17+00:00", 7) == "chance of playing in GW7: 0%, FPL as of 13 Oct 2026"
+    assert mt.chance_words(75, TAKEN, 6) == "chance of playing in GW6: 75%, FPL as of Tue 29 Sep 2026"
+    assert mt.chance_words(0, "2026-10-13T18:32:17+00:00", 7) == "chance of playing in GW7: 0%, FPL as of Tue 13 Oct 2026"
     assert mt.chance_words(None, TAKEN, 6) is None
 
 
@@ -70,7 +70,7 @@ def test_the_player_card_says_which_gameweek_its_chance_is_for(fake_live, monkey
     card = mt.get_player_card(398)
     av = card["availability"]
     assert av["chance_gameweek"] == 6
-    assert av["chance_words"] == "chance of playing in GW6: 0%, FPL as of 29 Sep 2026"
+    assert av["chance_words"] == "chance of playing in GW6: 0%, FPL as of Tue 29 Sep 2026"
     assert card["chance_words"] == av["chance_words"]
 
 
@@ -87,7 +87,7 @@ def test_flagged_rows_carry_status_word_and_chance_and_fit_players_are_untouched
     mt._with_flags(out)
     isak, saka = out["squad"]
     assert isak["status_word"] == "doubtful" and isak["chance"] == 75
-    assert isak["chance_words"] == "chance of playing in GW6: 75%, FPL as of 29 Sep 2026"
+    assert isak["chance_words"] == "chance of playing in GW6: 75%, FPL as of Tue 29 Sep 2026"
     assert saka == {"player_id": 12, "name": "Bukayo Saka"}
     t = out["this_deadline"]["transfers"][0]
     assert t["status_word_in"] == "doubtful" and t["chance_in"] == 75 and "status_word_out" not in t
@@ -104,7 +104,7 @@ def test_the_forced_warning_names_player_status_chance_news_date_and_the_build(f
     flags = mt._flags_for([379, 398, 55, 12])
     w = mt.forced_availability_warning([379], flags)
     assert w.startswith("Alexander Isak is in because you forced him in, but FPL lists him as doubtful")
-    for part in ("chance of playing in GW6: 75%", "FPL as of 29 Sep 2026", "Thigh injury", "The squad is built around him as you asked."):
+    for part in ("chance of playing in GW6: 75%", "FPL as of Tue 29 Sep 2026", "Thigh injury", "The squad is built around him as you asked."):
         assert part in w, part
     assert "suspended" in mt.forced_availability_warning([398], flags)
     assert mt.forced_availability_warning([12], flags) is None                # fit: no warning
