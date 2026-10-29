@@ -205,3 +205,49 @@ def test_get_my_squad_carries_the_nudge(monkeypatch):
     assert "error" not in out, out
     assert out["to_change"] == NUDGE and squad_store.TO_CHANGE == NUDGE
     assert "to_change" not in mt.LINEUP_NEXT_STEP                      # no description or prompt change: the line is data
+
+
+# ---------------------------------------------------------------- Part 2, attempt 2: the broad-scope rule
+# Gate attempt 1 (29 Oct 2026, 22:05Z): the agent never made an unscoped call -- it passed ALL 20 clubs, nine well-known
+# players, or the user's 15 names, and answered the vague question broadly. V1 at the tool therefore also covers a BROAD
+# scope the question did not name: more than 3 clubs or more than 4 players, none of them named in the query, and no
+# own-team wording in the query -> the ask text. A named question (any passed name's token in the query), a short list,
+# or an own-team query ("my squad: injuries") is searched as before.
+CLUBS20 = ["Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton", "Chelsea", "Crystal Palace", "Everton", "Fulham", "Hull City",
+           "Leeds", "Liverpool", "Man City", "Man Utd", "Newcastle", "Nott'm Forest", "Spurs", "Sunderland", "West Ham", "Wolves"]
+SQUAD15 = ["Erling Haaland", "Alexander Isak", "Phil Foden", "Cody Gakpo", "Jaka Bijol", "Ibrahim Sangaré", "Nathan Collins", "Michele Di Gregorio",
+           "Bryan Mbeumo", "Gabriel dos Santos Magalhães", "Marc Guéhi", "Mark Gillespie", "Victor Lindelöf", "Matt Grimes", "Thierno Barry"]
+
+
+def test_a_broad_scope_the_question_did_not_name_is_asked_not_searched(monkeypatch):
+    called = []
+    monkeypatch.setattr(agent, "_search_news", lambda q, p, c: called.append((q, p, c)) or {"results": [{"id": "c1"}]})
+    for q, players, clubs in (("injury news this week Premier League", [], CLUBS20),
+                              ("latest team news injuries fitness", None, CLUBS20),
+                              ("injury doubt suspended out fitness update GW9", ["Rashford", "Bergvall", "Salah", "Haaland", "Saka", "Šeško", "Palmer", "Mbeumo", "Isak"], []),
+                              ("injury fitness availability team news", SQUAD15, [])):
+        out = agent.search_news(q, players=players, clubs=clubs)
+        assert out["results"] == [] and out["ask"] == ASK and out["scope"] == "broad", (q, out)
+    assert called == []
+
+
+def test_named_short_and_own_team_scopes_are_still_searched(monkeypatch):
+    called = []
+    monkeypatch.setattr(agent, "_search_news", lambda q, p, c: called.append((q, p, c)) or {"results": [{"id": "c1"}], "no_news_for": []})
+    assert agent.search_news("Is Saka fit for the weekend?", players=["Saka"])["results"]                        # one name
+    assert agent.search_news("fitness weekend", players=["Isak", "Gakpo"])["results"]                             # a short list, name not echoed
+    assert agent.search_news("newcastle injury news this week", clubs=["Newcastle"])["results"]                  # one club
+    assert agent.search_news("my squad: injuries and fitness", players=SQUAD15)["results"]                        # own team, said in the query
+    assert agent.search_news("any news on my players this week", players=SQUAD15)["results"]
+    assert agent.search_news("Sangare fitness", players=SQUAD15)["results"]                                       # a named player among many (accent-folded)
+    assert agent.search_news("Arsenal, Chelsea, Spurs and Liverpool team news", clubs=["Arsenal", "Chelsea", "Spurs", "Liverpool"])["results"]
+    assert len(called) == 7
+    assert agent.is_broad_unnamed("injury news", [], CLUBS20) and not agent.is_broad_unnamed("injury news", [], CLUBS20[:3])
+    assert not agent.is_broad_unnamed("our squad's injuries", SQUAD15, [])
+
+
+def test_the_description_says_how_an_own_team_question_is_scoped():
+    spec = next(t for t in agent.tools_schema if t["name"] == "search_news")
+    d = spec["description"]
+    assert "my squad" in d and "own squad" in d and "broad" in d
+    assert spec["input_schema"]["required"] == ["query"] and sorted(spec["input_schema"]["properties"]) == ["clubs", "players", "query"]
