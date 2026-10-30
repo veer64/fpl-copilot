@@ -112,6 +112,14 @@ CREATE INDEX IF NOT EXISTS ix_news_items_club ON news_items (club) WHERE club IS
 -- Existing club rows were all extracts; bbc / fpl rows are not Tavily and stay NULL.
 ALTER TABLE news_items ADD COLUMN IF NOT EXISTS body_source TEXT;
 UPDATE news_items SET body_source = 'tavily_extract' WHERE source = 'club' AND body_source IS NULL;
+-- news batch 2 N2 (Prompt H, 2026-10-30): an fpl row's published_at is the NOTE'S date = when its text last changed
+-- (fpl_note_date); FPL's own news_added claim is kept here beside it. FPL does not always bump news_added when the text
+-- changes (Norgaard's 9 Oct note still carried 15 Aug), so a changed text it did not re-stamp is dated by the first
+-- snapshot that showed it: date_source 'text_change'. NULL on rows the ingest stored before this column.
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS fpl_news_added TIMESTAMPTZ;
+-- N3: a club article that copies a same-club item from the 14 days before it is stored as an ALIAS of the first (its
+-- row and URL kept, never judged, extracted or embedded); existing copies are marked by eval/news_batch2_apply.py.
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS duplicate_of BIGINT REFERENCES news_items (id);
 
 -- every Tavily call, with the credits it cost by Tavily's published rule (club_news.py's
 -- credit guard sums this month's rows before any call)
@@ -377,7 +385,9 @@ JOIN relevance_production p ON TRUE
 JOIN news_relevance v ON v.news_item_id = e.id AND v.prompt_version = p.prompt_version AND v.model = p.model
 WHERE v.relevant AND v.current IS NOT FALSE
   AND NOT EXISTS (SELECT 1 FROM news_items n2 WHERE n2.source = e.source AND n2.guid = e.guid AND n2.version > e.version
-                  AND n2.body_source IN ('page_jsonld', 'page_embedded', 'page_html'));
+                  AND n2.body_source IN ('page_jsonld', 'page_embedded', 'page_html'))
+  -- N3 (2026-10-30): an alias (duplicate_of set) is out, so search, extraction and embedding skip it
+  AND NOT EXISTS (SELECT 1 FROM news_items d WHERE d.id = e.id AND d.duplicate_of IS NOT NULL);
 """
 
 
@@ -542,8 +552,237 @@ def parse_rss(xml_bytes):
 # ---- the versioned store ----------------------------------------------------------------
 
 _COLS = ("source", "guid", "version", "url", "headline", "body", "published_at", "fetched_at",
-         "content_hash", "raw_ref", "element_id", "status", "chance", "club", "date_source", "body_source")
-_DEFAULT_DATE_SOURCE = {"bbc": "feed"}          # fpl is decided per row: source_field when it has a claim, else first_seen
+         "content_hash", "raw_ref", "element_id", "status", "chance", "club", "date_source", "body_source",
+         "fpl_news_added", "duplicate_of")
+_DEFAULT_DATE_SOURCE = {"bbc": "feed"}          # fpl is decided per row by fpl_note_date
+
+
+# ---- N2 (Prompt H, 2026-10-30): an FPL note is dated by its last TEXT change ------------------------------------
+
+def fpl_note_date(prev, body, news_added, fetched_at):
+    """(published_at, date_source) of an fpl version. prev = (body, published_at, date_source, fetched_at) of the version
+    current at fetched_at (None for a first version); news_added = FPL's own timestamp for the note.
+      * cleared (empty body): undated, (None, 'first_seen') -- FPL does not stamp a clear;
+      * the same text as prev (a status or chance change, or a re-fetch): the note keeps prev's date;
+      * a changed text whose news_added is not after prev was first seen: FPL kept an older timestamp, so the note
+        is dated by this snapshot, the first that showed the text: (fetched_at, 'text_change');
+      * otherwise FPL's own claim: (news_added, 'source_field'), or (None, 'first_seen') without one."""
+    if not body:
+        return None, "first_seen"
+    if prev is not None:
+        p_body, p_pub, p_ds, p_fetched = prev
+        if p_body == body:
+            return (p_pub, p_ds) if p_pub is not None else (p_fetched, "text_change")
+    if news_added is None:
+        return None, "first_seen"
+    if prev is not None and news_added <= prev[3]:
+        return fetched_at, "text_change"
+    return news_added, "source_field"
+
+
+def fpl_redate_plan(conn):
+    """Every stored fpl row whose (published_at, date_source) differs from what fpl_note_date gives when its guid's
+    versions are walked in time order -- the rows the pre-N2 ingest dated by a stale news_added. FPL's raw claim is
+    fpl_news_added, or for an old row its published_at when that came from FPL (date_source 'source_field').
+    Read only. [{id, guid, version, headline, body, fetched_at, old_published_at, old_date_source, new_published_at,
+    new_date_source, fpl_news_added}] in (guid, time) order; [] once applied."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, guid, version, headline, body, published_at, date_source, fetched_at, fpl_news_added FROM news_items "
+                    "WHERE source = 'fpl' ORDER BY guid, fetched_at, version")
+        rows = cur.fetchall()
+    plan, prev = [], {}
+    for rid, guid, version, headline, body, pub, ds, fetched, raw in rows:
+        raw = raw if raw is not None else (pub if ds == "source_field" else None)
+        new_pub, new_ds = fpl_note_date(prev.get(guid), body or "", raw, fetched)
+        if (new_pub, new_ds) != (pub, ds):
+            plan.append({"id": rid, "guid": guid, "version": version, "headline": headline, "body": body, "fetched_at": fetched,
+                         "old_published_at": pub, "old_date_source": ds, "new_published_at": new_pub, "new_date_source": new_ds,
+                         "fpl_news_added": raw})
+        prev[guid] = (body or "", new_pub, new_ds, fetched)
+    return plan
+
+
+def redate_chunk_rows(conn, ids):
+    """[(chunk id, news_item_id, chunk_index)] of the current chunker and model for these items (the chunks whose header
+    line carries the old date)."""
+    import config_roles
+    import chunking as ch
+    if not ids or not vector_installed(conn):
+        return []
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, news_item_id, chunk_index FROM news_chunks WHERE news_item_id = ANY(%s) AND chunker_version = %s "
+                    "AND embed_model = %s ORDER BY news_item_id, chunk_index", ([int(i) for i in ids], ch.CHUNKER_VERSION, config_roles.EMBED_MODEL))
+        return cur.fetchall()
+
+
+def apply_fpl_redate(conn, plan, *, rechunk=False, embed_client=None, log=print):
+    """Write the plan: published_at and date_source per row (only while the row still holds the planned old values), and
+    fpl_news_added = FPL's raw claim on every fpl row that lacks it. rechunk: the items' chunks are rebuilt from the new
+    embed text and re-embedded IN PLACE (same chunk ids, so citations stay valid) -- one Voyage request per batch; an
+    item whose chunk count would change is left alone and listed. Returns {updated, filled, rechunked, rechunk_skipped}."""
+    out = {"updated": 0, "filled": 0, "rechunked": 0, "rechunk_skipped": []}
+    with conn.cursor() as cur:
+        for p in plan:
+            cur.execute("UPDATE news_items SET published_at = %s, date_source = %s, fpl_news_added = COALESCE(fpl_news_added, %s) "
+                        "WHERE id = %s AND published_at IS NOT DISTINCT FROM %s AND date_source IS NOT DISTINCT FROM %s",
+                        (p["new_published_at"], p["new_date_source"], p["fpl_news_added"], p["id"], p["old_published_at"], p["old_date_source"]))
+            out["updated"] += cur.rowcount
+        cur.execute("UPDATE news_items SET fpl_news_added = published_at WHERE source = 'fpl' AND date_source = 'source_field' "
+                    "AND fpl_news_added IS NULL AND published_at IS NOT NULL")
+        out["filled"] = cur.rowcount
+    conn.commit()
+    if rechunk and plan:
+        out.update(_rechunk_in_place(conn, [p["id"] for p in plan], embed_client=embed_client, log=log))
+    return out
+
+
+def _rechunk_in_place(conn, ids, *, embed_client=None, log=print):
+    import config_roles
+    import chunking as ch
+    import embeddings as em
+    rows = redate_chunk_rows(conn, ids)
+    have = {}
+    for cid, item, idx in rows:
+        have.setdefault(item, []).append((idx, cid))
+    if not have:
+        return {"rechunked": 0, "rechunk_skipped": []}
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, embed_text FROM news_embed_text WHERE id = ANY(%s)", (list(have),))
+        texts = dict(cur.fetchall())
+    todo, skipped = [], []
+    for item, chunks in sorted(have.items()):
+        new = ch.chunk_embed_text(texts.get(item) or "")
+        if len(new) != len(chunks):
+            skipped.append(item)
+            continue
+        todo += [(cid, c) for (idx, cid), c in zip(sorted(chunks), new)]
+    vectors = em.embed([c.text for _, c in todo], "document", conn=conn, client=embed_client, purpose="redate") if todo else []
+    with conn.cursor() as cur:
+        for (cid, c), v in zip(todo, vectors):
+            cur.execute("UPDATE news_chunks SET chunk_text = %s, char_count = %s, embedding = %s::vector, tsv = to_tsvector('fpl_english', %s), "
+                        "embedded_at = now() WHERE id = %s",
+                        (c.text, c.char_count, "[" + ",".join(repr(float(x)) for x in v) + "]", c.text, cid))
+    conn.commit()
+    if skipped:
+        log(f"redate: {len(skipped)} item(s) would change their chunk count, left alone: {skipped}")
+    return {"rechunked": len(todo), "rechunk_skipped": skipped}
+
+
+# ---- N3 (Prompt H, 2026-10-30): club duplicates ------------------------------------------------------------------
+
+DUPLICATE_WINDOW = timedelta(days=14)
+FINGERPRINT_MIN_WORDS = 40              # a body shorter than this (a stub, a dropped link list) never makes an alias
+_FOLD_CHARS = {"ø": "o", "æ": "ae", "ß": "ss", "ð": "d", "þ": "th", "ł": "l", "đ": "d", "œ": "oe", "ı": "i"}
+_TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def _fold(text):
+    import unicodedata
+    out = []
+    for ch_ in unicodedata.normalize("NFKD", text or ""):
+        if unicodedata.combining(ch_):
+            continue
+        out.append("".join(_FOLD_CHARS.get(c, c) for c in ch_.casefold()))
+    return "".join(out)
+
+
+def body_fingerprint(body, headline=None):
+    """sha256 of the CLEANED body (chunking.clean_body: share and banner lines, a headline-repeat first line and a
+    trailing link list dropped), case, accents, punctuation and spacing folded away; None when it holds fewer than
+    FINGERPRINT_MIN_WORDS words."""
+    import chunking as ch
+    tokens = _TOKEN.findall(_fold(ch.clean_body(body or "", headline or "")))
+    if len(tokens) < FINGERPRINT_MIN_WORDS:
+        return None
+    return hashlib.sha256(" ".join(tokens).encode("utf-8")).hexdigest()
+
+
+def _alias_of(cur, c):
+    """The id of the first same-club item from the DUPLICATE_WINDOW before c whose cleaned body matches c's, else None."""
+    fp = body_fingerprint(c.get("body"), c.get("headline"))
+    if fp is None or not c.get("club"):
+        return None
+    cur.execute("SELECT id, headline, body FROM news_items WHERE source = 'club' AND club = %s AND duplicate_of IS NULL AND guid <> %s "
+                "AND fetched_at <= %s AND fetched_at >= %s ORDER BY fetched_at, id",
+                (c["club"], c["guid"], c["fetched_at"], c["fetched_at"] - DUPLICATE_WINDOW))
+    for rid, headline, body in cur.fetchall():
+        if body_fingerprint(body, headline) == fp:
+            return rid
+    return None
+
+
+def duplicate_groups(conn, window=DUPLICATE_WINDOW):
+    """The club copies already stored that are not yet marked (read only). Within one club and the window, in time order
+    (an English page before its language copies at the same time, then by id), an item joins the first earlier item that
+    it copies:
+      * 'language_copy' -- the same page in another language (club_news.language_copy on either URL, the same URL once
+        the language segment is dropped): the site's own translation, merged whatever the body says;
+      * 'same_body'     -- the same cleaned-body fingerprint (body_fingerprint).
+    Items with the same normalised headline whose bodies differ and that share no URL are listed as not_merged.
+    Returns {"merged": [{first, aliases, kind, items: [{id, url, headline, body_chars, fetched_at}], bodies_identical}],
+    "not_merged": [{ids, headline, body_chars, reason}]}."""
+    import club_news as cn
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, club, url, guid, headline, body, fetched_at FROM news_items WHERE source = 'club' AND duplicate_of IS NULL")
+        rows = cur.fetchall()
+    items = [{"id": r[0], "club": r[1], "url": r[2] or r[3], "headline": r[4] or "", "body": r[5] or "", "fetched_at": r[6],
+              "lang": cn.language_copy(r[2] or r[3] or ""), "url_key": cn.canonical_guid(r[2] or r[3] or ""),
+              "fp": body_fingerprint(r[5], r[4])} for r in rows]
+    items.sort(key=lambda x: (x["club"] or "", x["fetched_at"], x["lang"] is not None, x["id"]))
+    groups, anchors = {}, []
+    for it in items:
+        target = None
+        for a in anchors:
+            if a["club"] != it["club"] or it["fetched_at"] - a["fetched_at"] > window:
+                continue
+            if (it["lang"] or a["lang"]) and a["url_key"] == it["url_key"]:
+                target, kind = a, "language_copy"
+                break
+            if it["fp"] is not None and a["fp"] == it["fp"]:
+                target, kind = a, "same_body"
+                break
+        if target is None:
+            anchors.append(it)
+            continue
+        g = groups.setdefault(target["id"], {"first": target["id"], "aliases": [], "kinds": set(), "members": [target]})
+        g["aliases"].append(it["id"])
+        g["kinds"].add(kind)
+        g["members"].append(it)
+    merged = []
+    for g in sorted(groups.values(), key=lambda x: x["first"]):
+        fps = {m["fp"] for m in g["members"]}
+        merged.append({"first": g["first"], "aliases": g["aliases"], "kind": "language_copy" if "language_copy" in g["kinds"] else "same_body",
+                       "bodies_identical": len(fps) == 1 and None not in fps,
+                       "items": [{"id": m["id"], "url": m["url"], "headline": m["headline"], "body_chars": len(m["body"]),
+                                  "fetched_at": m["fetched_at"]} for m in g["members"]]})
+    grouped = {i for g in merged for i in [g["first"], *g["aliases"]]}
+    by_headline = {}
+    for it in items:
+        key = " ".join(_TOKEN.findall(_fold(it["headline"])))
+        if key:
+            by_headline.setdefault((it["club"], key), []).append(it)
+    not_merged = []
+    for (club, _), its in sorted(by_headline.items(), key=lambda kv: min(i["id"] for i in kv[1])):
+        its = [i for i in its if i["id"] not in grouped or i["id"] in {g["first"] for g in merged}]
+        close = [i for i in its if any(j is not i and abs(i["fetched_at"] - j["fetched_at"]) <= window for j in its)]
+        if len(close) > 1:
+            not_merged.append({"ids": sorted(i["id"] for i in close), "headline": close[0]["headline"], "club": club,
+                               "body_chars": [len(i["body"]) for i in sorted(close, key=lambda x: x["id"])],
+                               "reason": "same headline, different body (no shared URL)"})
+    return {"merged": merged, "not_merged": not_merged}
+
+
+def apply_duplicates(conn, report):
+    """Mark every alias of the report's merged groups duplicate_of = the group's first (rows unmarked only). Nothing is
+    deleted. Returns {"marked": n}."""
+    n = 0
+    with conn.cursor() as cur:
+        for g in report.get("merged") or []:
+            cur.execute("UPDATE news_items SET duplicate_of = %s WHERE id = ANY(%s) AND duplicate_of IS NULL AND id <> %s",
+                        (g["first"], [int(a) for a in g["aliases"]], g["first"]))
+            n += cur.rowcount
+    conn.commit()
+    return {"marked": n}
 
 
 def upsert_versions(conn, source, candidates):
@@ -560,8 +799,8 @@ def upsert_versions(conn, source, candidates):
     counts = {"new": 0, "new_versions": 0, "skipped": 0}
     with conn.cursor() as cur:
         for c in candidates:
-            cur.execute("SELECT content_hash FROM news_items WHERE source = %s AND guid = %s AND fetched_at <= %s "
-                        "ORDER BY fetched_at DESC, version DESC LIMIT 1", (source, c["guid"], c["fetched_at"]))
+            cur.execute("SELECT content_hash, body, published_at, date_source, fetched_at FROM news_items WHERE source = %s AND guid = %s "
+                        "AND fetched_at <= %s ORDER BY fetched_at DESC, version DESC LIMIT 1", (source, c["guid"], c["fetched_at"]))
             ref = cur.fetchone()
             if ref is not None and ref[0] == c["content_hash"]:
                 counts["skipped"] += 1
@@ -569,12 +808,19 @@ def upsert_versions(conn, source, candidates):
             cur.execute("SELECT COALESCE(MAX(version), 0) FROM news_items WHERE source = %s AND guid = %s",
                         (source, c["guid"]))
             version = int(cur.fetchone()[0]) + 1
+            published = c.get("published_at")
             date_source = c.get("date_source") or _DEFAULT_DATE_SOURCE.get(source) or \
-                ("source_field" if c.get("published_at") is not None else "first_seen")
+                ("source_field" if published is not None else "first_seen")
+            news_added = duplicate_of = None
+            if source == "fpl":                                  # N2: the note's date is its last text change
+                news_added = c.get("fpl_news_added", published)
+                published, date_source = fpl_note_date(tuple(ref[1:]) if ref else None, c.get("body") or "", news_added, c["fetched_at"])
+            elif source == "club" and version == 1:              # N3: a copy of a recent same-club item is stored as its alias
+                duplicate_of = _alias_of(cur, c)
             row = (source, c["guid"], version, c.get("url"), c["headline"], c.get("body") or "",
-                   c.get("published_at"), c["fetched_at"], c["content_hash"], c["raw_ref"],
+                   published, c["fetched_at"], c["content_hash"], c["raw_ref"],
                    c.get("element_id"), c.get("status"), c.get("chance"), c.get("club"), date_source,
-                   c.get("body_source") or ("tavily_extract" if source == "club" else None))
+                   c.get("body_source") or ("tavily_extract" if source == "club" else None), news_added, duplicate_of)
             cur.execute(f"INSERT INTO news_items ({', '.join(_COLS)}) VALUES ({', '.join(['%s'] * len(_COLS))}) "
                         f"ON CONFLICT (source, guid, version) DO NOTHING RETURNING id", row)
             if cur.fetchone() is None:

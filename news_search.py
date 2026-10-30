@@ -44,7 +44,8 @@ import embeddings as em
 import player_names as pn
 
 UTC = timezone.utc
-DATE_BASIS = {"meta": "publisher", "url": "url", "page": "page", "source_field": "FPL", "feed": "feed"}
+# text_change (news batch 2, 2026-10-30): an FPL note dated by the snapshot that first showed its text (news_store.fpl_note_date)
+DATE_BASIS = {"meta": "publisher", "url": "url", "page": "page", "source_field": "FPL", "text_change": "FPL", "feed": "feed"}
 FIRST_SEEN = "first seen by us"
 _CITE = re.compile(r"\bc\d+\b")
 _snapshots = None

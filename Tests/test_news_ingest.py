@@ -308,7 +308,9 @@ def test_embed_text_exact_strings(conn, tmp_path):
     assert [r[3] for r in fpl] == [1, 2, 3]
     assert fpl[0][5] == ("[FPL official | 2026-07-23 12:01Z] Saliba (ARS, DEF)\n"
                          "Status: injured. 0% chance of playing. Back injury - Unknown return date")
-    assert fpl[1][5] == ("[FPL official | 2026-07-23 12:01Z] Saliba (ARS, DEF)\n"
+    # news batch 2 N2 (2026-10-30): the changed text kept FPL's July news_added, so the note is dated by the snapshot
+    # that first showed it (T2), not by the stale news_added
+    assert fpl[1][5] == ("[FPL official | 2026-09-02 12:00Z] Saliba (ARS, DEF)\n"
                          "Status: doubtful. 75% chance of playing. Back injury - 75% chance of playing")
     assert fpl[2][5] == ("[FPL official | 2026-09-03 12:00Z] Saliba (ARS, DEF)\n"
                          "Status: available. No injury news (flag cleared).")
@@ -343,7 +345,8 @@ def test_schema_constraints(conn):
         cols = dict(cur.fetchall())
     assert set(cols) == {"id", "source", "guid", "version", "url", "headline", "body", "published_at", "fetched_at",
                          "content_hash", "raw_ref", "element_id", "status", "chance", "inserted_at",
-                         "club", "date_source", "body_source"}                       # club/date_source added 2026-09-25 (club news)
+                         "club", "date_source", "body_source",                       # club/date_source added 2026-09-25 (club news)
+                         "fpl_news_added", "duplicate_of"}                           # news batch 2 (2026-10-30): N2 / N3
     assert cols["published_at"] == "YES" and cols["fetched_at"] == "NO"
 
 

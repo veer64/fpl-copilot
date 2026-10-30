@@ -569,7 +569,7 @@ def club_matches(season, teams):
 
 _SELECT = ("SELECT n.id, n.source, n.club, n.url, n.headline, n.body, n.published_at, n.fetched_at, n.date_source, n.element_id "
            "FROM news_items n WHERE NOT EXISTS (SELECT 1 FROM news_relevance r WHERE r.news_item_id = n.id "
-           "AND r.prompt_version = %s AND r.model = %s)")
+           "AND r.prompt_version = %s AND r.model = %s) AND n.duplicate_of IS NULL")      # N3 (2026-10-30): an alias is never judged
 
 
 def unjudged(conn, prompt_version, model, limit=None, ids=None):

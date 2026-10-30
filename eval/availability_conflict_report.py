@@ -16,10 +16,12 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "eval"))
 import db_write  # noqa: E402
+import conflict_log as cl  # noqa: E402
 
 LIMITATIONS = ("LIMITATIONS: Not playing can mean rotation, not injury; a fit player left out counts as 'not played'. "
-               "FPL's flag is read as of the deadline from the raw archive; the club claim is the newest one fetched in the "
-               "7 days before the deadline; the laptop's club data mostly comes from replays and old seeds.")
+               "FPL's flag is read as of the deadline from the raw archive; the club claim is the newest one from an article "
+               "dated in the 7 days before the deadline (older articles are listed as too old to compare, not scored); "
+               "the laptop's club data mostly comes from replays and old seeds.")
 
 
 def _fmt(dt):
@@ -57,6 +59,15 @@ def build_report(conn, gw):
                     f"club says {cs}{' (' + hint + ')' if hint else ''} by {basis} -> {bc}; claim {cid} from \"{head}\" "
                     f"published {_fmt(cpub)}, fetched {_fmt(cfet)}; evidence: \"{ev}\"; outcome: {outcome}; right_source: {rs or 'pending'}"]
         out.append("")
+    deadline = rows[0][1] if rows else _build_deadline(conn, gw)
+    too_old = cl.too_old_claims(conn, gw, deadline) if deadline is not None else []
+    if too_old:
+        out += ["## Too old to compare (not scored)", "",
+                f"Claims fetched in the 7 days before the deadline from articles dated before {deadline - cl.WINDOW:%Y-%m-%d %H:%M}Z.", ""]
+        for t in too_old:
+            out.append(f"- {names.get(t['element_id'], 'element ' + str(t['element_id']))} ({t['club'] or t['source']}): club says "
+                       f"{t['status']}; claim {t['claim_id']} from \"{t['headline']}\" dated {_fmt(t['article_date'])}, fetched {_fmt(t['fetched_at'])}")
+        out.append("")
     if agree:
         out += ["## Agreements", ""]
         for r in rows:
@@ -65,6 +76,14 @@ def build_report(conn, gw):
                            + ("pending" if r[13] is None else f"played {r[13]}, minutes {r[11]}"))
         out.append("")
     return "\n".join(out)
+
+
+def _build_deadline(conn, gw):
+    """the gameweek's deadline from its build record (availability_builds), None without one"""
+    with conn.cursor() as cur:
+        cur.execute("SELECT deadline FROM availability_builds WHERE gw = %s", (gw,))
+        r = cur.fetchone()
+    return r[0] if r else None
 
 
 def _has_players_live(cur):

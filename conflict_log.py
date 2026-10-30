@@ -6,8 +6,8 @@ Buckets:  FPL  a -> FIT, d -> DOUBT, i / s / u / n -> OUT
           club available -> FIT, doubtful / returning -> DOUBT, out / suspended -> OUT
 
 availability_comparisons holds one row per (gameweek, element_id) for every player with at least one
-claim (availability_claims) fetched at or before that gameweek's deadline and inside the 7 days before
-it: the FPL status and chance_of_playing_next_round from the newest raw bootstrap snapshot at or before
+claim (availability_claims) fetched at or before that gameweek's deadline from an article DATED inside the
+7 days before it (N4, 2026-10-30: published_at, else the fetch time; older -> too_old_claims, not scored): the FPL status and chance_of_playing_next_round from the newest raw bootstrap snapshot at or before
 the deadline (the one date rule: strictly as of the deadline, so a rebuild gives identical rows), the
 newest claim by the item's fetched_at, both buckets and `agree`. Outcomes come from the repo's own
 results data, data/history/fpl_api_<season>.parquet (eval/fetch_fpl_history.py writes it per final
@@ -73,9 +73,37 @@ def fpl_state_at(snapshots, deadline):
     return ts, state
 
 
+# N4 (Prompt H, 2026-10-30): a claim counts for a gameweek only when its ARTICLE is dated inside the 7 days before the
+# deadline -- the article's date is item_published_at, or item_fetched_at for an undated article -- and fetched by the
+# deadline. Before N4 the window was on the fetch time alone, so an 11 Oct article fetched on the 20th (Gravenberch) was
+# scored against the 23 Oct deadline. A claim fetched inside the window from an older article is "too old to compare":
+# listed by too_old_claims and the weekly report, never scored. N3: a duplicate item's claims are skipped.
+_ARTICLE_DATE = "COALESCE(a.item_published_at, a.item_fetched_at)"
+_SCORED_CLAIMS = ("SELECT DISTINCT ON (a.element_id) a.id, a.element_id, a.status, a.item_published_at, a.item_fetched_at "
+                  "FROM availability_claims a JOIN news_items n ON n.id = a.news_item_id "
+                  f"WHERE a.item_fetched_at <= %s AND {_ARTICLE_DATE} > %s AND a.prompt_version = %s AND a.model = %s "
+                  "AND n.duplicate_of IS NULL ORDER BY a.element_id, a.item_fetched_at DESC, a.id DESC")
+
+
+def too_old_claims(conn, gw, deadline):
+    """The claims of the current version fetched inside (deadline - 7 days, deadline] whose article is dated at or before
+    deadline - 7 days: listed as "too old to compare", never scored. Duplicates skipped. [{claim_id, element_id, status,
+    article_date, published_at, fetched_at, news_item_id, headline, club, source}] by element, newest fetch first."""
+    deadline = _utc(deadline)
+    pv, m = _claim_version()
+    with conn.cursor() as cur:
+        cur.execute("SELECT a.id, a.element_id, a.status, " + _ARTICLE_DATE + ", a.item_published_at, a.item_fetched_at, n.id, n.headline, "
+                    "n.club, n.source FROM availability_claims a JOIN news_items n ON n.id = a.news_item_id "
+                    "WHERE a.item_fetched_at <= %s AND a.item_fetched_at > %s AND " + _ARTICLE_DATE + " <= %s "
+                    "AND a.prompt_version = %s AND a.model = %s AND n.duplicate_of IS NULL "
+                    "ORDER BY a.element_id, a.item_fetched_at DESC, a.id DESC", (deadline, deadline - WINDOW, deadline - WINDOW, pv, m))
+        cols = ("claim_id", "element_id", "status", "article_date", "published_at", "fetched_at", "news_item_id", "headline", "club", "source")
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
 def build_comparisons(conn, gw, deadline, snapshots):
-    """One row per player with a claim inside (deadline - 7 days, deadline], as of the deadline.
-    Returns the number of rows inserted (existing (gw, element) rows are kept)."""
+    """One row per player with a claim from an article dated inside (deadline - 7 days, deadline] and fetched by the
+    deadline (N4), as of the deadline. Returns the number of rows inserted (existing (gw, element) rows are kept)."""
     deadline = _utc(deadline)
     got = fpl_state_at(snapshots, deadline)
     if got is None:
@@ -83,9 +111,7 @@ def build_comparisons(conn, gw, deadline, snapshots):
     snap_ts, state = got
     pv, m = _claim_version()
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT ON (element_id) id, element_id, status, item_published_at, item_fetched_at FROM availability_claims "
-                    "WHERE item_fetched_at <= %s AND item_fetched_at > %s AND prompt_version = %s AND model = %s "
-                    "ORDER BY element_id, item_fetched_at DESC, id DESC", (deadline, deadline - WINDOW, pv, m))
+        cur.execute(_SCORED_CLAIMS, (deadline, deadline - WINDOW, pv, m))
         claims = cur.fetchall()
         n = 0
         for cid, element, status, pub, fetched in claims:
