@@ -397,6 +397,8 @@ from model_tools import (list_players, resolve_player, get_player_card,
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
+import fact_check                                       # Prompt H M1 (2026-10-30): the final answer vs this turn's tool rows
+import time
 import now_context
 from now_context import context_block, now_line
 from db_write import record_chat_usage
@@ -529,6 +531,10 @@ def plain_words(text):
 
 # What the latest reply cost and did, for the process that served it (the eval runner reads it).
 LAST_TURN = {}
+# Prompt H M1 (2026-10-30): the last turn's fact check -- {facts_checked, mismatches, sent_back, outcome, note,
+# rewrite_mismatches, extra_usd, extra_seconds, error, original, delivered}; the eval runner stores it per turn.
+LAST_FACT_CHECK = {}
+FACT_CHECK_TOOL_CHOICE = {"type": "none"}            # the send-back: the tools stay in the request (cache), tool use is off
 
 # Prompt E loop guard (2026-10-27). A response with no text block and no tool_use block -- measured on the sonnet-5
 # gate (eval/reports/agent_sonnet5_gate_v1.md): stop_reason max_tokens with a lone thinking block -- used to become
@@ -674,6 +680,15 @@ def _numeric_check(turn_id, text, messages):
               f"{[u['text'] for u in result['ungrounded']]}]")
 
 
+def _fact_check_log(turn_id, info):
+    """M1: one fact_checks row per checked reply (fact_check.record). A logging failure is printed; the reply never
+    depends on it."""
+    try:
+        fact_check.record(turn_id, info)
+    except Exception as e:  # noqa: BLE001 -- the log must never take the reply down
+        print(f"  [fact check not logged: {type(e).__name__}: {str(e)[:200]}]")
+
+
 def _tally_usage(acc, response):
     """Add one API response to the turn's usage tally. A response without a usage block (an older
     fake, a provider hiccup) counts as a call but leaves the token totals undetermined."""
@@ -765,6 +780,65 @@ def _run_turn(user_message: str, messages: list = None):
     usage = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0,
              "model": None, "seen_usage": False}     # Part 7c: this turn's API usage, logged with the reply
 
+    turn_calls = []                                  # M1: (tool, input, result) of THIS turn, what the fact check reads
+
+    def fact_checked(raw):
+        """M1 (Prompt H, 2026-10-30; USER DECISION H1): the final answer against this turn's tool rows. On a mismatch, ONE
+        send-back: the code-built note as an automatic-check message after the answer, the same model, system and tools
+        (the cache holds) with tool use off; the rewrite is checked again and delivered either way (flagged when still
+        wrong); a tool call in the rewrite, an empty rewrite or a failed call delivers the original. Never a second
+        send-back. The stored history keeps only the delivered answer, never the note. Logged to fact_checks."""
+        info = {"facts_checked": 0, "mismatches": [], "sent_back": False, "outcome": "clean", "note": None,
+                "rewrite_mismatches": None, "extra_usd": None, "extra_seconds": None, "error": None}
+        delivered = raw
+        try:
+            res = fact_check.check(raw, turn_calls)
+            info.update(facts_checked=res["facts_checked"], mismatches=res["mismatches"])
+        except Exception as e:  # noqa: BLE001 -- the check must never take the reply down
+            res = None
+            info.update(outcome="check_error", error=f"{type(e).__name__}: {str(e)[:200]}")
+        if res and res["mismatches"]:
+            note = fact_check.note(res["mismatches"])
+            info.update(sent_back=True, note=note)
+            sb = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "model": None, "seen_usage": False}
+            t0 = time.time()
+            try:
+                request = {"model": AGENT_MODEL, "max_tokens": 1024,
+                           "system": _system_for_request(system),
+                           "tools": _tools_for_request(tools_schema),
+                           "tool_choice": dict(FACT_CHECK_TOOL_CHOICE),
+                           "messages": _messages_for_request(messages + [{"role": "user", "content": note}], now_text, question_index)}
+                reply = llm.chat("agent", request, client=client)
+                _tally_usage(sb, reply)
+                _tally_usage(usage, reply)
+                blocks = list(getattr(reply, "content", None) or [])
+                text2 = next((b.text for b in blocks if getattr(b, "type", None) == "text" and getattr(b, "text", "")), None)
+                if any(getattr(b, "type", None) == "tool_use" for b in blocks):
+                    info["outcome"] = "tool_call_in_rewrite"
+                elif not text2:
+                    info["outcome"] = "no_text"
+                else:
+                    res2 = fact_check.check(text2, turn_calls)
+                    info.update(rewrite_mismatches=res2["mismatches"], outcome="still_wrong" if res2["mismatches"] else "fixed")
+                    delivered = text2
+                    messages[-1] = {"role": "assistant", "content": reply.content}
+            except Exception as e:  # noqa: BLE001 -- a failed send-back delivers the original
+                if type(e).__name__ == "BudgetExceeded":
+                    raise                                        # the eval runner's cap must reach the runner
+                info.update(outcome="sendback_failed", error=f"{type(e).__name__}: {str(e)[:200]}")
+            info["extra_seconds"] = round(time.time() - t0, 2)
+            if sb["seen_usage"]:
+                try:
+                    info["extra_usd"] = _price_usd(sb["model"] or AGENT_MODEL, sb["input"], sb["output"],
+                                                   cache_read=sb["cache_read"], cache_write=sb["cache_write"])
+                except Exception:  # noqa: BLE001
+                    info["extra_usd"] = None
+            print(f"  [fact check: {len(res['mismatches'])} mismatch(es), sent back once -> {info['outcome']}]")
+        _fact_check_log(turn_id, info)
+        LAST_FACT_CHECK.clear()
+        LAST_FACT_CHECK.update(info, original=raw, delivered=delivered)
+        return delivered
+
     def finish(raw):
         """The reply path: the checks (log only), the plain-words locks, the citations, the usage row."""
         _citation_check(turn_id, raw, returned_ids)
@@ -792,7 +866,7 @@ def _run_turn(user_message: str, messages: list = None):
         if response.stop_reason != "tool_use":
             for block in response.content:
                 if block.type == "text":
-                    return finish(block.text)
+                    return finish(fact_checked(block.text))
 
         tool_results = []
         for block in response.content:
@@ -804,6 +878,7 @@ def _run_turn(user_message: str, messages: list = None):
                 print(f"  [calling tool: {tool_name}({tool_input})]")
 
                 result = call_tool(tool_name, tool_input)
+                turn_calls.append((tool_name, tool_input, result))
                 if tool_name == "search_news" and isinstance(result, dict):
                     hits = [r for r in (result.get("results") or []) if isinstance(r, dict) and r.get("id")]
                     returned_ids.extend(str(r.get("id")) for r in hits)
@@ -820,7 +895,7 @@ def _run_turn(user_message: str, messages: list = None):
         if not tool_results:                                            # Prompt E loop guard: no tool call this response
             text_block = next((b for b in response.content if getattr(b, "type", None) == "text"), None)
             if text_block is not None:                                  # stop_reason tool_use without a call: the text is the reply
-                return finish(text_block.text)
+                return finish(fact_checked(text_block.text))
             block_types = [str(getattr(b, "type", "?")) for b in (response.content or [])]
             print(f"  [loop guard: no text and no tool_use (stop_reason={response.stop_reason}); turn {turn_id} "
                   f"ends with the fixed reply; blocks {block_types}]")

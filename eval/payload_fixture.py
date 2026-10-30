@@ -154,7 +154,8 @@ def capture(agent, question, responses, context_text, now=None):
     context block is pinned to `context_text` and, when `now` is given (datetime or ISO), now_context.clock is frozen at
     it for the turn (the agent reads the clock once per turn for the block and the Now line); the logs and checks are
     stubbed so nothing is written."""
-    saved = {k: getattr(agent, k) for k in ("client", "context_block", "record_chat_usage", "_citation_check", "_numeric_check")}
+    saved = {k: getattr(agent, k) for k in ("client", "context_block", "record_chat_usage", "_citation_check", "_numeric_check")
+             + (("_fact_check_log",) if hasattr(agent, "_fact_check_log") else ())}       # Prompt H M1: the fact-check log too
     saved_fns = {k: agent.available_functions.get(k) for k in TOOL_RESULTS}
     saved_clock = now_context.clock
     frozen = parse_now(now)
@@ -165,6 +166,8 @@ def capture(agent, question, responses, context_text, now=None):
         agent.record_chat_usage = lambda *a, **k: None
         agent._citation_check = lambda *a, **k: None
         agent._numeric_check = lambda *a, **k: None
+        if hasattr(agent, "_fact_check_log"):
+            agent._fact_check_log = lambda *a, **k: None
         if frozen is not None:
             now_context.clock = lambda: frozen
         for name, result in TOOL_RESULTS.items():

@@ -588,6 +588,7 @@ def run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg=None):
                           [("question", q["question"])]:
             recorder.clear()
             getattr(agent, "LAST_CONTEXT", {}).clear()
+            getattr(agent, "LAST_FACT_CHECK", {}).clear()          # Prompt H M1: this turn's fact check, saved below
             t0 = time.time()
             before = budget.snapshot()
             r = client.post("/chat", json={"message": text})
@@ -598,6 +599,7 @@ def run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg=None):
                           "reply": r.json().get("answer", ""),
                           "calls": recorder.dump(),
                           "context_block": getattr(agent, "LAST_CONTEXT", {}).get("text"),
+                          "fact_check": dict(getattr(agent, "LAST_FACT_CHECK", {}) or {}),
                           "latency_s": round(time.time() - t0, 2),
                           "anthropic_calls": after["anthropic_calls"] - before["anthropic_calls"],
                           "input_tokens": after["input_tokens"] - before["input_tokens"],
