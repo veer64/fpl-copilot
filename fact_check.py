@@ -4,13 +4,17 @@ After the agent's final answer and before it is returned, code compares the answ
 (never earlier turns, never the model's knowledge):
   (a) tables: the player in a row must match a tool row (its name, web_name or a known alias: every word of the written
       name appears in the row's name); then the row's position (GK = GKP, DEF, MID, FWD), team and price against that
-      tool row. A player-column name that matches no tool row is an "unknown name" -- only in a table where at least
-      UNKNOWN_MIN_MATCHED other rows matched, so a table of something else is never read as players.
+      tool row. F15 (M-fix): a name no row holds word for word still counts as the ONE row it fits -- every written word
+      equal to, or a prefix of at least 3 letters of, a word of that row's names ("Tav Silva" -> Tavares da Silva); two
+      rows fitting is ambiguous (not checked, not unknown). A player-column name that fits no tool row is an "unknown
+      name" -- only in a table where at least UNKNOWN_MIN_MATCHED other rows matched, so a table of something else is
+      never read as players.
   (b) prose: "Name (POS)" and "Name (Team, POS, £x.xm)", "Name, a <position>" / "Name, the <team> <position>",
       "<position plural> (Name, Name, ...)", "<Team>'s Name", and a price in the same clause as ONE player's name. A
       clause with two or more prices whose labels are unclear is skipped, never flagged; clear labels (bought / sells /
       now) are each checked against their own field; a price that reads as a difference (more, less, saving, loss, the
-      bank, ...) is never a price claim.
+      bank, ...) is never a price claim, and F14 (M-fix): no clause price is checked when the clause holds a shortfall /
+      budget word (PRICE_CONTEXT_WORDS: "leaves you £4.0m short" is not the player's price).
   (c) stat labels: "X% chance of playing" must equal FPL's chance or p_play_any; "X% to start" / "chance of starting"
       must equal p_start (rounding allowed: within 1 point).
 A name two players of this turn's rows share is ambiguous and never checked. Nothing that cannot be resolved -- an
@@ -46,6 +50,9 @@ NOT_PLAYERS = {"total", "totals", "bench", "starting", "xi", "starting xi", "sub
                "defenders", "midfielders", "forwards", "in", "out", "free transfer", "hit", "bank", "itb"}
 ROLE_WORDS = {"c", "vc", "captain", "vice", "cpt", "v", "in", "out"}
 PRICE_MIN, PRICE_MAX = 3.5, 16.0     # F3: a stated price outside this range is a total, a fee, the bank or a difference
+PRICE_CONTEXT_WORDS = ("short", "over", "left", "remaining", "bank", "budget", "gap", "need", "spare", "more")   # F14
+FIT_PREFIX_MIN = 3                   # F15: a written word fits a row's word when equal or a prefix of at least this many letters
+_PRICE_CONTEXT = re.compile(r"(?<![\w'’-])(?:" + "|".join(PRICE_CONTEXT_WORDS) + r")(?![\w'’-])")
 _MULTI_NAME = re.compile(r"\s[+&/]\s|→|->|=>|\band\b", re.I)
 _SIGNED_CELL = re.compile(r"[+−–]|^\W*-|\b(left|short|over|under|gain|loss|profit|change|diff|saved|spare)\b", re.I)
 _RANGE_AFTER = re.compile(r"^\s?[–—-]\s?£?\d")
@@ -274,6 +281,18 @@ def match_rows(name_tokens, rows):
     return ("ambiguous", cands)
 
 
+def fit_rows(name_tokens, rows):
+    """F15: the single player every written word FITS -- equal to, or a prefix of at least FIT_PREFIX_MIN letters of, a word
+    of the row's names (full name, web_name, display_name; folded) -- else None; ('ambiguous', [...]) when 2+ fit."""
+    if not name_tokens:
+        return None
+    fits = [(k, r) for k, r in rows.items()
+            if all(any(t == u or (len(t) >= FIT_PREFIX_MIN and u.startswith(t)) for u in r["tokens"]) for t in name_tokens)]
+    if not fits:
+        return None
+    return fits[0] if len(fits) == 1 else ("ambiguous", fits)
+
+
 def club_of(text, extra=None):
     """The canonical FPL club name a written club resolves to (names, config aliases, three-letter codes), else None."""
     import config_roles
@@ -434,7 +453,7 @@ def check_tables(text, rows, out, counted, clubs):
                 nt = _clean_name(cell)
                 if not nt or " ".join(nt) in NOT_PLAYERS or not re.search(r"[A-Za-zÀ-ÿ]", cell) or _MULTI_NAME.search(cell):
                     continue
-                m = match_rows(nt, rows)
+                m = match_rows(nt, rows) or fit_rows(nt, rows)                   # F15: a short name form fits one row
                 if m is None:
                     unknown.append((li, cell, nt))
                     continue
@@ -529,6 +548,13 @@ def _clause_end(folded, start):
     return m.start() if m else len(folded)
 
 
+def _clause_start(folded, a):
+    last = 0
+    for m in _CLAUSE_END.finditer(folded, 0, a):
+        last = m.end()
+    return last
+
+
 def _price_label(before):
     if _LABEL_SELL.search(before):
         return "sell"
@@ -600,6 +626,8 @@ def check_prose(text, rows, out, counted, clubs):
             end = b                                                              # F5: the right side of "X -> Y": no clause prices
         seg = folded[b:end]
         found = []
+        if _PRICE_CONTEXT.search(folded[_clause_start(folded, a):_clause_end(folded, b)]):
+            seg = ""                                                             # F14: a shortfall / budget clause
         for m in _PRICE.finditer(seg):
             before, after_p = seg[max(0, m.start() - 22):m.start()], seg[m.end():m.end() + 16]
             if _DELTA.search(before) or _DELTA_AFTER.search(after_p) or re.search(r"[+\-−]\s?$", before):

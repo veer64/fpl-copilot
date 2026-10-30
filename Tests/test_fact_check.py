@@ -119,6 +119,87 @@ def test_saved_outputs_with_numpy_and_datetime_reprs_are_read():
     assert got["price"] == 7.5 and got["built"].startswith("datetime.datetime(")
 
 
+# ---- Prompt M-fix (2026-10-30): the two live misfires of H's gate, fixed definition-first ---------------------------------
+
+RESOLVED = {"matches": [{"name": "Bryan Mbeumo", "position": "MID", "team": "Man Utd", "status": "a", "player_id": 427,
+                         "price": 7.8, "web_name": "Mbeumo"}]}
+RESOLVED_BRUNO = {"matches": [{"name": "Bruno Borges Fernandes", "position": "MID", "team": "Man Utd", "status": "a",
+                               "player_id": 426, "price": 11.8, "web_name": "B.Fernandes"}]}
+BUILD_F15 = {"squad": [{"player_id": 470, "name": "Caoimhín Kelleher", "position": "GK", "team": "Brentford", "price": 5.0},
+                       {"player_id": 4, "name": "Gabriel dos Santos Magalhães", "position": "DEF", "team": "Arsenal", "price": 7.9},
+                       {"player_id": 5, "name": "Riccardo Calafiori", "position": "DEF", "team": "Arsenal", "price": 6.0},
+                       {"player_id": 566, "name": "António João Pereira de Albuquerque Tavares da Silva", "position": "DEF",
+                        "team": "Bournemouth", "price": 5.0, "e_points": 4.37},
+                       {"player_id": 70, "name": "Rayan Vitor Simplício Rocha", "position": "MID", "team": "Bournemouth", "price": 6.3}]}
+F15_HEAD = "| Player | Club | Pos | Price | xPts (GW8) |\n|---|---|---|---|---|\n"
+F15_ROWS = ("| Caoimhín Kelleher | Brentford | GK | £5.0m | 4.7 |\n| Gabriel | Arsenal | DEF | £7.9m | 6.2 |\n"
+            "| Riccardo Calafiori | Arsenal | DEF | £6.0m | 5.2 |\n")
+
+
+def test_f14_a_shortfall_amount_in_the_clause_is_not_the_players_price():
+    # routing:21 (H's live gate): "leaves you £4.0m short" was read as Mbeumo's price (7.8) and sent back
+    text = ("Here's the maths:\n- **Mbeumo sells for £7.8m**\n- **Bruno Fernandes costs £11.8m**\n- **Shortfall: £4.0m**\n"
+            "- **Your bank: £0.0m**\n\nSo selling Mbeumo alone leaves you £4.0m short. You can't afford Bruno without raising "
+            "more cash elsewhere — at least one more sale would be needed.\n")
+    r = fc.check(text, _calls(("resolve_player", RESOLVED_BRUNO), ("resolve_player", RESOLVED)))
+    assert r["mismatches"] == [] and r["facts_checked"] == 2           # £7.8m and £11.8m checked; the £4.0m never
+
+
+def test_f14_each_listed_word_makes_the_clause_price_unchecked():
+    calls = _calls(("resolve_player", RESOLVED))
+    for word in ("short", "over", "left", "remaining", "bank", "budget", "gap", "need", "spare", "more"):
+        text = f"The {word} question first: Mbeumo brings £5.5m."
+        r = fc.check(text, calls)
+        assert r["mismatches"] == [] and r["facts_checked"] == 0, word
+
+
+def test_f14_a_clause_without_those_words_and_the_name_parenthesis_are_still_checked():
+    calls = _calls(("resolve_player", RESOLVED))
+    assert [m["value"] for m in fc.check("Mbeumo is priced at £7.5m.", calls)["mismatches"]] == ["£7.8m"]
+    assert [m["value"] for m in fc.check("Sell Mbeumo (£7.5m) to leave more in the bank.", calls)["mismatches"]] == ["£7.8m"]
+
+
+def test_f15_a_short_name_form_counts_as_its_tool_row():
+    # forced_starters:6 (H's live gate): "Tav Silva" was an unknown name; the build's row carries only the legal name
+    text = F15_HEAD + F15_ROWS + "| Tav Silva | Bournemouth | DEF | £5.0m | 4.4 |\n"
+    r = fc.check(text, _calls(("build_squad_from_scratch", BUILD_F15)))
+    assert r["mismatches"] == [] and r["facts_checked"] == 16          # 4 rows x name, club, position, price
+
+
+def test_f15_the_fitted_row_has_its_fields_checked():
+    text = F15_HEAD + F15_ROWS + "| Tav Silva | Bournemouth | MID | £5.0m | 4.4 |\n"
+    r = fc.check(text, _calls(("build_squad_from_scratch", BUILD_F15)))
+    assert r["mismatches"] == [{"phrase": "Tav Silva | Bournemouth | MID", "tool": "build_squad_from_scratch",
+                                "field": "position", "value": "DEF", "kind": "position"}]
+
+
+def test_f15_cherki_is_still_an_unknown_name_beside_a_fitted_short_name():
+    text = (F15_HEAD + F15_ROWS + "| Tav Silva | Bournemouth | DEF | £5.0m | 4.4 |\n"
+            "| Rayan Cherki | Bournemouth | MID | £6.3m | 4.6 |\n")
+    r = fc.check(text, _calls(("build_squad_from_scratch", BUILD_F15)))
+    assert r["mismatches"] == [{"phrase": "Rayan Cherki", "tool": "build_squad_from_scratch", "field": "name",
+                                "value": "Rayan Vitor Simplício Rocha", "kind": "unknown_name"}]
+
+
+def test_f15_two_fitting_rows_are_ambiguous_not_unknown_and_a_two_letter_prefix_does_not_fit():
+    two = {"squad": BUILD_F15["squad"] + [{"player_id": 900, "name": "Tavio Silvano", "position": "MID", "team": "Everton",
+                                           "price": 4.5}]}
+    r = fc.check(F15_HEAD + F15_ROWS + "| Tav Silva | Bournemouth | DEF | £5.0m | 4.4 |\n", _calls(("build_squad_from_scratch", two)))
+    assert r["mismatches"] == [] and r["facts_checked"] == 12          # the three exact rows only; Tav Silva not checked
+    r = fc.check(F15_HEAD + F15_ROWS + "| Ta Silva | Bournemouth | DEF | £5.0m | 4.4 |\n",
+                 _calls(("build_squad_from_scratch", BUILD_F15)))
+    assert [(m["phrase"], m["kind"]) for m in r["mismatches"]] == [("Ta Silva", "unknown_name")]
+
+
+def test_the_live_raya_catch_is_still_a_position_mismatch():
+    # optimise:7 (H's live gate): Raya listed among three Arsenal defenders; the build says GK
+    build = {"squad": BUILD["squad"] + [{"player_id": 1, "name": "David Raya Martín", "position": "GK", "team": "Arsenal", "price": 5.9}]}
+    text = "- **Three Arsenal defenders** (Gabriel, Calafiori, Raya) and a **heavy Everton/Bournemouth tilt**."
+    r = fc.check(text, _calls(("build_squad_from_scratch", build)))
+    assert [(m["field"], m["value"]) for m in r["mismatches"]] == [("position", "GK")]
+    assert "Raya" in r["mismatches"][0]["phrase"]
+
+
 # ---- the note (H1) --------------------------------------------------------------------------------------------------------
 
 def test_the_send_back_note_text_is_pinned():
