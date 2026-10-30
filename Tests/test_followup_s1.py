@@ -30,14 +30,11 @@ def _description():
 def test_s1_the_description_invites_club_and_manager_questions_without_player_names(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
     d = _description().lower()
-    # Prompt G (2026-10-29), V1: a question naming no player and no club is NOT searched with the query alone any more --
-    # the tool answers with an ask-which text; a manager / press-conference question names its club in `clubs`.
-    for must in ("manager", "press conference", "`clubs`", "no player and no club", "ask-which", "never guess the club", "always pass the player names",
+    for must in ("manager", "press conference", "`clubs`", "query alone", "never guess the club", "always pass the player names",
                  "injury", "fitness", "availability", "suspension", "team-news", "fpl status"):
         assert must in d, must
     assert "not for prediction" in d and "comparison" in d and "transfer" in d, "the description must keep the tool off the other tools' questions"
-    assert "query alone" not in d and "never ask first" not in d, "the old search-anyway sentence must be gone (V1)"
-    assert "ask the user which player, club or team" in d
+    assert "ask first" in d or "ask the user first" in d or "clarif" in d, "no clarifying question before searching"
 
 
 def test_s1_the_tool_searches_with_a_club_only_and_with_the_query_only(conn):

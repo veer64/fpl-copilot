@@ -360,12 +360,9 @@ tools_schema = [
                         "official flag with its time; resolve_player's `status` is not FPL's flag) and the news second, "
                         "for context. Always pass "
                         "the player names in `players` when the question names players; pass the club in `clubs` when it "
-                        "names a club. A question that names no player and no club (and is not about the user's own team, "
-                        "whose players go in `players`) is not searched: the tool returns no articles and an ask-which "
-                        "text, so ask the user which player, club or team they mean; never guess the club. For a question "
-                        "about the user's own squad, say so in `query` (for example 'my squad: injuries') and pass the squad's "
-                        "players; a broad list of clubs or players for a question that names none of them is not searched either. "
-                        "Not for prediction, comparison, who-to-pick or transfer questions: those have their "
+                        "names a club; when the person named is not a player (a manager, a coach) and the club is not "
+                        "stated, search with the query alone: never guess the club and never ask first, the search is "
+                        "the answer. Not for prediction, comparison, who-to-pick or transfer questions: those have their "
                         "own tools. Answer in the order the AVAILABILITY ANSWERS rules give. "
                         "Results carry an id (c<number>) to cite, "
                         "the source, the date and its basis, the age, whether the result is about a requested player, and "
@@ -638,53 +635,9 @@ def _exc_text(e):
 
 # A lookup so we can call the right Python function by name,
 # once Claude tells us which tool it wants
-VAGUE_ASK = "This question names no player or club. Ask the user which player, club or their own team they mean."
-# Gate attempt 1 (Prompt G, 29 Oct 2026 22:05Z): the agent never made an unscoped call -- it passed ALL 20 clubs, nine
-# well-known players or the user's 15 names and answered the vague question broadly. So the lock also covers a BROAD
-# scope the question did not name: more than BROAD_CLUBS clubs or BROAD_PLAYERS players, none of them named in the query
-# (any name token of 3+ letters, accent-folded), and no own-team wording in the query (my / mine / our / I own).
-BROAD_CLUBS, BROAD_PLAYERS = 3, 4
-_OWN_TEAM = re.compile(r"\b(?:my|mine|our)\b|\bi own\b", re.I)
-
-
-def _fold(text):
-    import unicodedata
-    return "".join(ch for ch in unicodedata.normalize("NFKD", str(text or "")) if not unicodedata.combining(ch)).lower()
-
-
-def _names_in_query(query, names):
-    q = _fold(query)
-    for name in names or []:
-        for tok in re.split(r"[\s\-']+", _fold(name)):
-            if len(tok) >= 3 and re.search(r"(?<![a-z])" + re.escape(tok) + r"(?![a-z])", q):
-                return True
-    return False
-
-
-def is_broad_unnamed(query, players, clubs):
-    """True when the call lists more than BROAD_CLUBS clubs or BROAD_PLAYERS players, the query names none of them and
-    says nothing about the user's own team -- a vague question the agent scoped by itself (V1: ask which instead)."""
-    players, clubs = list(players or []), list(clubs or [])
-    if len(clubs) <= BROAD_CLUBS and len(players) <= BROAD_PLAYERS:
-        return False
-    if _OWN_TEAM.search(query or ""):
-        return False
-    return not _names_in_query(query, players + clubs)
-
-
 def search_news(query, players=None, clubs=None):
-    """The agent-facing search (news_search.py): the server sets as_of = now; no other parameter is exposed.
-    V1 (user, 29 Oct 2026; Prompt G): a call with no player, no club and no own-team scope (the squad's players in
-    `players`) is NOT searched -- no articles, the ask-which text -- so a vague news question cannot be answered broadly."""
-    players, clubs = list(players or []), list(clubs or [])
-    if not players and not clubs:
-        return {"results": [], "no_news_for": [], "ambiguous_players": [], "ask": VAGUE_ASK, "scope": "none",
-                "note": "no search was run: the question names no player, no club and not the user's own team"}
-    if is_broad_unnamed(query, players, clubs):
-        return {"results": [], "no_news_for": [], "ambiguous_players": [], "ask": VAGUE_ASK, "scope": "broad",
-                "note": (f"no search was run: {len(players)} players / {len(clubs)} clubs were listed but the question names "
-                         "none of them and is not about the user's own squad")}
-    return _search_news(query, players, clubs)
+    """The agent-facing search (news_search.py): the server sets as_of = now; no other parameter is exposed."""
+    return _search_news(query, players or [], clubs or [])
 
 
 def _citation_check(turn_id, text, returned_ids):

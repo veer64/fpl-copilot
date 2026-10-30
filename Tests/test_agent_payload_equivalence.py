@@ -16,12 +16,10 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
 
 import payload_fixture as pf                               # noqa: E402
 
-FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v7.json"   # v7 (2026-10-29, Prompt G attempt 2): v6 + the own-squad / broad-scope sentence; v4 lives on the parked branch agent-sonnet5
+FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"   # v5 (2026-10-27, Prompt E): set_my_squad's ticket sentence + preview_ticket; v4 lives on the parked branch agent-sonnet5
 V1 = REPO / "Tests" / "fixtures" / "agent_payloads_v1.json"
 V2 = REPO / "Tests" / "fixtures" / "agent_payloads_v2.json"
 V3 = REPO / "Tests" / "fixtures" / "agent_payloads_v3.json"        # v3 (2026-10-26): the countdown line beside the Now line
-V5 = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"        # v5 (2026-10-27, Prompt E): the set_my_squad ticket sentence + preview_ticket
-V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v6.json"        # v6 (2026-10-29, Prompt G): v5 + the search_news ask-which sentence
 
 
 def _first_block(doc):
@@ -52,7 +50,7 @@ def test_the_fixture_describes_the_core_set():
     assert pf.now_from_context(doc["context_text"]) is None and "- Now:" not in doc["context_text"]
     assert pf.now_from_context(doc["now_line"]).strftime("%Y-%m-%dT%H:%M:00Z") == doc["frozen_now"]
     assert doc["countdown_line"].startswith("Next deadline: GW") and " UTC — in " in doc["countdown_line"]
-    assert V1.exists() and V2.exists() and V3.exists() and V5.exists() and V6.exists()     # the earlier records are kept
+    assert V1.exists() and V2.exists() and V3.exists()     # the earlier records are kept
 
 
 def test_the_normalizer_treats_a_string_and_its_single_text_block_alike():
