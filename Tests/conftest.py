@@ -1,6 +1,7 @@
 """Shared test setup (Prompt H, 2026-10-30): agent turns run in tests never write fact_checks rows to the developer's
 database. fact_check.record is replaced by a no-op for every test (the agent calls it through the module, so an
 importlib.reload(agent) keeps the stub); a test that checks the writer itself opts out with @pytest.mark.fact_check_log."""
+import os
 import sys
 from pathlib import Path
 
@@ -13,6 +14,9 @@ if str(REPO) not in sys.path:
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "fact_check_log: the test writes fact_checks rows itself (no stub)")
+    # Prompt L (2026-10-30): Langfuse tracing is OFF for the whole test process, whatever the developer's .env says
+    # (load_dotenv never overrides a variable already set). A tracing test turns it on with monkeypatch and a fake client.
+    os.environ["LANGFUSE_ENABLED"] = "0"
 
 
 @pytest.fixture(autouse=True)

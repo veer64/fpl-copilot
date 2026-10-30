@@ -9,6 +9,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
     if p not in sys.path:
@@ -113,3 +115,112 @@ def test_the_shared_parts_are_the_prompt_file_and_the_tool_schema(monkeypatch):
     system_text = "".join(b["text"] for b in doc["shared"]["system"])
     assert system_text == f"{doc['context_text']}\n\n{ag.SYSTEM_PROMPT}"
     assert [t["name"] for t in doc["shared"]["tools"]] == [t["name"] for t in ag.tools_schema]
+
+
+# ---- Prompt L (2026-10-30): Langfuse tracing ON and OFF send the same bytes (T1) -------------------------------------------
+# The request agent.run_agent hands the client is captured RAW at the call (json of the keyword set, cache_control and all)
+# with tracing OFF and ON -- ON once with an in-memory fake Langfuse client and once with the real SDK pointed at a closed
+# local port -- and the two must be byte-identical; ON must also equal fixture v5 under the comparison rule above.
+
+class _FakeObs:
+    def __init__(self, backend):
+        self.backend, self.trace_id, self.id = backend, "0" * 32, "0" * 16
+
+    def start_observation(self, **kw):
+        self.backend.n += 1
+        return _FakeObs(self.backend)
+
+    def update(self, **kw):
+        self.backend.n += 1
+        return self
+
+    def end(self, **kw):
+        self.backend.n += 1
+        return self
+
+    def score_trace(self, **kw):
+        self.backend.n += 1
+
+
+class _FakeLangfuse:
+    def __init__(self):
+        self.n = 0
+
+    def start_observation(self, **kw):
+        self.n += 1
+        return _FakeObs(self)
+
+    def flush(self):
+        pass
+
+    def shutdown(self):
+        pass
+
+    def propagate(self, **kw):
+        import contextlib
+        self.n += 1
+        return contextlib.nullcontext()
+
+
+_ORIGINAL_SCRIPT = pf._Script                              # subclass the original, never a patched one
+
+
+def _raw_script(sink):
+    class RawScript(_ORIGINAL_SCRIPT):
+        def create(self, **kw):
+            sink.append(json.dumps(kw, default=pf._block_to_dict, ensure_ascii=False))
+            return super().create(**kw)
+    return RawScript
+
+
+def _set_tracing(monkeypatch, mode):
+    import tracing
+    if mode == "off":
+        monkeypatch.setenv("LANGFUSE_ENABLED", "0")
+    else:
+        monkeypatch.setenv("LANGFUSE_ENABLED", "1")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test-payload-" + mode)
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+        monkeypatch.setenv("LANGFUSE_BASE_URL", "http://127.0.0.1:9")
+        monkeypatch.setenv("LANGFUSE_LOG_USER_TEXT", "1")
+    tracing._reset()
+    fake = None
+    if mode == "fake":
+        fake = _FakeLangfuse()
+        monkeypatch.setattr(tracing, "_make_backend", lambda: (fake, fake.propagate))
+    return tracing, fake
+
+
+def _capture_all(ag, monkeypatch, doc, sink):
+    monkeypatch.setattr(pf, "_Script", _raw_script(sink))
+    turn = pf.capture(ag, doc["tool_turn"]["question"], pf.tool_turn(), doc["context_text"], now=doc["frozen_now"])
+    firsts = [pf.capture(ag, item["question"], pf.reply_only(), doc["context_text"], now=doc["frozen_now"])[0]
+              for item in doc["first_calls"]]
+    return turn, firsts
+
+
+@pytest.mark.parametrize("mode", ["fake", "sdk_unreachable"])
+def test_tracing_on_and_off_send_byte_identical_requests_equal_to_v5(monkeypatch, mode):
+    ag = _agent(monkeypatch)
+    doc = _fixture()
+    import tracing
+    _set_tracing(monkeypatch, "off")
+    raw_off = []
+    _capture_all(ag, monkeypatch, doc, raw_off)
+    assert tracing.LAST_TURN.get("enabled") is False
+    _, fake = _set_tracing(monkeypatch, mode)
+    raw_on = []
+    try:
+        turn, firsts = _capture_all(ag, monkeypatch, doc, raw_on)
+        assert tracing.LAST_TURN.get("enabled") is True and tracing.LAST_TURN.get("errors") == 0
+        if fake is not None:
+            assert fake.n > 0                                   # the fake client was really called
+    finally:
+        tracing.shutdown(timeout_s=1.0)
+        tracing._reset()
+    assert len(raw_on) == len(raw_off) == 3 + len(doc["first_calls"])
+    assert raw_on == raw_off, "tracing changed the bytes of a request"
+    for i, req in enumerate(turn):
+        assert {k: req[k] for k in req if k != "messages"} == doc["shared"] and req["messages"] == doc["tool_turn"]["calls"][i]
+    for item, req in zip(doc["first_calls"], firsts):
+        assert {k: req[k] for k in req if k != "messages"} == doc["shared"] and req["messages"] == item["messages"], item["id"]

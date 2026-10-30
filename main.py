@@ -40,6 +40,7 @@ each other's turns. Closing that is the LangGraph checkpointing work keyed
 holds state, not a patch to this file. The gate reduces its blast radius to holders
 of the key; it does not fix it.
 """
+import contextlib
 import os
 import secrets
 import time
@@ -53,8 +54,16 @@ from pydantic import BaseModel
 
 from agent import run_agent
 import squad_previews                                   # Prompt E (2026-10-27): /reset cancels the user's preview tickets
+import tracing                                          # Prompt L (2026-10-30): Langfuse traces, flushed on shutdown
 
-app = FastAPI()
+
+@contextlib.asynccontextmanager
+async def _lifespan(app):
+    yield
+    tracing.shutdown()                                  # flush the traces at shutdown, bounded (tracing.SHUTDOWN_TIMEOUT_S)
+
+
+app = FastAPI(lifespan=_lifespan)
 
 # Read once at import. Supplied by docker compose from the untracked
 # /root/fpl-copilot/.env (`env_file: .env`), so it is never in the repo and a

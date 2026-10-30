@@ -398,6 +398,7 @@ import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
 import fact_check                                       # Prompt H M1 (2026-10-30): the final answer vs this turn's tool rows
+import tracing                                          # Prompt L (2026-10-30): Langfuse traces, recorded by hand, off by default
 import time
 import now_context
 from now_context import context_block, now_line
@@ -411,6 +412,10 @@ load_dotenv()
 # replace this attribute with a counting wrapper, so the call below must read it from the module at call
 # time, never bind it.
 client = llm.default_client(timeout_s=None)
+# Prompt L (2026-10-30): the Langfuse client (~1 s to build) is built here, at import, when LANGFUSE_ENABLED=1 -- never
+# inside a turn. Off (the default) it is never built. The Anthropic client above is not wrapped, patched or proxied: the
+# loop records its own request / response through tracing.py (tracing never changes, blocks or breaks a turn).
+tracing.init()
 
 # The system prompt (master plan 5.5): a reviewed, diffable file, not a
 # string in code. Loaded once at import; a missing file is a startup error,
@@ -758,6 +763,7 @@ def run_agent(user_message: str, messages: list = None):
     try:
         return _run_turn(user_message, messages)
     finally:
+        tracing.close_open()                         # Prompt L: a turn that raised closes its trace at ERROR level
         turn_context.end()
 
 
@@ -769,6 +775,7 @@ def _run_turn(user_message: str, messages: list = None):
     question_index = len(messages) - 1               # the turn's question: the clock line rides on it at send time
     turn_id = uuid.uuid4().hex                       # Piece 7: one id per reply, for citation_checks
     turn_context.begin(turn_id)                      # Prompt E: the loop's channel; tools read it, the model cannot set it
+    trace = tracing.start_turn(turn_id, user_message)    # Prompt L: one Langfuse trace per turn (a no-op when tracing is off)
     now = now_context.clock()                        # ONE instant per turn: the block's lines and the Now line agree
     system = _system_for_turn(now)                   # the "now" block, rebuilt once per turn (2026-10-08), clock line apart
     now_text = now_line(now)                         # "- Now: <weekday> <date> <HH:MM> UTC." -> the user message (2026-10-24)
@@ -791,6 +798,7 @@ def _run_turn(user_message: str, messages: list = None):
         info = {"facts_checked": 0, "mismatches": [], "sent_back": False, "outcome": "clean", "note": None,
                 "rewrite_mismatches": None, "extra_usd": None, "extra_seconds": None, "error": None}
         delivered = raw
+        fc_span = trace.fact_check()                                     # Prompt L: the check's span (+ its score below)
         try:
             res = fact_check.check(raw, turn_calls)
             info.update(facts_checked=res["facts_checked"], mismatches=res["mismatches"])
@@ -808,7 +816,9 @@ def _run_turn(user_message: str, messages: list = None):
                            "tools": _tools_for_request(tools_schema),
                            "tool_choice": dict(FACT_CHECK_TOOL_CHOICE),
                            "messages": _messages_for_request(messages + [{"role": "user", "content": note}], now_text, question_index)}
+                gen = trace.generation(request, send_back=True, parent=fc_span)
                 reply = llm.chat("agent", request, client=client)
+                trace.generation_done(gen, reply)
                 _tally_usage(sb, reply)
                 _tally_usage(usage, reply)
                 blocks = list(getattr(reply, "content", None) or [])
@@ -835,6 +845,7 @@ def _run_turn(user_message: str, messages: list = None):
                     info["extra_usd"] = None
             print(f"  [fact check: {len(res['mismatches'])} mismatch(es), sent back once -> {info['outcome']}]")
         _fact_check_log(turn_id, info)
+        trace.fact_check_done(fc_span, info)
         LAST_FACT_CHECK.clear()
         LAST_FACT_CHECK.update(info, original=raw, delivered=delivered)
         return delivered
@@ -851,6 +862,7 @@ def _run_turn(user_message: str, messages: list = None):
         LAST_TURN.clear()
         LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
         _usage_log(turn_id, usage, n_names)
+        trace.end(rendered)
         return rendered, messages
 
     while True:
@@ -858,7 +870,9 @@ def _run_turn(user_message: str, messages: list = None):
                    "system": _system_for_request(system),
                    "tools": _tools_for_request(tools_schema),
                    "messages": _messages_for_request(messages, now_text, question_index)}
+        gen = trace.generation(request)
         response = llm.chat("agent", request, client=client)                      # conn=None: chat_usage is the ledger
+        trace.generation_done(gen, response)
         _tally_usage(usage, response)
 
         messages.append({"role": "assistant", "content": response.content})
@@ -877,7 +891,9 @@ def _run_turn(user_message: str, messages: list = None):
 
                 print(f"  [calling tool: {tool_name}({tool_input})]")
 
+                span = trace.tool(tool_name, tool_input)
                 result = call_tool(tool_name, tool_input)
+                trace.tool_done(span, tool_name, result)
                 turn_calls.append((tool_name, tool_input, result))
                 if tool_name == "search_news" and isinstance(result, dict):
                     hits = [r for r in (result.get("results") or []) if isinstance(r, dict) and r.get("id")]
@@ -904,6 +920,7 @@ def _run_turn(user_message: str, messages: list = None):
             LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0,
                              guard={"stop_reason": response.stop_reason, "block_types": block_types}, **usage)
             _usage_log(turn_id, usage, 0)
+            trace.end(GUARD_REPLY, guard={"stop_reason": response.stop_reason, "block_types": block_types})
             return GUARD_REPLY, messages
 
         messages.append({"role": "user", "content": tool_results})

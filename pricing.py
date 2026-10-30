@@ -56,6 +56,24 @@ def turn_usd(model, input_tokens, output_tokens, cache_read=0, cache_write=0):
                  + (output_tokens or 0) / 1e6 * p["output"], 6)
 
 
+def cost_details(model, input_tokens, output_tokens, cache_read=0, cache_write=0):
+    """The same price as turn_usd, per bucket and NOT rounded, for the Langfuse trace (tracing.py, Prompt L 2026-10-30):
+    {input, cache_creation_input_tokens, cache_read_input_tokens, output, total} in dollars, where total is the four
+    terms summed in turn_usd's order, so round(total, 6) == turn_usd(...) exactly and a turn's per-call totals add up to
+    its chat_usage usd to within that rounding. None when the model has no row (the trace then carries no cost: never 0)."""
+    p = USD_PER_MTOK.get(model)
+    if p is None:
+        return None
+    base_in = p["input"]
+    parts = {"input": (input_tokens or 0) / 1e6 * base_in,
+             "cache_creation_input_tokens": (cache_write or 0) / 1e6 * base_in * CACHE_WRITE_MULT,
+             "cache_read_input_tokens": (cache_read or 0) / 1e6 * base_in * cache_read_multiplier(model),
+             "output": (output_tokens or 0) / 1e6 * p["output"]}
+    parts["total"] = (parts["input"] + parts["cache_creation_input_tokens"] + parts["cache_read_input_tokens"]
+                      + parts["output"])
+    return parts
+
+
 def usd(model, input_tokens, output_tokens):
     """The pre-caching price (no cache tokens): kept for the callers that have none."""
     return turn_usd(model, input_tokens, output_tokens)

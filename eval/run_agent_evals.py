@@ -66,6 +66,9 @@ COLUMNS = ["num", "question", "exploits", "must_call", "must_not", "setup",
 # on the price being exact.
 from pricing import USD_PER_MTOK as _PRICES          # noqa: E402
 import pricing as _pricing                           # noqa: E402  (turn_usd: the cache rates, 2026-10-19)
+import tracing                                       # noqa: E402  (Prompt L, 2026-10-30: each turn's Langfuse record)
+
+TRACING_ENVIRONMENT = "eval"                         # Prompt L: every trace this runner makes is in the "eval" environment
 
 USD_IN_PER_MTOK = _PRICES["claude-sonnet-4-6"]["input"]
 USD_OUT_PER_MTOK = _PRICES["claude-sonnet-4-6"]["output"]
@@ -589,6 +592,7 @@ def run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg=None):
             recorder.clear()
             getattr(agent, "LAST_CONTEXT", {}).clear()
             getattr(agent, "LAST_FACT_CHECK", {}).clear()          # Prompt H M1: this turn's fact check, saved below
+            tracing.LAST_TURN.clear()                                # Prompt L: this turn's trace record, saved below
             t0 = time.time()
             before = budget.snapshot()
             r = client.post("/chat", json={"message": text})
@@ -600,6 +604,7 @@ def run_one(q, client, agent, recorder, budget, keeper, conn, judge_cfg=None):
                           "calls": recorder.dump(),
                           "context_block": getattr(agent, "LAST_CONTEXT", {}).get("text"),
                           "fact_check": dict(getattr(agent, "LAST_FACT_CHECK", {}) or {}),
+                          "tracing": dict(tracing.LAST_TURN),
                           "latency_s": round(time.time() - t0, 2),
                           "anthropic_calls": after["anthropic_calls"] - before["anthropic_calls"],
                           "input_tokens": after["input_tokens"] - before["input_tokens"],
@@ -831,6 +836,7 @@ def build_parser():
 
 def main(argv=None):
     a = build_parser().parse_args(argv)
+    os.environ[tracing.ENVIRONMENT_ENV] = TRACING_ENVIRONMENT    # Prompt L: before agent.py builds the Langfuse client
 
     questions = select(load_questions(a.file or SHEET_FILE), a)
     if a.dry_run:
@@ -919,6 +925,7 @@ def main(argv=None):
               + (f" -- stopped: {judge_cfg.stopped}" if judge_cfg.stopped else ""))
         gated = [(r["id"], m) for r in records for m in judge_gate(r)]
         print(f"judge gate ({', '.join(TRUSTED_METRICS)}): {len(gated)} confirmed FAIL(s)" + (f": {gated}" if gated else ""))
+    tracing.shutdown()                               # Prompt L: flush the traces (bounded; an unreachable host cannot hold us)
     conn.close()
     return 0
 
