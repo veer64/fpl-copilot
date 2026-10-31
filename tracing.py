@@ -25,7 +25,10 @@ The tree of one turn (trace id = Langfuse.create_trace_id(seed=turn_id), i.e. sh
         the tool returned {"error": ...}
     fact_check (span): the check's result; child fact_check_send_back (generation, metadata send_back=true) when the
         answer was sent back; plus a trace score "fact_check" = pass | sent_back_fixed | sent_back_flagged (| check_error
-        when the checker itself failed). The loop-guard reply has no fact check, so no span and no score.
+        when the checker itself failed), and beside it two BOOLEAN scores (Prompt L2) fact_check_first_try and
+        fact_check_final: pass (1, 1), sent_back_fixed (0, 1), sent_back_flagged (0, 0), check_error neither; their ids
+        come from the trace id and the score name, so a re-send updates them. The loop-guard reply has no fact check, so
+        no span and no score.
 
 Failure contract: every function here catches its own exceptions -- a tracing failure never breaks, blocks or changes a
 turn -- and the first failure is printed once per process ("[tracing ...]"), never once per call. The SDK sends in its
@@ -56,6 +59,13 @@ SCORE_NAME = "fact_check"
 SCORE_VALUES = {"clean": "pass", "fixed": "sent_back_fixed", "check_error": "check_error"}   # any other outcome was sent
                                          # back and delivered still flagged (still_wrong, tool_call_in_rewrite, no_text,
                                          # sendback_failed) -> "sent_back_flagged"
+# Prompt L2 (2026-10-31; USER DECISION 30 Oct: "Yes, let's do both and let's view both on the dashboard as well."): two
+# BOOLEAN trace scores beside the categorical one. first_try 1 = no send-back was needed; final 1 = the reply the user saw
+# passed the check (the rewrite is re-checked; a failed rewrite delivers the original, which had failed). check_error has
+# neither (nothing was measured), and the loop guard has no fact check at all.
+FIRST_TRY_SCORE = "fact_check_first_try"
+FINAL_SCORE = "fact_check_final"
+YES_NO = {"pass": (1, 1), "sent_back_fixed": (0, 1), "sent_back_flagged": (0, 0)}
 
 # What the latest turn's tracing did, for the process that ran it (the eval runner saves it per turn): enabled, trace_id,
 # turn_id, user_id, generations, send_back_generations, tools, fact_check, score, loop_guard, tracing_ms, errors.
@@ -83,6 +93,17 @@ def user_input(message):
     """The trace input: the user's message when LANGFUSE_LOG_USER_TEXT=1, else its length only."""
     text = message if isinstance(message, str) else str(message)
     return text if log_user_text() else f"[redacted, {len(text)} chars]"
+
+
+def yes_no_scores(value):
+    """The two BOOLEAN scores for a "fact_check" value as {name: 1 | 0}; {} for check_error and anything unmapped."""
+    pair = YES_NO.get(value)
+    return {} if pair is None else {FIRST_TRY_SCORE: pair[0], FINAL_SCORE: pair[1]}
+
+
+def score_id(trace_id, name):
+    """A score's id from its trace id and its name (sha256, 32 hex): sending it again updates that score, never adds one."""
+    return hashlib.sha256(f"{trace_id}:{name}".encode("utf-8")).hexdigest()[:32]
 
 
 def trace_id_for(turn_id):
@@ -337,7 +358,7 @@ class Turn:
         self.root, self.open, self.parent_of, self.model_of, self.ended = None, [], {}, {}, False
         self.spent, self.errors = 0.0, 0
         self.n = {"generations": 0, "send_back_generations": 0, "tools": 0, "fact_check": False, "score": None,
-                  "loop_guard": False}
+                  "yes_no": None, "loop_guard": False}
         try:
             with self.propagate(**self.prop):
                 self.root = self.client.start_observation(trace_context={"trace_id": self.trace_id}, name=TRACE_NAME,
@@ -431,16 +452,28 @@ class Turn:
         info = info or {}
         outcome = info.get("outcome") or "clean"
         value = SCORE_VALUES.get(outcome, "sent_back_flagged")
-        self.n["score"] = value
+        flags = yes_no_scores(value)
+        self.n["score"], self.n["yes_no"] = value, flags
         if obs is not None:
             self._close_open("the send-back call returned no response", parent=obs)
             self._close(obs, output={k: info.get(k) for k in ("facts_checked", "mismatches", "sent_back", "outcome",
                                                                "rewrite_mismatches", "extra_usd", "error")},
                         metadata={"outcome": outcome, "score": value})
         if self.root is not None:
-            self.root.score_trace(name=SCORE_NAME, value=value, data_type="CATEGORICAL",
-                                  comment=f"outcome {outcome}; facts checked {info.get('facts_checked')}; "
-                                          f"mismatches {len(info.get('mismatches') or [])}")
+            self._score(name=SCORE_NAME, value=value, data_type="CATEGORICAL",
+                        comment=f"outcome {outcome}; facts checked {info.get('facts_checked')}; "
+                                f"mismatches {len(info.get('mismatches') or [])}")
+            for name, flag in flags.items():
+                self._score(name=name, value=flag, score_id=score_id(self.trace_id, name), data_type="BOOLEAN",
+                            comment=f"fact_check {value}")
+
+    def _score(self, **kw):
+        """One trace score; a failure is counted and logged once, and the turn's other scores are still sent."""
+        try:
+            self.root.score_trace(**kw)
+        except Exception as e:                           # noqa: BLE001
+            self.errors += 1
+            _fail("score_trace", e)
 
     def _finish(self):
         self.ended = True

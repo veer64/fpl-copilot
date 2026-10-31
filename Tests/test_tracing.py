@@ -255,6 +255,15 @@ def _run(ag, monkeypatch, responses, question=QUESTION):
     return answer, fake
 
 
+def _scores(lf):
+    """Every score sent, in order, as (name, value, data type)."""
+    return [(s["name"], s["value"], s.get("data_type")) for s in lf.scores]
+
+
+FLAGGED = [("fact_check", "sent_back_flagged", "CATEGORICAL"), ("fact_check_first_try", 0, "BOOLEAN"),
+           ("fact_check_final", 0, "BOOLEAN")]
+
+
 def _usage_row(ag):
     rows = [w for w in ag._test_writes if w[0] == "chat_usage"]
     assert len(rows) == 1
@@ -277,7 +286,8 @@ def test_t2_a_two_tool_round_turn_is_one_trace_with_a_generation_per_call_and_a_
     assert [t.name for t in tools] == ["get_my_xi", "get_my_xi", "get_fixtures"]      # 2 tools asked at once = 2 spans
     fcs = [o for o in lf.observations if o.name == "fact_check"]
     assert len(fcs) == 1 and fcs[0].ended
-    assert [s["name"] for s in lf.scores] == ["fact_check"] and lf.scores[0]["value"] == "pass"
+    assert _scores(lf) == [("fact_check", "pass", "CATEGORICAL"), ("fact_check_first_try", 1, "BOOLEAN"),
+                           ("fact_check_final", 1, "BOOLEAN")]
     assert all(o.ended for o in lf.observations)
     assert all(o.trace_id == roots[0].trace_id for o in lf.observations)
     assert [g.metadata().get("send_back") for g in gens] == [False, False, False]
@@ -305,7 +315,8 @@ def test_t3_a_fact_check_mismatch_adds_exactly_one_generation_marked_send_back(a
     marked = [g for g in gens if g.metadata().get("send_back")]
     assert len(marked) == 1 and marked[0] is gens[-1]
     assert marked[0].parent is not None and marked[0].parent.name == "fact_check"
-    assert [s["value"] for s in lf.scores] == ["sent_back_fixed"]
+    assert _scores(lf) == [("fact_check", "sent_back_fixed", "CATEGORICAL"), ("fact_check_first_try", 0, "BOOLEAN"),
+                           ("fact_check_final", 1, "BOOLEAN")]
 
 
 def test_t3_a_rewrite_still_wrong_scores_sent_back_flagged(ag, monkeypatch):
@@ -313,7 +324,7 @@ def test_t3_a_rewrite_still_wrong_scores_sent_back_flagged(ag, monkeypatch):
     still = "From your squad:\n- **Mbeumo** — 4.8 expected points, 96% chance of playing."
     _run(ag, monkeypatch, [_tool("get_my_xi"), _text(WRONG), _text(still)])
     lf = made[-1]
-    assert [s["value"] for s in lf.scores] == ["sent_back_flagged"]
+    assert _scores(lf) == FLAGGED
     assert len([g for g in lf.of_type("generation") if g.metadata().get("send_back")]) == 1
 
 
@@ -333,7 +344,7 @@ def test_t3_a_failed_send_back_call_is_closed_as_an_error_and_scored_flagged(ag,
     lf = made[-1]
     sb = [g for g in lf.of_type("generation") if g.metadata().get("send_back")]
     assert len(sb) == 1 and sb[0].ended and sb[0].field("level") == "ERROR"
-    assert [s["value"] for s in lf.scores] == ["sent_back_flagged"]
+    assert _scores(lf) == FLAGGED
 
 
 # ---- T4 the loop guard ---------------------------------------------------------------------------------------------------
@@ -347,6 +358,160 @@ def test_t4_the_loop_guard_reply_is_recorded_as_metadata_with_no_fact_check(ag, 
     assert root.metadata().get("loop_guard") is True and root.field("output") == ag.GUARD_REPLY and root.ended
     assert [o for o in lf.observations if o.name == "fact_check"] == [] and lf.scores == []
     assert len(lf.of_type("generation")) == 1
+
+
+# ---- T12 the yes/no scores (Prompt L2, 2026-10-31) ----------------------------------------------------------------------
+# USER DECISION (30 Oct): "Yes, let's do both and let's view both on the dashboard as well." Two BOOLEAN trace scores beside
+# the categorical "fact_check": fact_check_first_try (1 = no send-back was needed) and fact_check_final (1 = the reply the
+# user saw passed the check). pass -> (1, 1); sent_back_fixed -> (0, 1); sent_back_flagged -> (0, 0); check_error and the
+# loop guard -> neither. Ids from the trace id and the score name, so a re-send updates the same score.
+
+STILL = "From your squad:\n- **Mbeumo** — 4.8 expected points, 96% chance of playing."
+
+
+class _FakeRaising(_Fake):
+    """A scripted Anthropic fake whose response may be an exception, raised in place of a reply."""
+
+    def create(self, **kw):
+        self.calls.append(kw)
+        r = self.responses.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+class ScoreRaisingLangfuse(FakeLangfuse):
+    """Observations work; score_trace raises for the names in raise_names (None = every score)."""
+    raise_names = None
+
+    def start_observation(self, **kw):
+        obs = super().start_observation(**kw)
+        backend = self
+
+        def score_trace(**skw):
+            backend.hit("score_trace")
+            if backend.raise_names is None or skw.get("name") in backend.raise_names:
+                raise RuntimeError("scores exploded")
+            backend.scores.append(dict(skw, trace_id=obs.trace_id))
+        obs.score_trace = score_trace
+        return obs
+
+
+def test_t12_the_mapping_table():
+    import tracing
+    assert tracing.yes_no_scores("pass") == {"fact_check_first_try": 1, "fact_check_final": 1}
+    assert tracing.yes_no_scores("sent_back_fixed") == {"fact_check_first_try": 0, "fact_check_final": 1}
+    assert tracing.yes_no_scores("sent_back_flagged") == {"fact_check_first_try": 0, "fact_check_final": 0}
+    for value in ("check_error", None, "", "clean", "fixed", "anything else"):
+        assert tracing.yes_no_scores(value) == {}
+
+
+@pytest.mark.parametrize("outcome,responses,value,flags", [
+    ("clean", lambda: [_tool("get_my_xi"), _text(RIGHT)], "pass", (1, 1)),
+    ("fixed", lambda: [_tool("get_my_xi"), _text(WRONG), _text(RIGHT)], "sent_back_fixed", (0, 1)),
+    ("still_wrong", lambda: [_tool("get_my_xi"), _text(WRONG), _text(STILL)], "sent_back_flagged", (0, 0)),
+    ("tool_call_in_rewrite", lambda: [_tool("get_my_xi"), _text(WRONG), _tool("get_my_xi")], "sent_back_flagged", (0, 0)),
+    ("no_text", lambda: [_tool("get_my_xi"), _text(WRONG), _Resp([], "end_turn")], "sent_back_flagged", (0, 0)),
+    ("sendback_failed", lambda: [_tool("get_my_xi"), _text(WRONG), ConnectionError("network down")], "sent_back_flagged",
+     (0, 0)),
+], ids=["pass", "fixed", "still_wrong", "tool_call_in_rewrite", "no_text", "sendback_failed"])
+def test_t12_each_mapping_row_sends_both_yes_no_scores_on_the_trace(ag, monkeypatch, outcome, responses, value, flags):
+    tracing, made = _tracing_on(monkeypatch)
+    monkeypatch.setattr(ag, "client", _FakeRaising(responses()))
+    ag.run_agent(QUESTION, [])
+    assert ag.LAST_FACT_CHECK["outcome"] == outcome                     # the path under test is the one taken
+    lf = made[-1]
+    trace_id = lf.roots()[0].trace_id
+    assert _scores(lf) == [("fact_check", value, "CATEGORICAL"), ("fact_check_first_try", flags[0], "BOOLEAN"),
+                           ("fact_check_final", flags[1], "BOOLEAN")]
+    for s in lf.scores[1:]:
+        assert type(s["value"]) is int and s["trace_id"] == trace_id
+        assert s["score_id"] == tracing.score_id(trace_id, s["name"])
+    assert tracing.LAST_TURN["yes_no"] == {"fact_check_first_try": flags[0], "fact_check_final": flags[1]}
+
+
+def test_t12_check_error_sends_the_categorical_score_only(ag, monkeypatch):
+    tracing, made = _tracing_on(monkeypatch)
+
+    def broken(*a, **k):
+        raise ValueError("the checker broke")
+    monkeypatch.setattr(ag.fact_check, "check", broken)
+    answer, fake = _run(ag, monkeypatch, [_tool("get_my_xi"), _text(WRONG)])
+    assert answer == WRONG and ag.LAST_FACT_CHECK["outcome"] == "check_error" and len(fake.calls) == 2
+    assert _scores(made[-1]) == [("fact_check", "check_error", "CATEGORICAL")]
+    assert tracing.LAST_TURN["yes_no"] == {}
+
+
+def test_t12_the_loop_guard_sends_neither_yes_no_score(ag, monkeypatch):
+    tracing, made = _tracing_on(monkeypatch)
+    answer, fake = _run(ag, monkeypatch, [_Resp([_Block("thinking", thinking="", signature="s")], "max_tokens")])
+    assert answer == ag.GUARD_REPLY and tracing.LAST_TURN["loop_guard"] is True
+    assert made[-1].scores == [] and tracing.LAST_TURN["yes_no"] is None
+
+
+def test_t12_score_ids_come_from_the_trace_id_and_the_name_so_a_resend_is_the_same_score(ag, monkeypatch):
+    tracing, made = _tracing_on(monkeypatch)
+    monkeypatch.setattr(ag.uuid, "uuid4", lambda: types.SimpleNamespace(hex="ab" * 16))   # the same turn id twice
+    _run(ag, monkeypatch, [_tool("get_my_xi"), _text(RIGHT)])
+    _run(ag, monkeypatch, [_tool("get_my_xi"), _text(RIGHT)])
+    trace_id = tracing.trace_id_for("ab" * 16)
+    ids = [(s["name"], s["score_id"]) for s in made[-1].scores if s["data_type"] == "BOOLEAN"]
+    want = {n: hashlib.sha256(f"{trace_id}:{n}".encode("utf-8")).hexdigest()[:32]
+            for n in ("fact_check_first_try", "fact_check_final")}
+    assert len(ids) == 4 and ids[:2] == ids[2:] and dict(ids[:2]) == want
+    assert len(set(want.values())) == 2 and all(len(v) == 32 for v in want.values())
+    assert tracing.score_id(trace_id, "fact_check_final") == want["fact_check_final"]
+    assert tracing.score_id(tracing.trace_id_for("cd" * 16), "fact_check_final") != want["fact_check_final"]
+
+
+def test_t12_scores_raising_change_nothing_and_are_logged_once(ag, monkeypatch, capsys):
+    _off(monkeypatch)
+    off = _turn_writes(ag, monkeypatch, [_tool("get_my_xi"), _text(WRONG), _text(RIGHT)])
+    tracing, made = _tracing_on(monkeypatch, backend_cls=ScoreRaisingLangfuse)
+    capsys.readouterr()
+    on1 = _turn_writes(ag, monkeypatch, [_tool("get_my_xi"), _text(WRONG), _text(RIGHT)])
+    on2 = _turn_writes(ag, monkeypatch, [_tool("get_my_xi"), _text(WRONG), _text(RIGHT)])
+    assert on1 == off and on2 == off
+    assert len([l for l in capsys.readouterr().out.splitlines() if "[tracing" in l]) == 1
+    assert made[-1].calls.count("score_trace") == 6 and made[-1].scores == []
+    assert tracing.LAST_TURN["errors"] == 3
+
+
+@pytest.mark.parametrize("failing,left", [
+    ({"fact_check_first_try"}, [("fact_check", "pass", "CATEGORICAL"), ("fact_check_final", 1, "BOOLEAN")]),
+    ({"fact_check"}, [("fact_check_first_try", 1, "BOOLEAN"), ("fact_check_final", 1, "BOOLEAN")]),
+], ids=["first_try_fails", "categorical_fails"])
+def test_t12_one_failing_score_does_not_stop_the_others(ag, monkeypatch, failing, left):
+    class Partial(ScoreRaisingLangfuse):
+        raise_names = failing
+    tracing, made = _tracing_on(monkeypatch, backend_cls=Partial)
+    answer, _ = _run(ag, monkeypatch, [_tool("get_my_xi"), _text(RIGHT)])
+    assert answer == RIGHT and _scores(made[-1]) == left and tracing.LAST_TURN["errors"] == 1
+
+
+def test_t12_the_real_sdk_sends_boolean_scores_1_0_with_the_deterministic_ids(ag, monkeypatch):
+    """The real SDK (pointed at a closed local port): the score bodies it queues, captured before sending."""
+    import tracing
+    monkeypatch.setenv("LANGFUSE_ENABLED", "1")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", f"pk-lf-test-{uuid.uuid4().hex[:8]}")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+    monkeypatch.setenv("LANGFUSE_BASE_URL", UNREACHABLE)
+    monkeypatch.setenv("LANGFUSE_TRACING_ENVIRONMENT", "eval")
+    tracing._reset()
+    sent = []
+    try:
+        client, _ = tracing._backend()
+        monkeypatch.setattr(client._resources, "add_score_task", lambda score, force_sample=False: sent.append(score))
+        _run(ag, monkeypatch, [_tool("get_my_xi"), _text(WRONG), _text(RIGHT)])
+        trace_id = tracing.LAST_TURN["trace_id"]
+    finally:
+        tracing.shutdown(timeout_s=1.0)
+        tracing._reset()
+    assert [(s["name"], s["value"], s["dataType"]) for s in sent] == [
+        ("fact_check", "sent_back_fixed", "CATEGORICAL"), ("fact_check_first_try", 0.0, "BOOLEAN"),
+        ("fact_check_final", 1.0, "BOOLEAN")]
+    for s in sent[1:]:
+        assert s["id"] == tracing.score_id(trace_id, s["name"]) and s["traceId"] == trace_id and s["environment"] == "eval"
 
 
 # ---- T5 cost -------------------------------------------------------------------------------------------------------------
