@@ -224,3 +224,46 @@ def test_tracing_on_and_off_send_byte_identical_requests_equal_to_v5(monkeypatch
         assert {k: req[k] for k in req if k != "messages"} == doc["shared"] and req["messages"] == doc["tool_turn"]["calls"][i]
     for item, req in zip(doc["first_calls"], firsts):
         assert {k: req[k] for k in req if k != "messages"} == doc["shared"] and req["messages"] == item["messages"], item["id"]
+
+
+# ---- Prompt A (2026-10-31): the LangGraph engine sends the same bytes (G15) --------------------------------------------
+# AGENT_ENGINE=graph runs agent_graph.py's StateGraph over the loop's own step functions. Every request it hands the
+# client must be byte-identical to the loop's (the raw json of the keyword set, cache_control and all) and equal fixture
+# v5 under the comparison rule above, with tracing off and on (the fake client); every capture must really have gone
+# through the graph.
+
+@pytest.mark.parametrize("mode", ["off", "fake"])
+def test_g15_the_graph_engine_sends_byte_identical_requests_equal_to_v5(monkeypatch, mode):
+    ag = _agent(monkeypatch)
+    doc = _fixture()
+    import tracing
+    import agent_graph
+    ran = []
+    real_run_turn = agent_graph.run_turn
+
+    def counting(*a, **k):
+        ran.append(1)
+        return real_run_turn(*a, **k)
+    monkeypatch.setattr(agent_graph, "run_turn", counting)
+    _set_tracing(monkeypatch, "off")
+    monkeypatch.setenv("AGENT_ENGINE", "loop")
+    raw_loop = []
+    _capture_all(ag, monkeypatch, doc, raw_loop)
+    assert ran == []                                           # the loop ran the loop
+    _, fake = _set_tracing(monkeypatch, mode)
+    monkeypatch.setenv("AGENT_ENGINE", "graph")
+    raw_graph = []
+    try:
+        turn, firsts = _capture_all(ag, monkeypatch, doc, raw_graph)
+        if fake is not None:
+            assert fake.n > 0 and tracing.LAST_TURN.get("errors") == 0
+    finally:
+        tracing.shutdown(timeout_s=1.0)
+        tracing._reset()
+    assert len(ran) == 1 + len(doc["first_calls"])             # every capture went through the graph
+    assert len(raw_graph) == len(raw_loop) == 3 + len(doc["first_calls"])
+    assert raw_graph == raw_loop, "the graph engine changed the bytes of a request"
+    for i, req in enumerate(turn):
+        assert {k: req[k] for k in req if k != "messages"} == doc["shared"] and req["messages"] == doc["tool_turn"]["calls"][i]
+    for item, req in zip(doc["first_calls"], firsts):
+        assert {k: req[k] for k in req if k != "messages"} == doc["shared"] and req["messages"] == item["messages"], item["id"]

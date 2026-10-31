@@ -15,7 +15,8 @@ Switches (environment, read at call time):
 
 The tree of one turn (trace id = Langfuse.create_trace_id(seed=turn_id), i.e. sha256(turn_id) as 32 hex characters):
   agent-turn (as_type agent; input = the user message per the switch, output = the reply as delivered; user = the
-      turn's user, config_roles.DEFAULT_USER_ID(); metadata turn_id, user_id, loop_guard)
+      turn's user, config_roles.DEFAULT_USER_ID(); metadata turn_id, user_id, loop_guard, and engine = loop | graph
+      when the agent names its engine -- Prompt A, 2026-10-31)
     llm_call (generation) per Anthropic call of the loop: model, max_tokens, usage (input, output, cache read, cache
         write -- the API's buckets are already exclusive), cost from pricing.cost_details (omitted, never 0, for a model
         pricing.py has no row for), stop_reason; input = the request's SHAPE only (message count, the last message's
@@ -349,12 +350,14 @@ NOOP = _Noop()
 
 
 class Turn:
-    def __init__(self, backend, turn_id, user_id, user_message):
+    def __init__(self, backend, turn_id, user_id, user_message, engine=None):
         self.client, self.propagate = backend
         self.turn_id, self.user_id = str(turn_id), str(user_id)
         self.trace_id = trace_id_for(self.turn_id)
-        self.prop = {"user_id": self.user_id, "trace_name": TRACE_NAME,
-                     "metadata": {"turn_id": self.turn_id, "user_id": self.user_id}}
+        meta = {"turn_id": self.turn_id, "user_id": self.user_id}
+        if engine:                                   # Prompt A: which engine ran the turn (agent.py's loop or graph)
+            meta["engine"] = str(engine)
+        self.prop = {"user_id": self.user_id, "trace_name": TRACE_NAME, "metadata": dict(meta)}
         self.root, self.open, self.parent_of, self.model_of, self.ended = None, [], {}, {}, False
         self.spent, self.errors = 0.0, 0
         self.n = {"generations": 0, "send_back_generations": 0, "tools": 0, "fact_check": False, "score": None,
@@ -363,7 +366,7 @@ class Turn:
             with self.propagate(**self.prop):
                 self.root = self.client.start_observation(trace_context={"trace_id": self.trace_id}, name=TRACE_NAME,
                                                           as_type="agent", input=user_input(user_message),
-                                                          metadata={"turn_id": self.turn_id, "user_id": self.user_id})
+                                                          metadata=dict(meta))
         except Exception as e:                           # noqa: BLE001
             self.errors += 1
             _fail("opening the trace", e)
@@ -509,8 +512,9 @@ class Turn:
             self.root.end()
 
 
-def start_turn(turn_id, user_message):
-    """The tracer for one turn: a Turn when tracing is on and the client exists, else NOOP. Never raises."""
+def start_turn(turn_id, user_message, engine=None):
+    """The tracer for one turn: a Turn when tracing is on and the client exists, else NOOP. Never raises. `engine` (Prompt
+    A: "loop" | "graph") goes into the trace's metadata when given."""
     try:
         LAST_TURN.clear()
         if not switch_on():
@@ -525,7 +529,7 @@ def start_turn(turn_id, user_message):
             LAST_TURN.update(enabled=False, trace_id=None, reason="client not built")
             return NOOP
         t0 = time.perf_counter()
-        turn = Turn(backend, turn_id, _user_id(), user_message)
+        turn = Turn(backend, turn_id, _user_id(), user_message, engine=engine)
         turn.spent += time.perf_counter() - t0
         turn._publish()
         _STATE["turn"] = turn

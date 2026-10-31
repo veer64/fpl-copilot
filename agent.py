@@ -774,9 +774,9 @@ def run_agent(user_message: str, messages: list = None):
 # rendered reply). The loop below calls them in the order it always ran them. Each step mutates the turn's lists and dicts
 # in place, exactly as the loop always did, and returns the keys it set (the caller merges them).
 
-def _begin_turn(user_message, messages=None):
+def _begin_turn(user_message, messages=None, engine="loop"):
     """The turn's state, set up as _run_turn always did: the question appended, the turn opened on turn_context and in
-    tracing, ONE clock instant, the system prompt and the clock line built."""
+    tracing (its metadata naming the engine), ONE clock instant, the system prompt and the clock line built."""
     if messages is None:
         messages = []
 
@@ -784,7 +784,7 @@ def _begin_turn(user_message, messages=None):
     question_index = len(messages) - 1               # the turn's question: the clock line rides on it at send time
     turn_id = uuid.uuid4().hex                       # Piece 7: one id per reply, for citation_checks
     turn_context.begin(turn_id)                      # Prompt E: the loop's channel; tools read it, the model cannot set it
-    trace = tracing.start_turn(turn_id, user_message)    # Prompt L: one Langfuse trace per turn (a no-op when tracing is off)
+    trace = tracing.start_turn(turn_id, user_message, engine=engine)   # Prompt L: one Langfuse trace per turn (no-op when off)
     now = now_context.clock()                        # ONE instant per turn: the block's lines and the Now line agree
     system = _system_for_turn(now)                   # the "now" block, rebuilt once per turn (2026-10-08), clock line apart
     now_text = now_line(now)                         # "- Now: <weekday> <date> <HH:MM> UTC." -> the user message (2026-10-24)
@@ -1029,7 +1029,16 @@ def _finish(st, raw):
     return {"rendered": rendered}
 
 
+def _engine():
+    """AGENT_ENGINE (Prompt A, 2026-10-31), read per turn: "graph" runs the turn on agent_graph.py's LangGraph graph over
+    the SAME step functions; anything else, unset included, runs the loop below (the default)."""
+    return "graph" if os.environ.get("AGENT_ENGINE", "").strip().lower() == "graph" else "loop"
+
+
 def _run_turn(user_message: str, messages: list = None):
+    if _engine() == "graph":
+        import agent_graph                        # loaded on first use: a loop-only process never imports langgraph
+        return agent_graph.run_turn(user_message, messages)
     st = _begin_turn(user_message, messages)
     while True:
         st.update(_call_model(st))
