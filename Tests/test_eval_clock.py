@@ -75,6 +75,7 @@ def test_chat_ignores_the_override_variable(monkeypatch):
     monkeypatch.setenv("FPL_EVAL_NOW", FAR)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
     monkeypatch.setenv("APP_API_KEY", KEY)
+    monkeypatch.setenv("FPL_USER_ID", "9001")        # Prompt B: /chat stores a thread for the turn's user -- a test user
     import agent as ag
     ag = importlib.reload(ag)
     import main
@@ -88,6 +89,7 @@ def test_chat_ignores_the_override_variable(monkeypatch):
     monkeypatch.setattr(ag, "_numeric_check", lambda *a, **k: None)
     from fastapi.testclient import TestClient
     client = TestClient(main.app, headers={"x-api-key": KEY})
+    client.post("/reset")                                  # Prompt B: a fresh default thread (the stored one outlives the test)
     before = datetime.now(timezone.utc)
     r = client.post("/chat", json={"message": "hello"})
     after = datetime.now(timezone.utc)

@@ -50,6 +50,16 @@ CREATE TABLE IF NOT EXISTS squad_previews (
 );
 CREATE INDEX IF NOT EXISTS ix_squad_previews_user_open
     ON squad_previews (user_id) WHERE used_at IS NULL AND cancelled_at IS NULL;
+-- Prompt B (2026-10-31): the stored thread the preview was shown in (NULL: a turn outside any thread -- the eval
+-- runner's own list, the loop). A ticket is spent only from the same user AND the same thread. Added only when missing:
+-- ALTER TABLE takes an ACCESS EXCLUSIVE lock even when the column exists, and this DDL runs on every preview / confirm
+-- (it waited behind any open reader of the table -- found by the T4 test, 2026-10-31).
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = current_schema() AND table_name = 'squad_previews' AND column_name = 'thread_id') THEN
+        ALTER TABLE squad_previews ADD COLUMN thread_id TEXT;
+    END IF;
+END $$;
 """
 
 
@@ -98,9 +108,9 @@ def issue(conn, user_id, turn, fp, base_version_id, now=None):
                     "WHERE user_id = %s AND used_at IS NULL AND cancelled_at IS NULL", (now, user_id))
         cancelled = cur.rowcount
         cur.execute("INSERT INTO squad_previews (id, user_id, turn_id, turn_started_at, change_fingerprint, "
-                    "base_version_id, created_at, expires_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    "base_version_id, created_at, expires_at, thread_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                     (ticket_id, int(user_id), str(turn["turn_id"]), turn["started_at"], fp, int(base_version_id),
-                     now, now + TTL))
+                     now, now + TTL, turn.get("thread_id")))
     conn.commit()
     return {"id": ticket_id, "expires_at": now + TTL, "cancelled_older": cancelled}
 
@@ -131,8 +141,8 @@ def consume(conn, user_id, ticket_id, turn, fp, active_version_id, now=None):
     if not ticket_id:
         return "missing"
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT * FROM squad_previews WHERE id = %s AND user_id = %s FOR UPDATE",
-                    (str(ticket_id), int(user_id)))
+        cur.execute("SELECT * FROM squad_previews WHERE id = %s AND user_id = %s AND thread_id IS NOT DISTINCT FROM %s "
+                    "FOR UPDATE", (str(ticket_id), int(user_id), turn.get("thread_id")))   # Prompt B: user + thread
         row = cur.fetchone()
         reason = check(dict(row) if row else None, user_id, turn, fp, active_version_id, now)
         if reason:

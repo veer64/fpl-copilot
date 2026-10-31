@@ -756,12 +756,14 @@ available_functions = {
     "search_news": search_news,
 }
 
-def run_agent(user_message: str, messages: list = None):
+def run_agent(user_message: str, messages: list = None, *, thread=None):
     """One turn: the user's message in, the rendered reply and the updated history out. The turn is open on
     turn_context for its whole duration (Prompt E, 2026-10-27: the squad-write lock reads which turn a tool runs
-    in) and closed on every exit, a raised exception included."""
+    in) and closed on every exit, a raised exception included. `thread` (Prompt B, 2026-10-31): {"thread_id",
+    "user_id", "max_turns"} when the turn belongs to a stored thread (agent_graph.run_thread_turn, i.e. /chat); None
+    for a caller's own list (the eval runner, the tests), exactly as before."""
     try:
-        return _run_turn(user_message, messages)
+        return _run_turn(user_message, messages, thread=thread)
     finally:
         tracing.close_open()                         # Prompt L: a turn that raised closes its trace at ERROR level
         turn_context.end()
@@ -774,17 +776,21 @@ def run_agent(user_message: str, messages: list = None):
 # rendered reply). The loop below calls them in the order it always ran them. Each step mutates the turn's lists and dicts
 # in place, exactly as the loop always did, and returns the keys it set (the caller merges them).
 
-def _begin_turn(user_message, messages=None, engine="loop"):
+def _begin_turn(user_message, messages=None, engine="loop", thread=None):
     """The turn's state, set up as _run_turn always did: the question appended, the turn opened on turn_context and in
-    tracing (its metadata naming the engine), ONE clock instant, the system prompt and the clock line built."""
+    tracing (its metadata naming the engine), ONE clock instant, the system prompt and the clock line built. A stored
+    thread's turn (Prompt B) also carries its thread id (on the turn channel -- the preview tickets are bound to it --
+    and as the trace's session), its user, and the request trim (max_turns)."""
+    thread = thread or {}
     if messages is None:
         messages = []
 
     messages.append({"role": "user", "content": user_message})
     question_index = len(messages) - 1               # the turn's question: the clock line rides on it at send time
     turn_id = uuid.uuid4().hex                       # Piece 7: one id per reply, for citation_checks
-    turn_context.begin(turn_id)                      # Prompt E: the loop's channel; tools read it, the model cannot set it
-    trace = tracing.start_turn(turn_id, user_message, engine=engine)   # Prompt L: one Langfuse trace per turn (no-op when off)
+    turn_context.begin(turn_id, thread_id=thread.get("thread_id"))   # Prompt E: the loop's channel; tools read it, the model cannot set it
+    trace = tracing.start_turn(turn_id, user_message, engine=engine,  # Prompt L: one Langfuse trace per turn (no-op when off)
+                               session_id=thread.get("thread_id"), user_id=thread.get("user_id"))
     now = now_context.clock()                        # ONE instant per turn: the block's lines and the Now line agree
     system = _system_for_turn(now)                   # the "now" block, rebuilt once per turn (2026-10-08), clock line apart
     now_text = now_line(now)                         # "- Now: <weekday> <date> <HH:MM> UTC." -> the user message (2026-10-24)
@@ -800,7 +806,22 @@ def _begin_turn(user_message, messages=None, engine="loop"):
             "turn_calls": [],                        # M1: (tool, input, result) of THIS turn, what the fact check reads
             "response": None, "tool_results": None,
             "raw": None, "info": None, "res": None, "fc_span": None, "delivered": None, "sb": None, "t0": None,
-            "text2": None, "reply": None, "rendered": None}
+            "text2": None, "reply": None, "rendered": None,
+            "thread_id": thread.get("thread_id"), "max_turns": thread.get("max_turns")}
+
+
+def trim_turns(messages, question_index, max_turns):
+    """(the messages a request carries, the question's index in them): a stored thread's last `max_turns` turns
+    (Prompt B; USER DECISION: keep the last 10 turns per thread). A turn starts at a user message whose content is a
+    string -- the question; tool results are lists -- so a cut there never separates a tool_use from its tool_result.
+    No trim (max_turns None, or a thread of max_turns turns or fewer): the list itself and the same index."""
+    if not max_turns:
+        return messages, question_index
+    starts = [i for i, m in enumerate(messages) if m.get("role") == "user" and isinstance(m.get("content"), str)]
+    if len(starts) <= max_turns:
+        return messages, question_index
+    cut = starts[-max_turns]
+    return messages[cut:], question_index - cut
 
 
 def _call_model(st):
@@ -808,7 +829,7 @@ def _call_model(st):
     request = {"model": AGENT_MODEL, "max_tokens": 1024,                     # the agent's parameters, unchanged
                "system": _system_for_request(st["system"]),
                "tools": _tools_for_request(tools_schema),
-               "messages": _messages_for_request(st["messages"], st["now_text"], st["question_index"])}
+               "messages": _messages_for_request(*_request_view(st, st["now_text"]))}
     trace = st["trace"]
     gen = trace.generation(request)
     response = llm.chat("agent", request, client=client)                      # conn=None: chat_usage is the ledger
@@ -817,6 +838,15 @@ def _call_model(st):
 
     st["messages"].append({"role": "assistant", "content": response.content})
     return {"response": response}
+
+
+def _request_view(st, now_text, note=None):
+    """_messages_for_request's arguments: the turn's messages (a stored thread's last max_turns turns), the send-back's
+    note after them when there is one, the clock line, the question's index."""
+    messages, qi = trim_turns(st["messages"], st["question_index"], st.get("max_turns"))
+    if note is not None:
+        messages = messages + [{"role": "user", "content": note}]
+    return messages, now_text, qi
 
 
 def _final_text_block(st):
@@ -932,8 +962,7 @@ def _send_back(st):
                    "system": _system_for_request(st["system"]),
                    "tools": _tools_for_request(tools_schema),
                    "tool_choice": dict(FACT_CHECK_TOOL_CHOICE),
-                   "messages": _messages_for_request(st["messages"] + [{"role": "user", "content": note}], st["now_text"],
-                                                     st["question_index"])}
+                   "messages": _messages_for_request(*_request_view(st, st["now_text"], note))}
         gen = trace.generation(request, send_back=True, parent=st["fc_span"])
         reply = llm.chat("agent", request, client=client)
         trace.generation_done(gen, reply)
@@ -1030,16 +1059,16 @@ def _finish(st, raw):
 
 
 def _engine():
-    """AGENT_ENGINE (Prompt A, 2026-10-31), read per turn: "graph" runs the turn on agent_graph.py's LangGraph graph over
-    the SAME step functions; anything else, unset included, runs the loop below (the default)."""
-    return "graph" if os.environ.get("AGENT_ENGINE", "").strip().lower() == "graph" else "loop"
+    """AGENT_ENGINE, read per turn. Prompt B (2026-10-31; the user accepted it): the graph (agent_graph.py, the SAME step
+    functions) is the default; "loop" runs the loop below, the single-user fallback."""
+    return "loop" if os.environ.get("AGENT_ENGINE", "").strip().lower() == "loop" else "graph"
 
 
-def _run_turn(user_message: str, messages: list = None):
+def _run_turn(user_message: str, messages: list = None, *, thread=None):
     if _engine() == "graph":
-        import agent_graph                        # loaded on first use: a loop-only process never imports langgraph
-        return agent_graph.run_turn(user_message, messages)
-    st = _begin_turn(user_message, messages)
+        import agent_graph
+        return agent_graph.run_turn(user_message, messages, thread=thread)
+    st = _begin_turn(user_message, messages, thread=thread)
     while True:
         st.update(_call_model(st))
 

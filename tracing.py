@@ -16,7 +16,7 @@ Switches (environment, read at call time):
 The tree of one turn (trace id = Langfuse.create_trace_id(seed=turn_id), i.e. sha256(turn_id) as 32 hex characters):
   agent-turn (as_type agent; input = the user message per the switch, output = the reply as delivered; user = the
       turn's user, config_roles.DEFAULT_USER_ID(); metadata turn_id, user_id, loop_guard, and engine = loop | graph
-      when the agent names its engine -- Prompt A, 2026-10-31)
+      when the agent names its engine -- Prompt A, 2026-10-31; session = the stored thread's id -- Prompt B)
     llm_call (generation) per Anthropic call of the loop: model, max_tokens, usage (input, output, cache read, cache
         write -- the API's buckets are already exclusive), cost from pricing.cost_details (omitted, never 0, for a model
         pricing.py has no row for), stop_reason; input = the request's SHAPE only (message count, the last message's
@@ -38,6 +38,7 @@ flushes with a short timeout at process end (the app's lifespan, the eval runner
 hook is replaced by it so an unreachable host cannot hold the process. The SDK gets a PRIVATE OpenTelemetry
 TracerProvider: the global one is never set, so no other library's spans can reach Langfuse through it."""
 import atexit
+import contextvars
 import functools
 import hashlib
 import json
@@ -73,6 +74,8 @@ YES_NO = {"pass": (1, 1), "sent_back_fixed": (0, 1), "sent_back_flagged": (0, 0)
 LAST_TURN = {}
 
 _STATE = {"backend": None, "tried": False, "logged": False, "errors": 0, "turn": None, "atexit": False}
+# Prompt B (2026-10-31): the turn THIS request opened (a ContextVar: concurrent /chat turns each see their own).
+_CURRENT_TURN = contextvars.ContextVar("fpl_trace_turn", default=None)
 
 
 # ---- switches --------------------------------------------------------------------------------------------------------------
@@ -350,7 +353,7 @@ NOOP = _Noop()
 
 
 class Turn:
-    def __init__(self, backend, turn_id, user_id, user_message, engine=None):
+    def __init__(self, backend, turn_id, user_id, user_message, engine=None, session_id=None):
         self.client, self.propagate = backend
         self.turn_id, self.user_id = str(turn_id), str(user_id)
         self.trace_id = trace_id_for(self.turn_id)
@@ -358,6 +361,8 @@ class Turn:
         if engine:                                   # Prompt A: which engine ran the turn (agent.py's loop or graph)
             meta["engine"] = str(engine)
         self.prop = {"user_id": self.user_id, "trace_name": TRACE_NAME, "metadata": dict(meta)}
+        if session_id:                               # Prompt B: a stored thread's turns share one Langfuse session
+            self.prop["session_id"] = str(session_id)
         self.root, self.open, self.parent_of, self.model_of, self.ended = None, [], {}, {}, False
         self.spent, self.errors = 0.0, 0
         self.n = {"generations": 0, "send_back_generations": 0, "tools": 0, "fact_check": False, "score": None,
@@ -512,9 +517,10 @@ class Turn:
             self.root.end()
 
 
-def start_turn(turn_id, user_message, engine=None):
+def start_turn(turn_id, user_message, engine=None, session_id=None, user_id=None):
     """The tracer for one turn: a Turn when tracing is on and the client exists, else NOOP. Never raises. `engine` (Prompt
-    A: "loop" | "graph") goes into the trace's metadata when given."""
+    A: "loop" | "graph") goes into the trace's metadata when given; `session_id` (Prompt B: the stored thread's id) is the
+    trace's session; `user_id` (Prompt B: the turn's user, server-side) replaces the default user when given."""
     try:
         LAST_TURN.clear()
         if not switch_on():
@@ -529,10 +535,12 @@ def start_turn(turn_id, user_message, engine=None):
             LAST_TURN.update(enabled=False, trace_id=None, reason="client not built")
             return NOOP
         t0 = time.perf_counter()
-        turn = Turn(backend, turn_id, _user_id(), user_message, engine=engine)
+        turn = Turn(backend, turn_id, _user_id() if user_id is None else str(user_id), user_message, engine=engine,
+                    session_id=session_id)
         turn.spent += time.perf_counter() - t0
         turn._publish()
         _STATE["turn"] = turn
+        _CURRENT_TURN.set(turn)                      # Prompt B: close_open aborts THIS request's turn, never another's
         return turn
     except Exception as e:                               # noqa: BLE001
         _fail("start_turn", e)
@@ -542,8 +550,9 @@ def start_turn(turn_id, user_message, engine=None):
 def close_open():
     """Called in agent.run_agent's finally: a turn that raised before it replied is closed (the root at ERROR level)."""
     try:
-        turn = _STATE.get("turn")
+        turn = _CURRENT_TURN.get()
         if turn is not None:
             turn.abort(sys.exc_info()[1])
+        _CURRENT_TURN.set(None)
     except Exception as e:                               # noqa: BLE001
         _fail("close_open", e)

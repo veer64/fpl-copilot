@@ -205,6 +205,7 @@ def test_a_failed_call_leaves_run_agent_as_an_exception_and_chat_as_a_500(monkey
         ag.run_agent("q")
     # through the app: the same 500 the unhandled SDK exception produced before the move
     monkeypatch.setenv("APP_API_KEY", "k")
+    monkeypatch.setenv("FPL_USER_ID", "9001")        # Prompt B: /chat stores a thread for the turn's user -- a test user
     import importlib
     import main as app_main
     importlib.reload(app_main)

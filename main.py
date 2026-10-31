@@ -33,12 +33,14 @@ WHAT THIS CONTROL DOES NOT DO, stated so nobody over-trusts it:
   * The rate limit is process-local. A container restart resets the window, and if
     the app ever runs more than one worker each worker keeps its own counters.
 
-STILL OPEN, deliberately NOT fixed here: `conversation_history` below is a single
-process-global list shared by every caller, so concurrent callers read and write
-each other's turns. Closing that is the LangGraph checkpointing work keyed
-(user_id, thread_id) (master plan 5.2 Phase 2) -- a real change to how the agent
-holds state, not a patch to this file. The gate reduces its blast radius to holders
-of the key; it does not fix it.
+THREADS (Prompt B, 2026-10-31 -- closes the shared-history hole this docstring used to
+list as STILL OPEN). There is no process-global conversation any more: every /chat turn
+runs in a stored thread owned by one user (threads.py; LangGraph's Postgres checkpointer
+holds the history). The user is server-side only -- config_roles.DEFAULT_USER_ID() -- never
+the request body. /chat {"message", "thread_id"?}: no thread id -> the user's default
+thread; a thread id the user does not own -> 403 before any model call; the response
+carries the thread id. /reset: the next /chat without a thread id starts a fresh default
+thread (the old one stays the user's), and the user's open preview tickets are cancelled.
 """
 import contextlib
 import os
@@ -52,8 +54,10 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from agent import run_agent
+import agent_graph                                      # Prompt B: /chat turns run in stored threads
+import config_roles
 import squad_previews                                   # Prompt E (2026-10-27): /reset cancels the user's preview tickets
+import threads                                         # Prompt B (2026-10-31): per-user threads, the checkpointer
 import tracing                                          # Prompt L (2026-10-30): Langfuse traces, flushed on shutdown
 
 
@@ -61,6 +65,7 @@ import tracing                                          # Prompt L (2026-10-30):
 async def _lifespan(app):
     yield
     tracing.shutdown()                                  # flush the traces at shutdown, bounded (tracing.SHUTDOWN_TIMEOUT_S)
+    threads._reset()                                    # Prompt B: close the checkpointer's connection pool
 
 
 app = FastAPI(lifespan=_lifespan)
@@ -104,10 +109,6 @@ page and everything it calls work normally for 30 days.</p>
 <code>X-API-Key</code> header instead. <code>/health</code> is the one route that
 needs no key.</p>
 </body></html>"""
-
-# Single shared conversation history -- see the STILL OPEN note in the module
-# docstring. In-memory, process-global, shared by every caller.
-conversation_history = []
 
 # The only routes that need no credential. GET and HEAD because uptime monitors
 # use either; everything else on this app is gated.
@@ -207,19 +208,29 @@ def health_check():
 
 class ChatRequest(BaseModel):
     message: str
+    thread_id: str | None = None                        # Prompt B: optional; none -> the user's default thread
+
+
+THREAD_REFUSED = "thread not found for this user"
 
 
 @app.post("/chat")
 def chat(request: ChatRequest):
-    global conversation_history
-    answer, conversation_history = run_agent(request.message, conversation_history)
-    return {"answer": answer}
+    user_id = config_roles.DEFAULT_USER_ID()            # server-side only: never from the request body or the model
+    try:
+        thread_id = threads.resolve(user_id, request.thread_id)
+    except threads.ThreadRefused:                       # another user's thread (or none): refused before any model call
+        return JSONResponse({"detail": THREAD_REFUSED}, status_code=403)
+    answer = agent_graph.run_thread_turn(user_id, thread_id, request.message)
+    return {"answer": answer, "thread_id": thread_id}
 
 
 @app.post("/reset")
 def reset_conversation():
-    global conversation_history
-    conversation_history = []
+    try:
+        threads.start_new_default(config_roles.DEFAULT_USER_ID())   # Prompt B: the next /chat starts a fresh default thread
+    except Exception as e:  # noqa: BLE001 -- as the ticket cancel below: reported, never fatal to /reset
+        print(f"  [default thread not reset: {type(e).__name__}: {str(e)[:200]}]")
     cancelled = squad_previews.cancel_for_default_user()     # Prompt E: a fresh conversation holds no open preview ticket
     return {"status": "conversation reset", "preview_tickets_cancelled": cancelled}
 

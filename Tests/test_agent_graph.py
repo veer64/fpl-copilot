@@ -420,9 +420,16 @@ def test_g14_the_recursion_limit_is_never_reached_before_our_guard(h):
     turn_context.end()
 
 
-def test_g14b_the_engine_switch_defaults_to_the_loop(h):
+def test_g14b_the_engine_switch_defaults_to_the_graph_since_prompt_b(h):
+    """Prompt A pinned the loop as the default; Prompt B (31 Oct, accepted by the user) made the graph the default and
+    the loop the fallback (AGENT_ENGINE=loop). Both directions pinned."""
     import agent_graph
     h.mp.delenv("AGENT_ENGINE", raising=False)
+    h.mp.setattr(h.ag, "client", _Raw([_text("Ask me about your squad and I'll check it.")]))
+    agent_graph.LAST_RUN.clear()
+    answer, _ = h.ag.run_agent(QUESTION, [])
+    assert answer == "Ask me about your squad and I'll check it." and agent_graph.LAST_RUN.get("path") == ANSWER
+    h.mp.setenv("AGENT_ENGINE", "loop")
     h.mp.setattr(h.ag, "client", _Raw([_text("Ask me about your squad and I'll check it.")]))
     agent_graph.LAST_RUN.clear()
     answer, _ = h.ag.run_agent(QUESTION, [])
