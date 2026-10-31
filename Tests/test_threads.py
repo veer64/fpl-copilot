@@ -536,3 +536,31 @@ def test_t12_the_loop_still_works_single_user_and_the_graph_is_the_default(app):
     last = [e for e in app.brain.log if e["question"] == "About cherry"][0]
     assert _questions_in(_request_messages(last)) == ["About apple", "About banana", "About cherry"]
     assert _questions_in(_norm(_history(t))) == ["About apple", "About banana", "About cherry"]
+
+
+# ---- T13 (D-B3): a failed turn leaves the thread as it was ----------------------------------------------------------
+
+def test_t13_a_turn_that_raises_leaves_the_thread_as_it_was_and_the_next_turn_runs(app):
+    """LangGraph checkpoints a run that raises (durability "exit") with its half turn -- here an assistant tool_use whose
+    result never came -- which would break every later request of the thread. run_thread_turn writes the history from
+    before the turn back. Measured with the model failing on its second call of the turn."""
+    t = _chat(app, 9001, "About apple").json()["thread_id"]
+    before = _norm(_history(t))
+
+    class Boom(RuntimeError):
+        pass
+    real = app.brain.respond
+
+    def respond(kw, q):
+        if q == "tool: banana" and tf.after_tool(kw):
+            raise Boom("the model failed mid-turn")
+        return real(kw, q)
+    app.mp.setattr(app.brain, "respond", respond)
+    with pytest.raises(Boom):
+        _chat(app, 9001, "tool: banana", thread_id=t)
+    assert _norm(_history(t)) == before                                   # no half turn stored
+    r = _chat(app, 9001, "About cherry", thread_id=t)
+    assert r.status_code == 200 and r.json()["answer"] == "Answer to About cherry"
+    last = [e for e in app.brain.log if e["question"] == "About cherry"][0]
+    assert _questions_in(_request_messages(last)) == ["About apple", "About cherry"]
+    assert _questions_in(_norm(_history(t))) == ["About apple", "About cherry"]
