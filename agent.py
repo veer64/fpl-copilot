@@ -767,7 +767,16 @@ def run_agent(user_message: str, messages: list = None):
         turn_context.end()
 
 
-def _run_turn(user_message: str, messages: list = None):
+# ---- the turn's steps (Prompt A, 2026-10-31) ----------------------------------------------------------------------------
+# _run_turn's steps as named functions over ONE dict, the turn's state: the variables the loop has always used
+# (messages, question_index, turn_id, trace, now, system, now_text, returned_ids, returned_results, usage, turn_calls; the
+# latest response and tool_results; the fact check's raw / info / res / fc_span / delivered / sb / t0 / text2 / reply; the
+# rendered reply). The loop below calls them in the order it always ran them. Each step mutates the turn's lists and dicts
+# in place, exactly as the loop always did, and returns the keys it set (the caller merges them).
+
+def _begin_turn(user_message, messages=None):
+    """The turn's state, set up as _run_turn always did: the question appended, the turn opened on turn_context and in
+    tracing, ONE clock instant, the system prompt and the clock line built."""
     if messages is None:
         messages = []
 
@@ -782,148 +791,265 @@ def _run_turn(user_message: str, messages: list = None):
     countdown = now_context.countdown_line(now)      # "Next deadline: GW9, Sat 31 Oct 2026 11:00 UTC — in 5 d 20 h 30 m" (2026-10-26)
     if countdown:
         now_text = f"{now_text}\n{countdown}"        # computed by code, beside the Now line, never in the block or the history
-    returned_ids = []                                # every result id search_news returned in THIS turn
-    returned_results = []                            # the result dicts themselves, for the rendered citations (Part C)
-    usage = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0,
-             "model": None, "seen_usage": False}     # Part 7c: this turn's API usage, logged with the reply
+    return {"messages": messages, "question_index": question_index, "turn_id": turn_id, "trace": trace, "now": now,
+            "system": system, "now_text": now_text,
+            "returned_ids": [],                      # every result id search_news returned in THIS turn
+            "returned_results": [],                  # the result dicts themselves, for the rendered citations (Part C)
+            "usage": {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0,
+                      "model": None, "seen_usage": False},   # Part 7c: this turn's API usage, logged with the reply
+            "turn_calls": [],                        # M1: (tool, input, result) of THIS turn, what the fact check reads
+            "response": None, "tool_results": None,
+            "raw": None, "info": None, "res": None, "fc_span": None, "delivered": None, "sb": None, "t0": None,
+            "text2": None, "reply": None, "rendered": None}
 
-    turn_calls = []                                  # M1: (tool, input, result) of THIS turn, what the fact check reads
 
-    def fact_checked(raw):
-        """M1 (Prompt H, 2026-10-30; USER DECISION H1): the final answer against this turn's tool rows. On a mismatch, ONE
-        send-back: the code-built note as an automatic-check message after the answer, the same model, system and tools
-        (the cache holds) with tool use off; the rewrite is checked again and delivered either way (flagged when still
-        wrong); a tool call in the rewrite, an empty rewrite or a failed call delivers the original. Never a second
-        send-back. The stored history keeps only the delivered answer, never the note. Logged to fact_checks."""
-        info = {"facts_checked": 0, "mismatches": [], "sent_back": False, "outcome": "clean", "note": None,
-                "rewrite_mismatches": None, "extra_usd": None, "extra_seconds": None, "error": None}
-        delivered = raw
-        fc_span = trace.fact_check()                                     # Prompt L: the check's span (+ its score below)
-        try:
-            res = fact_check.check(raw, turn_calls)
-            info.update(facts_checked=res["facts_checked"], mismatches=res["mismatches"])
-        except Exception as e:  # noqa: BLE001 -- the check must never take the reply down
-            res = None
-            info.update(outcome="check_error", error=f"{type(e).__name__}: {str(e)[:200]}")
-        if res and res["mismatches"]:
-            note = fact_check.note(res["mismatches"])
-            info.update(sent_back=True, note=note)
-            sb = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "model": None, "seen_usage": False}
-            t0 = time.time()
-            try:
-                request = {"model": AGENT_MODEL, "max_tokens": 1024,
-                           "system": _system_for_request(system),
-                           "tools": _tools_for_request(tools_schema),
-                           "tool_choice": dict(FACT_CHECK_TOOL_CHOICE),
-                           "messages": _messages_for_request(messages + [{"role": "user", "content": note}], now_text, question_index)}
-                gen = trace.generation(request, send_back=True, parent=fc_span)
-                reply = llm.chat("agent", request, client=client)
-                trace.generation_done(gen, reply)
-                _tally_usage(sb, reply)
-                _tally_usage(usage, reply)
-                blocks = list(getattr(reply, "content", None) or [])
-                text2 = next((b.text for b in blocks if getattr(b, "type", None) == "text" and getattr(b, "text", "")), None)
-                if any(getattr(b, "type", None) == "tool_use" for b in blocks):
-                    info["outcome"] = "tool_call_in_rewrite"
-                elif not text2:
-                    info["outcome"] = "no_text"
-                else:
-                    res2 = fact_check.check(text2, turn_calls)
-                    info.update(rewrite_mismatches=res2["mismatches"], outcome="still_wrong" if res2["mismatches"] else "fixed")
-                    delivered = text2
-                    messages[-1] = {"role": "assistant", "content": reply.content}
-            except Exception as e:  # noqa: BLE001 -- a failed send-back delivers the original
-                if type(e).__name__ == "BudgetExceeded":
-                    raise                                        # the eval runner's cap must reach the runner
-                info.update(outcome="sendback_failed", error=f"{type(e).__name__}: {str(e)[:200]}")
-            info["extra_seconds"] = round(time.time() - t0, 2)
-            if sb["seen_usage"]:
-                try:
-                    info["extra_usd"] = _price_usd(sb["model"] or AGENT_MODEL, sb["input"], sb["output"],
-                                                   cache_read=sb["cache_read"], cache_write=sb["cache_write"])
-                except Exception:  # noqa: BLE001
-                    info["extra_usd"] = None
-            print(f"  [fact check: {len(res['mismatches'])} mismatch(es), sent back once -> {info['outcome']}]")
-        _fact_check_log(turn_id, info)
-        trace.fact_check_done(fc_span, info)
-        LAST_FACT_CHECK.clear()
-        LAST_FACT_CHECK.update(info, original=raw, delivered=delivered)
-        return delivered
+def _call_model(st):
+    """One model call with the agent's parameters, unchanged: traced, tallied, the assistant's content appended."""
+    request = {"model": AGENT_MODEL, "max_tokens": 1024,                     # the agent's parameters, unchanged
+               "system": _system_for_request(st["system"]),
+               "tools": _tools_for_request(tools_schema),
+               "messages": _messages_for_request(st["messages"], st["now_text"], st["question_index"])}
+    trace = st["trace"]
+    gen = trace.generation(request)
+    response = llm.chat("agent", request, client=client)                      # conn=None: chat_usage is the ledger
+    trace.generation_done(gen, response)
+    _tally_usage(st["usage"], response)
 
-    def finish(raw):
-        """The reply path: the checks (log only), the plain-words locks, the citations, the usage row."""
-        _citation_check(turn_id, raw, returned_ids)
-        _numeric_check(turn_id, raw, messages)                         # log only; never alters the reply
-        plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
-        plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
-        rendered = render_citations(plain, returned_results)           # Part C: [1], [2] + Sources
-        if rendered != raw:
-            print(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
-        LAST_TURN.clear()
-        LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
-        _usage_log(turn_id, usage, n_names)
-        trace.end(rendered)
-        return rendered, messages
+    st["messages"].append({"role": "assistant", "content": response.content})
+    return {"response": response}
 
-    while True:
-        request = {"model": AGENT_MODEL, "max_tokens": 1024,                     # the agent's parameters, unchanged
-                   "system": _system_for_request(system),
-                   "tools": _tools_for_request(tools_schema),
-                   "messages": _messages_for_request(messages, now_text, question_index)}
-        gen = trace.generation(request)
-        response = llm.chat("agent", request, client=client)                      # conn=None: chat_usage is the ledger
-        trace.generation_done(gen, response)
-        _tally_usage(usage, response)
 
-        messages.append({"role": "assistant", "content": response.content})
-
-        if response.stop_reason != "tool_use":
-            for block in response.content:
-                if block.type == "text":
-                    return finish(fact_checked(block.text))
-
-        tool_results = []
+def _final_text_block(st):
+    """The reply's text block when the model stopped for anything but tool use and wrote text (the first text block),
+    else None: the response's tool calls, if any, run next."""
+    response = st["response"]
+    if response.stop_reason != "tool_use":
         for block in response.content:
-            if block.type == "tool_use":
-                tool_name = block.name
-                tool_input = block.input
-                tool_id = block.id
+            if block.type == "text":
+                return block
+    return None
 
-                print(f"  [calling tool: {tool_name}({tool_input})]")
 
-                span = trace.tool(tool_name, tool_input)
-                result = call_tool(tool_name, tool_input)
-                trace.tool_done(span, tool_name, result)
-                turn_calls.append((tool_name, tool_input, result))
-                if tool_name == "search_news" and isinstance(result, dict):
-                    hits = [r for r in (result.get("results") or []) if isinstance(r, dict) and r.get("id")]
-                    returned_ids.extend(str(r.get("id")) for r in hits)
-                    returned_results.extend(hits)
-                if isinstance(result, dict) and "error" in result:
-                    print(f"  [tool error: {tool_name}: {str(result['error'])[:200]}]")
+def _run_tools(st):
+    """Every tool_use block of the response, in order, under the failure contract; traced; kept for the fact check;
+    search results kept for the citations. Returns the tool_result blocks (empty: no tool call in this response)."""
+    trace = st["trace"]
+    tool_results = []
+    for block in st["response"].content:
+        if block.type == "tool_use":
+            tool_name = block.name
+            tool_input = block.input
+            tool_id = block.id
 
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tool_id,
-                    "content": str(result)
-                })
+            print(f"  [calling tool: {tool_name}({tool_input})]")
 
-        if not tool_results:                                            # Prompt E loop guard: no tool call this response
-            text_block = next((b for b in response.content if getattr(b, "type", None) == "text"), None)
+            span = trace.tool(tool_name, tool_input)
+            result = call_tool(tool_name, tool_input)
+            trace.tool_done(span, tool_name, result)
+            st["turn_calls"].append((tool_name, tool_input, result))
+            if tool_name == "search_news" and isinstance(result, dict):
+                hits = [r for r in (result.get("results") or []) if isinstance(r, dict) and r.get("id")]
+                st["returned_ids"].extend(str(r.get("id")) for r in hits)
+                st["returned_results"].extend(hits)
+            if isinstance(result, dict) and "error" in result:
+                print(f"  [tool error: {tool_name}: {str(result['error'])[:200]}]")
+
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": str(result)
+            })
+    return {"tool_results": tool_results}
+
+
+def _guard_text_block(st):
+    """Prompt E loop guard, no tool call in this response: its text block, if any, is the reply (stop_reason tool_use
+    without a call). None -> the fixed guard reply."""
+    return next((b for b in st["response"].content if getattr(b, "type", None) == "text"), None)
+
+
+def _append_tool_results(st):
+    """The response's tool results go back as ONE user message."""
+    st["messages"].append({"role": "user", "content": st["tool_results"]})
+    return {}
+
+
+def _loop_guard(st):
+    """Prompt E loop guard: no text and no tool_use in the response -> the turn ends with the fixed reply (never an empty
+    message in the history)."""
+    response, turn_id, usage = st["response"], st["turn_id"], st["usage"]
+    block_types = [str(getattr(b, "type", "?")) for b in (response.content or [])]
+    print(f"  [loop guard: no text and no tool_use (stop_reason={response.stop_reason}); turn {turn_id} "
+          f"ends with the fixed reply; blocks {block_types}]")
+    st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": GUARD_REPLY}]}   # never an empty message
+    LAST_TURN.clear()
+    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0,
+                     guard={"stop_reason": response.stop_reason, "block_types": block_types}, **usage)
+    _usage_log(turn_id, usage, 0)
+    st["trace"].end(GUARD_REPLY, guard={"stop_reason": response.stop_reason, "block_types": block_types})
+    return {"rendered": GUARD_REPLY}
+
+
+# M1 (Prompt H, 2026-10-30; USER DECISION H1): the final answer against this turn's tool rows. On a mismatch, ONE
+# send-back: the code-built note as an automatic-check message after the answer, the same model, system and tools (the
+# cache holds) with tool use off; the rewrite is checked again and delivered either way (flagged when still wrong); a tool
+# call in the rewrite, an empty rewrite or a failed call delivers the original. Never a second send-back. The stored
+# history keeps only the delivered answer, never the note. Logged to fact_checks. Steps: _fact_check_start ->
+# [_send_back -> [_recheck] -> _send_back_done] -> _fact_check_end.
+
+def _fact_check_start(st, raw):
+    """The first check of `raw` against this turn's tool rows (a crash in the check never takes the reply down)."""
+    info = {"facts_checked": 0, "mismatches": [], "sent_back": False, "outcome": "clean", "note": None,
+            "rewrite_mismatches": None, "extra_usd": None, "extra_seconds": None, "error": None}
+    delivered = raw
+    fc_span = st["trace"].fact_check()                               # Prompt L: the check's span (+ its score below)
+    try:
+        res = fact_check.check(raw, st["turn_calls"])
+        info.update(facts_checked=res["facts_checked"], mismatches=res["mismatches"])
+    except Exception as e:  # noqa: BLE001 -- the check must never take the reply down
+        res = None
+        info.update(outcome="check_error", error=f"{type(e).__name__}: {str(e)[:200]}")
+    return {"raw": raw, "info": info, "res": res, "fc_span": fc_span, "delivered": delivered}
+
+
+def _needs_send_back(st):
+    """True when the first check found mismatches."""
+    res = st["res"]
+    return bool(res and res["mismatches"])
+
+
+def _send_back(st):
+    """The one send-back. Sets text2 / reply when the rewrite is text to re-check; otherwise the outcome is final here
+    (tool_call_in_rewrite, no_text, sendback_failed). The eval runner's budget stop is re-raised."""
+    info, res, trace = st["info"], st["res"], st["trace"]
+    note = fact_check.note(res["mismatches"])
+    info.update(sent_back=True, note=note)
+    sb = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "model": None, "seen_usage": False}
+    t0 = time.time()
+    text2, reply = None, None
+    try:
+        request = {"model": AGENT_MODEL, "max_tokens": 1024,
+                   "system": _system_for_request(st["system"]),
+                   "tools": _tools_for_request(tools_schema),
+                   "tool_choice": dict(FACT_CHECK_TOOL_CHOICE),
+                   "messages": _messages_for_request(st["messages"] + [{"role": "user", "content": note}], st["now_text"],
+                                                     st["question_index"])}
+        gen = trace.generation(request, send_back=True, parent=st["fc_span"])
+        reply = llm.chat("agent", request, client=client)
+        trace.generation_done(gen, reply)
+        _tally_usage(sb, reply)
+        _tally_usage(st["usage"], reply)
+        blocks = list(getattr(reply, "content", None) or [])
+        text2 = next((b.text for b in blocks if getattr(b, "type", None) == "text" and getattr(b, "text", "")), None)
+        if any(getattr(b, "type", None) == "tool_use" for b in blocks):
+            info["outcome"] = "tool_call_in_rewrite"
+            text2 = None
+        elif not text2:
+            info["outcome"] = "no_text"
+            text2 = None
+    except Exception as e:  # noqa: BLE001 -- a failed send-back delivers the original
+        if type(e).__name__ == "BudgetExceeded":
+            raise                                        # the eval runner's cap must reach the runner
+        info.update(outcome="sendback_failed", error=f"{type(e).__name__}: {str(e)[:200]}")
+        text2 = None
+    return {"sb": sb, "t0": t0, "text2": text2, "reply": reply}
+
+
+def _has_rewrite(st):
+    """True when the send-back returned text to re-check."""
+    return st["text2"] is not None
+
+
+def _recheck(st):
+    """The rewrite checked again and delivered either way (still_wrong / fixed); it replaces the answer in the history."""
+    info, text2, reply = st["info"], st["text2"], st["reply"]
+    delivered = st["delivered"]
+    try:
+        res2 = fact_check.check(text2, st["turn_calls"])
+        info.update(rewrite_mismatches=res2["mismatches"], outcome="still_wrong" if res2["mismatches"] else "fixed")
+        delivered = text2
+        st["messages"][-1] = {"role": "assistant", "content": reply.content}
+    except Exception as e:  # noqa: BLE001 -- a failed send-back delivers the original
+        if type(e).__name__ == "BudgetExceeded":
+            raise
+        info.update(outcome="sendback_failed", error=f"{type(e).__name__}: {str(e)[:200]}")
+    return {"delivered": delivered}
+
+
+def _send_back_done(st):
+    """The send-back's time (from its start to here, the re-check included) and cost, and its log line."""
+    info, sb, res = st["info"], st["sb"], st["res"]
+    info["extra_seconds"] = round(time.time() - st["t0"], 2)
+    if sb["seen_usage"]:
+        try:
+            info["extra_usd"] = _price_usd(sb["model"] or AGENT_MODEL, sb["input"], sb["output"],
+                                           cache_read=sb["cache_read"], cache_write=sb["cache_write"])
+        except Exception:  # noqa: BLE001
+            info["extra_usd"] = None
+    print(f"  [fact check: {len(res['mismatches'])} mismatch(es), sent back once -> {info['outcome']}]")
+    return {}
+
+
+def _fact_check_end(st):
+    """The fact_checks row, the trace's check span + scores, LAST_FACT_CHECK for the eval runner."""
+    info = st["info"]
+    _fact_check_log(st["turn_id"], info)
+    st["trace"].fact_check_done(st["fc_span"], info)
+    LAST_FACT_CHECK.clear()
+    LAST_FACT_CHECK.update(info, original=st["raw"], delivered=st["delivered"])
+    return {}
+
+
+def _fact_checked(st, raw):
+    """The fact check of the final answer, its steps in order; returns the text to deliver."""
+    st.update(_fact_check_start(st, raw))
+    if _needs_send_back(st):
+        st.update(_send_back(st))
+        if _has_rewrite(st):
+            st.update(_recheck(st))
+        st.update(_send_back_done(st))
+    st.update(_fact_check_end(st))
+    return st["delivered"]
+
+
+def _finish(st, raw):
+    """The reply path: the checks (log only), the plain-words locks, the citations, the usage row."""
+    turn_id, usage = st["turn_id"], st["usage"]
+    _citation_check(turn_id, raw, st["returned_ids"])
+    _numeric_check(turn_id, raw, st["messages"])                   # log only; never alters the reply
+    plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
+    plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
+    rendered = render_citations(plain, st["returned_results"])     # Part C: [1], [2] + Sources
+    if rendered != raw:
+        print(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
+    LAST_TURN.clear()
+    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
+    _usage_log(turn_id, usage, n_names)
+    st["trace"].end(rendered)
+    return {"rendered": rendered}
+
+
+def _run_turn(user_message: str, messages: list = None):
+    st = _begin_turn(user_message, messages)
+    while True:
+        st.update(_call_model(st))
+
+        block = _final_text_block(st)
+        if block is not None:
+            st.update(_finish(st, _fact_checked(st, block.text)))
+            return st["rendered"], st["messages"]
+
+        st.update(_run_tools(st))
+
+        if not st["tool_results"]:                                      # Prompt E loop guard: no tool call this response
+            text_block = _guard_text_block(st)
             if text_block is not None:                                  # stop_reason tool_use without a call: the text is the reply
-                return finish(fact_checked(text_block.text))
-            block_types = [str(getattr(b, "type", "?")) for b in (response.content or [])]
-            print(f"  [loop guard: no text and no tool_use (stop_reason={response.stop_reason}); turn {turn_id} "
-                  f"ends with the fixed reply; blocks {block_types}]")
-            messages[-1] = {"role": "assistant", "content": [{"type": "text", "text": GUARD_REPLY}]}   # never an empty message
-            LAST_TURN.clear()
-            LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0,
-                             guard={"stop_reason": response.stop_reason, "block_types": block_types}, **usage)
-            _usage_log(turn_id, usage, 0)
-            trace.end(GUARD_REPLY, guard={"stop_reason": response.stop_reason, "block_types": block_types})
-            return GUARD_REPLY, messages
+                st.update(_finish(st, _fact_checked(st, text_block.text)))
+                return st["rendered"], st["messages"]
+            st.update(_loop_guard(st))
+            return st["rendered"], st["messages"]
 
-        messages.append({"role": "user", "content": tool_results})
+        st.update(_append_tool_results(st))
 
 if __name__ == "__main__":
     question = input("Ask about FPL: ")
