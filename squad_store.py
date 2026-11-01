@@ -516,11 +516,19 @@ def roles_status(record, latest_run):
                          "built_at": str(latest_run["finished_at"]), "built_at_words": datewords.when_words(latest_run["finished_at"])}
     if latest_run["gw"] > record["gw"] or _dt(latest_run["finished_at"]) > _dt(record["created_at"]):
         out["status"] = "STALE"
-        out["warning"] = (
-            f"these roles were recorded at {record['created_at']} ({datewords.when_words(record['created_at'])}) for GW{record['gw']}; "
-            f"the model build for GW{latest_run['gw']} was made at "
-            f"{latest_run['finished_at']} ({datewords.when_words(latest_run['finished_at'])}), AFTER that. They are a record of what was set, "
-            f"not a recommendation for GW{latest_run['gw']} -- the line-up pick gives that.")
+        recorded = f"these roles were recorded at {record['created_at']} ({datewords.when_words(record['created_at'])}) for GW{record['gw']}; "
+        built = (f"the model build for GW{latest_run['gw']} was made at "
+                 f"{latest_run['finished_at']} ({datewords.when_words(latest_run['finished_at'])})")
+        # Prompt P6 (2026-11-01): when the gameweeks differ the build's date says nothing about the roles' -- GW6 roles
+        # recorded on 30 Oct 21:04Z were told the GW8 build of 23 Oct was made "AFTER that" -- so both gameweeks and
+        # both dates are stated and no order is claimed. Same gameweek: the record went stale because the build is the
+        # later one, so its "AFTER" is true and stays.
+        if int(latest_run["gw"]) != int(record["gw"]):
+            built += f" -- a different gameweek from the roles' GW{record['gw']}."
+        else:
+            built += ", AFTER that."
+        out["warning"] = (recorded + built + f" They are a record of what was set, "
+                          f"not a recommendation for GW{latest_run['gw']} -- the line-up pick gives that.")
     else:
         out["status"] = "current"
         out["warning"] = None
