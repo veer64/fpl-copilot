@@ -408,8 +408,11 @@ def test_g14_the_recursion_limit_is_never_reached_before_our_guard(h):
     from langgraph.errors import GraphRecursionError
     rounds = 60                                                       # 122 super-steps: past LangGraph's old default of 25
     guard = lambda: _Resp([_Block("thinking", thinking="", signature="sig")], "max_tokens")   # noqa: E731
-    s = _both(h, lambda: [_tool("get_my_xi") for _ in range(rounds)] + [guard()], ROUND * (rounds + 1) + ["finalize"])
-    assert s["answer"] == h.ag.GUARD_REPLY and len(s["requests"]) == rounds + 1
+    # Prompt P6 (2026-11-01): our round cap now ends the turn at MAX_TOOL_ROUNDS model calls -- before P6 this script ran
+    # all 60 rounds and ended on the loop guard (61 requests, GUARD_REPLY); the cap is ours too, never LangGraph's limit
+    cap = h.ag.MAX_TOOL_ROUNDS
+    s = _both(h, lambda: [_tool("get_my_xi") for _ in range(rounds)] + [guard()], ROUND * (cap - 1) + ["call_model", "round_cap"])
+    assert s["answer"] == h.ag.ROUND_CAP_REPLY and len(s["requests"]) == cap
     # the limit is far above any turn the eval runner allows (--max-calls 40 -> at most ~82 super-steps)
     assert agent_graph.RECURSION_LIMIT >= 1000 * (2 * 40 + 4)
     # and it is the limit that would stop a turn otherwise: the same script under a small limit raises

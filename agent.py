@@ -546,6 +546,16 @@ FACT_CHECK_TOOL_CHOICE = {"type": "none"}            # the send-back: the tools 
 # an EMPTY tool_results user message and an HTTP 400 on the next call. Now the turn ends with this fixed reply.
 GUARD_REPLY = "I couldn't finish that answer. Please ask again."
 
+# Prompt P6 round cap (2026-11-01). The loop had no limit on model calls per turn -- its guard is "no text and no tool call".
+# MAX_TOOL_ROUNDS = max(12, 2 x the most model calls one turn made in the Langfuse traces of production + eval, 30 Oct -
+# 1 Nov: 6; production's most was 4) = 12. When a turn has made MAX_TOOL_ROUNDS model calls and the latest response still
+# asks for a tool, the turn ends with ROUND_CAP_REPLY: no further model call, the response's tool calls are not run (no call
+# would read their results), the history ends on the reply, [round cap: ...] is logged, the usage row is written, the trace's
+# metadata says round_cap=true, and there is no fact check -- as with the loop guard. The send-back after a final answer is
+# not a round. Both engines (agent_graph routes call_model -> round_cap).
+MAX_TOOL_ROUNDS = 12
+ROUND_CAP_REPLY = "I couldn't finish that answer within the step limit. Please ask a narrower question."
+
 
 def _system_for_turn(now=None):
     """The system prompt for one turn: the "now" context block (the gameweek state, the run schedule,
@@ -804,6 +814,7 @@ def _begin_turn(user_message, messages=None, engine="loop", thread=None):
             "usage": {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0,
                       "model": None, "seen_usage": False},   # Part 7c: this turn's API usage, logged with the reply
             "turn_calls": [],                        # M1: (tool, input, result) of THIS turn, what the fact check reads
+            "rounds": 0,                             # Prompt P6: the tool loop's model calls so far (the round cap)
             "response": None, "tool_results": None,
             "raw": None, "info": None, "res": None, "fc_span": None, "delivered": None, "sb": None, "t0": None,
             "text2": None, "reply": None, "rendered": None,
@@ -837,7 +848,7 @@ def _call_model(st):
     _tally_usage(st["usage"], response)
 
     st["messages"].append({"role": "assistant", "content": response.content})
-    return {"response": response}
+    return {"response": response, "rounds": st["rounds"] + 1}
 
 
 def _request_view(st, now_text, note=None):
@@ -890,6 +901,27 @@ def _run_tools(st):
                 "content": str(result)
             })
     return {"tool_results": tool_results}
+
+
+def _round_capped(st):
+    """Prompt P6: True when the turn has made MAX_TOOL_ROUNDS model calls and the latest response asks for a tool."""
+    return st["rounds"] >= MAX_TOOL_ROUNDS and any(getattr(b, "type", None) == "tool_use" for b in st["response"].content)
+
+
+def _round_cap(st):
+    """Prompt P6 round cap: the turn ends with the fixed reply in place of the response that asked for more tools (never
+    an unanswered tool call in the history); its tool calls are not run; usage row, trace metadata, no fact check."""
+    response, turn_id, usage = st["response"], st["turn_id"], st["usage"]
+    pending = [str(getattr(b, "name", "?")) for b in response.content if getattr(b, "type", None) == "tool_use"]
+    print(f"  [round cap: {st['rounds']} model calls (MAX_TOOL_ROUNDS {MAX_TOOL_ROUNDS}); turn {turn_id} ends with the "
+          f"fixed reply; tool calls not run: {pending}]")
+    st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": ROUND_CAP_REPLY}]}
+    cap = {"rounds": st["rounds"], "pending_tools": pending}
+    LAST_TURN.clear()
+    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0, round_cap=cap, **usage)
+    _usage_log(turn_id, usage, 0)
+    st["trace"].end(ROUND_CAP_REPLY, round_cap=cap)
+    return {"rendered": ROUND_CAP_REPLY}
 
 
 def _guard_text_block(st):
@@ -1075,6 +1107,10 @@ def _run_turn(user_message: str, messages: list = None, *, thread=None):
         block = _final_text_block(st)
         if block is not None:
             st.update(_finish(st, _fact_checked(st, block.text)))
+            return st["rendered"], st["messages"]
+
+        if _round_capped(st):                                           # Prompt P6: no further model call
+            st.update(_round_cap(st))
             return st["rendered"], st["messages"]
 
         st.update(_run_tools(st))

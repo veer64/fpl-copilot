@@ -489,8 +489,9 @@ class Turn:
             _STATE["turn"] = None
 
     @_guarded
-    def end(self, reply, guard=None):
-        """The reply as delivered (the loop guard's fixed reply with `guard` = {stop_reason, block_types})."""
+    def end(self, reply, guard=None, round_cap=None):
+        """The reply as delivered (the loop guard's fixed reply with `guard` = {stop_reason, block_types}; the round cap's
+        with `round_cap` = {rounds, pending_tools}: metadata round_cap=true -- Prompt P6)."""
         if self.ended:
             return
         self._finish()
@@ -501,6 +502,9 @@ class Turn:
             if guard:
                 meta.update(guard_stop_reason=str(guard.get("stop_reason")),
                             guard_block_types=[str(b) for b in (guard.get("block_types") or [])])
+            if round_cap:
+                meta.update(round_cap=True, round_cap_rounds=int(round_cap.get("rounds") or 0),
+                            round_cap_pending_tools=[str(t) for t in (round_cap.get("pending_tools") or [])])
             self.root.update(output=reply, metadata=meta)
             self.root.end()
 

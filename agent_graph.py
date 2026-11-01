@@ -5,6 +5,7 @@ wrappers around agent.py's own step functions -- the ones the loop calls, in the
 edges are the loop's branches, so the two engines cannot drift apart in what a turn does:
 
     START -> call_model --(a text reply: stop_reason not tool_use + a text block)--> fact_check
+                        --(MAX_TOOL_ROUNDS model calls made and still a tool call: Prompt P6)--> round_cap --> END
                         --(otherwise)--> run_tools
              run_tools  --(tool calls ran: their results appended)--> call_model
                         --(no tool call, a text block: the loop guard's first branch)--> fact_check
@@ -24,9 +25,10 @@ The request Anthropic receives is built by agent._call_model / agent._send_back:
 agent.client -- no LangChain model or tool wrapper, no prebuilt agent. Tracing is tracing.py's own spans, opened by
 agent._begin_turn (metadata engine=graph); no callback handler.
 
-The loop has no round cap -- its guard is "no text and no tool call" -- so LangGraph's recursion limit is set far above
-any turn the loop would finish (RECURSION_LIMIT super-steps = ~RECURSION_LIMIT / 2 model calls): our guard, or the
-eval runner's budget, always ends a turn first (Tests/test_agent_graph.py G14).
+Since Prompt P6 (2026-11-01) a turn makes at most agent.MAX_TOOL_ROUNDS model calls (the round cap, 2 x MAX_TOOL_ROUNDS
+super-steps); LangGraph's recursion limit stays far above that (RECURSION_LIMIT super-steps = ~RECURSION_LIMIT / 2 model
+calls): our cap, our guard or the eval runner's budget always ends a turn first (Tests/test_agent_graph.py G14,
+Tests/test_round_cap.py).
 
 LAST_RUN (for the eval runner and the overhead measurement): the turn id, the node path, the seconds spent inside node
 functions, invoke()'s wall time and the overhead outside the nodes."""
@@ -75,8 +77,10 @@ class TurnState(TypedDict, total=False):
     t0: _T
     text2: _T
     reply: _T
-    # the reply (agent._finish / agent._loop_guard)
+    # the reply (agent._finish / agent._loop_guard / agent._round_cap)
     rendered: _T
+    # Prompt P6: the tool loop's model calls so far (the round cap)
+    rounds: _T
     # the loop's block / text_block: the text the fact check reads, read by the edges
     text_block: _T
 
@@ -133,6 +137,10 @@ def recheck(st):
     return out
 
 
+def round_cap(st):
+    return agent._round_cap(st)
+
+
 def finalize(st):
     if st.get("info") is None:                       # no fact check ran: the loop guard's fixed reply
         return agent._loop_guard(st)
@@ -143,7 +151,9 @@ def finalize(st):
 # ---- the edges: the loop's branches ---------------------------------------------------------------------------------
 
 def after_model(state):
-    return "fact_check" if state.get("text_block") is not None else "run_tools"
+    if state.get("text_block") is not None:
+        return "fact_check"
+    return "round_cap" if agent._round_capped(state) else "run_tools"
 
 
 def after_tools(state):
@@ -163,15 +173,16 @@ def after_send_back(state):
 def build(checkpointer=None):
     g = StateGraph(TurnState)
     for name, fn in (("call_model", call_model), ("run_tools", run_tools), ("fact_check", fact_check),
-                     ("send_back", send_back), ("recheck", recheck), ("finalize", finalize)):
+                     ("send_back", send_back), ("recheck", recheck), ("finalize", finalize), ("round_cap", round_cap)):
         g.add_node(name, _timed(name, fn))
     g.add_edge(START, "call_model")
-    g.add_conditional_edges("call_model", after_model, ["fact_check", "run_tools"])
+    g.add_conditional_edges("call_model", after_model, ["fact_check", "run_tools", "round_cap"])
     g.add_conditional_edges("run_tools", after_tools, ["call_model", "fact_check", "finalize"])
     g.add_conditional_edges("fact_check", after_fact_check, ["send_back", "finalize"])
     g.add_conditional_edges("send_back", after_send_back, ["recheck", "finalize"])
     g.add_edge("recheck", "finalize")
     g.add_edge("finalize", END)
+    g.add_edge("round_cap", END)
     return g.compile(checkpointer=checkpointer)
 
 
