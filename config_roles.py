@@ -219,11 +219,38 @@ RECENCY_HALF_LIFE_DAYS = 3
 # Production is unaffected: the server's .env carries no FPL_USER_ID, so the server stays on user 1.
 # An absent, empty or unparseable value falls back to 1 rather than raising: a malformed env var
 # must not take the app down, and the fallback is the value production already used.
+#
+# Prompt P7 (2026-11-01): in AUTH_MODE=clerk the request's user comes from its verified session token (main.py) and is
+# set for the request's whole turn with acting_user(); DEFAULT_USER_ID() then returns it, so every tool, the thread, the
+# preview tickets and the trace answer for that user. A ContextVar: concurrent requests each see their own. In off mode
+# nothing sets it and DEFAULT_USER_ID() is exactly what it was.
+import contextlib
+import contextvars
 import os
+
+_ACTING_USER = contextvars.ContextVar("fpl_acting_user", default=None)
+
+
+@contextlib.contextmanager
+def acting_user(user_id):
+    token = _ACTING_USER.set(int(user_id))
+    try:
+        yield int(user_id)
+    finally:
+        _ACTING_USER.reset(token)
+
+
+def acting_user_id():
+    """The authenticated user of this request (clerk mode), else None."""
+    return _ACTING_USER.get()
 
 
 def DEFAULT_USER_ID():                                  # noqa: N802 -- named as the config knob
-    """The default squad owner: int(FPL_USER_ID) if it parses, else 1."""
+    """The default squad owner: the request's authenticated user when there is one (clerk mode), else int(FPL_USER_ID)
+    if it parses, else 1."""
+    acting = _ACTING_USER.get()
+    if acting is not None:
+        return acting
     try:
         return int(os.environ.get("FPL_USER_ID", "") or 1)
     except (TypeError, ValueError):

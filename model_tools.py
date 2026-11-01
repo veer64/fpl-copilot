@@ -668,6 +668,18 @@ def _flags_for(elements):
     return out
 
 
+# Prompt P7 (2026-11-01): a user with no saved squad -- every new sign-in -- gets this RESULT from every squad tool, never an
+# {"error": ...} (the agent reports an error as a failure). Measured 1 Nov for a fresh id: five tools returned "no active
+# squad version ... Seed one (eval/seed_squad_gw4.py)", a developer instruction. Other squad-state failures stay errors.
+NO_SQUAD_NOTE = ("no squad saved yet: this user has not saved an FPL squad here, so there is no team of theirs to show, line "
+                 "up, plan transfers for or score. This is not an error -- say so plainly, and offer what needs no saved "
+                 "squad: the best squad from scratch, player details, fixtures and news.")
+
+
+def _no_squad(user_id):
+    return {"no_squad": True, "user_id": int(user_id), "status": "no squad saved yet", "note": NO_SQUAD_NOTE}
+
+
 def _with_flags(out):
     """`out` with every flagged player's row annotated in place: a player row (player_id / element) gains
     status_word and, when FPL gives one, chance and chance_words; a transfer row gains the same keys suffixed
@@ -1517,6 +1529,8 @@ def get_my_squad(user_id: int = None):
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
         record = _read_active(user_id)          # Prompt P6: the call's connection
+    except squad_store.NoSquadError:
+        return _no_squad(user_id)
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
     elements = [p["element"] for p in record["squad_json"]["players"]]
@@ -1563,6 +1577,8 @@ def get_my_xi(user_id: int = None, gw: int = None):
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
         record = squad_store.read_active(user_id)
+    except squad_store.NoSquadError:
+        return _no_squad(user_id)
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
     if gw is None:
@@ -1674,6 +1690,8 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
         return {"error": squad_previews.refusal("missing"), "refused": True, "reason": "missing"}
     try:
         active = squad_store.read_active(user_id)
+    except squad_store.NoSquadError:
+        return _no_squad(user_id)
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
     try:
@@ -2198,6 +2216,8 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     t0 = time.time()
     try:
         record = _read_active(user_id)          # Prompt P6: the call's connection
+    except squad_store.NoSquadError:
+        return _no_squad(user_id)
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
     try:
@@ -3217,9 +3237,7 @@ def get_my_points(gw: int = None, user_id: int = None):
     except Exception as e:                          # noqa: BLE001 -- report, never fabricate
         return {"error": f"could not read the squad versions: {e}"}
     if not versions:
-        return {"error": (f"no squad is recorded for user {user_id} this season, so no gameweek "
-                          "of it can be scored"),
-                "error_kind": "no_squad_for_gw"}
+        return _no_squad(user_id)                   # Prompt P7: never saved a squad (not "none at that deadline")
 
     meaning = ("points_net is what FPL would credit: the XI after autosubs, the captain "
                "doubled (the vice instead if the captain did not play), minus 4 per transfer "
@@ -4450,6 +4468,8 @@ def get_wildcard_gap(user_id: int = None):
     t0 = time.time()
     try:
         record = squad_store.read_active(user_id)
+    except squad_store.NoSquadError:
+        return _no_squad(user_id)
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
     try:

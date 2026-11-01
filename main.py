@@ -41,6 +41,13 @@ the request body. /chat {"message", "thread_id"?}: no thread id -> the user's de
 thread; a thread id the user does not own -> 403 before any model call; the response
 carries the thread id. /reset: the next /chat without a thread id starts a fresh default
 thread (the old one stays the user's), and the user's open preview tickets are cancelled.
+
+LOGIN (Prompt P7, 2026-11-01): AUTH_MODE=off|clerk (auth.py; default off). off is everything above,
+unchanged. clerk: POST /chat and POST /reset (CLERK_ROUTES) take `Authorization: Bearer <Clerk session
+token>` INSTEAD of the shared key -- with open sign-up the token is the credential -- and a missing or
+bad token is 401 before any model call or DB access; the request's user is the token's (users.py:
+app_users, created on first sight), set for the whole turn (config_roles.acting_user), never the body's
+or the model's. Every other route keeps the shared-key gate in both modes.
 """
 import contextlib
 import os
@@ -55,10 +62,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import agent_graph                                      # Prompt B: /chat turns run in stored threads
+import auth                                             # Prompt P7: AUTH_MODE, Clerk session tokens
 import config_roles
 import squad_previews                                   # Prompt E (2026-10-27): /reset cancels the user's preview tickets
 import threads                                         # Prompt B (2026-10-31): per-user threads, the checkpointer
 import tracing                                          # Prompt L (2026-10-30): Langfuse traces, flushed on shutdown
+import users                                            # Prompt P7: app_users (clerk mode only)
 
 
 @contextlib.asynccontextmanager
@@ -114,6 +123,10 @@ needs no key.</p>
 # use either; everything else on this app is gated.
 OPEN_ENDPOINTS = {("GET", "/health"), ("HEAD", "/health")}
 
+# Prompt P7: in AUTH_MODE=clerk these routes authenticate with the Clerk session token (the handler checks it) instead of
+# the shared key; in off mode they are gated by the key like everything else.
+CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset")}
+
 # --- crude rate limit on the one endpoint that spends money ------------------
 # Per-IP AND global. The global ceiling matters because Docker's published port
 # can present every external client as the bridge gateway, which would collapse
@@ -157,6 +170,8 @@ def _rate_limited(ip):
 async def require_api_key(request: Request, call_next):
     if (request.method, request.url.path) in OPEN_ENDPOINTS:
         return await call_next(request)
+    if auth.mode() == "clerk" and (request.method, request.url.path) in CLERK_ROUTES:
+        return await call_next(request)                 # Prompt P7: the handler verifies the session token
 
     if not API_KEY:
         return JSONResponse(
@@ -212,10 +227,42 @@ class ChatRequest(BaseModel):
 
 
 THREAD_REFUSED = "thread not found for this user"
+TOKEN_REFUSED = "missing or invalid session token"
+PROFILE_UNAVAILABLE = "your account profile could not be loaded; please try again shortly"
+
+
+def _signed_in(http):
+    """Prompt P7 (clerk mode): (the app_users row, None) for a verified session token, else (None, the refusal): 401 for a
+    missing or bad token -- before any DB access --, 503 when a new user's profile cannot be fetched (nothing written)."""
+    try:
+        claims = auth.verify(auth.bearer(http.headers))
+    except auth.AuthError:
+        return None, JSONResponse({"detail": TOKEN_REFUSED}, status_code=401)
+    try:
+        return users.user_for_claims(claims), None
+    except users.ProfileUnavailable as e:
+        print(f"  [sign-in refused: {e}]")
+        return None, JSONResponse({"detail": PROFILE_UNAVAILABLE}, status_code=503)
+
+
+def _chat_signed_in(request, http):
+    user, refusal = _signed_in(http)
+    if refusal is not None:
+        return refusal
+    user_id = int(user["user_id"])
+    with config_roles.acting_user(user_id):             # every tool, ticket and trace of the turn answers for this user
+        try:
+            thread_id = threads.resolve(user_id, request.thread_id)
+        except threads.ThreadRefused:
+            return JSONResponse({"detail": THREAD_REFUSED}, status_code=403)
+        answer = agent_graph.run_thread_turn(user_id, thread_id, request.message)
+    return {"answer": answer, "thread_id": thread_id}
 
 
 @app.post("/chat")
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, http: Request):
+    if auth.mode() == "clerk":
+        return _chat_signed_in(request, http)
     user_id = config_roles.DEFAULT_USER_ID()            # server-side only: never from the request body or the model
     try:
         thread_id = threads.resolve(user_id, request.thread_id)
@@ -226,7 +273,17 @@ def chat(request: ChatRequest):
 
 
 @app.post("/reset")
-def reset_conversation():
+def reset_conversation(http: Request):
+    if auth.mode() == "clerk":
+        user, refusal = _signed_in(http)
+        if refusal is not None:
+            return refusal
+        with config_roles.acting_user(int(user["user_id"])):
+            return _reset_for_default_user()
+    return _reset_for_default_user()
+
+
+def _reset_for_default_user():
     try:
         threads.start_new_default(config_roles.DEFAULT_USER_ID())   # Prompt B: the next /chat starts a fresh default thread
     except Exception as e:  # noqa: BLE001 -- as the ticket cancel below: reported, never fatal to /reset

@@ -402,6 +402,11 @@ class SquadStateError(RuntimeError):
     and NOTHING falls back to a free pick."""
 
 
+class NoSquadError(SquadStateError):
+    """The user has never saved a squad (no active version at all) -- every new sign-in (Prompt P7, 2026-11-01). The squad
+    tools answer it as a "no squad saved yet" RESULT, not an error; the other SquadStateErrors stay errors."""
+
+
 ACTIVE_SQL = """SELECT version_id, user_id, season, gw, created_at, is_active,
                        supersedes, note, squad_json
                 FROM squad_versions
@@ -414,7 +419,7 @@ def active_from_rows(rows, user_id):
     the three failure modes are testable without a database. Returns a dict
     with the row's columns and squad_json parsed + validated."""
     if len(rows) == 0:
-        raise SquadStateError(
+        raise NoSquadError(
             f"no active squad version for user {user_id}: squad_versions has no "
             "is_active row. Seed one (eval/seed_squad_gw4.py); nothing falls back "
             "to a free pick.")

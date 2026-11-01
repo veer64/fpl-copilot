@@ -401,6 +401,7 @@ import fact_check                                       # Prompt H M1 (2026-10-3
 import tracing                                          # Prompt L (2026-10-30): Langfuse traces, recorded by hand, off by default
 import time
 import now_context
+import config_roles                                     # Prompt P7: the signed-in user of a turn (clerk mode)
 from now_context import context_block, now_line
 from db_write import record_chat_usage
 from pricing import turn_usd as _price_usd
@@ -636,6 +637,10 @@ def call_tool(tool_name, tool_input):
     fn = available_functions.get(tool_name)
     if fn is None:
         return {"error": f"tool {tool_name} is not available"}
+    acting = config_roles.acting_user_id()               # Prompt P7: a signed-in user's turn (clerk mode only)
+    if acting is not None and isinstance(tool_input, dict) and "user_id" in tool_input and tool_input["user_id"] != acting:
+        print(f"  [{tool_name}: user_id {tool_input['user_id']!r} from the model replaced by the signed-in user]")
+        tool_input = {**tool_input, "user_id": acting}  # the user is the token's, never the model's
     try:
         return fn(**(tool_input or {}))
     except Exception as e:  # noqa: BLE001 -- the contract: surface, never 500

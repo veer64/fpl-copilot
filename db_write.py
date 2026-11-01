@@ -420,9 +420,12 @@ def sync_sequences(conn):
         for table, col, seq in targets:
             cur.execute(f'SELECT COALESCE(MAX({col}), 0) FROM "{table}"')
             top = cur.fetchone()[0] or 0
-            cur.execute("SELECT pg_sequence_last_value(%s::regclass)", (seq,))
-            last = cur.fetchone()[0]
-            if top > 0 and (last is None or last < top):
+            cur.execute("SELECT pg_sequence_last_value(%s::regclass), (SELECT seqmin FROM pg_sequence "
+                        "WHERE seqrelid = %s::regclass)", (seq, seq))
+            last, seqmin = cur.fetchone()
+            # Prompt P7: a sequence that starts above every id in its table (app_users: new users from 10001, while users
+            # 1 / 9001 / 9002 are inserted with explicit ids) is not behind, even when never called (last is NULL)
+            if top > 0 and top >= (seqmin or 1) and (last is None or last < top):
                 cur.execute("SELECT setval(%s::regclass, %s, true)", (seq, top))
                 fixed.append((table, col, last, top))
     conn.commit()
