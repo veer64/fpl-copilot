@@ -25,6 +25,7 @@
 
 import json
 import os
+import socket
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -335,14 +336,33 @@ def prediction_insert_sql(columns):
             f"({', '.join(['%s'] * len(columns))})")
 
 
+def connect_kwargs():
+    """psycopg2.connect's arguments: the five DB_* settings with their defaults. Only "localhost" is pinned to its IPv4
+    address (libpq's hostaddr; Prompt P6, 2026-11-01 -- threads.conninfo's rule): on the laptop "localhost" resolves to ::1
+    first and every connect waited 2.05 s for that attempt to fail before 127.0.0.1 answered in 0.008 s, so each read of a
+    tool cost two seconds. Any other host (fpl-postgres in production) is passed through unchanged, with no lookup. The
+    address is looked up once per process (never per connect, so never per turn -- Tests/test_threads.py F3); a failed
+    lookup is not remembered."""
+    host = os.getenv("DB_HOST", "localhost")
+    kw = dict(host=host, port=os.getenv("DB_PORT", "5432"), dbname=os.getenv("DB_NAME", "fpl"),
+              user=os.getenv("DB_USER", "postgres"), password=os.getenv("DB_PASSWORD", ""))
+    if host == "localhost":
+        key = (host, kw["port"])
+        if key not in _HOSTADDR:
+            try:
+                _HOSTADDR[key] = socket.getaddrinfo(host, int(kw["port"]), socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+            except (OSError, ValueError):
+                pass                                 # no IPv4 answer: libpq resolves the name itself, as before
+        if key in _HOSTADDR:
+            kw["hostaddr"] = _HOSTADDR[key]
+    return kw
+
+
+_HOSTADDR = {}                                       # ("localhost", port) -> its IPv4 address, looked up once per process
+
+
 def connect():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=os.getenv("DB_PORT", "5432"),
-        dbname=os.getenv("DB_NAME", "fpl"),
-        user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD", ""),
-    )
+    return psycopg2.connect(**connect_kwargs())
 
 
 def record_chat_usage(turn_id, model, api_calls, input_tokens, output_tokens, cache_read_tokens,

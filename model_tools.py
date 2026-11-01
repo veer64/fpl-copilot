@@ -16,6 +16,8 @@
 # model volume (data/live/_tmp_frame_{PRODUCTION_CONFIG}.parquet, written by
 # each run) through squad/optimize.py -- the same MIP the pipeline uses, gapRel=0.
 
+import contextvars
+import functools
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -38,20 +40,94 @@ PROD_FRAME = REPO / "data" / "live" / f"_tmp_frame_{PRODUCTION_CONFIG}.parquet"
 
 
 def _conn():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"), port=os.getenv("DB_PORT", "5432"),
-        dbname=os.getenv("DB_NAME", "fpl"), user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD", ""))
+    import db_write
+    return psycopg2.connect(**db_write.connect_kwargs())   # Prompt P6: "localhost" pinned to IPv4, any other host as given
+
+
+# Prompt P6 (2026-11-01): ONE connection per tool call. Every _q used to open its own connection -- 6 per player card, 5 per
+# get_my_squad, up to 11 per transfer plan -- and a connect costs 17.6 ms in production (2.05 s on the laptop before the
+# localhost pin). Inside a call of a tool decorated with one_connection_per_call, every read shares one connection, opened
+# at the call's first read and closed when the call returns. Each read is still its own transaction, rolled back after it,
+# exactly as when its own connection was closed (a read never commits); a failed read leaves the connection usable; a
+# connection that died is replaced at the next read; a nested decorated call reuses the outer call's connection. Writes
+# (db_write, squad_store's writers) keep their own connections. Outside a call nothing changes: one connection per read.
+_CALL_DB = contextvars.ContextVar("model_tools_call_db", default=None)
+
+
+def one_connection_per_call(fn):
+    @functools.wraps(fn)
+    def call(*args, **kwargs):
+        if _CALL_DB.get() is not None:                  # a nested call: the outer call's connection
+            return fn(*args, **kwargs)
+        holder = {"conn": None}
+        token = _CALL_DB.set(holder)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _CALL_DB.reset(token)
+            if holder["conn"] is not None:
+                try:
+                    holder["conn"].close()
+                except Exception:                       # noqa: BLE001 -- closing a dead connection
+                    pass
+    call.one_connection_per_call = True
+    return call
+
+
+def _call_connection():
+    """The current call's shared connection: None outside a decorated call, or before its first read."""
+    holder = _CALL_DB.get()
+    return None if holder is None else holder["conn"]
+
+
+def _shared(holder):
+    if holder["conn"] is None or holder["conn"].closed:
+        holder["conn"] = _conn()
+    return holder["conn"]
+
+
+def _end_read(holder, conn):
+    """The read's transaction rolled back (as closing its own connection did); a connection that cannot is dropped."""
+    try:
+        conn.rollback()
+    except Exception:                                   # noqa: BLE001 -- dead: the next read opens a new one
+        holder["conn"] = None
+        try:
+            conn.close()
+        except Exception:                               # noqa: BLE001
+            pass
 
 
 def _q(sql, params=()):
-    conn = _conn()
+    holder = _CALL_DB.get()
+    if holder is None:
+        conn = _conn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, params)
+                return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+    conn = _shared(holder)
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, params)
             return [dict(r) for r in cur.fetchall()]
     finally:
-        conn.close()
+        _end_read(holder, conn)
+
+
+def _read_active(user_id):
+    """squad_store.read_active on the call's shared connection inside a decorated call (rolled back after it, like a _q
+    read); on its own connection outside one, as before."""
+    holder = _CALL_DB.get()
+    if holder is None:
+        return squad_store.read_active(user_id)
+    conn = _shared(holder)
+    try:
+        return squad_store.read_active(user_id, conn=conn)
+    finally:
+        _end_read(holder, conn)
 
 
 def _latest_run(gw=None, any_status=False):
@@ -974,6 +1050,7 @@ def _element_id(value):
 BAD_ELEMENT_ID = "player_id must be a number; look the player up by name first"
 
 
+@one_connection_per_call
 def get_player_card(player_id: int):
     element = _element_id(player_id)
     if element is None:
@@ -1425,6 +1502,7 @@ def _current_gw():
     return int(nd[0])
 
 
+@one_connection_per_call
 def get_my_squad(user_id: int = None):
     """The user's OWN squad -- the active row of squad_versions (master plan
     1.4 / 5.4), NOT the model's free-pick solve. The fifteen with role,
@@ -1438,7 +1516,7 @@ def get_my_squad(user_id: int = None):
     paths (the transfer MIP) that must not proceed without state."""
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
-        record = squad_store.read_active(user_id)
+        record = _read_active(user_id)          # Prompt P6: the call's connection
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
     elements = [p["element"] for p in record["squad_json"]["players"]]
@@ -1704,12 +1782,40 @@ def _load_frame():
     if not frame_p.exists() or not prices_p.exists():
         raise FileNotFoundError("no predictions on this machine yet -- no build has "
                                 "been produced here")
-    df = sim.load_season(walkforward_path=str(frame_p), history_path=str(prices_p),
-                         horizon_aware=True, season=os.getenv("FPL_SEASON", "2026-27"))
-    cutoff = int(df["cutoff"].min())
-    built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
+    season = os.getenv("FPL_SEASON", "2026-27")
+    key = (season,) + _build_key(frame_p, prices_p)
+    hit = _FRAME_CACHE.get("season")
+    if hit is None or hit[0] != key:
+        df = sim.load_season(walkforward_path=str(frame_p), history_path=str(prices_p),
+                             horizon_aware=True, season=season)
+        cutoff = int(df["cutoff"].min())
+        built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
+        hit = _FRAME_CACHE["season"] = (key, df, cutoff, built)
+    _, df, cutoff, built = hit
     _check_sidecar(frame_p, cutoff)
-    return df, cutoff, built
+    return df.copy(), cutoff, built
+
+
+# Prompt P6 (2026-11-01): the production frame is read once per process while its build is unchanged, in either shape (the
+# simulator's, the raw one). The key is the frame file's (mtime, size), the prices file's, and the sidecar's bytes (the run
+# id it names): a new build rewrites the file, so the next call reads it again. Every caller gets its own deep copy (a caller
+# may change its frame). The sidecar check still runs on every call, against the database's latest run, exactly as before.
+_FRAME_CACHE = {}
+
+
+def _build_key(*paths):
+    key = []
+    for p in paths:
+        try:
+            st = p.stat()
+            key.append((str(p), st.st_mtime_ns, st.st_size))
+        except OSError:
+            key.append((str(p), None, None))
+    try:
+        key.append(paths[0].with_suffix(".provenance.json").read_bytes())
+    except OSError:
+        key.append(None)
+    return tuple(key)
 
 
 def _check_sidecar(frame_p, cutoff):
@@ -1741,11 +1847,16 @@ def _frame_raw():
     if not frame_p.exists():
         raise FileNotFoundError("no predictions on this machine yet -- no build has "
                                 "been produced here")
-    df = pd.read_parquet(frame_p)
-    cutoff = int(df["cutoff"].min())
-    built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
+    key = _build_key(frame_p)
+    hit = _FRAME_CACHE.get("raw")
+    if hit is None or hit[0] != key:
+        df = pd.read_parquet(frame_p)
+        cutoff = int(df["cutoff"].min())
+        built = datetime.fromtimestamp(frame_p.stat().st_mtime, tz=timezone.utc)
+        hit = _FRAME_CACHE["raw"] = (key, df, cutoff, built)
+    _, df, cutoff, built = hit
     _check_sidecar(frame_p, cutoff)
-    return df, cutoff, built
+    return df.copy(), cutoff, built
 
 
 def _explain_row(df, cutoff, player_id, target):
@@ -2050,6 +2161,7 @@ def _load_pool(gw=None):
 
 
 # ------------------------------------------------------- the six-week MIP
+@one_connection_per_call
 def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player_ids: list = None,
                       user_id: int = None, source: str = "chat"):
     """The six-week transfer plan for the user's OWN squad (transfer_mip via
@@ -2085,7 +2197,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
 
     t0 = time.time()
     try:
-        record = squad_store.read_active(user_id)
+        record = _read_active(user_id)          # Prompt P6: the call's connection
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
     try:
@@ -2518,6 +2630,7 @@ def _with_pick_basis(out, gw, counts):
     return dict(items[:at] + [("basis", basis), ("reasons_available", False)] + items[at:])
 
 
+@one_connection_per_call
 def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
              budget: float = None, gw: int = None, start_player_ids: list = None):
     """Run the production MIP (gapRel=0) on the latest frame from the model
