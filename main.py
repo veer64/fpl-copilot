@@ -47,7 +47,8 @@ unchanged. clerk: POST /chat and POST /reset (CLERK_ROUTES) take `Authorization:
 token>` INSTEAD of the shared key -- with open sign-up the token is the credential -- and a missing or
 bad token is 401 before any model call or DB access; the request's user is the token's (users.py:
 app_users, created on first sight), set for the whole turn (config_roles.acting_user), never the body's
-or the model's. Every other route keeps the shared-key gate in both modes.
+or the model's. Every other route keeps the shared-key gate in both modes. GET /admin and GET /admin/users.csv
+(admin.py; clerk mode only, 404 in off mode) take the token too and answer only an admin (403 otherwise).
 """
 import contextlib
 import os
@@ -57,10 +58,11 @@ from collections import deque
 
 from fastapi import FastAPI, Request
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse)
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import admin                                            # Prompt P7: the admin dashboard + users CSV (clerk mode)
 import agent_graph                                      # Prompt B: /chat turns run in stored threads
 import auth                                             # Prompt P7: AUTH_MODE, Clerk session tokens
 import config_roles
@@ -125,7 +127,7 @@ OPEN_ENDPOINTS = {("GET", "/health"), ("HEAD", "/health")}
 
 # Prompt P7: in AUTH_MODE=clerk these routes authenticate with the Clerk session token (the handler checks it) instead of
 # the shared key; in off mode they are gated by the key like everything else.
-CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset")}
+CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET", "/admin/users.csv")}
 
 # --- crude rate limit on the one endpoint that spends money ------------------
 # Per-IP AND global. The global ceiling matters because Docker's published port
@@ -296,6 +298,39 @@ def _reset_for_default_user():
         print(f"  [default thread not reset: {type(e).__name__}: {str(e)[:200]}]")
     cancelled = squad_previews.cancel_for_default_user()     # Prompt E: a fresh conversation holds no open preview ticket
     return {"status": "conversation reset", "preview_tickets_cancelled": cancelled}
+
+
+ADMIN_ONLY = "admin only"
+
+
+def _admin(http):
+    """Prompt P7 Part 3: (the admin's row, None) or (None, the refusal): 404 in off mode (the routes do not exist there),
+    401 for a missing or bad token, 403 for anyone but an admin."""
+    if auth.mode() != "clerk":
+        return None, JSONResponse({"detail": "Not Found"}, status_code=404)
+    user, refusal = _signed_in(http)
+    if refusal is not None:
+        return None, refusal
+    if not user.get("is_admin"):
+        return None, JSONResponse({"detail": ADMIN_ONLY}, status_code=403)
+    return user, None
+
+
+@app.get("/admin")
+def admin_page(http: Request):
+    _, refusal = _admin(http)
+    if refusal is not None:
+        return refusal
+    return HTMLResponse(admin.render_html(admin.stats()))
+
+
+@app.get("/admin/users.csv")
+def admin_users_csv(http: Request):
+    _, refusal = _admin(http)
+    if refusal is not None:
+        return refusal
+    return Response(content=admin.users_csv(admin.stats()), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="users.csv"'})
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
