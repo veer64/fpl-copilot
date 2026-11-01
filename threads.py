@@ -24,10 +24,12 @@ and any other plain object (a test's fake block) stored as its attributes and re
 exactly those attributes (its class is named but never imported or instantiated). Nothing is pickled. Anything else
 (LangGraph's own bookkeeping) goes to LangGraph's JsonPlusSerializer.
 
-The connection: psycopg 3 (the checkpointer's driver; the rest of the app keeps psycopg2), one pool per process and
-database, autocommit + dict_row + prepare_threshold=0 as PostgresSaver.from_conn_string uses. The host is resolved to
-its IPv4 address (libpq's hostaddr): on the laptop "localhost" resolves to ::1 first, where nothing listens, and libpq
-18 waited out its timeout before trying IPv4 (measured 2026-10-31: 8.0 s vs 0.03 s)."""
+The connection: psycopg 3 (the checkpointer's driver; the rest of the app keeps psycopg2), one pool per process, built
+on first use and reused by every turn and thread, autocommit + dict_row + prepare_threshold=0 as
+PostgresSaver.from_conn_string uses. Only "localhost" is pinned to its IPv4 address (libpq's hostaddr): on the laptop it
+resolves to ::1 first, where nothing listens, and libpq 18 waited out its timeout before trying IPv4 (measured
+2026-10-31: 8.0 s vs 0.03 s). Any other host (the server's fpl-postgres) goes to libpq unchanged (Prompt D2,
+2026-11-01)."""
 import atexit
 import importlib
 import json
@@ -243,31 +245,39 @@ _SAVERS_LOCK = threading.Lock()
 _ATEXIT = []
 
 
+def _settings():
+    """db_write's five settings (DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD, the same defaults)."""
+    return (os.getenv("DB_HOST", "localhost"), os.getenv("DB_PORT", "5432"), os.getenv("DB_NAME", "fpl"),
+            os.getenv("DB_USER", "postgres"), os.getenv("DB_PASSWORD", ""))
+
+
 def conninfo():
-    """The app's database (db_write's env: DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD) as a psycopg 3
-    conninfo, the host pinned to its IPv4 address (hostaddr) when it resolves to one."""
+    """The app's database as a psycopg 3 conninfo. Only "localhost" is pinned to its IPv4 address (hostaddr); any
+    other host goes to libpq unchanged, with no lookup here."""
     from psycopg.conninfo import make_conninfo
-    host, port = os.getenv("DB_HOST", "localhost"), os.getenv("DB_PORT", "5432")
-    kw = dict(host=host, port=port, dbname=os.getenv("DB_NAME", "fpl"), user=os.getenv("DB_USER", "postgres"),
-              password=os.getenv("DB_PASSWORD", ""))
-    try:
-        kw["hostaddr"] = socket.getaddrinfo(host, int(port), socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
-    except (OSError, ValueError):
-        pass
+    host, port, dbname, user, password = _settings()
+    kw = dict(host=host, port=port, dbname=dbname, user=user, password=password)
+    if host == "localhost":
+        try:
+            kw["hostaddr"] = socket.getaddrinfo(host, int(port), socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+        except (OSError, ValueError):
+            pass
     return make_conninfo(**kw)
 
 
 def checkpointer():
-    """This process's PostgresSaver for the configured database (one pool each), set up once."""
+    """This process's PostgresSaver (one pool), set up once and reused by every turn and thread. Keyed by the five
+    settings themselves, so a turn makes no host lookup; a second key only appears when the settings change (tests
+    switching DB_NAME)."""
     from psycopg.rows import dict_row
     from psycopg_pool import ConnectionPool
     from langgraph.checkpoint.postgres import PostgresSaver
-    info = conninfo()
+    key = _settings()
     with _SAVERS_LOCK:
-        saver = _SAVERS.get(info)
+        saver = _SAVERS.get(key)
         if saver is not None:
             return saver
-        pool = ConnectionPool(info, min_size=1, max_size=8, open=True,
+        pool = ConnectionPool(conninfo(), min_size=1, max_size=8, open=True,
                               kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row})
         saver = PostgresSaver(pool, serde=HistorySerde())
         with pool.connection() as c:
@@ -276,7 +286,7 @@ def checkpointer():
                 saver.setup()
             finally:
                 c.execute("SELECT pg_advisory_unlock(%s)", (_SETUP_LOCK_KEY,))
-        _SAVERS[info] = saver
+        _SAVERS[key] = saver
         if not _ATEXIT:                                  # close the pools before the interpreter tears down their workers
             atexit.register(_reset)
             _ATEXIT.append(True)

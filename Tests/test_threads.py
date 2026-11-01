@@ -564,3 +564,60 @@ def test_t13_a_turn_that_raises_leaves_the_thread_as_it_was_and_the_next_turn_ru
     last = [e for e in app.brain.log if e["question"] == "About cherry"][0]
     assert _questions_in(_request_messages(last)) == ["About apple", "About cherry"]
     assert _questions_in(_norm(_history(t))) == ["About apple", "About cherry"]
+
+
+# ---- F1-F3 (Prompt D2, 2026-11-01): the checkpointer's connection -------------------------------------------------
+
+def _conninfo_dict(monkeypatch, host):
+    from psycopg.conninfo import conninfo_to_dict
+    import threads
+    monkeypatch.setenv("DB_HOST", host)
+    return conninfo_to_dict(threads.conninfo())
+
+
+def test_f1_localhost_is_pinned_to_an_ipv4_address(monkeypatch):
+    import ipaddress
+    d = _conninfo_dict(monkeypatch, "localhost")
+    assert d["host"] == "localhost"
+    assert isinstance(ipaddress.ip_address(d["hostaddr"]), ipaddress.IPv4Address)
+
+
+@pytest.mark.parametrize("host", ["fpl-postgres", "db.example.internal", "10.1.2.3"])
+def test_f2_any_other_host_is_passed_through_unchanged_with_no_lookup(monkeypatch, host):
+    looked = []
+    real = socket.getaddrinfo
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: (looked.append(a[0] if a else k.get("host")), real(*a, **k))[1])
+    d = _conninfo_dict(monkeypatch, host)
+    assert d["host"] == host and "hostaddr" not in d
+    assert looked == []                                                    # the resolver is never called
+
+
+def test_f3_one_pool_per_process_reused_by_every_turn_and_thread_with_no_per_turn_lookup(app):
+    import psycopg_pool
+    import threads
+    saver = threads.checkpointer()                                        # built by the fixture
+    pool = saver.conn
+    host = os.environ.get("DB_HOST", "localhost")
+    looked, made = [], []
+    real_gai = socket.getaddrinfo
+
+    def spy_gai(*a, **k):
+        if (a[0] if a else k.get("host")) == host:
+            looked.append(1)
+        return real_gai(*a, **k)
+    app.mp.setattr(socket, "getaddrinfo", spy_gai)
+    real_pool = psycopg_pool.ConnectionPool
+
+    class CountingPool(real_pool):
+        def __init__(self, *a, **k):
+            made.append(1)
+            super().__init__(*a, **k)
+    app.mp.setattr(psycopg_pool, "ConnectionPool", CountingPool)
+    t1 = _chat(app, 9001, "About apple").json()["thread_id"]
+    r2 = _chat(app, 9001, "About banana", thread_id=t1)
+    t2 = _chat(app, 9002, "About cherry").json()["thread_id"]
+    assert r2.status_code == 200 and t1 != t2
+    assert _questions_in(_norm(_history(t1))) == ["About apple", "About banana"]
+    assert made == []                                                      # no pool built by a turn
+    assert looked == []                                                    # no host lookup by a turn
+    assert threads.checkpointer() is saver and saver.conn is pool         # the same pool object throughout
