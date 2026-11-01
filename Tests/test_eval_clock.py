@@ -19,6 +19,7 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
 
 import now_context as nc                                   # noqa: E402
 import run_agent_evals as rae                              # noqa: E402
+from test_threads import tdb                               # noqa: E402,F401  (Prompt P6 Part 5: /chat's thread on its test database)
 
 FROZEN = "2026-10-25T14:30:00Z"
 FAR = "2031-01-01T00:00:00Z"                               # a date no real clock will show while this test lives
@@ -70,12 +71,14 @@ class _Fake:
                                                                  cache_creation_input_tokens=0), model="claude-sonnet-4-6")
 
 
-def test_chat_ignores_the_override_variable(monkeypatch):
+def test_chat_ignores_the_override_variable(monkeypatch, tdb):
     """/chat with FPL_EVAL_NOW in the environment and no runner: the Now line carries today's real date."""
     monkeypatch.setenv("FPL_EVAL_NOW", FAR)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
     monkeypatch.setenv("APP_API_KEY", KEY)
     monkeypatch.setenv("FPL_USER_ID", "9001")        # Prompt B: /chat stores a thread for the turn's user -- a test user
+    # Prompt P6 Part 5: on the threads test database (tdb), never the developer's: this test used to leave a chat_threads
+    # row and checkpoints there (the context block reads local files only, so it is the same block)
     import agent as ag
     ag = importlib.reload(ag)
     import main

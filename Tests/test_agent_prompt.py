@@ -29,6 +29,11 @@ def agent(monkeypatch):
     import importlib
     import agent as ag
     importlib.reload(ag)
+    # Prompt P6 Part 5: the turn's logs go nowhere (each test here used to leave a chat_usage, numeric_checks and
+    # citation_checks row in the developer's database)
+    monkeypatch.setattr(ag, "record_chat_usage", lambda *a, **k: None)
+    monkeypatch.setattr(ag, "record_numeric_check", lambda *a, **k: None)
+    monkeypatch.setattr(ag, "record_citation_check", lambda *a, **k: None)
     return ag
 
 

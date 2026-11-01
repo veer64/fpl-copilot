@@ -14,6 +14,7 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
         sys.path.insert(0, p)
 
 import llm                                                 # noqa: E402
+from test_threads import tdb                               # noqa: E402,F401  (Prompt P6 Part 5: /chat's thread on its test database)
 import pricing                                             # noqa: E402
 
 CC = {"type": "ephemeral"}
@@ -192,7 +193,7 @@ class _Status(Exception):
         self.status_code, self.body = status, {"error": {"type": "authentication_error"}}
 
 
-def test_a_failed_call_leaves_run_agent_as_an_exception_and_chat_as_a_500(monkeypatch):
+def test_a_failed_call_leaves_run_agent_as_an_exception_and_chat_as_a_500(monkeypatch, tdb):
     ag = _agent(monkeypatch)
     monkeypatch.setattr(ag, "client", _Raw([_Status(401)]))
     with pytest.raises(llm.LLMAuthError):
@@ -206,6 +207,8 @@ def test_a_failed_call_leaves_run_agent_as_an_exception_and_chat_as_a_500(monkey
     # through the app: the same 500 the unhandled SDK exception produced before the move
     monkeypatch.setenv("APP_API_KEY", "k")
     monkeypatch.setenv("FPL_USER_ID", "9001")        # Prompt B: /chat stores a thread for the turn's user -- a test user
+    # Prompt P6 Part 5: on the threads test database (tdb), never the developer's: the failed turn's rollback used to leave
+    # checkpoint rows there
     import importlib
     import main as app_main
     importlib.reload(app_main)

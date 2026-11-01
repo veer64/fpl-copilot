@@ -174,11 +174,20 @@ class _Fake:
         return _Resp([_Block("text", text="done")], "end_turn")
 
 
+def _quiet_logs(monkeypatch, ag):
+    """Prompt P6 Part 5: the turn's logs go nowhere (these turns used to leave chat_usage, numeric_checks and citation_checks
+    rows in the developer's database)."""
+    monkeypatch.setattr(ag, "record_chat_usage", lambda *a, **k: None)
+    monkeypatch.setattr(ag, "record_numeric_check", lambda *a, **k: None)
+    monkeypatch.setattr(ag, "record_citation_check", lambda *a, **k: None)
+
+
 def test_the_agent_prepends_a_fresh_block_to_the_system_prompt_every_turn(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
     import importlib
     import agent as ag
     importlib.reload(ag)
+    _quiet_logs(monkeypatch, ag)
     clock = {"now": NOW}
     monkeypatch.setattr(nc, "clock", lambda: clock["now"])              # the agent reads the clock once per turn
     monkeypatch.setattr(ag, "context_block", lambda now=None: nc.build(now, deadlines=DL, finished=[1, 2, 3, 4, 5],
@@ -204,6 +213,7 @@ def test_a_block_that_fails_to_build_does_not_take_the_turn_down(monkeypatch):
     import importlib
     import agent as ag
     importlib.reload(ag)
+    _quiet_logs(monkeypatch, ag)
 
     def boom():
         raise RuntimeError("volume gone")
