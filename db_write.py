@@ -366,19 +366,28 @@ def connect():
 
 
 def record_chat_usage(turn_id, model, api_calls, input_tokens, output_tokens, cache_read_tokens,
-                      cache_write_tokens, usd, tool_names_replaced, conn=None):
+                      cache_write_tokens, usd, tool_names_replaced, conn=None, user_id=None):
     """One chat_usage row per reply (see the DDL). usd None -> NULL. Raises on a DB failure: the caller
-    (agent._usage_log) catches and prints, so /chat never fails because of the log."""
+    (agent._usage_log) catches and prints, so /chat never fails because of the log. user_id (Prompt P7: a signed-in
+    user's turn, the daily cap's ledger -- the column users.ensure_schema adds) is written only when given; without it the
+    statement is the one it always was."""
     own = conn is None
     if own:
         conn = connect()
     try:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO chat_usage (turn_id, model, api_calls, input_tokens, output_tokens, "
-                        "cache_read_tokens, cache_write_tokens, usd, tool_names_replaced) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                        (turn_id, model, api_calls, input_tokens, output_tokens, cache_read_tokens,
-                         cache_write_tokens, usd, tool_names_replaced))
+            if user_id is None:
+                cur.execute("INSERT INTO chat_usage (turn_id, model, api_calls, input_tokens, output_tokens, "
+                            "cache_read_tokens, cache_write_tokens, usd, tool_names_replaced) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            (turn_id, model, api_calls, input_tokens, output_tokens, cache_read_tokens,
+                             cache_write_tokens, usd, tool_names_replaced))
+            else:
+                cur.execute("INSERT INTO chat_usage (turn_id, model, api_calls, input_tokens, output_tokens, "
+                            "cache_read_tokens, cache_write_tokens, usd, tool_names_replaced, user_id) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            (turn_id, model, api_calls, input_tokens, output_tokens, cache_read_tokens,
+                             cache_write_tokens, usd, tool_names_replaced, int(user_id)))
         conn.commit()
     finally:
         if own:

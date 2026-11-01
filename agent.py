@@ -738,8 +738,10 @@ def _usage_log(turn_id, usage, tool_names_replaced):
         toks = {k: (usage[k] if seen else None) for k in ("input", "output", "cache_read", "cache_write")}
         cost = (_price_usd(model, toks["input"], toks["output"], cache_read=toks["cache_read"], cache_write=toks["cache_write"])
                 if seen else None)                                               # the cache rates since 2026-10-19
+        acting = config_roles.acting_user_id()           # Prompt P7: a signed-in user's turn -> the cap's ledger
         record_chat_usage(turn_id, model, usage["calls"], toks["input"], toks["output"],
-                          toks["cache_read"], toks["cache_write"], cost, tool_names_replaced)
+                          toks["cache_read"], toks["cache_write"], cost, tool_names_replaced,
+                          **({} if acting is None else {"user_id": acting}))
     except Exception as e:  # noqa: BLE001 -- the log must never take the reply down
         print(f"  [usage not logged: {type(e).__name__}: {str(e)[:200]}]")
 

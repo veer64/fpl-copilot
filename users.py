@@ -13,8 +13,18 @@
 - sign_in_method: "google" when the account has a Google external account (oauth_google), else "email" (password, email
   code or email link: the Clerk free plan's other methods); "other" when there is no email at all.
 Measured on the dev instance 1 Nov: the user object carries primary_email_address_id, email_addresses[].email_address /
-.verification.status ("verified"), first_name, last_name, external_accounts[].provider, created_at in ms."""
+.verification.status ("verified"), first_name, last_name, external_accounts[].provider, created_at in ms.
+
+LIMITS (Prompt P7 Part 2; USER DECISION 1 Nov: "Daily cap" = $1/day per user, the admin is exempt). Before each signed-in
+/chat turn (main.py): more than RATE_LIMIT_PER_MINUTE requests in a rolling minute -> 429; the user's chat_usage cost since
+00:00 UTC (chat_usage.user_id, written with every signed-in turn) >= their cap (app_users.daily_cap_usd, else DAILY_CAP_USD,
+default 1.00) -> the cap_reply() text with HTTP 200, no model call, a cap_hits row. is_exempt users skip both. A turn
+already running finishes, so a day can end over the cap by at most the cost of one turn per request in flight. The rate
+windows are process-local (one app process in production)."""
 import os
+import threading
+import time
+from collections import deque
 from datetime import datetime, timedelta, timezone
 
 import psycopg2.extras
@@ -25,6 +35,11 @@ FIRST_NEW_USER_ID = 10001
 RESERVED_USER_IDS = (1, 9001, 9002)
 PROFILE_MAX_AGE = timedelta(days=1)
 BACKEND_API = "https://api.clerk.com/v1"
+DAILY_CAP_ENV = "DAILY_CAP_USD"
+DEFAULT_DAILY_CAP_USD = 1.00
+RATE_LIMIT_PER_MINUTE = 10
+RATE_WINDOW_S = 60.0
+CAP_REPLY = "You've reached today's limit. It resets at 00:00 UTC (in {h} h {m} m)."
 
 DDL = f"""
 CREATE SEQUENCE IF NOT EXISTS app_users_user_id_seq START WITH {FIRST_NEW_USER_ID} MINVALUE {FIRST_NEW_USER_ID};
@@ -41,6 +56,17 @@ CREATE TABLE IF NOT EXISTS app_users (
     is_exempt          BOOLEAN     NOT NULL DEFAULT FALSE
 );
 ALTER SEQUENCE app_users_user_id_seq OWNED BY app_users.user_id;
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS daily_cap_usd NUMERIC(10, 4);
+CREATE TABLE IF NOT EXISTS cap_hits (
+    id         SERIAL         PRIMARY KEY,
+    user_id    INT            NOT NULL,
+    hit_at     TIMESTAMPTZ    NOT NULL DEFAULT now(),
+    spent_usd  NUMERIC(12, 6),
+    cap_usd    NUMERIC(10, 4)
+);
+CREATE INDEX IF NOT EXISTS ix_cap_hits_user ON cap_hits (user_id, hit_at);
+ALTER TABLE chat_usage ADD COLUMN IF NOT EXISTS user_id INT;
+CREATE INDEX IF NOT EXISTS ix_chat_usage_user_ts ON chat_usage (user_id, ts);
 """
 
 
@@ -48,8 +74,22 @@ class ProfileUnavailable(Exception):
     """Clerk's Backend API did not give us the user's profile."""
 
 
+_WINDOWS = {}                                            # user_id -> deque of monotonic request times (the last minute)
+_WINDOWS_LOCK = threading.Lock()
+
+
+def clock():
+    return datetime.now(timezone.utc)
+
+
+def monotonic():
+    return time.monotonic()
+
+
 def _reset():
-    """Nothing cached in this module yet (tests call it; Prompt P7 Part 2 adds the rate-limit windows)."""
+    """Forget the rate-limit windows (tests only)."""
+    with _WINDOWS_LOCK:
+        _WINDOWS.clear()
 
 
 def ensure_schema(conn=None):
@@ -147,3 +187,85 @@ def user_for_claims(claims, conn=None):
     finally:
         if own:
             conn.close()
+
+
+# ---- limits (Part 2) --------------------------------------------------------------------------------------------------
+
+def default_cap():
+    """DAILY_CAP_USD as a float, else 1.00 (an unparseable value falls back too: a cap must never vanish)."""
+    try:
+        v = float(os.environ.get(DAILY_CAP_ENV, "") or DEFAULT_DAILY_CAP_USD)
+        return v if v >= 0 else DEFAULT_DAILY_CAP_USD
+    except (TypeError, ValueError):
+        return DEFAULT_DAILY_CAP_USD
+
+
+def cap_for(user):
+    own = user.get("daily_cap_usd")
+    return float(own) if own is not None else default_cap()
+
+
+def _midnight(now):
+    return now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def spent_today(user_id, conn=None):
+    """The user's chat_usage cost since 00:00 UTC today (users.clock), in USD."""
+    own = conn is None
+    if own:
+        conn = db_write.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COALESCE(SUM(usd), 0) FROM chat_usage WHERE user_id = %s AND ts >= %s",
+                        (int(user_id), _midnight(clock())))
+            return float(cur.fetchone()[0])
+    finally:
+        if own:
+            conn.close()
+
+
+def record_cap_hit(user_id, spent, cap, conn=None):
+    own = conn is None
+    if own:
+        conn = db_write.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO cap_hits (user_id, hit_at, spent_usd, cap_usd) VALUES (%s, %s, %s, %s)",
+                        (int(user_id), clock(), spent, cap))
+        conn.commit()
+    finally:
+        if own:
+            conn.close()
+
+
+def cap_reply():
+    """The refusal, with the time left until 00:00 UTC in whole hours and minutes (rounded down)."""
+    now = clock()
+    left = int((_midnight(now) + timedelta(days=1) - now).total_seconds())
+    return CAP_REPLY.format(h=left // 3600, m=(left % 3600) // 60)
+
+
+def capped(user):
+    """(True, the reply) when this user's turn must be refused for the day (a cap_hits row written), else (False, None)."""
+    if user.get("is_exempt"):
+        return False, None
+    cap, spent = cap_for(user), spent_today(user["user_id"])
+    if spent >= cap:
+        record_cap_hit(user["user_id"], spent, cap)
+        return True, cap_reply()
+    return False, None
+
+
+def rate_limited(user):
+    """True when this request is the user's (RATE_LIMIT_PER_MINUTE + 1)th in a rolling minute (it is not counted then)."""
+    if user.get("is_exempt"):
+        return False
+    now = monotonic()
+    with _WINDOWS_LOCK:
+        dq = _WINDOWS.setdefault(int(user["user_id"]), deque())
+        while dq and now - dq[0] >= RATE_WINDOW_S:
+            dq.popleft()
+        if len(dq) >= RATE_LIMIT_PER_MINUTE:
+            return True
+        dq.append(now)
+        return False

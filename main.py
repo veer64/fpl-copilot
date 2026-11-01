@@ -229,6 +229,7 @@ class ChatRequest(BaseModel):
 THREAD_REFUSED = "thread not found for this user"
 TOKEN_REFUSED = "missing or invalid session token"
 PROFILE_UNAVAILABLE = "your account profile could not be loaded; please try again shortly"
+RATE_LIMITED = f"rate limit: at most {users.RATE_LIMIT_PER_MINUTE} messages a minute; please wait a moment"
 
 
 def _signed_in(http):
@@ -250,6 +251,11 @@ def _chat_signed_in(request, http):
     if refusal is not None:
         return refusal
     user_id = int(user["user_id"])
+    if users.rate_limited(user):                        # Prompt P7 Part 2: 10 a minute per user (exempt: never)
+        return JSONResponse({"detail": RATE_LIMITED}, status_code=429)
+    refused, reply = users.capped(user)                 # $1/day per user (exempt: never): no model call, a cap_hits row
+    if refused:
+        return {"answer": reply, "thread_id": request.thread_id, "capped": True}
     with config_roles.acting_user(user_id):             # every tool, ticket and trace of the turn answers for this user
         try:
             thread_id = threads.resolve(user_id, request.thread_id)
