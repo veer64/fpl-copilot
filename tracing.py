@@ -16,7 +16,9 @@ Switches (environment, read at call time):
 The tree of one turn (trace id = Langfuse.create_trace_id(seed=turn_id), i.e. sha256(turn_id) as 32 hex characters):
   agent-turn (as_type agent; input = the user message per the switch, output = the reply as delivered; user = the
       turn's user, config_roles.DEFAULT_USER_ID(); metadata turn_id, user_id, loop_guard, and engine = loop | graph
-      when the agent names its engine -- Prompt A, 2026-10-31; session = the stored thread's id -- Prompt B)
+      when the agent names its engine -- Prompt A, 2026-10-31; session = the stored thread's id -- Prompt B; version =
+      the deployed git sha, db_write.git_sha() -- the value /health reports -- on every observation, "unknown" without
+      one, and the client's release is the same value -- Prompt P6)
     llm_call (generation) per Anthropic call of the loop: model, max_tokens, usage (input, output, cache read, cache
         write -- the API's buckets are already exclusive), cost from pricing.cost_details (omitted, never 0, for a model
         pricing.py has no row for), stop_reason; input = the request's SHAPE only (message count, the last message's
@@ -110,6 +112,17 @@ def score_id(trace_id, name):
     return hashlib.sha256(f"{trace_id}:{name}".encode("utf-8")).hexdigest()[:32]
 
 
+def version():
+    """The deployed git sha -- db_write.git_sha(), the value /health reports -- or "unknown" when there is none; never
+    raises (Prompt P6, 2026-11-01). Every trace carries it as its version and the client as its release."""
+    try:
+        import db_write
+        sha = db_write.git_sha()
+    except Exception:                                    # noqa: BLE001 -- no sha is "unknown", never an error
+        sha = None
+    return str(sha) if sha else "unknown"
+
+
 def trace_id_for(turn_id):
     """The trace id of a turn: the SDK's seed helper (sha256(seed), 16 bytes as hex), or the same digest computed here."""
     try:
@@ -135,7 +148,8 @@ def _fail(where, exc):
 def _client_kwargs(tracer_provider):
     return {"public_key": os.environ.get("LANGFUSE_PUBLIC_KEY"), "secret_key": os.environ.get("LANGFUSE_SECRET_KEY"),
             "base_url": os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST"),
-            "environment": os.environ.get(ENVIRONMENT_ENV) or None, "tracer_provider": tracer_provider}
+            "environment": os.environ.get(ENVIRONMENT_ENV) or None, "release": version(),
+            "tracer_provider": tracer_provider}
 
 
 def _make_backend():
@@ -360,7 +374,8 @@ class Turn:
         meta = {"turn_id": self.turn_id, "user_id": self.user_id}
         if engine:                                   # Prompt A: which engine ran the turn (agent.py's loop or graph)
             meta["engine"] = str(engine)
-        self.prop = {"user_id": self.user_id, "trace_name": TRACE_NAME, "metadata": dict(meta)}
+        self.version = version()                     # Prompt P6: the deployed git sha on every observation
+        self.prop = {"user_id": self.user_id, "trace_name": TRACE_NAME, "metadata": dict(meta), "version": self.version}
         if session_id:                               # Prompt B: a stored thread's turns share one Langfuse session
             self.prop["session_id"] = str(session_id)
         self.root, self.open, self.parent_of, self.model_of, self.ended = None, [], {}, {}, False
@@ -371,7 +386,7 @@ class Turn:
             with self.propagate(**self.prop):
                 self.root = self.client.start_observation(trace_context={"trace_id": self.trace_id}, name=TRACE_NAME,
                                                           as_type="agent", input=user_input(user_message),
-                                                          metadata=dict(meta))
+                                                          metadata=dict(meta), version=self.version)
         except Exception as e:                           # noqa: BLE001
             self.errors += 1
             _fail("opening the trace", e)
