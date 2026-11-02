@@ -39,6 +39,7 @@ DAILY_CAP_ENV = "DAILY_CAP_USD"
 DEFAULT_DAILY_CAP_USD = 1.00
 RATE_LIMIT_PER_MINUTE = 10
 RATE_WINDOW_S = 60.0
+READS_PER_MINUTE = 60                                    # Prompt F1a: the website's other endpoints (/me, /threads, ...)
 CAP_REPLY = "You've reached today's limit. It resets at 00:00 UTC (in {h} h {m} m)."
 
 DDL = f"""
@@ -75,6 +76,7 @@ class ProfileUnavailable(Exception):
 
 
 _WINDOWS = {}                                            # user_id -> deque of monotonic request times (the last minute)
+_READ_WINDOWS = {}                                       # the same, for reads_limited (Prompt F1a): its own window
 _WINDOWS_LOCK = threading.Lock()
 
 
@@ -90,6 +92,7 @@ def _reset():
     """Forget the rate-limit windows (tests only)."""
     with _WINDOWS_LOCK:
         _WINDOWS.clear()
+        _READ_WINDOWS.clear()
 
 
 def ensure_schema(conn=None):
@@ -256,16 +259,26 @@ def capped(user):
     return False, None
 
 
-def rate_limited(user):
-    """True when this request is the user's (RATE_LIMIT_PER_MINUTE + 1)th in a rolling minute (it is not counted then)."""
+def _limited(windows, user, limit):
     if user.get("is_exempt"):
         return False
     now = monotonic()
     with _WINDOWS_LOCK:
-        dq = _WINDOWS.setdefault(int(user["user_id"]), deque())
+        dq = windows.setdefault(int(user["user_id"]), deque())
         while dq and now - dq[0] >= RATE_WINDOW_S:
             dq.popleft()
-        if len(dq) >= RATE_LIMIT_PER_MINUTE:
+        if len(dq) >= limit:
             return True
         dq.append(now)
         return False
+
+
+def rate_limited(user):
+    """True when this request is the user's (RATE_LIMIT_PER_MINUTE + 1)th in a rolling minute (it is not counted then)."""
+    return _limited(_WINDOWS, user, RATE_LIMIT_PER_MINUTE)
+
+
+def reads_limited(user):
+    """Prompt F1a: the same rule for the website's other endpoints (/me, /threads, ...), READS_PER_MINUTE in their own
+    window -- /chat's ten a minute are counted apart."""
+    return _limited(_READ_WINDOWS, user, READS_PER_MINUTE)

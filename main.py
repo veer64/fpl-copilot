@@ -58,6 +58,7 @@ START when CLERK_AUTHORIZED_PARTIES lists none.
 """
 import contextlib
 import os
+import re
 import secrets
 import time
 from collections import deque
@@ -140,7 +141,13 @@ OPEN_ENDPOINTS = {("GET", "/health"), ("HEAD", "/health")}
 
 # Prompt P7: in AUTH_MODE=clerk these routes authenticate with the Clerk session token (the handler checks it) instead of
 # the shared key; in off mode they are gated by the key like everything else.
-CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET", "/admin/users.csv")}
+CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET", "/admin/users.csv"),
+                ("GET", "/me"), ("GET", "/threads"), ("POST", "/threads")}      # Prompt F1a: the website's endpoints
+CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$"))]
+
+
+def _clerk_route(method, path):
+    return (method, path) in CLERK_ROUTES or any(m == method and rx.match(path) for m, rx in CLERK_ROUTE_PATTERNS)
 
 # --- crude rate limit on the one endpoint that spends money ------------------
 # Per-IP AND global. The global ceiling matters because Docker's published port
@@ -185,7 +192,7 @@ def _rate_limited(ip):
 async def require_api_key(request: Request, call_next):
     if (request.method, request.url.path) in OPEN_ENDPOINTS:
         return await call_next(request)
-    if auth.mode() == "clerk" and (request.method, request.url.path) in CLERK_ROUTES:
+    if auth.mode() == "clerk" and _clerk_route(request.method, request.url.path):
         return await call_next(request)                 # Prompt P7: the handler verifies the session token
 
     if not API_KEY:
@@ -361,6 +368,65 @@ def admin_users_csv(http: Request):
         return refusal
     return Response(content=admin.users_csv(admin.stats()), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="users.csv"'})
+
+
+# ---- the website's endpoints (Prompt F1a, 2026-11-02): clerk mode only (404 in off mode, like /admin); the token's user
+# only; READS_PER_MINUTE requests a minute per user (users.reads_limited; the admin is exempt, as for /chat) -------------
+
+NOT_FOUND = {"detail": "Not Found"}
+READS_LIMITED = f"rate limit: at most {users.READS_PER_MINUTE} requests a minute; please wait a moment"
+
+
+def _account(http):
+    """(the signed-in user's row, None) or (None, the refusal): 404 in off mode, then 401 / 503 as for /chat, then 429."""
+    if auth.mode() != "clerk":
+        return None, JSONResponse(NOT_FOUND, status_code=404)
+    user, refusal = _signed_in(http)
+    if refusal is not None:
+        return None, refusal
+    if users.reads_limited(user):
+        return None, JSONResponse({"detail": READS_LIMITED}, status_code=429)
+    return user, None
+
+
+def _active_team(user_id):
+    return None                                         # Part 4 (the imported FPL teams) answers this
+
+
+@app.get("/me")
+def me(http: Request):
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    uid = int(user["user_id"])
+    return {"user_id": uid, "is_admin": bool(user.get("is_admin")), "daily_cap_usd": users.cap_for(user),
+            "spent_today_usd": round(users.spent_today(uid), 6), "active_team": _active_team(uid)}
+
+
+@app.get("/threads")
+def list_threads(http: Request):
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    return threads.list_threads(int(user["user_id"]))
+
+
+@app.post("/threads")
+def new_thread(http: Request):
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    return {"thread_id": threads.create_thread(int(user["user_id"]))}
+
+
+@app.get("/threads/{thread_id}/messages")
+def thread_messages(thread_id: str, http: Request):
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    if threads.owner(thread_id) != int(user["user_id"]):        # another user's or no such thread: the same answer
+        return JSONResponse({"detail": THREAD_REFUSED}, status_code=403)
+    return agent_graph.thread_messages(thread_id)
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

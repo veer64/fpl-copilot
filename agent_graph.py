@@ -31,8 +31,16 @@ calls): our cap, our guard or the eval runner's budget always ends a turn first 
 Tests/test_round_cap.py).
 
 LAST_RUN (for the eval runner and the overhead measurement): the turn id, the node path, the seconds spent inside node
-functions, invoke()'s wall time and the overhead outside the nodes."""
+functions, invoke()'s wall time and the overhead outside the nodes.
+
+THE TRANSCRIPT (Prompt F1a, 2026-11-02): a stored thread also keeps `transcript`, one entry per delivered turn -- the
+question, the reply exactly as /chat returned it (agent._finish's rendering: tool names replaced, plain words, citations
+with their Sources), and both instants -- so the website can show a thread as the user saw it (thread_messages). The
+history itself keeps the model's raw content, which never equals the delivered text once citations are rendered. Written
+by run_thread_turn after the turn (with the loop's history in one write; after the graph's own checkpoint otherwise); a
+turn that raises writes none; the Anthropic request never carries it."""
 import time
+from datetime import datetime, timezone
 from typing import Annotated, Any, TypedDict
 
 from langgraph.channels import UntrackedValue
@@ -49,8 +57,9 @@ _T = Annotated[Any, UntrackedValue(object)]          # Prompt B: a turn's workin
 
 
 class TurnState(TypedDict, total=False):
-    # the thread's history: the ONE key a stored thread's checkpoint keeps (Prompt B)
+    # the thread's history: what a stored thread's checkpoint keeps (Prompt B) -- with the transcript (Prompt F1a)
     messages: list
+    transcript: list
     # agent._begin_turn: the loop's turn variables
     question_index: _T
     turn_id: _T
@@ -203,10 +212,68 @@ def _thread_config(thread_id):
     return {"configurable": {"thread_id": str(thread_id)}}
 
 
+def _stored(thread_id):
+    st = thread_graph().get_state(_thread_config(thread_id))
+    return dict(st.values or {})
+
+
 def load_history(thread_id):
     """A stored thread's history (a fresh list), [] for a thread with no turn yet."""
-    st = thread_graph().get_state(_thread_config(thread_id))
-    return list((st.values or {}).get("messages") or [])
+    return list(_stored(thread_id).get("messages") or [])
+
+
+def _now_iso():
+    return threads.iso(datetime.now(timezone.utc))
+
+
+def _is_question(m):
+    return isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str)
+
+
+def _block_text(b):
+    if isinstance(b, dict):
+        return b.get("text") if b.get("type") == "text" else None
+    return getattr(b, "text", None) if getattr(b, "type", None) == "text" else None
+
+
+def _turns(messages):
+    """[(question, the turn's final assistant text or None)] in order (a turn starts at a question, as agent.trim_turns
+    cuts)."""
+    out = []
+    for m in messages:
+        if _is_question(m):
+            out.append([m["content"], None])
+        elif out and isinstance(m, dict) and m.get("role") == "assistant":
+            content = m.get("content")
+            parts = [content] if isinstance(content, str) else [t for t in (_block_text(b) for b in (content or [])) if t]
+            if parts:
+                out[-1][1] = "\n\n".join(parts)
+    return [tuple(t) for t in out]
+
+
+def thread_messages(thread_id):
+    """Prompt F1a: a stored thread as the website shows it -- [{role: user|assistant, text, at}], the user's questions
+    and the delivered replies in order; no tool content, no fact-check note, no clock line (none is ever stored). A turn
+    with a transcript entry gives the delivered reply and both instants; a turn stored before the transcript existed
+    gives its stored reply with tool names and plain words applied as /chat did (citations as stored) and at null."""
+    values = _stored(thread_id)
+    entries = {}
+    for e in values.get("transcript") or []:
+        if isinstance(e, dict) and isinstance(e.get("q"), int):
+            entries[e["q"]] = e
+    out = []
+    for q, (question, raw) in enumerate(_turns(values.get("messages") or [])):
+        e = entries.get(q)
+        if e is not None and e.get("user") == question:
+            out.append({"role": "user", "text": question, "at": e.get("user_at")})
+            out.append({"role": "assistant", "text": e.get("answer"), "at": e.get("answer_at")})
+            continue
+        out.append({"role": "user", "text": question, "at": None})
+        if raw is not None:
+            plain, _ = agent.replace_tool_names(raw)
+            plain, _ = agent.plain_words(plain)
+            out.append({"role": "assistant", "text": plain, "at": None})
+    return out
 
 
 def run_thread_turn(user_id, thread_id, user_message):
@@ -219,8 +286,11 @@ def run_thread_turn(user_id, thread_id, user_message):
     with threads.turn_lock(thread_id):
         g = thread_graph()
         cfg = _thread_config(thread_id)
-        before = load_history(thread_id)
+        stored = _stored(thread_id)
+        before = list(stored.get("messages") or [])
+        transcript = list(stored.get("transcript") or [])
         history = list(before)
+        asked_at = _now_iso()
         try:
             answer, history = agent.run_agent(user_message, history, thread=thread)
         except BaseException:
@@ -229,8 +299,15 @@ def run_thread_turn(user_id, thread_id, user_message):
             except Exception as e:                       # noqa: BLE001 -- the turn's own exception is the one to raise
                 print(f"  [thread {thread_id}: the failed turn was not rolled back: {type(e).__name__}: {str(e)[:200]}]")
             raise
+        entry = {"q": sum(1 for m in before if _is_question(m)), "user": user_message, "user_at": asked_at,
+                 "answer": answer, "answer_at": _now_iso()}                     # Prompt F1a: the transcript
         if agent._engine() == "loop":                    # the loop does not checkpoint; its history is stored here
-            g.update_state(cfg, {"messages": history}, as_node="finalize")
+            g.update_state(cfg, {"messages": history, "transcript": transcript + [entry]}, as_node="finalize")
+        else:
+            try:
+                g.update_state(cfg, {"transcript": transcript + [entry]}, as_node="finalize")
+            except Exception as e:                       # noqa: BLE001 -- the reply stands; the website shows the stored text
+                print(f"  [thread {thread_id}: transcript not stored: {type(e).__name__}: {str(e)[:200]}]")
         return answer
 
 

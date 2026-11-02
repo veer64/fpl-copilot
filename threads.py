@@ -137,6 +137,86 @@ def owner(thread_id):
         conn.close()
 
 
+def create_thread(user_id):
+    """Prompt F1a: a new, NON-default thread of the user (the website's "new chat"); its id."""
+    conn = _conn()
+    try:
+        tid = new_thread_id()
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO chat_threads (thread_id, user_id, is_default) VALUES (%s, %s, FALSE)", (tid, int(user_id)))
+        conn.commit()
+        return tid
+    finally:
+        conn.close()
+
+
+TITLE_MAX = 60
+_LIST_SQL = """
+SELECT t.thread_id, t.created_at, t.is_default, lc.ts AS last_ts,
+       (SELECT convert_from(b.blob, 'UTF8')::jsonb -> 0
+          FROM checkpoint_blobs b
+         WHERE b.thread_id = t.thread_id AND b.checkpoint_ns = '' AND b.channel = 'messages'
+           AND b.version = lc.mv AND b.type = %s) AS first_message
+  FROM chat_threads t
+  LEFT JOIN LATERAL (SELECT c.checkpoint ->> 'ts' AS ts, c.checkpoint -> 'channel_versions' ->> 'messages' AS mv
+                       FROM checkpoints c
+                      WHERE c.thread_id = t.thread_id AND c.checkpoint_ns = ''
+                      ORDER BY c.checkpoint_id DESC LIMIT 1) lc ON TRUE
+ WHERE t.user_id = %s
+"""
+
+
+def iso(dt):
+    """A UTC instant as the website reads it: ISO 8601, milliseconds, "Z"."""
+    from datetime import datetime, timezone
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def thread_title(text):
+    """The first question as a thread's title: [email] / [phone] masked (tracing.mask, the traces' own rule), whitespace
+    collapsed, at most TITLE_MAX characters."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    import tracing
+    t = " ".join(tracing.mask(text).split())
+    return t if len(t) <= TITLE_MAX else t[:TITLE_MAX - 1].rstrip() + "\u2026"
+
+
+def list_threads(user_id):
+    """Prompt F1a: the user's threads, most recently active first: thread_id, created_at, last_active (the thread's
+    latest checkpoint, else its creation), is_default, title (thread_title of the first question; None before any turn).
+    One query: the latest checkpoint of each thread and the first element of its stored history (HistorySerde's JSON,
+    read in the database -- the history is never loaded here)."""
+    checkpointer()                                       # the checkpoint tables exist (set up once per process)
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_LIST_SQL, (TAG, int(user_id)))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    out = []
+    for tid, created, is_default, last_ts, first in rows:
+        title = None
+        if first is not None:
+            try:
+                m = _dec(first)
+                if isinstance(m, dict) and m.get("role") == "user":
+                    title = thread_title(m.get("content"))
+            except (ValueError, KeyError, TypeError):
+                title = None
+        out.append({"thread_id": tid, "created_at": iso(created), "last_active": iso(last_ts or created),
+                    "is_default": bool(is_default), "title": title})
+    out.sort(key=lambda r: r["last_active"], reverse=True)
+    return out
+
+
 def resolve(user_id, thread_id=None):
     """The thread a /chat turn runs in: the user's default when no id is given; a given id only when the user owns it
     (else ThreadRefused -- an unknown id and another user's id are refused alike, so the answer tells nothing)."""
