@@ -1,0 +1,45 @@
+# FPL Copilot -- the API's HTTPS front door (Prompt F1b, 2026-11-02): https://api.fplcopilot.app -> the app container.
+#
+# Caddy obtains and renews the certificate itself (Let's Encrypt, HTTP-01 / TLS-ALPN-01 on ports 80 / 443) and redirects
+# http:// to https:// (its default). Certificates and the ACME account live in the named volume caddy_data (/data), so a
+# deploy -- which recreates only fpl-copilot -- never touches them. After editing this file on the server:
+#   docker compose exec fpl-caddy caddy reload --config /etc/caddy/Caddyfile
+# (docs/ops_https.md has the rest).
+
+{
+	# HTTP/1.1 and HTTP/2 only: no HTTP/3, so nothing listens on 443/udp.
+	servers {
+		protocols h1 h2
+	}
+}
+
+api.fplcopilot.app {
+	# Let's Encrypt only -- no fallback CA -- and no account email (none is needed to issue or renew).
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+		}
+	}
+
+	# The API's largest request is a chat message: 1 MB is far above it.
+	request_body {
+		max_size 1MB
+	}
+
+	# The app container on the compose network (DB_HOST works the same way), its internal port.
+	reverse_proxy fpl-copilot:8000
+
+	# The access log never carries a credential: no query string (the ?key= browser handshake), no Authorization (Clerk
+	# session tokens), X-Api-Key (the shared key), Cookie / Set-Cookie (the fpl_key cookie) or Referer.
+	log {
+		output stdout
+		format filter {
+			request>uri regexp \?.*$ ""
+			request>headers>Authorization delete
+			request>headers>X-Api-Key delete
+			request>headers>Cookie delete
+			request>headers>Referer delete
+			resp_headers>Set-Cookie delete
+		}
+	}
+}

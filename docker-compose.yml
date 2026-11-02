@@ -94,6 +94,27 @@ services:
       - ./.env:/app/.env:ro
     command: ["uv", "run", "python", "eval/deadline_dispatcher.py", "--season", "2026-27"]
 
+  # HTTPS front door (Prompt F1b, 2026-11-02): https://api.fplcopilot.app -> fpl-copilot:8000 on this network. Caddy
+  # obtains and renews the Let's Encrypt certificate itself and redirects http -> https; the config is docker/caddy/Caddyfile
+  # (the DIRECTORY is mounted, so a git pull changes what the container sees; apply with `docker compose exec fpl-caddy
+  # caddy reload --config /etc/caddy/Caddyfile`). Certificates live in the named volume caddy_data -- the deploy recreates
+  # only fpl-copilot, so they survive every deploy; never `down -v`. An exact version tag (Caddy v2.11.7, released 3 Oct
+  # 2026); tcp 80 / 443 only (HTTP/3 off in the Caddyfile). No depends_on: `up -d --no-deps fpl-caddy` touches nothing
+  # else. The old address, 8000 on fpl-copilot, stays published until the switch-on decision (F4). See docs/ops_https.md.
+  fpl-caddy:
+    image: caddy:2.11.7-alpine
+    container_name: fpl-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/caddy:/etc/caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
 volumes:
   fpl_pgdata:
   fpl_model_data:
+  caddy_data:
+  caddy_config:

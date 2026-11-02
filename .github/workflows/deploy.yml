@@ -48,4 +48,8 @@ jobs:
               exit 1
             fi
             docker compose up -d --no-deps --remove-orphans fpl-copilot
+            # The HTTPS front (Prompt F1b): created when missing, a no-op when it
+            # already runs unchanged; --no-deps, so it never starts or recreates
+            # anything else. Its certificates live in the caddy_data volume.
+            docker compose up -d --no-deps fpl-caddy
             docker compose ps
