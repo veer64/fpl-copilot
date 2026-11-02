@@ -3,6 +3,10 @@ name: Deploy to Server
 on:
   push:
     branches: [main]
+    # The website (web/, Prompt F1a) deploys on its own; a push whose changed
+    # files are ALL under web/ must not rebuild and restart the API server.
+    # A push touching any other file still deploys.
+    paths-ignore: ['web/**']
 
 jobs:
   deploy:

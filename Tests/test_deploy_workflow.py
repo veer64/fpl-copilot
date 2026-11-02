@@ -74,3 +74,14 @@ def test_the_script_block_parses_under_bash_n(tmp_path):
     f.write_text(_script(), encoding="utf-8", newline="\n")
     r = subprocess.run([_bash(), "-n", str(f)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_a_push_whose_changed_files_are_all_under_web_does_not_deploy():
+    """Prompt F1a Part 1 (2026-11-02): the website lives in web/ (USER DECISION: "We will just make it in a new web
+    folder."); a push that changes ONLY files under web/ must not rebuild and restart the API server. GitHub's
+    paths-ignore skips the run exactly when every changed file matches; a push touching any other file still deploys."""
+    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    push = doc.get("on", doc.get(True))["push"]
+    assert push["branches"] == ["main"]
+    assert push["paths-ignore"] == ["web/**"]
+    assert "paths" not in push                                 # paths and paths-ignore cannot both filter one event
