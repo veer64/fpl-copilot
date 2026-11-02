@@ -33,6 +33,10 @@ MAX_TEAMS = 5
 FPL_TEAM_ID_MAX = 99_999_999
 LOCK_SPACE = 731_102                      # pg_advisory_xact_lock(LOCK_SPACE, user_id): one team change of a user at a time
 
+# ---- the import (Part 5): FPL is read FIRST, with no lock and no transaction open; the rows are written in ONE transaction
+# under the user's advisory lock (the team row and its squad version commit together, or neither), so a slow or failing FPL
+# leaves nothing behind (fpl_import: 404 -> FplNotFound, 5xx / timeout -> FplUnavailable, nothing written).
+
 DDL = f"""
 CREATE SEQUENCE IF NOT EXISTS user_fpl_teams_squad_key_seq START WITH {FIRST_SQUAD_KEY} MINVALUE {FIRST_SQUAD_KEY};
 CREATE TABLE IF NOT EXISTS user_fpl_teams (
@@ -58,6 +62,14 @@ _SCHEMA_READY = set()
 
 class TeamNotFound(Exception):
     """The user has no team with that FPL id."""
+
+
+class AlreadyAdded(Exception):
+    """The user already has this FPL team (refresh it instead)."""
+
+
+class TooManyTeams(Exception):
+    """The user already has MAX_TEAMS teams."""
 
 
 def _db_key():
@@ -155,3 +167,95 @@ def activate(user_id, fpl_team_id, conn=None):
         if own:
             conn.close()
 
+
+
+def _season():
+    import model_tools
+    return model_tools._season_label()                 # the label every squad reader uses (squad_store.read_versions)
+
+
+def _fetch_and_build(fpl_team_id, get=None):
+    """(the squad document, info) for this FPL team, from FPL's public API (fpl_import). No database write."""
+    import fpl_import
+    raw = fpl_import.fetch_team(fpl_team_id, get=get)
+    held = [int(p["element"]) for p in raw["picks"][raw["picks_gw"]].get("picks", [])]
+    meta = fpl_import.players_live_meta(held)
+    return fpl_import.build(raw, meta, _season())
+
+
+def _note(fpl_team_id, info):
+    return f"FPL import of team {int(fpl_team_id)} (picks GW{info['picks_gw']}, for GW{info['version_gw']})"
+
+
+def add_team(user_id, fpl_team_id, label=None, get=None):
+    """Import an FPL team for this user: its squad becomes a NEW squad record (its own squad_key), the first version of
+    it written through squad_store.write_version (a direct user action, not the agent's preview lock). The user's FIRST
+    team is made active. AlreadyAdded / TooManyTeams before any FPL request (and again under the lock); fpl_import's
+    errors pass through with nothing written. Returns the team (PUBLIC_COLS) + version_id, picks_gw, estimated, notes."""
+    import squad_store
+    uid, fid = int(user_id), int(fpl_team_id)
+    current = list_teams(uid, internal=True)
+    if any(t["fpl_team_id"] == fid for t in current):
+        raise AlreadyAdded(str(fid))
+    if len(current) >= MAX_TEAMS:
+        raise TooManyTeams(str(MAX_TEAMS))
+    doc, info = _fetch_and_build(fid, get=get)
+    name = (label if label is not None else info.get("entry_name")) or f"Team {fid}"
+    name = " ".join(str(name).split())[:LABEL_MAX] or f"Team {fid}"
+    conn = db_write.connect()
+    try:
+        _ready(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (LOCK_SPACE, uid))
+            cur.execute("SELECT fpl_team_id FROM user_fpl_teams WHERE user_id = %s", (uid,))
+            have = [r[0] for r in cur.fetchall()]
+            if fid in have:
+                raise AlreadyAdded(str(fid))
+            if len(have) >= MAX_TEAMS:
+                raise TooManyTeams(str(MAX_TEAMS))
+            cur.execute("INSERT INTO user_fpl_teams (user_id, fpl_team_id, label, is_active, last_imported_at, "
+                        "last_imported_gw) VALUES (%s, %s, %s, %s, now(), %s) RETURNING squad_key",
+                        (uid, fid, name, not have, info["version_gw"]))
+            key = cur.fetchone()[0]
+        row = squad_store.write_version(None, doc, info["version_gw"], _note(fid, info), True, conn=conn, user_id=key)
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    team = next(t for t in list_teams(uid) if t["fpl_team_id"] == fid)
+    return {**team, "version_id": row["version_id"], "picks_gw": info["picks_gw"], "estimated": info["estimated"],
+            "notes": info["notes"]}
+
+
+def refresh_team(user_id, fpl_team_id, get=None):
+    """Re-import one of the user's teams: a NEW version of its squad record (append-only; the old one superseded).
+    TeamNotFound before any FPL request when the user has no such team."""
+    import squad_store
+    uid, fid = int(user_id), int(fpl_team_id)
+    if not any(t["fpl_team_id"] == fid for t in list_teams(uid)):
+        raise TeamNotFound(str(fid))
+    doc, info = _fetch_and_build(fid, get=get)
+    conn = db_write.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (LOCK_SPACE, uid))
+            cur.execute("UPDATE user_fpl_teams SET last_imported_at = now(), last_imported_gw = %s "
+                        "WHERE user_id = %s AND fpl_team_id = %s RETURNING squad_key", (info["version_gw"], uid, fid))
+            got = cur.fetchone()
+            if got is None:
+                raise TeamNotFound(str(fid))
+        key = got[0]
+        try:
+            active = squad_store.read_active(key, conn=conn)
+        except squad_store.NoSquadError:
+            active = None
+        row = squad_store.write_version(active, doc, info["version_gw"], _note(fid, info), True, conn=conn, user_id=key)
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    team = next(t for t in list_teams(uid) if t["fpl_team_id"] == fid)
+    return {**team, "version_id": row["version_id"], "supersedes": row["supersedes"], "picks_gw": info["picks_gw"],
+            "estimated": info["estimated"], "notes": info["notes"]}

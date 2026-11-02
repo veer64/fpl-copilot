@@ -1100,7 +1100,12 @@ def write_version(active, new_doc, gw, note, confirm, conn=None, user_id=None):
     confirm=False runs the whole thing and ROLLS BACK -- a preview that
     exercises the real write path (trigger included) without changing state;
     the returned row says committed=False and its version_id is provisional
-    (sequence values are consumed either way, so ids may have gaps)."""
+    (sequence values are consumed either way, so ids may have gaps).
+
+    active=None (Prompt F1a, 2026-11-02: an imported FPL team's first squad)
+    writes the owner's FIRST version: nothing is flipped, supersedes is NULL,
+    and the one-active index refuses it if the owner already has an active
+    version."""
     user_id = config_roles.DEFAULT_USER_ID() if user_id is None else user_id
     validate_document(new_doc)
     own = conn is None
@@ -1108,16 +1113,17 @@ def write_version(active, new_doc, gw, note, confirm, conn=None, user_id=None):
         conn = db_write.connect()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """UPDATE squad_versions SET is_active = FALSE
-                   WHERE version_id = %s AND user_id = %s AND is_active
-                   RETURNING version_id""",
-                (active["version_id"], user_id))
-            flipped = cur.fetchall()
-            if len(flipped) != 1:
-                raise SquadStateError(
-                    f"version {active['version_id']} is no longer the active squad for user "
-                    f"{user_id} (superseded meanwhile); re-read the squad and retry")
+            if active is not None:
+                cur.execute(
+                    """UPDATE squad_versions SET is_active = FALSE
+                       WHERE version_id = %s AND user_id = %s AND is_active
+                       RETURNING version_id""",
+                    (active["version_id"], user_id))
+                flipped = cur.fetchall()
+                if len(flipped) != 1:
+                    raise SquadStateError(
+                        f"version {active['version_id']} is no longer the active squad for user "
+                        f"{user_id} (superseded meanwhile); re-read the squad and retry")
             cur.execute(
                 """INSERT INTO squad_versions
                        (user_id, season, gw, squad_json, is_active, supersedes, note)
@@ -1125,7 +1131,7 @@ def write_version(active, new_doc, gw, note, confirm, conn=None, user_id=None):
                    RETURNING version_id, user_id, season, gw, created_at, is_active,
                              supersedes, note""",
                 (user_id, new_doc["season"], gw, psycopg2.extras.Json(new_doc),
-                 active["version_id"], note))
+                 None if active is None else active["version_id"], note))
             row = dict(cur.fetchone())
         if confirm:
             conn.commit()

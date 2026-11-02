@@ -40,6 +40,7 @@ DEFAULT_DAILY_CAP_USD = 1.00
 RATE_LIMIT_PER_MINUTE = 10
 RATE_WINDOW_S = 60.0
 READS_PER_MINUTE = 60                                    # Prompt F1a: the website's other endpoints (/me, /threads, ...)
+IMPORTS_PER_MINUTE = 5                                   # Prompt F1a: FPL team imports and refreshes (FPL's API is a guest's)
 CAP_REPLY = "You've reached today's limit. It resets at 00:00 UTC (in {h} h {m} m)."
 
 DDL = f"""
@@ -77,6 +78,7 @@ class ProfileUnavailable(Exception):
 
 _WINDOWS = {}                                            # user_id -> deque of monotonic request times (the last minute)
 _READ_WINDOWS = {}                                       # the same, for reads_limited (Prompt F1a): its own window
+_IMPORT_WINDOWS = {}                                     # the same, for imports_limited (Prompt F1a)
 _WINDOWS_LOCK = threading.Lock()
 
 
@@ -93,6 +95,7 @@ def _reset():
     with _WINDOWS_LOCK:
         _WINDOWS.clear()
         _READ_WINDOWS.clear()
+        _IMPORT_WINDOWS.clear()
 
 
 def ensure_schema(conn=None):
@@ -282,3 +285,9 @@ def reads_limited(user):
     """Prompt F1a: the same rule for the website's other endpoints (/me, /threads, ...), READS_PER_MINUTE in their own
     window -- /chat's ten a minute are counted apart."""
     return _limited(_READ_WINDOWS, user, READS_PER_MINUTE)
+
+
+def imports_limited(user):
+    """Prompt F1a: FPL team imports and refreshes, IMPORTS_PER_MINUTE a minute per user -- for EVERY user, the admin
+    included: each one costs FPL four or more requests."""
+    return _limited(_IMPORT_WINDOWS, {**user, "is_exempt": False}, IMPORTS_PER_MINUTE)

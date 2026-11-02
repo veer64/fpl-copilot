@@ -63,7 +63,9 @@ import secrets
 import time
 from collections import deque
 
-from fastapi import FastAPI, Request
+from typing import Any
+
+from fastapi import Body, FastAPI, Request
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
@@ -143,8 +145,9 @@ OPEN_ENDPOINTS = {("GET", "/health"), ("HEAD", "/health")}
 # the shared key; in off mode they are gated by the key like everything else.
 CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET", "/admin/users.csv"),
                 ("GET", "/me"), ("GET", "/threads"), ("POST", "/threads"),      # Prompt F1a: the website's endpoints
-                ("GET", "/me/squad")}
-CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$"))]
+                ("GET", "/me/squad"), ("GET", "/me/teams"), ("POST", "/me/teams")}
+CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$")),
+                        ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$"))]
 
 
 def _clerk_route(method, path):
@@ -421,6 +424,104 @@ def my_squad(http: Request):
         print(f"  [/me/squad of user {uid}: {str((out or {}).get('error') if isinstance(out, dict) else out)[:200]}]")
         return JSONResponse({"detail": "your squad could not be read; please try again shortly"}, status_code=503)
     return {"squad": out}
+
+
+# ---- the imported FPL teams (Prompt F1a Part 5). The token is checked BEFORE the input (a request without a valid token
+# is 401 whatever it carries; off mode is 404), so the ids and the body are validated by hand, not by FastAPI. ----------
+
+TEAM_NOT_FOUND = "team not found for this user"
+TEAM_ID_INVALID = "fpl_team_id must be an integer from 1 to 99,999,999"
+LABEL_INVALID = "label must be text of at most 40 characters"
+IMPORTS_LIMITED = f"rate limit: at most {users.IMPORTS_PER_MINUTE} team imports or refreshes a minute; please wait a moment"
+_DIGITS = re.compile(r"^[0-9]{1,8}$")
+
+
+class _Bad(Exception):
+    """Invalid input for a team endpoint: 422 with this text (raised after the token check)."""
+
+
+def _team_id(value, path=False):
+    """An FPL team id (1..99,999,999): a JSON integer in a body, ASCII digits in a path (path=True); else _Bad."""
+    if path and isinstance(value, str) and _DIGITS.match(value):
+        value = int(value)
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 99_999_999:
+        raise _Bad(TEAM_ID_INVALID)
+    return value
+
+
+def _import_refusal(e):
+    """An import / refresh / activate failure as its HTTP answer (nothing was written in any of them), else None."""
+    import fpl_import
+    import fpl_teams
+    if isinstance(e, fpl_import.FplNotFound):
+        return JSONResponse({"detail": "FPL team not found"}, status_code=404)
+    if isinstance(e, fpl_import.FplUnavailable):
+        print(f"  [FPL import: {e}]")
+        return JSONResponse({"detail": "FPL could not be reached; nothing was saved. Please try again shortly."},
+                            status_code=503)
+    if isinstance(e, fpl_import.ImportRefused):
+        return JSONResponse({"detail": str(e)}, status_code=409)
+    if isinstance(e, fpl_teams.AlreadyAdded):
+        return JSONResponse({"detail": "this FPL team is already added; refresh it instead"}, status_code=409)
+    if isinstance(e, fpl_teams.TooManyTeams):
+        return JSONResponse({"detail": f"at most {fpl_teams.MAX_TEAMS} FPL teams per user"}, status_code=409)
+    if isinstance(e, fpl_teams.TeamNotFound):
+        return JSONResponse({"detail": TEAM_NOT_FOUND}, status_code=404)
+    if isinstance(e, ValueError):                       # fpl_import.build: the squad is not legal here
+        return JSONResponse({"detail": f"the imported squad could not be saved: {str(e)[:300]}"}, status_code=409)
+    return None
+
+
+def _team_call(http, work, imports=False):
+    """The signed-in user (404 off mode / 401 / 503 / 429 as _account), then the input (`work()` -> (fn, args); 422 on
+    _Bad), the import window for imports and refreshes, then fn(user_id, *args) with the known refusals answered."""
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    try:
+        fn, args = work()
+    except _Bad as e:
+        return JSONResponse({"detail": str(e)}, status_code=422)
+    if imports and users.imports_limited(user):
+        return JSONResponse({"detail": IMPORTS_LIMITED}, status_code=429)
+    try:
+        return fn(int(user["user_id"]), *args)
+    except Exception as e:                              # noqa: BLE001 -- the known refusals answered; anything else raises
+        answer = _import_refusal(e)
+        if answer is None:
+            raise
+        return answer
+
+
+@app.get("/me/teams")
+def my_teams(http: Request):
+    import fpl_teams
+    return _team_call(http, lambda: (fpl_teams.list_teams, ()))
+
+
+@app.post("/me/teams")
+def add_team(http: Request, payload: Any = Body(default=None)):
+    import fpl_teams
+
+    def work():
+        body = payload if isinstance(payload, dict) else {}
+        label = body.get("label")
+        if label is not None and (not isinstance(label, str) or len(label.strip()) > 40):
+            raise _Bad(LABEL_INVALID)
+        return fpl_teams.add_team, (_team_id(body.get("fpl_team_id")), label)
+    return _team_call(http, work, imports=True)
+
+
+@app.post("/me/teams/{fpl_team_id}/activate")
+def activate_team(fpl_team_id: str, http: Request):
+    import fpl_teams
+    return _team_call(http, lambda: (fpl_teams.activate, (_team_id(fpl_team_id, path=True),)))
+
+
+@app.post("/me/teams/{fpl_team_id}/refresh")
+def refresh_team(fpl_team_id: str, http: Request):
+    import fpl_teams
+    return _team_call(http, lambda: (fpl_teams.refresh_team, (_team_id(fpl_team_id, path=True),)), imports=True)
 
 
 @app.get("/threads")

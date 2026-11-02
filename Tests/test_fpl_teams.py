@@ -208,6 +208,28 @@ READ_ONLY = {
 }
 
 
+# Prompt P6 D2's rule: mask only a path that differs between runs of the SAME code. get_my_xi's solve_seconds is the wall
+# time from just before the XI solve (after the squad read, so the owner lookup is never inside it); measured 2 Nov 2026
+# for identical code beside 20 CPU-burner processes: 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7 s in 10 runs, every other byte equal
+# (it differed 0.2 vs 0.3 between this test's two calls in the Part 5 targeted run). Nothing else is masked.
+VOLATILE = {"get_my_xi": ("solve_seconds",)}
+
+
+def _masked(tool, out):
+    if isinstance(out, dict):
+        out = {k: ("<masked>" if k in VOLATILE.get(tool, ()) else v) for k, v in out.items()}
+    return _canon(out)
+
+
+def test_m4_the_mask_hides_the_solve_time_and_nothing_else():
+    a = {"solve_seconds": 0.2, "captain": "X", "xi": [1, 2]}
+    b = {"solve_seconds": 0.3, "captain": "X", "xi": [1, 2]}
+    assert _masked("get_my_xi", a) == _masked("get_my_xi", b)
+    assert _masked("get_my_xi", a) != _masked("get_my_xi", {**b, "captain": "Y"})     # a real difference still fails
+    assert _masked("get_my_xi", a) != _masked("get_my_xi", {**b, "xi": [1, 3]})
+    assert _masked("get_my_squad", a) != _masked("get_my_squad", b)                    # no mask for any other tool
+
+
 def _dev_db_or_skip():
     import db_write
     import psycopg2
@@ -223,9 +245,9 @@ def test_m4_zero_team_outputs_are_byte_identical(monkeypatch, user, tool):
     _dev_db_or_skip()
     import fpl_teams
     assert fpl_teams.squad_owner_id(user) is user                                  # no team for the reserved users
-    new = _canon(READ_ONLY[tool](user))
+    new = _masked(tool, READ_ONLY[tool](user))
     monkeypatch.setattr(mt, "_squad_owner", lambda uid: uid)                       # the code before Part 4: no lookup
-    old = _canon(READ_ONLY[tool](user))
+    old = _masked(tool, READ_ONLY[tool](user))
     assert new == old, tool
 
 

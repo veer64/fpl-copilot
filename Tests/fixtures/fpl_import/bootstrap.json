@@ -1,0 +1,613 @@
+{
+ "events": [
+  {
+   "id": 1,
+   "deadline_time": "2026-08-21T17:30:00Z"
+  },
+  {
+   "id": 2,
+   "deadline_time": "2026-08-28T17:30:00Z"
+  },
+  {
+   "id": 3,
+   "deadline_time": "2026-09-04T17:30:00Z"
+  },
+  {
+   "id": 4,
+   "deadline_time": "2026-09-12T12:30:00Z"
+  },
+  {
+   "id": 5,
+   "deadline_time": "2026-09-18T17:30:00Z"
+  },
+  {
+   "id": 6,
+   "deadline_time": "2026-10-10T10:00:00Z"
+  },
+  {
+   "id": 7,
+   "deadline_time": "2026-10-17T10:00:00Z"
+  },
+  {
+   "id": 8,
+   "deadline_time": "2026-10-23T17:30:00Z"
+  },
+  {
+   "id": 9,
+   "deadline_time": "2026-10-31T11:00:00Z"
+  },
+  {
+   "id": 10,
+   "deadline_time": "2026-11-06T18:30:00Z"
+  },
+  {
+   "id": 11,
+   "deadline_time": "2026-11-21T11:00:00Z"
+  },
+  {
+   "id": 12,
+   "deadline_time": "2026-11-27T18:30:00Z"
+  },
+  {
+   "id": 13,
+   "deadline_time": "2026-12-01T18:30:00Z"
+  },
+  {
+   "id": 14,
+   "deadline_time": "2026-12-05T11:00:00Z"
+  },
+  {
+   "id": 15,
+   "deadline_time": "2026-12-12T13:30:00Z"
+  },
+  {
+   "id": 16,
+   "deadline_time": "2026-12-19T11:00:00Z"
+  },
+  {
+   "id": 17,
+   "deadline_time": "2026-12-26T11:00:00Z"
+  },
+  {
+   "id": 18,
+   "deadline_time": "2026-12-29T18:00:00Z"
+  },
+  {
+   "id": 19,
+   "deadline_time": "2027-01-01T18:30:00Z"
+  },
+  {
+   "id": 20,
+   "deadline_time": "2027-01-05T18:00:00Z"
+  },
+  {
+   "id": 21,
+   "deadline_time": "2027-01-16T13:30:00Z"
+  },
+  {
+   "id": 22,
+   "deadline_time": "2027-01-23T13:30:00Z"
+  },
+  {
+   "id": 23,
+   "deadline_time": "2027-01-30T13:30:00Z"
+  },
+  {
+   "id": 24,
+   "deadline_time": "2027-02-06T13:30:00Z"
+  },
+  {
+   "id": 25,
+   "deadline_time": "2027-02-10T18:30:00Z"
+  },
+  {
+   "id": 26,
+   "deadline_time": "2027-02-20T13:30:00Z"
+  },
+  {
+   "id": 27,
+   "deadline_time": "2027-02-27T13:30:00Z"
+  },
+  {
+   "id": 28,
+   "deadline_time": "2027-03-03T18:30:00Z"
+  },
+  {
+   "id": 29,
+   "deadline_time": "2027-03-13T13:30:00Z"
+  },
+  {
+   "id": 30,
+   "deadline_time": "2027-03-20T13:30:00Z"
+  },
+  {
+   "id": 31,
+   "deadline_time": "2027-04-10T12:30:00Z"
+  },
+  {
+   "id": 32,
+   "deadline_time": "2027-04-17T12:30:00Z"
+  },
+  {
+   "id": 33,
+   "deadline_time": "2027-04-24T12:30:00Z"
+  },
+  {
+   "id": 34,
+   "deadline_time": "2027-05-01T12:30:00Z"
+  },
+  {
+   "id": 35,
+   "deadline_time": "2027-05-08T12:30:00Z"
+  },
+  {
+   "id": 36,
+   "deadline_time": "2027-05-15T12:30:00Z"
+  },
+  {
+   "id": 37,
+   "deadline_time": "2027-05-23T12:30:00Z"
+  },
+  {
+   "id": 38,
+   "deadline_time": "2027-05-30T13:30:00Z"
+  }
+ ],
+ "elements": [
+  {
+   "id": 1,
+   "first_name": "David",
+   "second_name": "Raya Martín",
+   "web_name": "Raya",
+   "element_type": 1,
+   "team": 1,
+   "now_cost": 62,
+   "cost_change_start": 2
+  },
+  {
+   "id": 8,
+   "first_name": "Riccardo",
+   "second_name": "Calafiori",
+   "web_name": "Calafiori",
+   "element_type": 2,
+   "team": 1,
+   "now_cost": 59,
+   "cost_change_start": 4
+  },
+  {
+   "id": 31,
+   "first_name": "Ezri",
+   "second_name": "Konsa Ngoyo",
+   "web_name": "Konsa",
+   "element_type": 2,
+   "team": 1,
+   "now_cost": 47,
+   "cost_change_start": 2
+  },
+  {
+   "id": 557,
+   "first_name": "Christos",
+   "second_name": "Tzolis",
+   "web_name": "Tzolis",
+   "element_type": 3,
+   "team": 1,
+   "now_cost": 61,
+   "cost_change_start": -4
+  },
+  {
+   "id": 53,
+   "first_name": "Johan",
+   "second_name": "Manzambi",
+   "web_name": "Manzambi",
+   "element_type": 3,
+   "team": 2,
+   "now_cost": 61,
+   "cost_change_start": 1
+  },
+  {
+   "id": 166,
+   "first_name": "Nicolas",
+   "second_name": "Jackson",
+   "web_name": "N.Jackson",
+   "element_type": 4,
+   "team": 2,
+   "now_cost": 69,
+   "cost_change_start": 4
+  },
+  {
+   "id": 67,
+   "first_name": "Rayan Vitor",
+   "second_name": "Simplício Rocha",
+   "web_name": "Rayan",
+   "element_type": 3,
+   "team": 3,
+   "now_cost": 63,
+   "cost_change_start": -2
+  },
+  {
+   "id": 79,
+   "first_name": "Francisco Evanilson",
+   "second_name": "de Lima Barbosa",
+   "web_name": "Evanilson",
+   "element_type": 4,
+   "team": 3,
+   "now_cost": 63,
+   "cost_change_start": 3
+  },
+  {
+   "id": 82,
+   "first_name": "Caoimhín",
+   "second_name": "Kelleher",
+   "web_name": "Kelleher",
+   "element_type": 1,
+   "team": 4,
+   "now_cost": 50,
+   "cost_change_start": 0
+  },
+  {
+   "id": 87,
+   "first_name": "Kristoffer",
+   "second_name": "Ajer",
+   "web_name": "Ajer",
+   "element_type": 2,
+   "team": 4,
+   "now_cost": 45,
+   "cost_change_start": 0
+  },
+  {
+   "id": 94,
+   "first_name": "Kevin",
+   "second_name": "Schade",
+   "web_name": "Schade",
+   "element_type": 3,
+   "team": 4,
+   "now_cost": 62,
+   "cost_change_start": 2
+  },
+  {
+   "id": 565,
+   "first_name": "Mamadou",
+   "second_name": "Sangaré",
+   "web_name": "M.Sangaré",
+   "element_type": 3,
+   "team": 4,
+   "now_cost": 54,
+   "cost_change_start": -1
+  },
+  {
+   "id": 115,
+   "first_name": "Maxim",
+   "second_name": "De Cuyper",
+   "web_name": "De Cuyper",
+   "element_type": 2,
+   "team": 5,
+   "now_cost": 53,
+   "cost_change_start": 8
+  },
+  {
+   "id": 124,
+   "first_name": "Pascal",
+   "second_name": "Groß",
+   "web_name": "Groß",
+   "element_type": 3,
+   "team": 5,
+   "now_cost": 62,
+   "cost_change_start": 7
+  },
+  {
+   "id": 138,
+   "first_name": "Charalampos",
+   "second_name": "Kostoulas",
+   "web_name": "Kostoulas",
+   "element_type": 4,
+   "team": 5,
+   "now_cost": 58,
+   "cost_change_start": 3
+  },
+  {
+   "id": 40,
+   "first_name": "Morgan",
+   "second_name": "Rogers",
+   "web_name": "Rogers",
+   "element_type": 3,
+   "team": 6,
+   "now_cost": 81,
+   "cost_change_start": 6
+  },
+  {
+   "id": 154,
+   "first_name": "Cole",
+   "second_name": "Palmer",
+   "web_name": "Palmer",
+   "element_type": 3,
+   "team": 6,
+   "now_cost": 98,
+   "cost_change_start": 3
+  },
+  {
+   "id": 165,
+   "first_name": "João Pedro",
+   "second_name": "Junqueira de Jesus",
+   "web_name": "João Pedro",
+   "element_type": 4,
+   "team": 6,
+   "now_cost": 78,
+   "cost_change_start": 3
+  },
+  {
+   "id": 230,
+   "first_name": "Jarrad",
+   "second_name": "Branthwaite",
+   "web_name": "Branthwaite",
+   "element_type": 2,
+   "team": 9,
+   "now_cost": 55,
+   "cost_change_start": 0
+  },
+  {
+   "id": 277,
+   "first_name": "John",
+   "second_name": "Egan",
+   "web_name": "Egan",
+   "element_type": 2,
+   "team": 11,
+   "now_cost": 41,
+   "cost_change_start": 1
+  },
+  {
+   "id": 305,
+   "first_name": "Leif",
+   "second_name": "Davis",
+   "web_name": "Davis",
+   "element_type": 2,
+   "team": 12,
+   "now_cost": 40,
+   "cost_change_start": 0
+  },
+  {
+   "id": 334,
+   "first_name": "Tarik",
+   "second_name": "Muharemović",
+   "web_name": "Muharemović",
+   "element_type": 2,
+   "team": 13,
+   "now_cost": 51,
+   "cost_change_start": 1
+  },
+  {
+   "id": 346,
+   "first_name": "Dominic",
+   "second_name": "Calvert-Lewin",
+   "web_name": "Calvert-Lewin",
+   "element_type": 4,
+   "team": 13,
+   "now_cost": 61,
+   "cost_change_start": 1
+  },
+  {
+   "id": 377,
+   "first_name": "Victor",
+   "second_name": "Munoz",
+   "web_name": "Munoz",
+   "element_type": 3,
+   "team": 14,
+   "now_cost": 65,
+   "cost_change_start": 0
+  },
+  {
+   "id": 379,
+   "first_name": "Alexander",
+   "second_name": "Isak",
+   "web_name": "Isak",
+   "element_type": 4,
+   "team": 14,
+   "now_cost": 91,
+   "cost_change_start": 1
+  },
+  {
+   "id": 398,
+   "first_name": "Phil",
+   "second_name": "Foden",
+   "web_name": "Foden",
+   "element_type": 3,
+   "team": 15,
+   "now_cost": 68,
+   "cost_change_start": -2
+  },
+  {
+   "id": 399,
+   "first_name": "Rayan",
+   "second_name": "Cherki",
+   "web_name": "Cherki",
+   "element_type": 3,
+   "team": 15,
+   "now_cost": 80,
+   "cost_change_start": 5
+  },
+  {
+   "id": 411,
+   "first_name": "Erling",
+   "second_name": "Haaland",
+   "web_name": "Haaland",
+   "element_type": 4,
+   "team": 15,
+   "now_cost": 158,
+   "cost_change_start": 3
+  },
+  {
+   "id": 423,
+   "first_name": "Luke",
+   "second_name": "Shaw",
+   "web_name": "Shaw",
+   "element_type": 2,
+   "team": 16,
+   "now_cost": 42,
+   "cost_change_start": -3
+  },
+  {
+   "id": 426,
+   "first_name": "Bruno",
+   "second_name": "Borges Fernandes",
+   "web_name": "B.Fernandes",
+   "element_type": 3,
+   "team": 16,
+   "now_cost": 117,
+   "cost_change_start": -3
+  },
+  {
+   "id": 427,
+   "first_name": "Bryan",
+   "second_name": "Mbeumo",
+   "web_name": "Mbeumo",
+   "element_type": 3,
+   "team": 16,
+   "now_cost": 79,
+   "cost_change_start": -1
+  },
+  {
+   "id": 464,
+   "first_name": "Yoane",
+   "second_name": "Wissa",
+   "web_name": "Wissa",
+   "element_type": 4,
+   "team": 17,
+   "now_cost": 60,
+   "cost_change_start": 0
+  },
+  {
+   "id": 593,
+   "first_name": "Amar",
+   "second_name": "Dedic",
+   "web_name": "Dedić",
+   "element_type": 2,
+   "team": 17,
+   "now_cost": 45,
+   "cost_change_start": 0
+  },
+  {
+   "id": 112,
+   "first_name": "Jan Paul",
+   "second_name": "van Hecke",
+   "web_name": "Van Hecke",
+   "element_type": 2,
+   "team": 19,
+   "now_cost": 49,
+   "cost_change_start": -1
+  },
+  {
+   "id": 496,
+   "first_name": "Antonín",
+   "second_name": "Kinský",
+   "web_name": "Kinsky",
+   "element_type": 1,
+   "team": 19,
+   "now_cost": 44,
+   "cost_change_start": -1
+  },
+  {
+   "id": 497,
+   "first_name": "Martin",
+   "second_name": "Dubravka",
+   "web_name": "Dubravka",
+   "element_type": 1,
+   "team": 19,
+   "now_cost": 40,
+   "cost_change_start": 0
+  },
+  {
+   "id": 534,
+   "first_name": "Trai",
+   "second_name": "Hume",
+   "web_name": "Hume",
+   "element_type": 2,
+   "team": 20,
+   "now_cost": 42,
+   "cost_change_start": -3
+  }
+ ],
+ "teams": [
+  {
+   "id": 1,
+   "name": "Arsenal"
+  },
+  {
+   "id": 2,
+   "name": "Aston Villa"
+  },
+  {
+   "id": 3,
+   "name": "Bournemouth"
+  },
+  {
+   "id": 4,
+   "name": "Brentford"
+  },
+  {
+   "id": 5,
+   "name": "Brighton"
+  },
+  {
+   "id": 6,
+   "name": "Chelsea"
+  },
+  {
+   "id": 7,
+   "name": "Coventry City"
+  },
+  {
+   "id": 8,
+   "name": "Crystal Palace"
+  },
+  {
+   "id": 9,
+   "name": "Everton"
+  },
+  {
+   "id": 10,
+   "name": "Fulham"
+  },
+  {
+   "id": 11,
+   "name": "Hull City"
+  },
+  {
+   "id": 12,
+   "name": "Ipswich Town"
+  },
+  {
+   "id": 13,
+   "name": "Leeds"
+  },
+  {
+   "id": 14,
+   "name": "Liverpool"
+  },
+  {
+   "id": 15,
+   "name": "Man City"
+  },
+  {
+   "id": 16,
+   "name": "Man Utd"
+  },
+  {
+   "id": 17,
+   "name": "Newcastle"
+  },
+  {
+   "id": 18,
+   "name": "Nott'm Forest"
+  },
+  {
+   "id": 19,
+   "name": "Spurs"
+  },
+  {
+   "id": 20,
+   "name": "Sunderland"
+  }
+ ],
+ "game_settings": {
+  "max_extra_free_transfers": 4
+ }
+}
