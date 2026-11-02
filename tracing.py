@@ -11,6 +11,9 @@ Switches (environment, read at call time):
 - LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL (or LANGFUSE_HOST) must all be set, else OFF (logged once).
 - LANGFUSE_LOG_USER_TEXT=1 puts the user's message in the trace input; anything else (unset included) puts
   "[redacted, <n> chars]" there instead.
+- Prompt P7 (2026-11-01): every string a trace carries -- the turn's input and output, each call's response text and tool
+  inputs, each tool's arguments and output, the fact check's output, an abort's message -- has email addresses replaced by
+  [email] and phone numbers by [phone] (mask()). The Langfuse user is the integer user id, never an email.
 - LANGFUSE_TRACING_ENVIRONMENT names the environment (dev / eval / production); the eval runner sets "eval".
 
 The tree of one turn (trace id = Langfuse.create_trace_id(seed=turn_id), i.e. sha256(turn_id) as 32 hex characters):
@@ -41,6 +44,7 @@ hook is replaced by it so an unreachable host cannot hold the process. The SDK g
 TracerProvider: the global one is never set, so no other library's spans can reach Langfuse through it."""
 import atexit
 import contextvars
+import re
 import functools
 import hashlib
 import json
@@ -95,10 +99,38 @@ def log_user_text():
     return os.environ.get(LOG_USER_TEXT_ENV, "").strip() == "1"
 
 
+# Prompt P7 Part 4: no email address or phone number leaves for Langfuse. A phone number is a run of 9 to 15 digits that may
+# start with + or a bracketed area code and be split by single spaces, dashes or brackets, standing alone (not inside a
+# word, a decimal or a time; a sentence's full stop may follow it); an ISO date is never one. Dates, times, prices, decimals, hex ids and short ids are left alone
+# (Tests/test_trace_masking.py lists both sides); a bare 10-digit number (an epoch, say) would read as a phone.
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_PHONE_RE = re.compile(r"(?<![\w.:/+-])\+?\(?\d[\d ()-]{7,}\d(?![\w:/]|\.\d)")   # a full stop may end it, a decimal not
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _phone(m):
+    s = m.group(0)
+    digits = sum(ch.isdigit() for ch in s)
+    if not 9 <= digits <= 15 or _ISO_DATE_RE.match(s) or "  " in s:
+        return s
+    return "[phone]"
+
+
+def mask(value):
+    """`value` with every email address -> [email] and phone number -> [phone], walking dicts, lists and tuples."""
+    if isinstance(value, str):
+        return _PHONE_RE.sub(_phone, _EMAIL_RE.sub("[email]", value))
+    if isinstance(value, dict):
+        return {k: mask(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [mask(v) for v in value]
+    return value
+
+
 def user_input(message):
-    """The trace input: the user's message when LANGFUSE_LOG_USER_TEXT=1, else its length only."""
+    """The trace input: the user's message when LANGFUSE_LOG_USER_TEXT=1 (masked), else its length only."""
     text = message if isinstance(message, str) else str(message)
-    return text if log_user_text() else f"[redacted, {len(text)} chars]"
+    return mask(text) if log_user_text() else f"[redacted, {len(text)} chars]"
 
 
 def yes_no_scores(value):
@@ -243,8 +275,8 @@ def trim_output(tool, result):
         result = _news_without_bodies(result)
     s = result if isinstance(result, str) else _dumps(result)
     if len(s) > OUTPUT_MAX_CHARS:
-        return s[:OUTPUT_MAX_CHARS] + f"[truncated {len(s) - OUTPUT_MAX_CHARS} chars]"
-    return result
+        return mask(s[:OUTPUT_MAX_CHARS] + f"[truncated {len(s) - OUTPUT_MAX_CHARS} chars]")
+    return mask(result)
 
 
 def _block_type(b):
@@ -278,8 +310,8 @@ def _response_output(response):
         t = getattr(b, "type", None)
         if t == "text":
             text = getattr(b, "text", "") or ""
-            out.append({"type": "text", "text": text if len(text) <= OUTPUT_MAX_CHARS
-                        else text[:OUTPUT_MAX_CHARS] + f"[truncated {len(text) - OUTPUT_MAX_CHARS} chars]"})
+            out.append({"type": "text", "text": mask(text if len(text) <= OUTPUT_MAX_CHARS
+                                                     else text[:OUTPUT_MAX_CHARS] + f"[truncated {len(text) - OUTPUT_MAX_CHARS} chars]")})
         elif t == "tool_use":
             out.append({"type": "tool_use", "name": getattr(b, "name", None),
                         "input": trim_output("", getattr(b, "input", None))})
@@ -479,8 +511,8 @@ class Turn:
         self.n["score"], self.n["yes_no"] = value, flags
         if obs is not None:
             self._close_open("the send-back call returned no response", parent=obs)
-            self._close(obs, output={k: info.get(k) for k in ("facts_checked", "mismatches", "sent_back", "outcome",
-                                                               "rewrite_mismatches", "extra_usd", "error")},
+            self._close(obs, output=mask({k: info.get(k) for k in ("facts_checked", "mismatches", "sent_back", "outcome",
+                                                                    "rewrite_mismatches", "extra_usd", "error")}),
                         metadata={"outcome": outcome, "score": value})
         if self.root is not None:
             self._score(name=SCORE_NAME, value=value, data_type="CATEGORICAL",
@@ -520,7 +552,7 @@ class Turn:
             if round_cap:
                 meta.update(round_cap=True, round_cap_rounds=int(round_cap.get("rounds") or 0),
                             round_cap_pending_tools=[str(t) for t in (round_cap.get("pending_tools") or [])])
-            self.root.update(output=reply, metadata=meta)
+            self.root.update(output=mask(reply), metadata=meta)
             self.root.end()
 
     @_guarded
@@ -529,7 +561,7 @@ class Turn:
         if self.ended:
             return
         self._finish()
-        note = f"the turn raised {type(exc).__name__}: {str(exc)[:300]}" if exc is not None else "the turn ended without a reply"
+        note = mask(f"the turn raised {type(exc).__name__}: {str(exc)[:300]}" if exc is not None else "the turn ended without a reply")
         self._close_open(note)
         if self.root is not None:
             self.root.update(level="ERROR", status_message=note, metadata={"loop_guard": False})
