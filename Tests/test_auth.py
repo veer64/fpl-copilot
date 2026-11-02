@@ -5,7 +5,8 @@ USER DECISIONS (1 Nov): "Open sign-up: anyone can sign in." "Google and email si
 off   -> exactly the single-user behaviour of 13ebb8e: the turn's user is config_roles.DEFAULT_USER_ID(), an Authorization
          header is ignored, /admin does not exist (404), nothing reads or writes app_users.
 clerk -> /chat, /reset and /admin* need `Authorization: Bearer <Clerk session token>`; a missing, malformed, expired,
-         not-yet-valid, wrongly signed, wrong-issuer or wrong-azp token is 401 before any model call or any DB access.
+         not-yet-valid, wrongly signed, wrong-issuer, wrong-azp or (Prompt F1a) azp-less token is 401 before any model
+         call or any DB access.
          The turn's user is the token's user (app_users row, created on first sight from Clerk's Backend API profile,
          refreshed at most daily); new users get integer ids from 10001 up; the first sign-in whose VERIFIED email is
          ADMIN_EMAIL is linked to the existing user 1 (is_admin, is_exempt); a user id from the body or the model is
@@ -45,7 +46,8 @@ PUBLIC = _KEY.public_key().public_bytes(serialization.Encoding.PEM, serializatio
 
 def mint(sub, key=PRIVATE, alg="RS256", kid="ins_test", **claims):
     now = int(time.time())
-    body = {"sub": sub, "sid": f"sess_{sub}", "iss": ISSUER, "iat": now, "nbf": now - 2, "exp": now + 60, "v": 2}
+    body = {"sub": sub, "sid": f"sess_{sub}", "iss": ISSUER, "iat": now, "nbf": now - 2, "exp": now + 60, "v": 2,
+            "azp": ORIGIN}                    # Prompt F1a: a browser session token names its origin; azp is required
     body.update(claims)
     body = {k: v for k, v in body.items() if v is not None}
     return jwt.encode(body, key, algorithm=alg, headers={"kid": kid})
@@ -235,6 +237,7 @@ def _bad_tokens():
         "not yet valid": mint("user_a9001", nbf=now + 300, exp=now + 600),
         "wrong issuer": mint("user_a9001", iss="https://evil.clerk.accounts.dev"),
         "wrong azp": mint("user_a9001", azp="https://evil.example"),
+        "no azp": mint("user_a9001", azp=None),            # Prompt F1a: azp is required in clerk mode
         "tampered signature": mint("user_a9001")[:-6] + ("AAAAAA" if not mint("user_a9001").endswith("AAAAAA") else "BBBBBB"),
         "another key": mint("user_a9001", key=OTHER_PRIVATE),
         "HS256 with the public key": jwt.encode({"sub": "user_a9001", "iss": ISSUER, "iat": now, "nbf": now, "exp": now + 60},

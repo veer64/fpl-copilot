@@ -12,8 +12,9 @@ no network call per request (Clerk's manual JWT verification, clerk.com/docs/gui
   tokens can never hammer Clerk;
 - exp and nbf (LEEWAY_S of clock skew, Clerk's default 5 s), iat, sub required;
 - iss = the instance's Frontend API URL: CLERK_ISSUER if set, else decoded from CLERK_PUBLISHABLE_KEY;
-- azp, when the token carries one, must be one of CLERK_AUTHORIZED_PARTIES (comma-separated origins); a token without azp
-  (a backend-minted one) passes, as Clerk's guide says;
+- azp REQUIRED (Prompt F1a, 2026-11-02): it must be one of CLERK_AUTHORIZED_PARTIES (comma-separated origins, a trailing
+  slash ignored). A token without azp -- a backend-minted one, which a browser never holds -- is refused, and with nothing
+  listed nothing is authorized (main.py also refuses to START in clerk mode with the list empty);
 - sts "pending" (an incomplete session) is refused.
 Any failure is AuthError -> 401 before any model call or any DB access. Measured on the dev instance 1 Nov: tokens carry
 exp, fva, iat, iss, nbf, sid, sts, sub, v; header alg RS256 + kid; 60 s lifetime."""
@@ -133,7 +134,9 @@ def verify(token):
     except jwt.PyJWTError as e:
         raise AuthError(f"the token does not verify: {type(e).__name__}") from e
     azp = claims.get("azp")
-    if azp and azp.rstrip("/") not in authorized_parties():
+    if not isinstance(azp, str) or not azp.strip():
+        raise AuthError("the token names no authorized party (azp)")
+    if azp.strip().rstrip("/") not in authorized_parties():
         raise AuthError("the token's authorized party is not allowed")
     if claims.get("sts") == "pending":
         raise AuthError("the session is not complete")

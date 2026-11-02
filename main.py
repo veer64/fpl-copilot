@@ -49,6 +49,12 @@ bad token is 401 before any model call or DB access; the request's user is the t
 app_users, created on first sight), set for the whole turn (config_roles.acting_user), never the body's
 or the model's. Every other route keeps the shared-key gate in both modes. GET /admin and GET /admin/users.csv
 (admin.py; clerk mode only, 404 in off mode) take the token too and answer only an admin (403 otherwise).
+
+THE WEBSITE (Prompt F1a, 2026-11-02). CORS_ALLOWED_ORIGINS (comma-separated origins): unset or empty -> no CORS middleware
+at all, every response exactly as before; set -> only those origins may call the API from a browser (methods GET, POST,
+DELETE, OPTIONS; headers Authorization and Content-Type -- the shared key never travels cross-origin; no credentials:
+bearer tokens, no cookies). In clerk mode a session token must name its origin (azp, auth.py), and the app refuses to
+START when CLERK_AUTHORIZED_PARTIES lists none.
 """
 import contextlib
 import os
@@ -72,8 +78,15 @@ import tracing                                          # Prompt L (2026-10-30):
 import users                                            # Prompt P7: app_users (clerk mode only)
 
 
+AUTHORIZED_PARTIES_MISSING = ("startup refused: AUTH_MODE=clerk needs CLERK_AUTHORIZED_PARTIES (the website's origins, "
+                              "comma-separated); with none listed no session token could ever be accepted")
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(app):
+    if auth.mode() == "clerk" and not auth.authorized_parties():     # Prompt F1a: azp is required, so a list is too
+        print(f"  [{AUTHORIZED_PARTIES_MISSING}]", flush=True)
+        raise RuntimeError(AUTHORIZED_PARTIES_MISSING)
     yield
     tracing.shutdown()                                  # flush the traces at shutdown, bounded (tracing.SHUTDOWN_TIMEOUT_S)
     threads._reset()                                    # Prompt B: close the checkpointer's connection pool
@@ -210,6 +223,23 @@ async def require_api_key(request: Request, call_next):
                 status_code=429)
 
     return await call_next(request)
+
+
+# Prompt F1a: CORS for the website, added AFTER the key gate so it is the outermost layer: a preflight (OPTIONS, no
+# credential) is answered here, and the gate's own refusals still carry the header the browser needs to read them.
+CORS_ENV = "CORS_ALLOWED_ORIGINS"
+CORS_METHODS = ["GET", "POST", "DELETE", "OPTIONS"]
+CORS_HEADERS = ["Authorization", "Content-Type"]
+
+
+def cors_origins():
+    return [o.strip().rstrip("/") for o in (os.getenv(CORS_ENV) or "").split(",") if o.strip().rstrip("/")]
+
+
+if cors_origins():                                      # read once at import, like APP_API_KEY: a change needs a restart
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(CORSMiddleware, allow_origins=cors_origins(), allow_methods=CORS_METHODS,
+                       allow_headers=CORS_HEADERS, allow_credentials=False)
 
 
 @app.get("/health")
