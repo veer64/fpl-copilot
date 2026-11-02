@@ -130,6 +130,30 @@ def _read_active(user_id):
         _end_read(holder, conn)
 
 
+def _squad_owner(user_id):
+    """Prompt F1a (2026-11-02): whose squad_versions rows this user's squad tools read and write -- the active imported FPL
+    team's squad_key, else user_id itself, unchanged (fpl_teams.squad_owner_id, the ONE lookup). On the call's shared
+    connection inside a decorated call (rolled back after it, like a _q read). A user with no team -- users 1, 9001, 9002
+    -- gets their own id back, so every squad tool does exactly what it did."""
+    import fpl_teams
+    holder = _CALL_DB.get()
+    if holder is None:
+        return fpl_teams.squad_owner_id(user_id)
+    conn = _shared(holder)
+    try:
+        return fpl_teams.squad_owner_id(user_id, conn=conn)
+    finally:
+        _end_read(holder, conn)
+
+
+def _as_user(record, owner, user_id):
+    """A team's record shown as the user's own: its user_id is the user's, never the team's internal key. A user's own
+    record (owner is user_id) is returned as it is."""
+    if owner is user_id or not isinstance(record, dict):
+        return record
+    return {**record, "user_id": int(user_id)}
+
+
 def _latest_run(gw=None, any_status=False):
     sql = "SELECT * FROM model_runs"
     conds, params = [], []
@@ -1527,8 +1551,9 @@ def get_my_squad(user_id: int = None):
     substitute squad. squad_store.read_active is the raising form for code
     paths (the transfer MIP) that must not proceed without state."""
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
+    owner = _squad_owner(user_id)               # Prompt F1a: the active FPL team's record, else the user's own
     try:
-        record = _read_active(user_id)          # Prompt P6: the call's connection
+        record = _as_user(_read_active(owner), owner, user_id)   # Prompt P6: the call's connection
     except squad_store.NoSquadError:
         return _no_squad(user_id)
     except squad_store.SquadStateError as e:
@@ -1541,7 +1566,7 @@ def get_my_squad(user_id: int = None):
         current, current_err = _current_gw(), None
     except RuntimeError as e:
         current, current_err = None, str(e)
-    scores = _q(squad_store.SCORES_LATEST_SQL, (user_id, record["season"]))
+    scores = _q(squad_store.SCORES_LATEST_SQL, (owner, record["season"]))
     return _with_flags(squad_store.summary(record, prices, latest_run=_latest_run(),
                                            current_gw=current, current_gw_error=current_err,
                                            scores=scores))
@@ -1576,7 +1601,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
     another gameweek inside the horizon is a planning view and says so."""
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
-        record = squad_store.read_active(user_id)
+        record = squad_store.read_active(_squad_owner(user_id))   # Prompt F1a: the active FPL team's record
     except squad_store.NoSquadError:
         return _no_squad(user_id)
     except squad_store.SquadStateError as e:
@@ -1688,8 +1713,9 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     if confirm and not preview_ticket:                       # refused before any read: a write needs its ticket
         return {"error": squad_previews.refusal("missing"), "refused": True, "reason": "missing"}
+    owner = _squad_owner(user_id)                            # Prompt F1a: the active FPL team's record; tickets stay the user's
     try:
-        active = squad_store.read_active(user_id)
+        active = squad_store.read_active(owner)
     except squad_store.NoSquadError:
         return _no_squad(user_id)
     except squad_store.SquadStateError as e:
@@ -1738,7 +1764,7 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
                 return {"error": squad_previews.refusal(reason), "refused": True, "reason": reason,
                         "preview_ticket": str(preview_ticket), "active_version": active["version_id"]}
         try:
-            row = squad_store.write_version(active, new_doc, gw, note, confirm, conn=conn, user_id=user_id)
+            row = squad_store.write_version(active, new_doc, gw, note, confirm, conn=conn, user_id=owner)
         except squad_store.SquadStateError as e:
             return {"error": str(e)}
         if not confirm:
@@ -1774,7 +1800,7 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
             "bank_before": m(change["bank_before"]), "proceeds": m(change["proceeds"]),
             "purchases": m(change["purchases"]), "bank_after": m(change["bank_after"]),
         },
-        "squad": squad_store.summary(row, prices, latest_run=latest, current_gw=current),
+        "squad": squad_store.summary(_as_user(row, owner, user_id), prices, latest_run=latest, current_gw=current),
     }
     if ticket is not None:                                   # the preview's ticket and how to spend it (Prompt E)
         out["preview_ticket"] = ticket["id"]
@@ -2215,7 +2241,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
 
     t0 = time.time()
     try:
-        record = _read_active(user_id)          # Prompt P6: the call's connection
+        record = _read_active(_squad_owner(user_id))   # Prompt P6: the call's connection; F1a: the active FPL team's record
     except squad_store.NoSquadError:
         return _no_squad(user_id)
     except squad_store.SquadStateError as e:
@@ -3233,7 +3259,7 @@ def get_my_points(gw: int = None, user_id: int = None):
     if x is not None and x not in held:
         return _not_played_yet(x, held)
     try:
-        versions = _squad_versions_for(user_id)
+        versions = _squad_versions_for(_squad_owner(user_id))   # Prompt F1a: the active FPL team's record
     except Exception as e:                          # noqa: BLE001 -- report, never fabricate
         return {"error": f"could not read the squad versions: {e}"}
     if not versions:
@@ -3699,7 +3725,7 @@ def get_price_movements(window_days: int = 7, user_id: int = None, include_squad
     squad = None
     if include_squad:
         try:
-            record = squad_store.read_active(user_id)
+            record = squad_store.read_active(_squad_owner(user_id))   # Prompt F1a: the active FPL team's record
             squad = record["squad_json"] if isinstance(record, dict) else None
         except Exception:                               # noqa: BLE001 -- movers still answerable
             squad = None
@@ -4467,7 +4493,7 @@ def get_wildcard_gap(user_id: int = None):
 
     t0 = time.time()
     try:
-        record = squad_store.read_active(user_id)
+        record = squad_store.read_active(_squad_owner(user_id))   # Prompt F1a: the active FPL team's record
     except squad_store.NoSquadError:
         return _no_squad(user_id)
     except squad_store.SquadStateError as e:

@@ -142,7 +142,8 @@ OPEN_ENDPOINTS = {("GET", "/health"), ("HEAD", "/health")}
 # Prompt P7: in AUTH_MODE=clerk these routes authenticate with the Clerk session token (the handler checks it) instead of
 # the shared key; in off mode they are gated by the key like everything else.
 CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET", "/admin/users.csv"),
-                ("GET", "/me"), ("GET", "/threads"), ("POST", "/threads")}      # Prompt F1a: the website's endpoints
+                ("GET", "/me"), ("GET", "/threads"), ("POST", "/threads"),      # Prompt F1a: the website's endpoints
+                ("GET", "/me/squad")}
 CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$"))]
 
 
@@ -390,7 +391,8 @@ def _account(http):
 
 
 def _active_team(user_id):
-    return None                                         # Part 4 (the imported FPL teams) answers this
+    import fpl_teams                                    # Part 4: the user's active imported FPL team, or None
+    return fpl_teams.active_team(user_id)
 
 
 @app.get("/me")
@@ -401,6 +403,24 @@ def me(http: Request):
     uid = int(user["user_id"])
     return {"user_id": uid, "is_admin": bool(user.get("is_admin")), "daily_cap_usd": users.cap_for(user),
             "spent_today_usd": round(users.spent_today(uid), 6), "active_team": _active_team(uid)}
+
+
+@app.get("/me/squad")
+def my_squad(http: Request):
+    """The active squad as get_my_squad reads it (the active FPL team's record, else the user's own); no squad -> null."""
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    import model_tools
+    uid = int(user["user_id"])
+    with config_roles.acting_user(uid):
+        out = model_tools.get_my_squad(user_id=uid)
+    if isinstance(out, dict) and out.get("no_squad"):
+        return {"squad": None}
+    if not isinstance(out, dict) or "error" in out:
+        print(f"  [/me/squad of user {uid}: {str((out or {}).get('error') if isinstance(out, dict) else out)[:200]}]")
+        return JSONResponse({"detail": "your squad could not be read; please try again shortly"}, status_code=503)
+    return {"squad": out}
 
 
 @app.get("/threads")
