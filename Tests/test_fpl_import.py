@@ -352,8 +352,12 @@ def test_j2_a_second_team_is_not_active_until_activated(api):
     r = _post(api, "/me/teams", json={"fpl_team_id": TID + 1, "label": "Second"})
     assert r.status_code == 200 and r.json()["is_active"] is False
     r = _post(api, f"/me/teams/{TID + 1}/activate")
-    assert r.status_code == 200 and r.json() == {"fpl_team_id": TID + 1, "label": "Second", "is_active": True,
-                                                 "last_imported_gw": 10}
+    body = r.json()
+    thread_id = body.pop("thread_id", None)                                 # F1b: activation starts a new default thread
+    assert r.status_code == 200 and body == {"fpl_team_id": TID + 1, "label": "Second", "is_active": True,
+                                             "last_imported_gw": 10, "preview_tickets_cancelled": 0}
+    assert isinstance(thread_id, str) and thread_id.startswith("th_")
+    assert _q(api.conn, "SELECT owner_key, is_default FROM chat_threads WHERE thread_id = %s", (thread_id,)) == [(900_000_002, True)]
     assert [(t["fpl_team_id"], t["is_active"]) for t in _get(api, "/me/teams").json()] == [(TID, False), (TID + 1, True)]
     import fpl_teams
     assert fpl_teams.squad_owner_id(U1) == 900_000_002

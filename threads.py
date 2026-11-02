@@ -60,13 +60,35 @@ class ThreadRefused(Exception):
     """A thread id the user does not own (or that does not exist): refused before any model call."""
 
 
+class TeamChanged(Exception):
+    """Prompt F1b: the thread belongs to a team (squad owner) that is no longer the user's active one. Carries the user's
+    default thread for the CURRENT owner (thread_id), where the conversation continues."""
+
+    def __init__(self, thread_id):
+        super().__init__(thread_id)
+        self.thread_id = thread_id
+
+
+# Prompt F1b (2026-11-02): a thread belongs to the squad owner active when it was created (fpl_teams.squad_owner_id: the
+# active imported FPL team's squad_key, else the user's own id). Added only when missing -- ALTER TABLE takes an ACCESS
+# EXCLUSIVE lock even when the column exists (Prompt B's lesson). NULL = a thread made before the column: the user's own id.
+OWNER_KEY_DDL = """
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = current_schema() AND table_name = 'chat_threads' AND column_name = 'owner_key') THEN
+        ALTER TABLE chat_threads ADD COLUMN owner_key INT;
+    END IF;
+END $$;
+"""
+
+
 # ---- chat_threads (psycopg2, like the rest of the app) -----------------------------------------------------------------
 
 _SCHEMA_READY = set()
 
 
 def ensure_schema(conn=None):
-    """chat_threads + its indexes, and squad_previews' thread column. Idempotent."""
+    """chat_threads + its indexes (+ owner_key, Prompt F1b), and squad_previews' thread column. Idempotent."""
     import squad_previews
     own = conn is None
     conn = conn or db_write.connect()
@@ -74,10 +96,34 @@ def ensure_schema(conn=None):
         with conn.cursor() as cur:
             cur.execute(THREADS_DDL)
         conn.commit()
+        ensure_owner_key(conn)
         squad_previews.ensure_schema(conn)
     finally:
         if own:
             conn.close()
+
+
+def ensure_owner_key(conn=None):
+    """Prompt F1b's schema step: chat_threads.owner_key INT NULL (OWNER_KEY_DDL). Idempotent."""
+    own = conn is None
+    conn = conn or db_write.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(OWNER_KEY_DDL)
+        conn.commit()
+    finally:
+        if own:
+            conn.close()
+
+
+def current_owner(user_id):
+    """The squad owner the user's squad tools read NOW (fpl_teams.squad_owner_id): the active team's key, else user_id."""
+    import fpl_teams
+    return int(fpl_teams.squad_owner_id(int(user_id)))
+
+
+def _effective_owner(user_id, owner_key):
+    return int(user_id) if owner_key is None else int(owner_key)
 
 
 def _conn():
@@ -93,18 +139,24 @@ def new_thread_id():
     return "th_" + secrets.token_urlsafe(18)
 
 
-def default_thread(user_id):
-    """The user's default thread, created on first use."""
+def default_thread(user_id, owner=None):
+    """The user's default thread for the squad owner active now (`owner`, else current_owner), created on first use.
+    Prompt F1b: a default thread of another owner (the user switched team) stops being the default -- it stays theirs and
+    readable -- and a new one is made for the current owner."""
+    uid = int(user_id)
+    owner = current_owner(uid) if owner is None else int(owner)
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT thread_id FROM chat_threads WHERE user_id = %s AND is_default", (int(user_id),))
+            cur.execute("SELECT thread_id, owner_key FROM chat_threads WHERE user_id = %s AND is_default", (uid,))
             row = cur.fetchone()
-            if row:
+            if row and _effective_owner(uid, row[1]) == owner:
                 return row[0]
+            if row:
+                cur.execute("UPDATE chat_threads SET is_default = FALSE WHERE thread_id = %s", (row[0],))
             tid = new_thread_id()
-            cur.execute("INSERT INTO chat_threads (thread_id, user_id, is_default) VALUES (%s, %s, TRUE) "
-                        "ON CONFLICT DO NOTHING", (tid, int(user_id)))
+            cur.execute("INSERT INTO chat_threads (thread_id, user_id, is_default, owner_key) VALUES (%s, %s, TRUE, %s) "
+                        "ON CONFLICT DO NOTHING", (tid, uid, owner))
             conn.commit()
             cur.execute("SELECT thread_id FROM chat_threads WHERE user_id = %s AND is_default", (int(user_id),))
             return cur.fetchone()[0]                     # a concurrent first request may have won: use its thread
@@ -138,12 +190,15 @@ def owner(thread_id):
 
 
 def create_thread(user_id):
-    """Prompt F1a: a new, NON-default thread of the user (the website's "new chat"); its id."""
+    """Prompt F1a: a new, NON-default thread of the user (the website's "new chat"); its id. Prompt F1b: bound to the squad
+    owner active now."""
+    owner = current_owner(user_id)
     conn = _conn()
     try:
         tid = new_thread_id()
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO chat_threads (thread_id, user_id, is_default) VALUES (%s, %s, FALSE)", (tid, int(user_id)))
+            cur.execute("INSERT INTO chat_threads (thread_id, user_id, is_default, owner_key) VALUES (%s, %s, FALSE, %s)",
+                        (tid, int(user_id), owner))
         conn.commit()
         return tid
     finally:
@@ -156,7 +211,8 @@ SELECT t.thread_id, t.created_at, t.is_default, lc.ts AS last_ts,
        (SELECT convert_from(b.blob, 'UTF8')::jsonb -> 0
           FROM checkpoint_blobs b
          WHERE b.thread_id = t.thread_id AND b.checkpoint_ns = '' AND b.channel = 'messages'
-           AND b.version = lc.mv AND b.type = %s) AS first_message
+           AND b.version = lc.mv AND b.type = %s) AS first_message,
+       {team_label} AS team_label
   FROM chat_threads t
   LEFT JOIN LATERAL (SELECT c.checkpoint ->> 'ts' AS ts, c.checkpoint -> 'channel_versions' ->> 'messages' AS mv
                        FROM checkpoints c
@@ -164,6 +220,9 @@ SELECT t.thread_id, t.created_at, t.is_default, lc.ts AS last_ts,
                       ORDER BY c.checkpoint_id DESC LIMIT 1) lc ON TRUE
  WHERE t.user_id = %s
 """
+# Prompt F1b: the thread's team -- the label of the user's imported team whose squad_key is the thread's owner_key (none for
+# a thread of the user's own record, a legacy thread, or before user_fpl_teams exists).
+_TEAM_LABEL = "(SELECT f.label FROM user_fpl_teams f WHERE f.user_id = t.user_id AND f.squad_key = t.owner_key LIMIT 1)"
 
 
 def iso(dt):
@@ -197,12 +256,14 @@ def list_threads(user_id):
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(_LIST_SQL, (TAG, int(user_id)))
+            cur.execute("SELECT to_regclass('public.user_fpl_teams') IS NOT NULL")
+            teams = cur.fetchone()[0]
+            cur.execute(_LIST_SQL.format(team_label=_TEAM_LABEL if teams else "NULL::text"), (TAG, int(user_id)))
             rows = cur.fetchall()
     finally:
         conn.close()
     out = []
-    for tid, created, is_default, last_ts, first in rows:
+    for tid, created, is_default, last_ts, first, team_label in rows:
         title = None
         if first is not None:
             try:
@@ -212,18 +273,31 @@ def list_threads(user_id):
             except (ValueError, KeyError, TypeError):
                 title = None
         out.append({"thread_id": tid, "created_at": iso(created), "last_active": iso(last_ts or created),
-                    "is_default": bool(is_default), "title": title})
+                    "is_default": bool(is_default), "title": title, "team_label": team_label})
     out.sort(key=lambda r: r["last_active"], reverse=True)
     return out
 
 
 def resolve(user_id, thread_id=None):
-    """The thread a /chat turn runs in: the user's default when no id is given; a given id only when the user owns it
-    (else ThreadRefused -- an unknown id and another user's id are refused alike, so the answer tells nothing)."""
+    """The thread a /chat turn runs in: the user's default (for the squad owner active now) when no id is given; a given
+    id only when the user owns it (else ThreadRefused -- an unknown id and another user's id are refused alike, so the
+    answer tells nothing) AND it belongs to the squad owner active now (else TeamChanged, carrying the default thread for
+    the current owner: Prompt F1b -- a thread never mixes two teams' squads). For a user with no team the owner is always
+    the user's own id, so the check never fires."""
+    current = current_owner(user_id)
     if thread_id is None or str(thread_id).strip() == "":
-        return default_thread(user_id)
-    if owner(thread_id) != int(user_id):
+        return default_thread(user_id, current)
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, owner_key FROM chat_threads WHERE thread_id = %s", (str(thread_id),))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if row is None or row[0] != int(user_id):
         raise ThreadRefused(str(thread_id))
+    if _effective_owner(row[0], row[1]) != current:
+        raise TeamChanged(default_thread(user_id, current))
     return str(thread_id)
 
 

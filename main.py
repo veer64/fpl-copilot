@@ -270,6 +270,13 @@ class ChatRequest(BaseModel):
 
 
 THREAD_REFUSED = "thread not found for this user"
+TEAM_CHANGED = "active team changed; start a new chat"      # Prompt F1b: a thread belongs to the team active at its creation
+
+
+def _team_changed(e):
+    """409 for a thread of a team that is no longer active: no model call, nothing written to that thread; the body names
+    the user's default thread for the active team, where the conversation continues."""
+    return JSONResponse({"detail": TEAM_CHANGED, "thread_id": e.thread_id}, status_code=409)
 TOKEN_REFUSED = "missing or invalid session token"
 PROFILE_UNAVAILABLE = "your account profile could not be loaded; please try again shortly"
 RATE_LIMITED = f"rate limit: at most {users.RATE_LIMIT_PER_MINUTE} messages a minute; please wait a moment"
@@ -304,6 +311,8 @@ def _chat_signed_in(request, http):
             thread_id = threads.resolve(user_id, request.thread_id)
         except threads.ThreadRefused:
             return JSONResponse({"detail": THREAD_REFUSED}, status_code=403)
+        except threads.TeamChanged as e:
+            return _team_changed(e)
         answer = agent_graph.run_thread_turn(user_id, thread_id, request.message)
     return {"answer": answer, "thread_id": thread_id}
 
@@ -317,6 +326,8 @@ def chat(request: ChatRequest, http: Request):
         thread_id = threads.resolve(user_id, request.thread_id)
     except threads.ThreadRefused:                       # another user's thread (or none): refused before any model call
         return JSONResponse({"detail": THREAD_REFUSED}, status_code=403)
+    except threads.TeamChanged as e:                    # Prompt F1b: never fires for a user with no team
+        return _team_changed(e)
     answer = agent_graph.run_thread_turn(user_id, thread_id, request.message)
     return {"answer": answer, "thread_id": thread_id}
 
@@ -512,10 +523,27 @@ def add_team(http: Request, payload: Any = Body(default=None)):
     return _team_call(http, work, imports=True)
 
 
+def _activate(user_id, fpl_team_id):
+    """Prompt F1b: the team made active, then a NEW default thread bound to it (the old threads stay the user's and readable;
+    a /chat in one of another team gets 409) and the user's open preview tickets cancelled (a ticket names a version of the
+    team it was issued for)."""
+    import db_write
+    import fpl_teams
+    team = fpl_teams.activate(user_id, fpl_team_id)
+    threads.start_new_default(user_id)
+    thread_id = threads.default_thread(user_id)
+    conn = db_write.connect()
+    try:
+        squad_previews.ensure_schema(conn)
+        cancelled = squad_previews.cancel_for_user(conn, user_id)
+    finally:
+        conn.close()
+    return {**team, "thread_id": thread_id, "preview_tickets_cancelled": cancelled}
+
+
 @app.post("/me/teams/{fpl_team_id}/activate")
 def activate_team(fpl_team_id: str, http: Request):
-    import fpl_teams
-    return _team_call(http, lambda: (fpl_teams.activate, (_team_id(fpl_team_id, path=True),)))
+    return _team_call(http, lambda: (_activate, (_team_id(fpl_team_id, path=True),)))
 
 
 @app.post("/me/teams/{fpl_team_id}/refresh")
