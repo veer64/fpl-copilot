@@ -78,14 +78,47 @@ def honour_legacy_marker(state, gw):
         log(f"honoured legacy marker {done.name} as {sid} SUCCESS")
 
 
+def partial_ingest_gws():
+    """Gameweeks whose weekly-ingest chain STARTED and has not SUCCEEDED: the runner's
+    data/live/ingest_gw{N}.partial.json marker (run_weekly_ingest.py writes it before step 1,
+    removes it after the post-checks). Their rows may already be in the season file while
+    the Understat files, the odds slice and the forward skeleton are not yet rebuilt."""
+    out = set()
+    for p in LIVE.glob("ingest_gw*.partial.json"):
+        try:
+            out.add(int(p.name[len("ingest_gw"):-len(".partial.json")]))
+        except ValueError:
+            continue
+    return out
+
+
 def master_max_gw(season):
+    """The highest gameweek the weekly ingest has COMPLETED into the season file.
+
+    Not the file's max GW alone. 2026-11-03 18:17Z: GW9's ingest wrote GW9 into the season
+    file (fetch_fpl_history), then broke at understat_matches (a dead address from a stale
+    DNS answer) before build_forward_skeleton. The 18:30 tick read "through GW9", fired
+    post_ingest, then nightly: four strict builds, all dead on load_stack's collision assert
+    (stale skeleton), two slots GAVE_UP, /health degraded on a volume that could not build.
+    A gameweek carrying the runner's partial marker is not ingested yet; the file counts
+    through the highest gameweek below it (0 when none), and the next tick after the
+    ingest SUCCEEDS -- the marker gone -- fires post_ingest once, as designed."""
     p = REPO / "data" / "history" / f"fpl_api_{season.replace('-', '_')}.parquet"
     try:
         import pandas as pd
-        return int(pd.read_parquet(p, columns=["GW"])["GW"].max())
+        gws = sorted({int(g) for g in pd.read_parquet(p, columns=["GW"])["GW"].dropna().unique()})
+        if not gws:
+            raise ValueError("season file has no gameweeks")
     except Exception as e:  # unreadable -> policy refuses to fire the gated kinds
         log(f"season file unreadable ({type(e).__name__}: {e}) -- gated kinds will not fire")
         return None
+    partial = partial_ingest_gws() & set(gws)
+    done = [g for g in gws if g not in partial]
+    through = done[-1] if done else 0
+    if partial and max(partial) > through:
+        log(f"season file through GW{gws[-1]} but the weekly ingest of GW{sorted(partial)} is PARTIAL "
+            f"(ingest_gw*.partial.json on the volume) -- counted as ingested through GW{through}")
+    return through
 
 
 def run_build(season, gw, kind, slot, attempt):

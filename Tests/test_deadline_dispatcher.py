@@ -135,3 +135,71 @@ def test_a_slot_running_too_long_degrades_health():
     r = dp.health_reasons(dp.parse_iso("2026-09-15T21:12:00Z"), st, next_gw=5)
     assert any("has been RUNNING for 131 min" in x and "died after or during its build" in x for x in r)
     assert dp.health_reasons(dp.parse_iso("2026-09-15T19:30:00Z"), st, next_gw=5) == []      # a build in progress
+
+
+def _season_file(tmp_path, gws):
+    import pandas as pd
+    h = tmp_path / "data" / "history"
+    h.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "data" / "live").mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"GW": gws, "element": list(range(len(gws)))}).to_parquet(h / "fpl_api_2026_27.parquet", index=False)
+
+
+def test_a_gameweek_whose_ingest_is_partial_is_not_ingested(monkeypatch, tmp_path):
+    """2026-11-03 18:17Z: the weekly ingest wrote GW9 into the season file (fetch_fpl_history), then broke at
+    understat_matches (a dead address from a stale DNS answer) BEFORE build_forward_skeleton. The 18:30 tick read
+    "season file through GW9", fired post_ingest, then nightly -- four strict builds, all dead on load_stack's
+    collision assert (stale skeleton), two slots GAVE_UP, /health degraded on a volume that could not build.
+    The runner marks exactly this state with ingest_gw{N}.partial.json (run_weekly_ingest.py); the dispatcher must
+    read it: a partial gameweek is NOT ingested, the season file counts through the gameweek below it."""
+    monkeypatch.setattr(dd, "REPO", tmp_path)
+    monkeypatch.setattr(dd, "LIVE", tmp_path / "data" / "live")
+    _season_file(tmp_path, [7, 8, 8, 9, 9])
+    assert dd.master_max_gw("2026-27") == 9                    # no marker: GW9 is ingested
+    marker = tmp_path / "data" / "live" / "ingest_gw9.partial.json"
+    marker.write_text(json.dumps({"started_at": "2026-11-03 18:17:05Z"}), encoding="utf-8")
+    assert dd.master_max_gw("2026-27") == 8                    # the marker: GW9's chain has not finished
+    marker.unlink()
+    assert dd.master_max_gw("2026-27") == 9                    # a SUCCESS removes the marker: ingested again
+    (tmp_path / "data" / "live" / "ingest_gw7.partial.json").write_text("{}", encoding="utf-8")
+    assert dd.master_max_gw("2026-27") == 9                    # an older stray marker does not hide newer gameweeks
+
+
+def test_a_tick_on_a_partial_ingest_fires_no_build(monkeypatch, tmp_path):
+    """The whole tick: season file through GW4 with GW4's partial marker, last success knew through GW3, between
+    deadlines. Before the fix: post_ingest:GW4 fires (and dies on the stale skeleton). After: nothing fires, the
+    reason names the un-ingested gameweek, the promise stays the conditional post_ingest."""
+    monkeypatch.setattr(dd, "REPO", tmp_path)
+    monkeypatch.setattr(dd, "LIVE", tmp_path / "data" / "live")
+    monkeypatch.setattr(dd, "STATE", tmp_path / "data" / "live" / "dispatch_state.json")
+    monkeypatch.setattr(dd, "reconcile_from_db", lambda state, rows=None: [])
+    monkeypatch.setattr(dd, "datetime", _FrozenClock)
+    _season_file(tmp_path, [3, 4])
+    (tmp_path / "data" / "live" / "ingest_gw4.partial.json").write_text("{}", encoding="utf-8")
+    dd.STATE.write_text(json.dumps({"version": 1, "slots": {}, "last_success": {"history_through_gw": 3}}),
+                        encoding="utf-8")
+
+    class Resp:
+        def json(self):
+            return {"events": EVENTS}
+    monkeypatch.setattr(dd.requests, "get", lambda *a, **k: Resp())
+    calls = []
+    monkeypatch.setattr(dd, "run_build", lambda *a, **k: calls.append(a) or (0, {}))
+    logged = []
+    monkeypatch.setattr(dd, "log", lambda m: logged.append(m))
+    _FrozenClock.at = dp.parse_iso("2026-09-15T18:30:00Z")
+    dd.main(["--season", "2026-27", "--now", "2026-09-15T18:30:00Z"])
+    assert calls == [], logged
+    st = json.loads(dd.STATE.read_text(encoding="utf-8"))
+    assert st["slots"] == {}
+    assert st["expected_next"]["kind"] == "post_ingest" and st["expected_next"]["slot"] == "post_ingest:GW4"
+    assert any("GW4 not yet confirmed and ingested" in m for m in logged), logged
+    assert any("PARTIAL" in m and "GW3" in m for m in logged), logged
+    # the marker gone (the ingest SUCCEEDED): the same tick fires post_ingest:GW4 once
+    (tmp_path / "data" / "live" / "ingest_gw4.partial.json").unlink()
+    side = {"run_id": 64, "config": dd.cr.PRODUCTION_CONFIG, "gw": 5, "kind": "post_ingest", "slot": "post_ingest:GW4",
+            "knowledge": {"history_through_gw": 4}}
+    monkeypatch.setattr(dd, "run_build", lambda *a, **k: calls.append(a) or (0, side))
+    _FrozenClock.at = dp.parse_iso("2026-09-15T18:40:00Z")
+    dd.main(["--season", "2026-27", "--now", "2026-09-15T18:40:00Z"])
+    assert len(calls) == 1 and calls[0][3] == "post_ingest:GW4"
