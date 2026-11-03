@@ -1,0 +1,231 @@
+/* app/login/login.css -- Prompt W1 (2026-11-02): the login page's own styles, ported from the approved references
+   (design/reference/login-desktop.reference.html and login-mobile.reference.html). The numbers are the design's: keep them.
+   Phase classes on the stage root: .is-gate / .is-intro / .is-login; .no-motion mirrors prefers-reduced-motion. */
+
+/* ---- stage ---------------------------------------------------------------------------------------------------------- */
+.stage{position:relative;width:100%;height:100vh;height:100dvh;min-height:780px;overflow:hidden;background:#04070C;color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif}
+.stage *{box-sizing:border-box}
+.stage button,.stage input{font:inherit}
+.stage button{cursor:pointer}
+.stage a{color:#9FB3C8;text-decoration:none}
+.stage a:hover{color:#E8F6FF}
+.stage input::placeholder{color:#7D8EA0;opacity:1}
+.stage :focus-visible{outline:2px solid #3BE8FF;outline-offset:3px}
+.mono{font-family:var(--font-geist-mono),ui-monospace,monospace}
+.bglights{position:absolute;inset:0;background:radial-gradient(42% 60% at 33% 30%,rgba(150,200,240,.16),rgba(4,7,12,0) 70%),radial-gradient(56% 50% at 33% 60%,rgba(59,232,255,.08),rgba(4,7,12,0) 70%);pointer-events:none}
+
+/* ---- world: camera, pitch grid, particles ----------------------------------------------------------------------------- */
+.world{position:absolute;inset:0;transform-origin:45% 42%;pointer-events:none}
+.is-intro .world{animation:rush 4.1s cubic-bezier(.5,0,.85,.45) 1.2s both}
+@keyframes rush{0%{transform:scale(1);filter:blur(0)}78%{filter:blur(0)}100%{transform:scale(1.85) translateY(4%);filter:blur(2.5px)}}
+.is-login .world{animation:settle 1s cubic-bezier(.2,.8,.2,1) both}
+@keyframes settle{from{transform:scale(1.15);opacity:.4;filter:blur(2px)}to{transform:none;opacity:1;filter:none}}
+.cam{position:absolute;inset:0;transition:transform .4s ease-out}
+.pitch{position:absolute;left:-40%;right:-40%;bottom:0;height:85%;transform:perspective(900px) rotateX(70deg);transform-origin:50% 100%;background-image:linear-gradient(rgba(59,232,255,.16) 1px,transparent 1px),linear-gradient(90deg,rgba(59,232,255,.16) 1px,transparent 1px);background-size:80px 80px;-webkit-mask-image:linear-gradient(to top,#000 20%,transparent 85%);mask-image:linear-gradient(to top,#000 20%,transparent 85%)}
+.is-intro .pitch{animation:grid .45s linear infinite}
+@keyframes grid{to{background-position:0 80px}}
+.pitch-circle{position:absolute;left:50%;top:38%;width:440px;height:440px;margin-left:-220px;border:2px solid rgba(59,232,255,.36);border-radius:50%}
+.pitch-half{position:absolute;left:0;right:0;top:calc(38% + 219px);height:2px;background:rgba(59,232,255,.36)}
+.parts{position:absolute;left:38%;top:40%;width:0;height:0}
+.pt{position:absolute;left:0;top:0;width:0;height:0}
+.pt b{position:absolute;left:0;top:-1px;height:2px;width:var(--l);border-radius:2px;background:linear-gradient(90deg,rgba(59,232,255,0),#BFF6FF);opacity:0;transform-origin:0 50%}
+.is-gate .parts{display:none}
+.is-intro .pt b{animation:streak .85s linear infinite;animation-delay:calc(1.2s + var(--d) * .85s)}
+@keyframes streak{0%{opacity:0;transform:translateX(60px) scaleX(.2)}15%{opacity:var(--o)}100%{opacity:0;transform:translateX(1100px) scaleX(1.4)}}
+.is-login .pt b{width:3px;height:3px;top:-1.5px;border-radius:50%;background:#BFF6FF;animation:drift 16s linear infinite;animation-delay:calc(var(--d) * -16s)}
+@keyframes drift{0%{opacity:0;transform:translateX(140px)}20%{opacity:calc(var(--o) * .6)}80%{opacity:calc(var(--o) * .4)}100%{opacity:0;transform:translateX(760px)}}
+
+/* ---- the duo: two same-frame player stacks, the ball, the name tags ----------------------------------------------------- */
+.duo{position:absolute;aspect-ratio:1180/939;transition:left .9s cubic-bezier(.2,.8,.2,1),bottom .9s cubic-bezier(.2,.8,.2,1),height .9s cubic-bezier(.2,.8,.2,1)}
+.is-gate .duo{display:none}
+.is-intro .duo{left:21%;bottom:2%;height:74%}
+.is-login .duo{left:4%;bottom:0;height:74%}
+.pl{position:absolute;inset:0}
+.gl{position:absolute;inset:0}
+.holo{position:absolute;inset:0;perspective:1100px;perspective-origin:50% 40%;transform-origin:50% 100%;animation:breathe 5s ease-in-out infinite alternate}
+.pl-h .holo{animation-delay:-2.5s}
+@keyframes breathe{to{transform:scale(1.015)}}
+.tilt{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .3s ease-out}
+.ly{position:absolute;inset:0;width:100%;height:100%;max-width:none;display:block;transform-origin:50% 40%;user-select:none;-webkit-user-drag:none}
+.ly-head{transform:translateZ(50px) scale(.955)}
+.sheen{position:absolute;inset:0;transform:translateZ(2px) scale(.998);-webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;background:linear-gradient(105deg,transparent 0,transparent 42%,rgba(255,255,255,.22) 50%,transparent 58%,transparent 100%);background-size:300% 100%;mix-blend-mode:screen;animation:sheen 7s ease-in-out infinite}
+.sheen-v{-webkit-mask-image:url(/players/vandijk-body.webp);mask-image:url(/players/vandijk-body.webp)}
+.sheen-h{-webkit-mask-image:url(/players/haaland-body.webp);mask-image:url(/players/haaland-body.webp);animation-delay:-3.5s}
+@keyframes sheen{0%,60%{background-position:100% 0}100%{background-position:0% 0}}
+.ghost{position:absolute;inset:0;width:100%;height:100%;max-width:none;opacity:0;filter:grayscale(1) sepia(1) saturate(5) hue-rotate(140deg) brightness(1.3);mix-blend-mode:screen;pointer-events:none}
+.ball{position:absolute;left:52.5%;top:-23%;width:17%;aspect-ratio:1/1}
+.ball-p{position:absolute;inset:0;transition:transform .35s ease-out}
+.ball-in{position:absolute;inset:0;animation:bfloat 3.4s ease-in-out infinite alternate}
+.ball-in img{display:block;width:100%;height:100%;max-width:none;filter:drop-shadow(0 0 14px rgba(230,255,120,.25));animation:bspin 18s linear infinite}
+@keyframes bfloat{from{transform:translateY(4px)}to{transform:translateY(-10px)}}
+@keyframes bspin{to{transform:rotate(360deg)}}
+.is-intro .ball{animation:matIn .6s steps(6) .9s both}
+@keyframes matIn{from{opacity:0;filter:brightness(3)}to{opacity:1;filter:none}}
+
+/* the intro's pixel-block dissolve: 12 x 10 tiles of the body image, each flashing in at its own delay */
+.dz{position:absolute;inset:0;display:none}
+.dz b{position:absolute;width:8.3333%;height:10%;background-size:1200% 1000%;opacity:0;animation:dzIn .14s linear both}
+.dz-v b{background-image:url(/players/vandijk-body.webp)}
+.dz-h b{background-image:url(/players/haaland-body.webp)}
+@keyframes dzIn{0%{opacity:0;filter:brightness(2.6) saturate(0)}40%{opacity:1}100%{opacity:1;filter:none}}
+.is-intro .dz-v{display:block;animation:dzOut .25s 1.0s forwards}
+.is-intro .dz-h{display:block;animation:dzOut .25s 1.3s forwards}
+@keyframes dzOut{to{opacity:0}}
+.is-intro .pl-v .gl{opacity:0;animation:show .25s .95s forwards,glitchOnce .45s steps(1) 4.5s both}
+.is-intro .pl-h .gl{opacity:0;animation:show .25s 1.25s forwards,glitchOnce .45s steps(1) 4.5s both}
+@keyframes show{to{opacity:1}}
+.is-intro .ghost{animation:ghostOnce .45s steps(1) 4.5s both}
+
+/* the idle glitch: a 0.3 s jitter and a cyan ghost in horizontal slices, every 6.4 s (Van Dijk) / 7.6 s (Haaland) */
+.is-login .pl-v .gl{animation:glitchLoop 6.4s steps(1) 2.5s infinite}
+.is-login .pl-v .ghost{animation:ghostLoop 6.4s steps(1) 2.5s infinite}
+.is-login .pl-h .gl{animation:glitchLoop 7.6s steps(1) 4.6s infinite}
+.is-login .pl-h .ghost{animation:ghostLoop 7.6s steps(1) 4.6s infinite}
+@keyframes glitchOnce{0%{transform:none}20%{transform:translate(-6px,0) skewX(-4deg)}40%{transform:translate(5px,1px)}60%{transform:translate(-2px,0)}80%,100%{transform:none}}
+@keyframes ghostOnce{0%{opacity:0}20%{opacity:.8;transform:translate(14px,0);clip-path:inset(18% 0 62% 0)}40%{opacity:.65;transform:translate(-12px,0);clip-path:inset(55% 0 28% 0)}60%{opacity:.75;transform:translate(8px,0);clip-path:inset(34% 0 50% 0)}80%,100%{opacity:0}}
+@keyframes glitchLoop{0%{transform:none}1%{transform:translate(-6px,0) skewX(-4deg)}2%{transform:translate(5px,1px)}3%{transform:translate(-2px,0)}4.5%,100%{transform:none}}
+@keyframes ghostLoop{0%{opacity:0}1%{opacity:.8;transform:translate(14px,0);clip-path:inset(18% 0 62% 0)}2%{opacity:.65;transform:translate(-12px,0);clip-path:inset(55% 0 28% 0)}3%{opacity:.75;transform:translate(8px,0);clip-path:inset(34% 0 50% 0)}4.5%,100%{opacity:0}}
+
+/* the fallback when a player image fails: two simple cyan figures */
+.ath{position:absolute;top:8%;bottom:0;width:36%;color:#8AF0FF;filter:drop-shadow(0 0 4px rgba(59,232,255,.9))}
+.ath svg{display:block;width:100%;height:100%;overflow:visible}
+
+.tag{position:absolute;top:-8%;display:flex;flex-direction:column;gap:3px;font-size:11px;line-height:14px;letter-spacing:.16em;color:#C6F7FF;white-space:nowrap}
+.tag strong{font-size:13px;font-weight:500;color:#F2FDFF}
+.tag-line{position:absolute;top:7px;width:32px;height:1px;background:currentColor}
+.tag-v{right:66%;padding-right:40px;align-items:flex-end;text-align:right}
+.tag-v .tag-line{right:0}
+.tag-h{left:78%;padding-left:40px}
+.tag-h .tag-line{left:0}
+.is-intro .tag{opacity:0}
+
+/* ---- intro: flash, HUD lines, skip ------------------------------------------------------------------------------------ */
+.flash{position:absolute;inset:0;background:#3BE8FF;opacity:0;pointer-events:none}
+.is-intro .flash{animation:flash 6.2s forwards}
+@keyframes flash{0%,80.6%{opacity:0}85.5%{opacity:.55}95%,100%{opacity:0}}
+.hud{position:absolute;left:5vw;top:12vh;display:flex;flex-direction:column;gap:10px;font-size:12px;letter-spacing:.18em;color:#7FE9FF;pointer-events:none}
+.hud-line{opacity:0;animation:hud .5s forwards}
+@keyframes hud{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+.intro-skip{position:absolute;right:5vw;bottom:6vh;z-index:6;height:44px;padding:0 16px 0 18px;border-radius:999px;border:1px solid #3A4B5C;background:rgba(6,12,20,.6);color:#C9D6E3;font-size:14px;display:flex;align-items:center;gap:6px}
+
+/* ---- gate ------------------------------------------------------------------------------------------------------------- */
+.gate{position:absolute;inset:0;z-index:7;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:40px;padding:24px;text-align:center}
+.gate-brand{display:flex;align-items:center;gap:12px;color:#3BE8FF}
+.gate-brand span{font-size:14px;letter-spacing:.32em;color:#E8F6FF}
+.kick{position:relative;width:176px;height:176px;border-radius:50%;border:1px solid #3BE8FF;background:radial-gradient(circle,rgba(59,232,255,.22),rgba(59,232,255,.03) 70%);color:#E8F6FF;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.kick span{font-size:14px;letter-spacing:.24em}
+.ring{position:absolute;inset:-1px;border-radius:50%;border:1px solid #3BE8FF;animation:ring 2.4s ease-out infinite;pointer-events:none}
+@keyframes ring{from{opacity:.8;transform:scale(1)}to{opacity:0;transform:scale(1.8)}}
+.gate-lines{display:flex;flex-direction:column;gap:8px;align-items:center}
+.gate-lines p{margin:0}
+.gate-lead{font-size:15px;color:#B8C7D6}
+.gate-music{font-size:11px;letter-spacing:.14em;color:#8A9BB0}
+.ghost-btn{height:44px;padding:0 18px;border-radius:999px;border:1px solid #3A4B5C;background:transparent;color:#B8C7D6;font-size:14px}
+.ghost-btn:hover,.intro-skip:hover,.sound-btn:hover{border-color:#5E7184;color:#E8F6FF}
+
+/* ---- login UI --------------------------------------------------------------------------------------------------------- */
+.rise{animation:rise .8s cubic-bezier(.2,.8,.2,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(18px)}}
+.scrim{position:absolute;left:0;bottom:0;width:60%;height:50%;z-index:2;background:radial-gradient(80% 90% at 0% 100%,rgba(4,7,12,.92),rgba(4,7,12,0) 70%);pointer-events:none}
+.hdr{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:24px 5vw}
+.brand{display:flex;align-items:center;gap:10px;color:#3BE8FF}
+.brand img{display:block;width:28px;height:28px}
+.brand span{font-size:17px;font-weight:600;letter-spacing:-.01em;color:#E8F6FF}
+.sound-btn{height:44px;padding:0 16px;border-radius:999px;border:1px solid #3A4B5C;background:rgba(6,12,20,.6);color:#C9D6E3;font-size:13px;display:flex;align-items:center;gap:8px}
+.headline{position:absolute;left:5vw;bottom:92px;z-index:3;max-width:560px;display:flex;flex-direction:column;gap:14px;animation-delay:.1s}
+.eyebrow{font-size:12px;letter-spacing:.2em;color:#7FE9FF}
+.headline h1{margin:0;font-size:56px;line-height:58px;font-weight:600;letter-spacing:-.035em;color:#F2FBFF}
+.card-wrap{position:absolute;top:0;bottom:0;right:5vw;z-index:4;display:flex;align-items:center}
+.card{position:relative;width:400px;padding:32px;border-radius:16px;background:rgba(6,12,20,.84);border:1px solid rgba(59,232,255,.3);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);display:flex;flex-direction:column;gap:20px;animation-delay:.2s;outline:none}
+.bracket{position:absolute;width:14px;height:14px;border:0 solid #3BE8FF}
+.b-tl{top:-7px;left:-7px;border-top-width:2px;border-left-width:2px}
+.b-tr{top:-7px;right:-7px;border-top-width:2px;border-right-width:2px}
+.b-bl{bottom:-7px;left:-7px;border-bottom-width:2px;border-left-width:2px}
+.b-br{bottom:-7px;right:-7px;border-bottom-width:2px;border-right-width:2px}
+.card-head{display:flex;flex-direction:column;gap:8px}
+.card-eyebrow{font-size:11px;letter-spacing:.18em;color:#7FE9FF}
+.card h2{margin:0;font-size:28px;line-height:34px;font-weight:600;letter-spacing:-.02em;color:#E8F6FF}
+.card-body{margin:0;font-size:15px;line-height:22px;color:#A9BACB}
+.card-body strong{color:#E8F6FF;font-weight:500}
+.gbtn{height:48px;border:0;border-radius:12px;background:#EEF3F8;color:#0B1118;font-size:15px;font-weight:500;display:flex;align-items:center;justify-content:center;gap:10px}
+.gbtn img{display:block;width:20px;height:20px;flex-shrink:0}
+.gbtn:hover{background:#FFFFFF}
+.divider{display:flex;align-items:center;gap:12px;font-size:12px;color:#8A9BB0}
+.divider i{flex-grow:1;height:1px;background:#223140}
+.divider span{letter-spacing:.16em}
+.field{display:flex;flex-direction:column;gap:8px}
+.field label{font-size:13px;font-weight:500;color:#C9D6E3}
+.input{height:48px;padding:0 16px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid #56687A;color:#E8F6FF;font-size:16px;width:100%}
+.input[aria-invalid="true"]{border-color:#FF8A7A}
+.cta{height:48px;border:0;border-radius:12px;background:#3BE8FF;color:#021016;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px}
+.cta:hover{background:#7CF3FF}
+.cta:disabled,.gbtn:disabled,.ghost-btn:disabled{opacity:.6;cursor:default}
+.fine{margin:0;font-size:12px;line-height:18px;color:#8A9BB0}
+.err{margin:0;font-size:13px;line-height:18px;color:#FF8A7A}
+.linkish{background:none;border:0;padding:0;color:#C9D6E3;font-size:13px;text-decoration:underline;text-underline-offset:3px}
+.linkish:hover{color:#E8F6FF}
+.linkish:disabled{color:#8A9BB0;text-decoration:none;cursor:default}
+.otp-row{display:flex;flex-direction:column;gap:10px}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.footer{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:20px 5vw;font-size:13px;animation-delay:.3s}
+.ticker{font-size:11px;letter-spacing:.14em;color:#8FA3B8}
+.legal{display:flex;gap:20px}
+
+/* ---- touch: the players drift on their own instead of following a mouse ---------------------------------------------- */
+@media (hover:none){
+.tilt{animation:tdrift 12s ease-in-out infinite alternate}
+.pl-h .tilt{animation-duration:14s;animation-direction:alternate-reverse}
+}
+@keyframes tdrift{from{transform:rotateY(-2.5deg) rotateX(1deg)}to{transform:rotateY(2.5deg) rotateX(-1deg)}}
+
+/* ---- mobile (<= 760px): the mobile reference ------------------------------------------------------------------------- */
+@media (max-width:760px){
+.stage{min-height:640px}
+.bglights{background:radial-gradient(70% 30% at 45% 24%,rgba(150,200,240,.16),rgba(4,7,12,0) 70%),radial-gradient(80% 34% at 45% 36%,rgba(59,232,255,.08),rgba(4,7,12,0) 70%)}
+.pitch{left:-60%;right:-60%;top:0;bottom:auto;height:470px;transform:perspective(600px) rotateX(70deg);background-size:56px 56px}
+.is-intro .pitch{animation:gridM .45s linear infinite}
+.pitch-circle{top:40%;width:300px;height:300px;margin-left:-150px}
+.pitch-half{display:none}
+.parts{left:45%;top:230px}
+.is-login .pt b{animation:driftM 14s linear infinite;animation-delay:calc(var(--d) * -14s)}
+.is-intro .duo{left:2%;bottom:auto;top:120px;height:auto;width:96%}
+.is-login .duo{left:2%;bottom:auto;top:120px;height:auto;width:96%}
+.holo{perspective:800px}
+.ly-head{transform:translateZ(30px) scale(.9625)}
+.ball-in img{filter:drop-shadow(0 0 8px rgba(230,255,120,.25))}
+.tag{gap:2px;font-size:9px;line-height:12px;letter-spacing:.14em}
+.tag strong{font-size:11px}
+.tag-line{top:6px;width:20px}
+.tag-v{padding-right:26px}
+.tag-h{padding-left:26px}
+.hud{left:20px;top:auto;bottom:112px;gap:8px;font-size:11px}
+.intro-skip{right:16px;bottom:24px}
+.hdr{padding:16px 16px 0 20px}
+.brand{gap:8px}
+.brand img{width:24px;height:24px}
+.brand span{font-size:16px}
+.sound-btn{width:44px;height:44px;padding:0;border-radius:50%;justify-content:center}
+.headline{left:20px;right:20px;bottom:auto;top:402px;gap:8px;max-width:none}
+.eyebrow{font-size:11px}
+.headline h1{font-size:34px;line-height:36px}
+.card-wrap{left:12px;right:12px;top:auto;bottom:44px;display:block}
+.card{width:100%;padding:20px;gap:14px;background:rgba(6,12,20,.88)}
+.card-head.is-default,.fine.is-default{display:none}
+.divider{font-size:11px}
+.footer{padding:0;bottom:12px;justify-content:center}
+.ticker,.hide-sm,.scrim,.br-lg{display:none}
+}
+@keyframes gridM{to{background-position:0 56px}}
+@keyframes driftM{0%{opacity:0;transform:translateX(60px)}20%{opacity:calc(var(--o) * .6)}80%{opacity:calc(var(--o) * .4)}100%{opacity:0;transform:translateX(330px)}}
+
+/* ---- reduced motion: nothing moves, the login state simply appears ----------------------------------------------------- */
+@media (prefers-reduced-motion:reduce){
+.stage *{animation:none!important;transition:none!important}
+.tilt{transform:none!important}
+.dz{display:none!important}
+.is-intro .gl,.hud-line,.is-intro .ball,.is-intro .tag{opacity:1}
+}
+.no-motion *{animation:none!important;transition:none!important}
+.no-motion .tilt{transform:none!important}
+.no-motion .dz{display:none!important}

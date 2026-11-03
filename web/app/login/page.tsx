@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
+import { LoginExperience } from "@/components/login/LoginExperience";
+import "./login.css";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-/** Part 1 placeholder: the designed page (gate -> intro -> login) lands in Part 2. */
+/** /login: gate -> intro (6.2 s) -> the sign-in state, all on the client; this file only sets the title and the styles. */
 export default function LoginPage() {
-  return (
-    <main className="flex flex-1 items-center justify-center p-6">
-      <p className="text-fpl-muted">Sign-in page under construction.</p>
-    </main>
-  );
+  return <LoginExperience />;
 }
