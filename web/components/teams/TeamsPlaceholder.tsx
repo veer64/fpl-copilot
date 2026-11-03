@@ -1,6 +1,7 @@
 "use client";
 
-import { useClerk, useUser } from "@clerk/nextjs";
+import { useEffect, useState } from "react";
+import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 
 /** Masks an email the way the project's reports do: a***@g*** -- the first character of each side only. */
 export function maskEmail(email: string | null | undefined): string {
@@ -9,10 +10,57 @@ export function maskEmail(email: string | null | undefined): string {
   return `${local.charAt(0)}***@${domain.charAt(0)}***`;
 }
 
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "").replace(/\/$/, "");
+
+type MeState =
+  | { phase: "loading" }
+  | { phase: "done"; status: number; body: { user_id?: number; is_admin?: boolean } | string }
+  | { phase: "failed"; message: string };
+
+/** The one backend call of Prompt W1: GET /me with the browser's Clerk session token (Authorization: Bearer). The
+ *  token names its origin (azp), which the API requires in clerk mode -- the end-to-end check F1a could not run. */
+function useMe(): MeState {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const [state, setState] = useState<MeState>({ phase: "loading" });
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("no session token");
+        const res = await fetch(`${API_BASE}/me`, { headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal });
+        const text = await res.text();
+        let body: { user_id?: number; is_admin?: boolean } | string = text;
+        try {
+          body = JSON.parse(text) as { user_id?: number; is_admin?: boolean };
+        } catch {
+          /* not JSON: keep the text */
+        }
+        setState({ phase: "done", status: res.status, body });
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        setState({ phase: "failed", message: err instanceof Error ? err.message : String(err) });
+      }
+    })();
+    return () => ctrl.abort();
+  }, [getToken, isLoaded, isSignedIn]);
+
+  return state;
+}
+
 export function TeamsPlaceholder() {
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
+  const me = useMe();
   const email = user?.primaryEmailAddress?.emailAddress;
+  const shown =
+    me.phase === "done" && typeof me.body === "object"
+      ? { user_id: me.body.user_id, is_admin: me.body.is_admin }
+      : me.phase === "done"
+        ? me.body
+        : null;
 
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-4 py-10">
@@ -32,6 +80,20 @@ export function TeamsPlaceholder() {
         >
           Sign out
         </button>
+      </section>
+      <section className="rounded-2xl border border-fpl-control bg-card p-6" aria-live="polite">
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-fpl-accent-text">
+          GET {API_BASE || "(NEXT_PUBLIC_API_BASE unset)"}/me
+        </p>
+        <p className="mt-2 text-[15px] text-fpl-muted">
+          Status:{" "}
+          <span className="font-mono text-fpl-text" data-testid="me-status">
+            {me.phase === "done" ? me.status : me.phase === "failed" ? `failed (${me.message})` : "…"}
+          </span>
+        </p>
+        <pre className="mt-3 overflow-x-auto rounded-xl bg-black/30 p-4 font-mono text-[13px] leading-5 text-fpl-text" data-testid="me-json">
+          {shown === null ? "" : typeof shown === "string" ? shown : JSON.stringify(shown, null, 2)}
+        </pre>
       </section>
     </main>
   );
