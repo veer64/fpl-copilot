@@ -32,6 +32,10 @@ export const COPY = {
 
 const RESEND_SECONDS = 30;
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Continue with Google must leave the page within this time, or the card shows the generic error (never an endless
+ *  spinner): clerk-js retries a failed Frontend API request with backoff, so `signIn.sso()` can stay pending for a long
+ *  time when the request is blocked or the network is down (seen 2 Nov 2026). */
+const SSO_TIMEOUT_MS = 12_000;
 
 function apiCode(err: unknown): string | null {
   return isClerkAPIResponseError(err) ? (err.errors[0]?.code ?? null) : null;
@@ -215,6 +219,7 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
   };
 
   const tryAgain = () => {
+    clearDeadline();
     setFatal(false);
     setBusy(null);
     if (step === "code") setCodeError(null);
@@ -222,19 +227,41 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
   };
 
   // --- Google -----------------------------------------------------------------------------------------------------------
+  // One deadline covers everything after the click: a request that fails (clerk-js keeps retrying, so sso() stays
+  // pending), one that hangs, and a resolution that does not navigate. A real redirect unloads the page, timer and all.
+  const ssoDeadline = useRef<number | null>(null);
+  const clearDeadline = () => {
+    if (ssoDeadline.current !== null) window.clearTimeout(ssoDeadline.current);
+    ssoDeadline.current = null;
+  };
+  useEffect(() => clearDeadline, []);
+
+  const googleFailed = (why: unknown) => {
+    clearDeadline();
+    console.error("[sign-in] Google failed", why);
+    setFatal(true);
+    setBusy(null);
+  };
+
   const google = async () => {
     setBusy("google");
+    clearDeadline();
+    ssoDeadline.current = window.setTimeout(() => googleFailed(`no redirect to Google within ${SSO_TIMEOUT_MS / 1000} s`), SSO_TIMEOUT_MS);
     try {
       const { error } = await signIn.sso({ strategy: "oauth_google", redirectCallbackUrl: "/sso-callback", redirectUrl: "/teams" });
-      if (!error) return; // the browser is leaving for Google: keep "Connecting…"
-      if (apiCode(error) === "session_exists") return router.push("/teams");
-      console.error("[sign-in] Google failed", error);
-      setFatal(true);
+      if (error) {
+        if (apiCode(error) === "session_exists") return router.push("/teams");
+        return googleFailed(error);
+      }
+      // no error: the browser should now be leaving for Google. Per the docs, a sign-in that instead needs another step
+      // (second factor, device trust, a Protect challenge) is one this card does not handle -- say so instead of spinning.
+      if (signIn.status === "needs_second_factor" || signIn.status === "needs_client_trust" || signIn.status === "needs_protect_check") {
+        return googleFailed(`sign-in needs a step this page does not handle: ${signIn.status}`);
+      }
+      // otherwise keep "Connecting to Google…" until the page unloads, bounded by the deadline above
     } catch (err) {
-      console.error("[sign-in] Google failed", err);
-      setFatal(true);
+      googleFailed(err);
     }
-    setBusy(null);
   };
 
   const disabled = !!busy || !clerk.loaded;

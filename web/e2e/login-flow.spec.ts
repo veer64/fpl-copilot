@@ -184,6 +184,44 @@ test("audio: Mute is remembered; a remembered mute never auto-starts; Unmute sta
   expect(await page.evaluate(() => localStorage.getItem("fpl-sound"))).toBe("1");
 });
 
+// --- Continue with Google: never an endless spinner (bug of 2 Nov 2026) --------------------------------------------------
+
+async function clickGoogle(page: Page) {
+  await page.goto("/login");
+  await page.getByTestId("skip-intro").click();
+  const google = page.getByTestId("google");
+  await expect(google).toBeEnabled({ timeout: 15_000 }); // Clerk loaded
+  await google.click();
+}
+
+test("Google: the browser reaches Google's sign-in page within 10 s", async ({ page }) => {
+  test.skip(test.info().project.name !== "desktop", "one browser is enough for the OAuth hop");
+  const errors: string[] = [];
+  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  await clickGoogle(page);
+  await page.waitForURL(/accounts\.google\.com/, { timeout: 10_000 });
+  console.log(`Google hop reached: ${new URL(page.url()).host}; console errors before leaving: ${errors.length}`);
+});
+
+for (const mode of ["fails", "hangs"] as const) {
+  test(`Google: when the Clerk sign-in request ${mode}, the generic error state shows within 15 s`, async ({ page }) => {
+    test.skip(test.info().project.name !== "desktop", "one browser is enough for the OAuth hop");
+    const consoleErrors: string[] = [];
+    page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text().slice(0, 200)));
+    await page.route(/\/v1\/client\/sign_ins/, (route) => (mode === "fails" ? route.abort("failed") : undefined));
+    const t0 = Date.now();
+    await clickGoogle(page);
+    await expect(page.getByTestId("google")).toContainText("Connecting to Google", { timeout: 2000 });
+    await expect(page.getByTestId("fatal-error")).toBeVisible({ timeout: 15_000 });
+    const after = Date.now() - t0;
+    await expect(page.getByTestId("sign-in-card")).toHaveAttribute("data-step", "error");
+    await expect(page.getByTestId("sign-in-card")).toHaveAttribute("aria-busy", "false");
+    await expect(page.getByTestId("try-again")).toBeVisible();
+    expect(page.url()).toContain("/login");
+    console.log(`Google (${mode}): error state after ${after} ms; console errors: ${consoleErrors.join(" | ") || "none"}`);
+  });
+}
+
 test("A5: reduced motion shows the login state at once, with no running animations", async ({ browser }) => {
   const context = await browser.newContext({ reducedMotion: "reduce", viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
