@@ -5,7 +5,7 @@
 import { useMemo, useState, type CSSProperties, type RefObject } from "react";
 import { dissolveGrid, particles } from "./seeds";
 
-export type Phase = "gate" | "intro" | "login";
+export type Phase = "intro" | "login";
 
 export const PLAYER_IMAGES = {
   vandijkBody: "/players/vandijk-body.webp",

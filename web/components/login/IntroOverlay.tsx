@@ -8,8 +8,11 @@ const HUD: { at: string; text: string; ready?: boolean }[] = [
   { at: "4.2s", text: "› COPILOT READY", ready: true },
 ];
 
-/** The 6.2 s intro's chrome: five HUD lines and Skip intro (bottom-right). The scene itself animates in PlayerStage. */
-export function IntroOverlay({ onSkip }: { onSkip: () => void }) {
+type Props = { onSkip: () => void; showSoundPill: boolean; onSound: () => void };
+
+/** The 6.2 s intro's chrome: five HUD lines, "Tap for sound" (bottom-left, until the song plays) and Skip intro
+ *  (bottom-right). The scene itself animates in PlayerStage. */
+export function IntroOverlay({ onSkip, showSoundPill, onSound }: Props) {
   return (
     <>
       <div className="hud mono" aria-hidden="true" data-testid="hud">
@@ -19,6 +22,15 @@ export function IntroOverlay({ onSkip }: { onSkip: () => void }) {
           </span>
         ))}
       </div>
+      {showSoundPill && (
+        <button type="button" className="intro-sound" onClick={onSound} aria-label="Tap for sound" data-testid="tap-for-sound">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 9v6h4l5 4V5L8 9H4z" />
+            <path d="M16.5 9a4 4 0 0 1 0 6M19.5 6a8 8 0 0 1 0 12" />
+          </svg>
+          Tap for sound
+        </button>
+      )}
       <button type="button" className="intro-skip" onClick={onSkip} data-testid="skip-intro">
         Skip intro
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

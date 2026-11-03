@@ -10,13 +10,17 @@ test.describe.configure({ mode: "serial" });
 const created: string[] = [];
 const NAMES = { existing: "w1a", fresh: "w1b" };
 
+const desktopOnly = () => test.info().project.name === "desktop"; // one browser is enough for the Clerk flows
+
 test.beforeAll(async () => {
+  if (!desktopOnly()) return; // no Clerk user for a project whose tests all skip
   const u = await createTestUser(NAMES.existing);
   created.push(u.id);
   console.log(`Clerk test user created: ${u.id} (${NAMES.existing}+clerk_test)`);
 });
 
 test.afterAll(async () => {
+  if (!desktopOnly()) return;
   // the sign-up fallback may have created a second user: find it by address before deleting everything of ours
   for (const id of await findTestUsers(NAMES.fresh)) if (!created.includes(id)) created.push(id);
   let deleted = 0;
@@ -27,7 +31,7 @@ test.afterAll(async () => {
 
 async function toLogin(page: Page) {
   await page.goto("/login");
-  await page.getByTestId("skip-gate").click();
+  await page.getByTestId("skip-intro").click();
   await expect(page.locator(".stage")).toHaveAttribute("data-phase", "login");
 }
 

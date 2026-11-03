@@ -2,27 +2,32 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { preload } from "react-dom";
-import { Gate } from "./Gate";
 import { IntroOverlay } from "./IntroOverlay";
+import { useReducedMotion } from "./media";
 import { PlayerStage, PLAYER_IMAGES, type Phase } from "./PlayerStage";
 import { SignInCard } from "./SignInCard";
 import { setSoundPref, useSoundPref } from "./soundPref";
 
-/** Seconds into the song at which playback starts, so a strong beat lands on the 5.3 s flash (BRIEF: the user tunes it
- *  by ear). Measured in the browser (scripts/audio_onsets.mjs, 2026-11-02): the chorus hits at 41.38 s, so starting at
- *  36.08 s puts it on the flash with the pre-chorus build under the intro. Alternatives: 0 (the piano opening hit lands at
- *  1.36 s, nothing special at 5.3 s) or 45.60 (the 50.90 s hit). */
-export const AUDIO_START_OFFSET = 36.08;
+/** Seconds into the song at which playback starts. 0: the song plays from its very beginning (user decision, 2 Nov 2026;
+ *  the measured onsets are in eval/reports/w1_login.md if a beat is ever to be placed on the 5.3 s flash). */
+export const AUDIO_START_OFFSET = 0;
 
 export const INTRO_MS = 6200;
 const AUDIO_SRC = "/intro/love-me-again.mp3";
+const INTRO_VOLUME = 1;
+const LOGIN_VOLUME = 0.35;
 
+/** /login: the intro starts by itself at 0.0 s (6.2 s, Skip or Esc cut it short), then the login state. Browsers block
+ *  autoplay with sound, so the song starts on the visitor's FIRST pointerdown / keydown / touchstart anywhere -- or on
+ *  the "Tap for sound" pill -- at intro volume while the intro runs, else 35 %. A remembered sound-off never auto-starts. */
 export function LoginExperience() {
-  // the five images start downloading with the page, so the duo is ready when Kick off is pressed
+  // the five images start downloading with the page, so the duo is ready as the dissolve begins
   for (const href of Object.values(PLAYER_IMAGES)) preload(href, { as: "image" });
 
-  const [phase, setPhase] = useState<Phase>("gate");
-  const [audioMissing, setAudioMissing] = useState(false);
+  const [rawPhase, setRawPhase] = useState<Phase>("intro");
+  const reduced = useReducedMotion();
+  const phase: Phase = reduced && rawPhase === "intro" ? "login" : rawPhase; // reduced motion: no intro at all
+  const [musicStarted, setMusicStarted] = useState(false);
   const soundOn = useSoundPref();
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -34,34 +39,51 @@ export function LoginExperience() {
   const cam = useRef<HTMLDivElement | null>(null);
   const mouse = useRef<[number, number]>([0, 0]);
   const raf = useRef(0);
-  const reduced = useRef(false);
   const noHover = useRef(false);
+  const starting = useRef(false);
 
   useEffect(() => {
-    reduced.current = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     noHover.current = !!window.matchMedia?.("(hover: none)").matches;
-    // mirror the media query as a class, so the no-animation rules also apply when the page reads it late
-    if (reduced.current) stageRef.current?.classList.add("no-motion");
   }, []);
 
-  // --- music: starts on Kick off (a user gesture), loops, ducks to 35 % on the login state, pauses on the gate -------
-  const startMusic = useCallback(() => {
+  // --- music ----------------------------------------------------------------------------------------------------------
+  const startMusic = useCallback((volume: number) => {
     const a = audioRef.current;
-    if (!a) return;
+    if (!a || starting.current) return;
+    starting.current = true;
     try {
       a.currentTime = AUDIO_START_OFFSET;
     } catch {
-      /* not seekable yet: plays from the start */
+      /* not seekable yet: plays from the start anyway */
     }
-    a.volume = 1;
-    a.play().catch(() => {});
+    a.volume = volume;
+    a.muted = false;
+    a.play()
+      .then(() => setMusicStarted(true))
+      .catch(() => {
+        starting.current = false; // blocked (no gesture after all): the next interaction tries again
+      });
   }, []);
+
+  // the first interaction anywhere starts the song -- only while the remembered preference is "on"
+  useEffect(() => {
+    if (!soundOn || musicStarted) return;
+    const volume = phase === "intro" ? INTRO_VOLUME : LOGIN_VOLUME;
+    const onFirst = () => startMusic(volume);
+    const opts: AddEventListenerOptions = { capture: true, passive: true };
+    window.addEventListener("pointerdown", onFirst, opts);
+    window.addEventListener("keydown", onFirst, opts);
+    window.addEventListener("touchstart", onFirst, opts);
+    return () => {
+      window.removeEventListener("pointerdown", onFirst, opts);
+      window.removeEventListener("keydown", onFirst, opts);
+      window.removeEventListener("touchstart", onFirst, opts);
+    };
+  }, [soundOn, musicStarted, phase, startMusic]);
 
   useEffect(() => {
     const a = audioRef.current;
-    if (!a) return;
-    if (phase === "login") a.volume = 0.35;
-    if (phase === "gate") a.pause();
+    if (a && phase === "login") a.volume = LOGIN_VOLUME; // ducks when the login state arrives
   }, [phase]);
 
   useEffect(() => {
@@ -69,42 +91,42 @@ export function LoginExperience() {
     if (a) a.muted = !soundOn;
   }, [soundOn]);
 
+  const volumeNow = () => (phase === "intro" ? INTRO_VOLUME : LOGIN_VOLUME);
+
   const toggleSound = () => {
     const next = !soundOn;
     setSoundPref(next);
     const a = audioRef.current;
     if (!a) return;
     a.muted = !next;
-    // unmuting on a silent login state (the intro was skipped from the gate) starts the song, quietly
-    if (next && a.paused && phase === "login") {
-      a.volume = 0.35;
-      a.play().catch(() => {});
-    }
+    if (next && a.paused) startMusic(volumeNow()); // turning sound on is itself the gesture that starts the song
   };
 
-  // --- phases: gate -> intro (6.2 s) -> login; Skip and Esc go straight to login ----------------------------------------
-  const kickOff = () => {
-    startMusic();
-    setPhase(reduced.current ? "login" : "intro");
+  const tapForSound = () => {
+    if (!soundOn) setSoundPref(true); // an explicit tap overrides a remembered "off"
+    startMusic(volumeNow());
   };
-  const skip = () => setPhase("login");
+
+  // --- phases: intro (6.2 s, from mount) -> login; Skip and Esc go straight to login ---------------------------------------
+  const skip = () => setRawPhase("login");
 
   useEffect(() => {
     if (phase !== "intro") return;
-    const t = window.setTimeout(() => setPhase("login"), INTRO_MS);
+    stageRef.current?.setAttribute("data-intro-started", String(Math.round(performance.now())));
+    const t = window.setTimeout(() => setRawPhase("login"), INTRO_MS);
     return () => window.clearTimeout(t);
   }, [phase]);
 
   useEffect(() => {
     if (phase === "login") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPhase("login");
+      if (e.key === "Escape") setRawPhase("login");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [phase]);
 
-  // keyboard users: after the intro (or Skip) focus lands on the card, so Tab reaches Continue with Google first
+  // keyboard users: when the login state arrives, focus lands on the card, so Tab reaches Continue with Google first
   const enteredLogin = useRef(false);
   useEffect(() => {
     if (phase !== "login" || enteredLogin.current) return;
@@ -128,13 +150,13 @@ export function LoginExperience() {
   }, []);
 
   const onMove = (e: MouseEvent<HTMLDivElement>) => {
-    if (reduced.current || noHover.current || phase !== "login") return;
+    if (reduced || noHover.current || phase !== "login") return;
     const r = e.currentTarget.getBoundingClientRect();
     mouse.current = [(e.clientX - r.left) / r.width - 0.5, (e.clientY - r.top) / r.height - 0.5];
     if (!raf.current) raf.current = window.requestAnimationFrame(applyTilt);
   };
   const onLeave = () => {
-    if (reduced.current || noHover.current) return;
+    if (reduced || noHover.current) return;
     mouse.current = [0, 0];
     applyTilt();
   };
@@ -144,13 +166,19 @@ export function LoginExperience() {
   const soundLabel = soundOn ? "Sound on" : "Sound off";
 
   return (
-    <div ref={stageRef} className={`stage is-${phase}`} data-phase={phase} onMouseMove={onMove} onMouseLeave={onLeave}>
+    <div
+      ref={stageRef}
+      className={`stage is-${phase}${reduced ? " no-motion" : ""}`}
+      data-phase={phase}
+      data-music={musicStarted ? "playing" : "off"}
+      onMouseMove={onMove}
+      onMouseLeave={onLeave}
+    >
       <div className="bglights" aria-hidden="true" />
       <PlayerStage phase={phase} tiltV={tiltV} tiltH={tiltH} ball={ball} cam={cam} />
-      <audio ref={audioRef} src={AUDIO_SRC} preload="auto" loop onError={() => setAudioMissing(true)} />
+      <audio ref={audioRef} src={AUDIO_SRC} preload="auto" loop />
 
-      {phase === "gate" && <Gate onKickOff={kickOff} onSkip={skip} audioMissing={audioMissing} />}
-      {phase === "intro" && <IntroOverlay onSkip={skip} />}
+      {phase === "intro" && <IntroOverlay onSkip={skip} showSoundPill={!musicStarted} onSound={tapForSound} />}
 
       {phase === "login" && (
         <>
