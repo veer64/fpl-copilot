@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { preload } from "react-dom";
 import { Gate } from "./Gate";
 import { IntroOverlay } from "./IntroOverlay";
@@ -193,7 +193,10 @@ export function LoginExperience() {
           </div>
 
           <div className="card-wrap">
-            <SignInCard ref={cardRef} />
+            {/* the card reads ?sso= (useSearchParams), which the static page can only do behind Suspense */}
+            <Suspense fallback={null}>
+              <SignInCard ref={cardRef} />
+            </Suspense>
           </div>
 
           <footer className="footer rise">
