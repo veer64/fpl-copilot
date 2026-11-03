@@ -1,0 +1,163 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* FPL Copilot design tokens (BRIEF.md "True colour", 2026-11-02). Every page is dark: the shadcn variables below are
+   set to the same palette so InputOTP, Button and the toaster render on-token without per-component overrides. */
+:root {
+  --fpl-bg: #04070c;
+  --fpl-accent: #3be8ff;
+  --fpl-accent-hover: #7cf3ff;
+  --fpl-accent-text: #7fe9ff;
+  --fpl-on-accent: #021016;
+  --fpl-text: #e8f6ff;
+  --fpl-text-strong: #f2fbff;
+  --fpl-text-secondary: #c9d6e3;
+  --fpl-text-muted: #a9bacb;
+  --fpl-text-subtle: #8a9bb0;
+  --fpl-placeholder: #7d8ea0;
+  --fpl-card: rgba(6, 12, 20, 0.84);
+  --fpl-card-border: rgba(59, 232, 255, 0.3);
+  --fpl-control-border: #56687a;
+  --fpl-ghost-border: #3a4b5c;
+  --fpl-ghost-border-hover: #5e7184;
+  --fpl-divider: #223140;
+  --fpl-google-bg: #eef3f8;
+  --fpl-google-text: #0b1118;
+  --fpl-error: #ff8a7a;
+  --fpl-link: #9fb3c8;
+  --fpl-tag: #c6f7ff;
+  --fpl-tag-strong: #f2fdff;
+  --fpl-ticker: #8fa3b8;
+
+  /* shadcn/ui variables, mapped onto the palette */
+  --background: var(--fpl-bg);
+  --foreground: var(--fpl-text);
+  --card: var(--fpl-card);
+  --card-foreground: var(--fpl-text);
+  --popover: #0a121c;
+  --popover-foreground: var(--fpl-text);
+  --primary: var(--fpl-accent);
+  --primary-foreground: var(--fpl-on-accent);
+  --secondary: #0f1a26;
+  --secondary-foreground: var(--fpl-text);
+  --muted: #0f1a26;
+  --muted-foreground: var(--fpl-text-muted);
+  --accent: #0f1a26;
+  --accent-foreground: var(--fpl-text);
+  --destructive: var(--fpl-error);
+  --border: var(--fpl-control-border);
+  --input: var(--fpl-control-border);
+  --ring: var(--fpl-accent);
+  --chart-1: var(--fpl-accent);
+  --chart-2: var(--fpl-accent-text);
+  --chart-3: var(--fpl-text-secondary);
+  --chart-4: var(--fpl-text-muted);
+  --chart-5: var(--fpl-text-subtle);
+  --radius: 12px;
+  --sidebar: #0a121c;
+  --sidebar-foreground: var(--fpl-text);
+  --sidebar-primary: var(--fpl-accent);
+  --sidebar-primary-foreground: var(--fpl-on-accent);
+  --sidebar-accent: #0f1a26;
+  --sidebar-accent-foreground: var(--fpl-text);
+  --sidebar-border: var(--fpl-control-border);
+  --sidebar-ring: var(--fpl-accent);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* the FPL palette as Tailwind colours: bg-fpl-accent, text-fpl-muted, border-fpl-ghost ... */
+  --color-fpl-bg: var(--fpl-bg);
+  --color-fpl-accent: var(--fpl-accent);
+  --color-fpl-accent-hover: var(--fpl-accent-hover);
+  --color-fpl-accent-text: var(--fpl-accent-text);
+  --color-fpl-on-accent: var(--fpl-on-accent);
+  --color-fpl-text: var(--fpl-text);
+  --color-fpl-strong: var(--fpl-text-strong);
+  --color-fpl-secondary: var(--fpl-text-secondary);
+  --color-fpl-muted: var(--fpl-text-muted);
+  --color-fpl-subtle: var(--fpl-text-subtle);
+  --color-fpl-placeholder: var(--fpl-placeholder);
+  --color-fpl-control: var(--fpl-control-border);
+  --color-fpl-ghost: var(--fpl-ghost-border);
+  --color-fpl-ghost-hover: var(--fpl-ghost-border-hover);
+  --color-fpl-divider: var(--fpl-divider);
+  --color-fpl-google-bg: var(--fpl-google-bg);
+  --color-fpl-google-text: var(--fpl-google-text);
+  --color-fpl-error: var(--fpl-error);
+  --color-fpl-link: var(--fpl-link);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    background: var(--fpl-bg);
+  }
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+  }
+  /* BRIEF: focus ring everywhere */
+  :focus-visible {
+    outline: 2px solid var(--fpl-accent);
+    outline-offset: 3px;
+  }
+  ::placeholder {
+    color: var(--fpl-placeholder);
+    opacity: 1;
+  }
+  a {
+    color: var(--fpl-link);
+  }
+  a:hover {
+    color: var(--fpl-text);
+  }
+}
