@@ -38,6 +38,7 @@ uv run uvicorn main:app --port 8000
 ## Layout
 
 - `app/login/` — the page (`page.tsx` + `login.css` keyframes), `components/login/` — LoginExperience (intro auto-starts; the song
-  starts on the first interaction or the "Tap for sound" pill), IntroOverlay, PlayerStage, SignInCard
+  tries to play on load and otherwise starts on the first interaction; the header button mutes, remembered), IntroOverlay,
+  PlayerStage, SignInCard
 - `app/sso-callback/` — Google OAuth return, `app/teams/` — protected placeholder that calls `GET /me` on the API
 - `proxy.ts` — Clerk + optional site password

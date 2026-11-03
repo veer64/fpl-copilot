@@ -13,6 +13,8 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
     channel: "msedge",
+    // autoplay with sound allowed, as for a visitor the browser already trusts; the "blocked" case launches its own browser
+    launchOptions: { args: ["--autoplay-policy=no-user-gesture-required"] },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

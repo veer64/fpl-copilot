@@ -106,9 +106,7 @@
 .hud-line{opacity:0;animation:hud .5s forwards}
 @keyframes hud{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
 .intro-skip{position:absolute;right:5vw;bottom:6vh;z-index:6;height:44px;padding:0 16px 0 18px;border-radius:999px;border:1px solid #3A4B5C;background:rgba(6,12,20,.6);color:#C9D6E3;font-size:14px;display:flex;align-items:center;gap:6px}
-/* "Tap for sound": the same ghost pill, bottom-left, shown until the song plays (autoplay with sound needs a gesture) */
-.intro-sound{position:absolute;left:5vw;bottom:6vh;z-index:6;height:44px;padding:0 16px;border-radius:999px;border:1px solid #3A4B5C;background:rgba(6,12,20,.6);color:#C9D6E3;font-size:14px;display:flex;align-items:center;gap:8px}
-.intro-sound:hover,.intro-skip:hover,.sound-btn:hover{border-color:#5E7184;color:#E8F6FF}
+.intro-skip:hover,.sound-btn:hover{border-color:#5E7184;color:#E8F6FF}
 
 /* ---- login UI --------------------------------------------------------------------------------------------------------- */
 .rise{animation:rise .8s cubic-bezier(.2,.8,.2,1) both}
@@ -196,7 +194,6 @@
 .tag-h{padding-left:26px}
 .hud{left:20px;top:auto;bottom:112px;gap:8px;font-size:11px}
 .intro-skip{right:16px;bottom:24px}
-.intro-sound{left:16px;bottom:24px}
 .hdr{padding:16px 16px 0 20px}
 .brand{gap:8px}
 .brand img{width:24px;height:24px}

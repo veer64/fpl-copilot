@@ -86,6 +86,15 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
     if (step === "code") otpRef.current?.focus();
   }, [step]);
 
+  // the code input sits in a fieldset that is disabled while busy, so a refocus after a wrong code or a resend has to wait
+  // for the commit that re-enables it (a rAF could run before React's render and focus nothing)
+  const refocusOtp = useRef(false);
+  useEffect(() => {
+    if (busy || !refocusOtp.current) return;
+    refocusOtp.current = false;
+    otpRef.current?.focus();
+  }, [busy]);
+
   const goToApp = ({ decorateUrl }: { decorateUrl: (url: string) => string }) => {
     const url = decorateUrl("/teams");
     if (url.startsWith("http")) window.location.href = url;
@@ -143,7 +152,7 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
   const failVerify = (err: unknown) => {
     setCodeError(codeErrorFor(apiCode(err)));
     setCode("");
-    window.requestAnimationFrame(() => otpRef.current?.focus());
+    refocusOtp.current = true;
   };
 
   const verify = async (value: string) => {
@@ -191,8 +200,8 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
       console.error("[sign-in] resend failed", err);
       setCodeError({ kind: "generic", text: COPY.generic });
     } finally {
+      refocusOtp.current = true;
       setBusy(null);
-      otpRef.current?.focus();
     }
   };
 

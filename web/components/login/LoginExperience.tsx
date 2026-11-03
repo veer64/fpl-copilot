@@ -6,7 +6,7 @@ import { IntroOverlay } from "./IntroOverlay";
 import { useReducedMotion } from "./media";
 import { PlayerStage, PLAYER_IMAGES, type Phase } from "./PlayerStage";
 import { SignInCard } from "./SignInCard";
-import { setSoundPref, useSoundPref } from "./soundPref";
+import { readSoundPref, setSoundPref, useSoundPref } from "./soundPref";
 
 /** Seconds into the song at which playback starts. 0: the song plays from its very beginning (user decision, 2 Nov 2026;
  *  the measured onsets are in eval/reports/w1_login.md if a beat is ever to be placed on the 5.3 s flash). */
@@ -17,9 +17,10 @@ const AUDIO_SRC = "/intro/love-me-again.mp3";
 const INTRO_VOLUME = 1;
 const LOGIN_VOLUME = 0.35;
 
-/** /login: the intro starts by itself at 0.0 s (6.2 s, Skip or Esc cut it short), then the login state. Browsers block
- *  autoplay with sound, so the song starts on the visitor's FIRST pointerdown / keydown / touchstart anywhere -- or on
- *  the "Tap for sound" pill -- at intro volume while the intro runs, else 35 %. A remembered sound-off never auto-starts. */
+/** /login: the intro starts by itself at 0.0 s (6.2 s, Skip or Esc cut it short), then the login state. Sound is ON by
+ *  default: the page tries audio.play() on load; when the browser blocks that, the song starts quietly in the background on
+ *  the visitor's first pointerdown / keydown / touchstart / wheel / scroll anywhere -- no prompt. Volume 1 during the
+ *  intro, 35 % on login. The header button mutes / unmutes; a remembered mute (localStorage) never auto-starts. */
 export function LoginExperience() {
   // the five images start downloading with the page, so the duo is ready as the dissolve begins
   for (const href of Object.values(PLAYER_IMAGES)) preload(href, { as: "image" });
@@ -50,6 +51,7 @@ export function LoginExperience() {
   const startMusic = useCallback((volume: number) => {
     const a = audioRef.current;
     if (!a || starting.current) return;
+    if (!readSoundPref()) return; // a remembered mute never auto-starts -- checked against storage, not the render
     starting.current = true;
     try {
       a.currentTime = AUDIO_START_OFFSET;
@@ -65,19 +67,24 @@ export function LoginExperience() {
       });
   }, []);
 
-  // the first interaction anywhere starts the song -- only while the remembered preference is "on"
+  // on load: try to play at once (allowed when the browser remembers the visitor engaging with the site, or by policy)
+  const attempted = useRef(false);
+  useEffect(() => {
+    if (attempted.current || !soundOn || musicStarted) return;
+    attempted.current = true;
+    startMusic(phase === "intro" ? INTRO_VOLUME : LOGIN_VOLUME);
+  }, [soundOn, musicStarted, phase, startMusic]);
+
+  // blocked: the first interaction anywhere starts the song in the background -- only while not muted
   useEffect(() => {
     if (!soundOn || musicStarted) return;
     const volume = phase === "intro" ? INTRO_VOLUME : LOGIN_VOLUME;
     const onFirst = () => startMusic(volume);
     const opts: AddEventListenerOptions = { capture: true, passive: true };
-    window.addEventListener("pointerdown", onFirst, opts);
-    window.addEventListener("keydown", onFirst, opts);
-    window.addEventListener("touchstart", onFirst, opts);
+    const events = ["pointerdown", "keydown", "touchstart", "wheel", "scroll"] as const;
+    for (const ev of events) window.addEventListener(ev, onFirst, opts);
     return () => {
-      window.removeEventListener("pointerdown", onFirst, opts);
-      window.removeEventListener("keydown", onFirst, opts);
-      window.removeEventListener("touchstart", onFirst, opts);
+      for (const ev of events) window.removeEventListener(ev, onFirst, opts);
     };
   }, [soundOn, musicStarted, phase, startMusic]);
 
@@ -91,20 +98,14 @@ export function LoginExperience() {
     if (a) a.muted = !soundOn;
   }, [soundOn]);
 
-  const volumeNow = () => (phase === "intro" ? INTRO_VOLUME : LOGIN_VOLUME);
-
-  const toggleSound = () => {
-    const next = !soundOn;
-    setSoundPref(next);
+  // the header button: MUTE / UNMUTE, remembered; unmuting is itself the gesture that starts a song the browser had blocked
+  const toggleMute = () => {
+    const unmute = !soundOn;
+    setSoundPref(unmute);
     const a = audioRef.current;
     if (!a) return;
-    a.muted = !next;
-    if (next && a.paused) startMusic(volumeNow()); // turning sound on is itself the gesture that starts the song
-  };
-
-  const tapForSound = () => {
-    if (!soundOn) setSoundPref(true); // an explicit tap overrides a remembered "off"
-    startMusic(volumeNow());
+    a.muted = !unmute;
+    if (unmute && a.paused) startMusic(phase === "intro" ? INTRO_VOLUME : LOGIN_VOLUME);
   };
 
   // --- phases: intro (6.2 s, from mount) -> login; Skip and Esc go straight to login ---------------------------------------
@@ -163,7 +164,7 @@ export function LoginExperience() {
 
   useEffect(() => () => window.cancelAnimationFrame(raf.current), []);
 
-  const soundLabel = soundOn ? "Sound on" : "Sound off";
+  const muteLabel = soundOn ? "Mute music" : "Unmute music";
 
   return (
     <div
@@ -178,7 +179,7 @@ export function LoginExperience() {
       <PlayerStage phase={phase} tiltV={tiltV} tiltH={tiltH} ball={ball} cam={cam} />
       <audio ref={audioRef} src={AUDIO_SRC} preload="auto" loop />
 
-      {phase === "intro" && <IntroOverlay onSkip={skip} showSoundPill={!musicStarted} onSound={tapForSound} />}
+      {phase === "intro" && <IntroOverlay onSkip={skip} />}
 
       {phase === "login" && (
         <>
@@ -192,9 +193,10 @@ export function LoginExperience() {
             <button
               type="button"
               className="sound-btn"
-              onClick={toggleSound}
-              aria-pressed={soundOn}
-              aria-label={soundLabel}
+              onClick={toggleMute}
+              aria-pressed={!soundOn}
+              aria-label={muteLabel}
+              title={muteLabel}
               data-testid="sound-toggle"
             >
               {soundOn ? (
@@ -208,7 +210,7 @@ export function LoginExperience() {
                   <path d="M17 9.5l5 5M22 9.5l-5 5" />
                 </svg>
               )}
-              <span className="hide-sm">{soundLabel}</span>
+              <span className="hide-sm">{soundOn ? "Mute" : "Unmute"}</span>
             </button>
           </header>
 

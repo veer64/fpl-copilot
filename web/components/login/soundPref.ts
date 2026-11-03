@@ -1,18 +1,23 @@
 import { useSyncExternalStore } from "react";
 
-/** The sound toggle's memory: localStorage "fpl-sound" = "1" | "0", default on. Every storage call is wrapped, so a
- *  private window or blocked storage just means the default. Read through useSyncExternalStore so the server renders
- *  "on" and the browser's stored choice applies on hydration without a setState-in-effect. */
+/** The mute button's memory: localStorage "fpl-sound" = "1" (sound on, the default) | "0" (muted; never auto-start).
+ *  Every storage call is wrapped, so a private window or blocked storage just means the default. Read through
+ *  useSyncExternalStore so the server renders "on" and the browser's stored choice applies on hydration without a
+ *  setState-in-effect. */
 const KEY = "fpl-sound";
 const EVENT = "fpl-sound-change";
 
-function read(): boolean {
+/** The stored choice right now (true = sound on). Also used as the last word before any automatic play(): on the
+ *  hydration render the hook still shows the server's default, and a remembered mute must win even then. */
+export function readSoundPref(): boolean {
   try {
     return window.localStorage.getItem(KEY) !== "0";
   } catch {
     return true;
   }
 }
+
+const read = readSoundPref;
 
 function subscribe(cb: () => void) {
   window.addEventListener("storage", cb);

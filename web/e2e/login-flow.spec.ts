@@ -2,9 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
-/** Prompt W1 Part 5 (revised 2 Nov 2026, gate removed): the intro auto-starts and reaches login in <= 7 s, Skip and Esc,
- *  the song starts on the first interaction (from 0 s) and never auto-starts with a remembered sound-off, reduced motion,
- *  the missing-image fallback, keyboard order and the screenshots. Desktop (1440x900) and mobile (390x844) projects. */
+/** Prompt W1 Part 5 (revised 2 Nov 2026): the intro auto-starts and reaches login in <= 7 s, Skip and Esc, the song --
+ *  autoplay attempted on load, the blocked case starting on the first interaction, mute remembered -- reduced motion,
+ *  the missing-image fallback, keyboard order and the screenshots. Desktop (1440x900) and mobile (390x844) projects.
+ *  The config allows autoplay (a trusted visitor); the blocked case reproduces the browser rule with a play() stub. */
 
 const SHOTS = process.env.W1_SHOTS ?? path.join("C:", "dev", "fpl-backups", "w1_login_files");
 
@@ -25,12 +26,7 @@ const centre = (page: Page) => {
 };
 /** the intro's start is stamped on the stage (performance.now()) by the page itself */
 const introStarted = (page: Page) => page.waitForSelector(".stage[data-intro-started]", { timeout: 15_000 });
-const soundOff = (page: Page) =>
-  page.addInitScript(() => {
-    try {
-      localStorage.setItem("fpl-sound", "0");
-    } catch {}
-  });
+const playing = (page: Page) => expect.poll(async () => (await audio(page)).paused, { timeout: 5000 }).toBe(false);
 
 test.beforeAll(() => {
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -51,7 +47,6 @@ test("A2: the intro starts by itself and reaches login within 7 s, with screensh
   await page.goto("/login");
   await expect(stage(page)).toHaveAttribute("data-phase", "intro");
   await expect(page.getByTestId("hud")).toBeVisible();
-  await expect(page.getByTestId("tap-for-sound")).toBeVisible();
   await expect(page.getByTestId("skip-intro")).toBeVisible();
   await introStarted(page);
   const t0 = Date.now();
@@ -95,53 +90,97 @@ test("A2: Skip intro, and Esc, go straight to login", async ({ page }) => {
   await expect(stage(page)).toHaveAttribute("data-phase", "login");
 });
 
-test("audio: the first click anywhere starts the song from 0 s at intro volume; it ducks to 35 % on login", async ({ page }) => {
+test("audio: autoplay on load -- the song plays from 0 s at volume 1 with no interaction, then 35 % on login", async ({ page }) => {
   await page.goto("/login");
   await introStarted(page);
-  expect((await audio(page)).paused).toBe(true);
-  const { x, y } = centre(page);
-  await page.mouse.click(x, y); // nothing clickable there: just the first interaction
-  await expect.poll(async () => (await audio(page)).paused, { timeout: 5000 }).toBe(false);
+  await playing(page);
   const a1 = await audio(page);
-  expect(a1.t).toBeLessThan(1.5); // from the very beginning (AUDIO_START_OFFSET = 0)
+  expect(a1.t).toBeLessThan(2); // AUDIO_START_OFFSET = 0
   expect(a1.volume).toBe(1);
   expect(a1.muted).toBe(false);
-  await expect(page.getByTestId("tap-for-sound")).toHaveCount(0); // the pill hides once the song plays
   await expect(stage(page)).toHaveAttribute("data-music", "playing");
+  await expect(page.getByTestId("tap-for-sound")).toHaveCount(0); // no prompt of any kind
   await expect(stage(page)).toHaveAttribute("data-phase", "login", { timeout: 8000 });
   expect((await audio(page)).volume).toBeCloseTo(0.35, 2);
   expect((await audio(page)).paused).toBe(false);
-  console.log(`audio started at t=${a1.t.toFixed(3)} s, volume ${a1.volume} -> ${(await audio(page)).volume} on login`);
+  const toggle = page.getByTestId("sound-toggle");
+  await expect(toggle).toHaveAttribute("aria-pressed", "false"); // ON state by default: the action offered is Mute
+  await expect(toggle).toHaveAttribute("aria-label", "Mute music");
+  console.log(`autoplay on load: t=${a1.t.toFixed(3)} s, volume ${a1.volume} -> ${(await audio(page)).volume} on login`);
 });
 
-test("audio: the Tap for sound pill starts the song and hides", async ({ page }) => {
-  await page.goto("/login");
-  await introStarted(page);
-  await page.getByTestId("tap-for-sound").click();
-  await expect.poll(async () => (await audio(page)).paused, { timeout: 5000 }).toBe(false);
-  expect((await audio(page)).t).toBeLessThan(1.5);
-  await expect(page.getByTestId("tap-for-sound")).toHaveCount(0);
-});
+/** The browser's autoplay rule, reproduced: play() is refused (NotAllowedError) until the page has seen a real gesture
+ *  (pointerdown / keydown / touchstart -- a wheel or scroll does not count, as in browsers). Playwright-driven pages carry a
+ *  user activation from the start, so neither a policy flag nor navigator.userActivation reproduces a cold visitor; this
+ *  stub does. Its listeners are registered before the page's, so the gesture is known by the time the page reacts. */
+const blockAutoplay = (page: Page) =>
+  page.addInitScript(() => {
+    let gesture = false;
+    for (const ev of ["pointerdown", "keydown", "touchstart"]) window.addEventListener(ev, () => (gesture = true), { capture: true });
+    const original = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function play(this: HTMLMediaElement) {
+      if (!gesture) return Promise.reject(new DOMException("autoplay blocked (test policy)", "NotAllowedError"));
+      return original.call(this);
+    };
+  });
 
-test("audio: a remembered sound-off never auto-starts the song; the toggle starts it later at 35 %", async ({ page }) => {
-  await soundOff(page);
+for (const how of ["click", "key"] as const) {
+  test(`audio: autoplay blocked -> the first ${how} anywhere starts the song in the background, no prompt`, async ({ page }) => {
+    await blockAutoplay(page);
+    await page.goto("/login");
+    await introStarted(page);
+    await page.waitForTimeout(1200);
+    expect((await audio(page)).paused).toBe(true); // the load-time play() was refused
+    await expect(stage(page)).toHaveAttribute("data-music", "off");
+    await expect(page.getByTestId("tap-for-sound")).toHaveCount(0); // and nothing asks the visitor to tap
+    if (how === "click") {
+      const { x, y } = centre(page);
+      await page.mouse.click(x, y); // nothing clickable there
+    } else {
+      await page.keyboard.press("KeyA"); // no field has focus
+    }
+    await playing(page);
+    const a1 = await audio(page);
+    expect(a1.t).toBeLessThan(1.5);
+    expect(a1.volume).toBe(1);
+    expect(a1.muted).toBe(false);
+    await expect(stage(page)).toHaveAttribute("data-music", "playing");
+    console.log(`blocked autoplay, first ${how}: started at t=${a1.t.toFixed(3)} s`);
+  });
+}
+
+test("audio: Mute is remembered; a remembered mute never auto-starts; Unmute starts it at 35 %", async ({ page }) => {
   await page.goto("/login");
   await introStarted(page);
-  const { x, y } = centre(page);
-  await page.mouse.click(x, y);
-  await page.keyboard.press("Shift");
-  await page.waitForTimeout(800);
-  expect((await audio(page)).paused).toBe(true);
-  await expect(page.getByTestId("tap-for-sound")).toBeVisible(); // still offered: an explicit tap would override "off"
+  await playing(page);
   await page.getByTestId("skip-intro").click();
   await expect(stage(page)).toHaveAttribute("data-phase", "login");
   const toggle = page.getByTestId("sound-toggle");
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  expect((await audio(page)).paused).toBe(true);
+  await expect(toggle).toHaveAttribute("aria-label", "Mute music");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  await expect.poll(async () => (await audio(page)).paused, { timeout: 5000 }).toBe(false);
-  expect((await audio(page)).volume).toBeCloseTo(0.35, 2);
+  await expect(toggle).toHaveAttribute("aria-label", "Unmute music");
+  expect((await audio(page)).muted).toBe(true);
+  expect(await page.evaluate(() => localStorage.getItem("fpl-sound"))).toBe("0");
+
+  // reload: the remembered mute never auto-starts (autoplay is allowed here), and an interaction does not start it either
+  await page.reload();
+  await introStarted(page);
+  const { x, y } = centre(page);
+  await page.mouse.click(x, y);
+  await page.keyboard.press("Shift");
+  await page.waitForTimeout(1200);
+  expect((await audio(page)).paused).toBe(true);
+  await page.getByTestId("skip-intro").click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle).toHaveAttribute("aria-label", "Unmute music");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await playing(page);
+  const a2 = await audio(page);
+  expect(a2.volume).toBeCloseTo(0.35, 2);
+  expect(a2.muted).toBe(false);
   expect(await page.evaluate(() => localStorage.getItem("fpl-sound"))).toBe("1");
 });
 
@@ -170,7 +209,6 @@ test("A5: a failed player image falls back to the SVG figures", async ({ page })
 });
 
 test("A6: keyboard-only order reaches every control with visible focus", async ({ page }) => {
-  await soundOff(page); // so a Tab is not also the first interaction that starts the song and hides the pill
   await page.goto("/login");
   await introStarted(page);
   const focusInfo = () =>
@@ -182,17 +220,14 @@ test("A6: keyboard-only order reaches every control with visible focus", async (
       const ring = el.matches(":focus-visible") && cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) >= 2;
       return { id: el.getAttribute("data-testid") || el.id || el.textContent?.trim().slice(0, 24) || el.tagName, ring, outline: cs.outlineColor };
     });
-  // the intro: Tap for sound, then Skip intro
-  await page.keyboard.press("Tab");
-  await expect(page.getByTestId("tap-for-sound")).toBeFocused();
-  expect((await focusInfo())?.ring).toBe(true);
+  // the intro: Skip intro is its one control
   await page.keyboard.press("Tab");
   await expect(page.getByTestId("skip-intro")).toBeFocused();
   expect((await focusInfo())?.ring).toBe(true);
   await page.keyboard.press("Enter"); // Skip -> login
   await expect(stage(page)).toHaveAttribute("data-phase", "login");
   // entering the login state parks focus on the card (so Tab reaches Continue with Google first); Shift+Tab from there
-  // reaches the header's sound toggle, and the forward order is walked from that toggle. The card's controls are disabled
+  // reaches the header's mute button, and the forward order is walked from that button. The card's controls are disabled
   // until Clerk has loaded (a moment after a Skip), so wait for that first.
   await expect(page.getByTestId("sign-in-card")).toBeFocused();
   await expect(page.getByTestId("google")).toBeEnabled({ timeout: 15_000 });
@@ -207,7 +242,7 @@ test("A6: keyboard-only order reaches every control with visible focus", async (
     seen.push(`${info.id}${info.ring ? "" : " (NO RING)"}`);
     if (!info.ring) throw new Error(`no visible focus ring on ${info.id} (outline ${info.outline})`);
   }
-  console.log(`A6 tab order: tap-for-sound -> skip-intro -> [login] ${seen.join(" -> ")}`);
+  console.log(`A6 tab order: skip-intro -> [login] ${seen.join(" -> ")}`);
   for (const must of ["sound-toggle", "google", "c-email", "send-code", "Privacy", "About"]) {
     expect(seen.some((s) => s.startsWith(must))).toBe(true);
   }
