@@ -350,6 +350,9 @@ def freshness(run, expected=None):
         gap = history_gap(run.get("gw"), k.get("history_through_gw"))
         if gap:
             knows += f" -- {gap}"
+        fb = k.get("understat_fallback_gws") or []
+        if fb:   # Prompt R2: the latest gameweek's rates came from FPL xG while understat was down
+            knows += f" -- GW{','.join(str(g) for g in fb)} attacking rates from FPL xG (understat fallback)"
     pred = f"predicting GW{run.get('gw')}"
     if k.get("deadline_at"):
         pred += f" (deadline {_fmt(k['deadline_at'])})"

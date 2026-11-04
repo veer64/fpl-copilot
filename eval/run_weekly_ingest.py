@@ -75,6 +75,8 @@ from pathlib import Path
 
 import pandas as pd
 
+import understat_fallback as usf  # noqa: E402  (Prompt R2: the FPL-xG fallback)
+
 REPO = Path(__file__).resolve().parent.parent
 PY = sys.executable
 sys.path.insert(0, str(REPO / "eval"))
@@ -428,6 +430,7 @@ class Runner:
         self.todo = []
         self.detail = {}
         self.steps_run = []
+        self.degraded = None        # Prompt R2: {gws, rows, error} once understat fell back to FPL xG
 
     # -- infrastructure -------------------------------------------------------
     def _subprocess(self, args, timeout):
@@ -496,10 +499,12 @@ class Runner:
         n_act = len(self.actions)
         if self.failed:
             first = "FAILED"
-        elif n_act:
-            first = f"SUCCESS -- ACTION REQUIRED ({n_act} item{'s' if n_act > 1 else ''}, see below)"
         else:
             first = "SUCCESS"
+            if n_act:
+                first += f" -- ACTION REQUIRED ({n_act} item{'s' if n_act > 1 else ''}, see below)"
+            if self.degraded:
+                first += f" -- DEGRADED (understat fallback for GW{self.degraded['gws']})"
         buf = io.StringIO()
         buf.write(self._header(first))
         buf.write(f"gameweek(s) ingested this run: {self.todo or 'none'}\n")
@@ -673,12 +678,29 @@ class Runner:
                           ["eval/fetch_fpl_history.py", "--season", self.season, "--gw", str(gw)])
         self.run_step("fetch_fpl_history --combine",
                       ["eval/fetch_fpl_history.py", "--season", self.season, "--combine"])
-        # 2-3. Understat per-match + season aggregates
-        us_out = self.run_step("understat_matches", ["eval/understat_matches.py", "--season", self.season])
-        self.run_step("build_understat_aggregates",
-                      ["eval/build_understat_aggregates.py", "--season", self.season])
-        self.run_step("build_understat_aggregates --combine",
-                      ["eval/build_understat_aggregates.py", "--season", self.season, "--combine"])
+        # 2-3. Understat per-match + season aggregates -- or, when understat cannot be read (timeout, HTTP error,
+        # the maintenance page), the FPL fallback (Prompt R2, eval/understat_fallback.py): the gameweek's rows from
+        # FPL xG/xA, labelled, the aggregates steps skipped (they read understat too), the run SUCCESS -- DEGRADED.
+        # Only the understat step is covered; every other step's exit code stays law.
+        try:
+            us_out = self.run_step("understat_matches", ["eval/understat_matches.py", "--season", self.season])
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            err = str(e)
+            err = err if len(err) <= 1100 else err[:200] + " ... " + err[-900:]
+            self.log(f"\n===== understat FALLBACK @ {stamp()} =====\n{err}")
+            fb = usf.apply_fallback(self.data_dir, self.season, self.todo, reason=err)
+            self.degraded = dict(gws=fb["gws"], rows=fb["rows"], error=err)
+            self.log(f"wrote {fb['rows']} FPL-derived rows for GW{fb['gws']} into {Path(fb['path']).name} "
+                     f"(source {usf.SOURCE}; {usf.RULE})")
+            us_out = f"FALLBACK {fb}"
+        if self.degraded is None:
+            self.run_step("build_understat_aggregates",
+                          ["eval/build_understat_aggregates.py", "--season", self.season])
+            self.run_step("build_understat_aggregates --combine",
+                          ["eval/build_understat_aggregates.py", "--season", self.season, "--combine"])
+        else:
+            self.log("\n===== build_understat_aggregates / --combine SKIPPED (understat unreachable; the stored "
+                     "aggregates stand) =====")
         # 4. the crosswalk (the weekly rebuild)
         cw_out = self.run_step("build_crosswalk", ["eval/build_crosswalk.py", "--season", self.season])
         # 5. fixture universe (results for the DC fit) -- prices carried forward
@@ -765,6 +787,14 @@ class Runner:
                      + ("\nFAILED match(es) reported by the fetcher -- see log"
                         if "FAILED match" in us_out else ""))
 
+        if self.degraded:
+            self.section("UNDERSTAT FALLBACK (DEGRADED)",
+                         f"GW{self.degraded['gws']}: {self.degraded['rows']} per-match rows written from the FPL season "
+                         f"file (source {usf.SOURCE}; {usf.RULE}); the season aggregates and their --combine were "
+                         f"skipped (they read understat too) -- the stored aggregates stand; the crosswalk rebuilt on "
+                         f"them.\nunderstat step failure:\n{self.degraded['error']}\n"
+                         f"eval/understat_back_check.py (hourly) replaces these rows with real understat data when it "
+                         f"answers again and pings the phone.")
         cw_after = crosswalk_map(cw_p)
         gained = sorted(set(cw_after) - set(cw_before))
         lost_ids = sorted(set(cw_before) - set(cw_after))
@@ -790,7 +820,8 @@ class Runner:
         after = manifest(self.data_dir, self.season)
         changed_files = [k for k, _ in compare_manifests(before, after)]
         man = dict(season=self.season, gws_ingested=self.todo, written=stamp(), git=git_sha(),
-                   host=self._host(), before=before, after=after, changed=changed_files)
+                   host=self._host(), before=before, after=after, changed=changed_files,
+                   understat_fallback_gws=usf.fallback_gws(self.data_dir, self.season))
         for gw in self.todo:
             _atomic_write_text(self.live / f"ingest_manifest_gw{gw}.json", json.dumps(man, indent=1))
         _atomic_write_text(self.live / "ingest_manifest_latest.json", json.dumps(man, indent=1))

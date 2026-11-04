@@ -203,3 +203,14 @@ def test_a_tick_on_a_partial_ingest_fires_no_build(monkeypatch, tmp_path):
     _FrozenClock.at = dp.parse_iso("2026-09-15T18:40:00Z")
     dd.main(["--season", "2026-27", "--now", "2026-09-15T18:40:00Z"])
     assert len(calls) == 1 and calls[0][3] == "post_ingest:GW4"
+
+
+def test_a_degraded_gameweek_counts_as_ingested(monkeypatch, tmp_path):
+    """Prompt R2: the understat fallback completes the chain (the partial marker is cleared, the sidecar names the
+    fallback gameweek) -- the dispatcher counts it as ingested and the post_ingest / nightly gate opens."""
+    monkeypatch.setattr(dd, "REPO", tmp_path)
+    monkeypatch.setattr(dd, "LIVE", tmp_path / "data" / "live")
+    _season_file(tmp_path, [8, 9, 9])
+    (tmp_path / "data" / "history" / "understat_matches_2026_27.fallback.json").write_text(
+        json.dumps({"source": "fpl_fallback", "gws": [9]}), encoding="utf-8")
+    assert dd.master_max_gw("2026-27") == 9

@@ -2845,6 +2845,17 @@ def _weekly_ingest_status(reasons):
         reasons.append("weekly ingest has never ticked on this volume (cron not installed?)")
     elif lt["age_hours"] > 13.0:
         reasons.append(f"weekly ingest cron has not ticked for {lt['age_hours']:.0f}h (every 6h expected)")
+    # Prompt R2: gameweeks whose attacking rates come from FPL xG (understat down at ingest time) -- the sidecar
+    # eval/understat_fallback.py keeps in step with the per-match file. Visible here, not a degrade reason: the
+    # fallback is the designed behaviour; the understat-back check pings when the real rows are back.
+    import json as _json
+    fb = []
+    for sp in sorted((REPO / "data" / "history").glob("understat_matches_*.fallback.json")):
+        try:
+            fb += [int(g) for g in (_json.loads(sp.read_text(encoding="utf-8")).get("gws") or [])]
+        except (OSError, ValueError, TypeError):
+            continue
+    out["understat_fallback_gws"] = sorted(set(fb))
     return out
 
 

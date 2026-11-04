@@ -48,7 +48,11 @@ def _seed(data_dir, gws=(1, 2, 3), priced_played=True, crosswalk_missing=()):
         for el, nm, tm in ((1, "Erling Haaland", "Man City"), (2, "Bruno Fernandes", "Man Utd"),
                            (403, "Savio Moreira de Oliveira", "Spurs")):
             rows.append(dict(season=SEASON, GW=g, element=el, fixture=10 * g + el, name=nm, team=tm,
-                             position="MID", minutes=60 if el != 2 or g > 1 else 0))
+                             position="MID", minutes=60 if el != 2 or g > 1 else 0,
+                             # the FPL per-gameweek fields the understat fallback (Prompt R2) reads
+                             kickoff_time=f"2026-09-{5 + g:02d}T14:00:00Z", opponent_team=7, was_home=el == 1,
+                             expected_goals="0.40", expected_assists="0.15", goals_scored=0, assists=0, key_passes=1.0,
+                             own_goals=0, yellow_cards=0, red_cards=0))
     pd.DataFrame(rows).to_parquet(h / f"fpl_api_{TAG}.parquet", index=False)
     (h / f"fpl_api_{TAG}.provenance.json").write_text(json.dumps(
         {str(g): dict(live_crosscheck_mismatches=0, data_checked=True) for g in gws}))
@@ -88,9 +92,11 @@ class FakeSteps:
     """Fake step executor: records the commands, writes the files a real step would,
     and can be told to fail one step or to corrupt the price carry-forward."""
 
-    def __init__(self, h, fail_at=None, drop_prices=False, collide=False, new_gw=4, fail_scoring_gw=None):
+    def __init__(self, h, fail_at=None, drop_prices=False, collide=False, new_gw=4, fail_scoring_gw=None,
+                 fail_output=None):
         self.h, self.fail_at, self.drop_prices, self.collide, self.new_gw = h, fail_at, drop_prices, collide, new_gw
         self.fail_scoring_gw = fail_scoring_gw
+        self.fail_output = fail_output
         self.requested = None
         self.calls = []
 
@@ -98,7 +104,7 @@ class FakeSteps:
         name = Path(args[0]).stem + ("_combine" if "--combine" in args else "")
         self.calls.append(name)
         if self.fail_at and name == self.fail_at:
-            return 3, f"{name}: boom"
+            return 3, self.fail_output or f"{name}: boom"
         if name == "fetch_fpl_history" and "--gw" in args:
             gw = int(args[args.index("--gw") + 1])
             api = pd.read_parquet(self.h / f"fpl_api_{TAG}.parquet")
@@ -220,19 +226,23 @@ def test_success_runs_the_runbook_order_and_writes_status(tmp_path):
 
 
 def test_step_failure_stops_the_chain_and_leaves_the_gw_eligible(tmp_path):
-    """Exit code is law: understat fails -> nothing after it runs, FAILED status,
+    """Exit code is law: the crosswalk step fails -> nothing after it runs, FAILED status,
     the attempt is counted, and the partial marker keeps GW4 eligible on the next
-    tick even though its rows are already in the season file."""
+    tick even though its rows are already in the season file. (Until Prompt R2 this test
+    failed the understat step; that step alone now falls back to FPL xG -- see
+    test_understat_failure_falls_back_to_fpl_rows_and_the_chain_completes_degraded -- so the
+    same contract is asserted on the next step whose exit code is still law.)"""
     h = _seed(tmp_path, gws=(1, 2, 3))
-    steps = FakeSteps(h, fail_at="understat_matches")
+    steps = FakeSteps(h, fail_at="build_crosswalk")
     R = _runner(tmp_path, steps)
     R.decide(now=NOW)
     first = R.execute()
     assert first == "FAILED"
-    assert steps.calls == ["fetch_fpl_history", "fetch_fpl_history_combine", "understat_matches"]
+    assert steps.calls == ["fetch_fpl_history", "fetch_fpl_history_combine", "understat_matches",
+                           "build_understat_aggregates", "build_understat_aggregates_combine", "build_crosswalk"]
     txt = (tmp_path / "live" / "INGEST_STATUS.txt").read_text()
     assert txt.startswith("FAILED\n")
-    assert "step 'understat_matches' exited 3" in txt
+    assert "step 'build_crosswalk' exited 3" in txt
     assert "skeleton may be STALE" in txt
     assert json.loads((tmp_path / "live" / "ingest_gw4.attempts.json").read_text())["attempts"] == 1
     assert (tmp_path / "live" / "ingest_gw4.partial.json").exists()
@@ -362,3 +372,79 @@ def test_content_digest_ignores_writer_timestamps(tmp_path):
     pd.DataFrame(dict(gw=[1, 2], pulled_at=["2026-09-12T04:00", "2026-09-12T04:00"])).to_parquet(p2, index=False)
     assert wi.content_digest(p1)["digest"] == wi.content_digest(p2)["digest"]
     assert wi.content_digest(p1)["cols"] == 1
+
+
+# ----------------------------------------------------------------------------- Prompt R2: the understat fallback
+MAINTENANCE_OUT = ("Traceback (most recent call last):\n  File \"/app/eval/understat_matches.py\", line 77, in _fetch_json\n"
+                   "    return json.loads(raw.decode(\"utf-8\"))\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)")
+TIMEOUT_OUT = ("Traceback (most recent call last):\n  File \"/app/eval/understat_matches.py\", line 74, in _fetch_json\n"
+               "urllib.error.URLError: <urlopen error timed out>")
+
+
+def _api(p):
+    return {"/bootstrap-static/": {"events": _events()}, "/fixtures/": _fixtures()}[p]
+
+
+@pytest.mark.parametrize("out", [MAINTENANCE_OUT, TIMEOUT_OUT], ids=["maintenance-html", "timeout"])
+def test_understat_failure_falls_back_to_fpl_rows_and_the_chain_completes_degraded(tmp_path, out):
+    """2026-11-03: understat.com answered a maintenance page (and, before the DNS caught up, timed out); the chain
+    died at step 2 and every strict build after it died on the stale skeleton. Now: the understat step's failure
+    writes GW4's per-match rows from the FPL season file (C1: npxG := FPL xG, xA := FPL xA), the aggregates steps
+    are skipped (they need understat too), the rest of the runbook runs, the run is SUCCESS -- DEGRADED, the markers
+    are cleared, and the manifest names the fallback gameweeks for the build's knowledge block."""
+    import understat_fallback as usf
+    h = _seed(tmp_path, gws=(1, 2, 3))
+    steps = FakeSteps(h, fail_at="understat_matches", fail_output=out)
+    R = _runner(tmp_path, steps)
+    assert R.decide(now=NOW) == "RUN"
+    first = R.execute()
+    assert first == "SUCCESS -- DEGRADED (understat fallback for GW[4])"
+    assert steps.calls == ["fetch_fpl_history", "fetch_fpl_history_combine", "understat_matches",
+                           "build_crosswalk", "fetch_fixtures", "fetch_fixtures_combine",
+                           "fetch_live_odds", "build_forward_skeleton", "score_squads"]
+    us = pd.read_parquet(h / f"understat_matches_{TAG}.parquet")
+    assert sorted(us["gw"].unique().tolist()) == [1, 2, 3, 4]
+    assert (us[us["gw"] == 4]["match_id"].str.startswith("fpl")).all() and len(us[us["gw"] == 4]) == 3
+    assert us[us["gw"] == 4]["npxG"].tolist() == pytest.approx([0.40, 0.40, 0.40])
+    assert usf.fallback_gws(tmp_path, SEASON) == [4]
+    txt = (tmp_path / "live" / "INGEST_STATUS.txt").read_text()
+    assert txt.splitlines()[0] == first
+    assert "DEGRADED" in txt and "fpl_fallback" in txt and "step 'understat_matches' exited 3" in txt
+    assert "collision check vs master: OK" in txt
+    assert not (tmp_path / "live" / "ingest_gw4.partial.json").exists()
+    assert not (tmp_path / "live" / "ingest_gw4.attempts.json").exists()
+    man = json.loads((tmp_path / "live" / "ingest_manifest_latest.json").read_text())
+    assert man["understat_fallback_gws"] == [4]
+    # the next tick has nothing to do: GW4 counts as ingested
+    R2 = _runner(tmp_path, FakeSteps(h))
+    assert R2.decide(now=NOW) == "NOTHING-NEW"
+
+
+def test_success_path_is_unchanged_when_understat_works(tmp_path):
+    """The fallback never runs when the understat step succeeds: the per-match file's bytes are what the step left,
+    no sidecar is written, the manifest's fallback list is empty, and the status is plain SUCCESS."""
+    import understat_fallback as usf
+    h = _seed(tmp_path, gws=(1, 2, 3))
+    before = (h / f"understat_matches_{TAG}.parquet").read_bytes()
+    R = _runner(tmp_path, FakeSteps(h))
+    R.decide(now=NOW)
+    assert R.execute() == "SUCCESS"
+    assert (h / f"understat_matches_{TAG}.parquet").read_bytes() == before
+    assert not usf.sidecar_path(tmp_path, SEASON).exists()
+    assert json.loads((tmp_path / "live" / "ingest_manifest_latest.json").read_text())["understat_fallback_gws"] == []
+    assert "DEGRADED" not in (tmp_path / "live" / "INGEST_STATUS.txt").read_text()
+
+
+def test_a_failure_after_the_fallback_is_still_a_failure(tmp_path):
+    """The fallback covers understat only; a later step's exit code is still law (FAILED, markers kept)."""
+    h = _seed(tmp_path, gws=(1, 2, 3))
+    inner = FakeSteps(h, fail_at="fetch_live_odds")
+
+    def both(args, timeout):
+        if Path(args[0]).stem == "understat_matches":
+            return 1, MAINTENANCE_OUT
+        return inner(args, timeout)
+    R = wi.Runner(SEASON, data_dir=tmp_path, run_cmd=both, fetch_json=_api)
+    R.decide(now=NOW)
+    assert R.execute() == "FAILED"
+    assert (tmp_path / "live" / "ingest_gw4.partial.json").exists()

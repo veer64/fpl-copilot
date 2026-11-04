@@ -288,3 +288,17 @@ def test_tick_entrypoints_exit_without_interpreter_finalisation():
         assert "os._exit(" in tail or ("_hard_exit(" in tail and "os._exit(" in src), \
             f"{name}: the __main__ block no longer hard-exits"
         assert "sys.stdout.flush()" in src, f"{name}: stdout is not flushed before the hard exit"
+
+
+def test_freshness_names_the_understat_fallback():
+    """Prompt R2: a build whose latest gameweek's attacking rates came from FPL xG (understat down) says so in the
+    one sentence every answer carries."""
+    run = {"gw": 10, "kind": "post_ingest", "finished_at": "2026-11-04T01:30:00Z",
+           "knowledge": {"history_through_gw": 9, "history_ingested_at": "2026-11-04T01:20:00Z",
+                         "availability_asof": "2026-11-04T01:25:00Z", "odds_pulled_at": "2026-11-04T01:26:00Z",
+                         "understat_fallback_gws": [9]}}
+    s = dp.freshness(run, None)
+    assert "knows results through GW9" in s
+    assert "GW9 attacking rates from FPL xG (understat fallback)" in s
+    s2 = dp.freshness({**run, "knowledge": {**run["knowledge"], "understat_fallback_gws": []}}, None)
+    assert "understat fallback" not in s2

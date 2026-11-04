@@ -89,6 +89,13 @@ services:
     image: fpl-copilot
     profiles: ["scheduler"]
     env_file: .env
+    # Prompt R2 (2026-11-04): public resolvers for the scheduler's containers. On 3 Nov understat.com moved host and
+    # the DigitalOcean resolvers (the host's global DNS, which Docker's embedded DNS forwards to) kept answering the
+    # dead address for a day while 1.1.1.1 had the new one; the ingest timed out on it. The app container is not
+    # changed. UNDO: delete the three `dns` lines (the containers fall back to the host's resolvers).
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - fpl_model_data:/app/data
       - ./.env:/app/.env:ro

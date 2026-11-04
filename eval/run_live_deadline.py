@@ -288,6 +288,8 @@ def knowledge_block(season, gw, frames, started_at, finished_at, kind, slot, att
         "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
         "duration_s": round((finished_at - started_at).total_seconds(), 1),
         "history_through_gw": hist_gw, "history_ingested_at": man.get("written"),
+        # Prompt R2: gameweeks whose attacking rates came from FPL xG (understat down at ingest time)
+        "understat_fallback_gws": [int(g) for g in (man.get("understat_fallback_gws") or [])],
         "availability_asof": (av_asof.isoformat() if av_asof else None),
         "availability_sources": av_sources,
         "availability_age_at_build_h": (round((started_at - av_asof).total_seconds() / 3600, 2)
@@ -539,11 +541,14 @@ def run(R, season, gw, started_at=None):
         credits = int(m.group(3)) if m else None
         knowledge = knowledge_block(season, gw, frames, started_at or finished_at, finished_at,
                                     kind, slot, attempt, credits)
+        fb_gws = knowledge.get("understat_fallback_gws") or []
+        note_text = (f"unattended {kind} build ({slot}, attempt {attempt})"
+                     + (f" -- DEGRADED: understat fallback (FPL xG) for GW{fb_gws}" if fb_gws else ""))
         run_id = db_write.write_run(
             season, gw, frames, teams, findings_by,
             started_at=started_at, recovered=False,
             credits_remaining=credits,
-            note=f"unattended {kind} build ({slot}, attempt {attempt})",
+            note=note_text,
             availability=avmap, prices=price_map,
             kind=kind, slot=slot, attempt=attempt, knowledge=knowledge)
         # the frame sidecar: which run the file on the volume belongs to, and
