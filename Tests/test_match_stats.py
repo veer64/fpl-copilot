@@ -548,3 +548,168 @@ def test_the_prompt_puts_match_stats_in_scope_and_keeps_the_betting_line(monkeyp
     scope = p.split("# 6. Scope")[1].split("# 7.")[0]
     assert "match stats" in scope.lower() or "team stats" in scope.lower()
     assert "season aggregate" in p.lower() or "season-level" in p.lower()
+
+
+# ------------------------------------------------------------------ the R2 fallback label (Prompt L1, 2026-11-05)
+# A gameweek ingested while understat.com was down carries FPL's per-player xG in the per-match file
+# (eval/understat_fallback.py: match_id prefix "fpl", sidecar source fpl_fallback). The tool must say so: xG counted
+# from such rows is FPL's (Opta), not Understat's; a window mixing both lists each source; a window of real rows is
+# byte-identical to the output before the label existed. Only the IO layer (model_tools) changes: the pure module,
+# the tool's name, description and schema do not.
+
+FPL_FB = "fpl_fallback"
+LABEL_GW2 = "xG source: FPL (Opta) — understat fallback for GW2"
+
+
+def _live_understat(sources, with_columns=True):
+    """The fixture's 2025-26 rows plus 2026-27 team-match rows for the three admitted synthetic matches, each with a
+    source label: sources = {1: "understat"|"fpl_fallback", 2: ..., 3: ...} for GW1 (22 Aug, Arsenal v Spurs),
+    GW2 (29 Aug, Everton v Arsenal), GW3 (5 Sep, Spurs v Everton). The fallback writes npxG := xG."""
+    live = [("2026-27", "2026-08-22", "Arsenal", "Spurs",   2.00, 0.50, 1.80, 0.50, 1),
+            ("2026-27", "2026-08-29", "Everton", "Arsenal", 1.20, 1.40, 1.20, 1.40, 2),
+            ("2026-27", "2026-09-05", "Spurs",   "Everton", 1.00, 1.00, 0.70, 1.00, 3)]
+    df = pd.DataFrame(live, columns=["season", "date", "home", "away", "xg_home", "xg_away",
+                                     "npxg_home", "npxg_away", "gw"])
+    df["xg_source"] = df["gw"].map(sources)
+    old = _understat()
+    if with_columns:
+        old = old.assign(gw=[1, 2, 3], xg_source="understat")
+    else:
+        df = df.drop(columns=["gw", "xg_source"])
+    out = pd.concat([old, df], ignore_index=True)
+    out["date_parsed"] = pd.to_datetime(out["date"])
+    return out
+
+
+def _dump(out):
+    import json
+    return json.dumps(out, sort_keys=True, default=str)
+
+
+def test_a_fallback_gameweeks_xg_is_labelled_fpl_not_understat(mt, monkeypatch):
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: _live_understat({1: "understat", 2: FPL_FB, 3: "understat"}))
+    out = mt.get_match_stats(team="Arsenal", stats=["xg", "npxg"], last_n_matches=1, side="both")
+    x = _stat(out, "xg")
+    assert x["window"]["matches_counted"] == 1 and abs(x["for"]["total"] - 1.40) < 1e-9     # 29 Aug, the fallback row
+    assert x["source"] == FPL_FB and x["grain"] == "per_match"
+    assert x["xg_source"] == LABEL_GW2
+    assert x["xg_sources"] == {FPL_FB: {"matches": 1, "gameweeks": [2]}}
+    n = _stat(out, "npxg")
+    assert n["source"] == FPL_FB and n["xg_source"] == LABEL_GW2 and abs(n["for"]["total"] - 1.40) < 1e-9
+    src = out["sources"][FPL_FB]
+    assert src["grain"] == "per_match" and src["gameweeks"] == [2] and src["statement"] == LABEL_GW2
+    assert "FPL" in src["attribution"] and "Opta" in src["attribution"] and "understat" in src["attribution"].lower()
+    assert "GW2" in out["sources"]["understat"]["attribution"] and FPL_FB in out["sources"]["understat"]["attribution"]
+
+
+def test_a_window_mixing_real_and_fallback_rows_lists_each_source(mt, monkeypatch):
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: _live_understat({1: "understat", 2: FPL_FB, 3: "understat"}))
+    out = mt.get_match_stats(team="Arsenal", stats=["xg"], last_n_matches=2, side="both")
+    x = _stat(out, "xg")
+    assert x["window"]["matches_counted"] == 2 and abs(x["for"]["total"] - (1.40 + 2.00)) < 1e-9
+    assert x["source"] == "understat+" + FPL_FB
+    assert x["xg_source"] == ("xG source: Understat for 1 match (GW1); "
+                              "FPL (Opta) — understat fallback for GW2 (1 match)")
+    assert x["xg_sources"] == {"understat": {"matches": 1, "gameweeks": [1]}, FPL_FB: {"matches": 1, "gameweeks": [2]}}
+    # two fallback gameweeks name both
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: _live_understat({1: FPL_FB, 2: FPL_FB, 3: "understat"}))
+    out = mt.get_match_stats(team="Arsenal", stats=["xg"], last_n_matches=2, side="both")
+    assert _stat(out, "xg")["xg_source"] == "xG source: FPL (Opta) — understat fallback for GW1, GW2"
+    assert out["sources"][FPL_FB]["gameweeks"] == [1, 2]
+    # the other stats are untouched by the label
+    out = mt.get_match_stats(team="Arsenal", stats=["goals", "xg"], last_n_matches=2, side="both")
+    assert "xg_source" not in _stat(out, "goals") and _stat(out, "goals")["source"] == "odds_archive"
+
+
+def test_a_window_of_real_rows_is_byte_identical_with_the_fallback_outside_it(mt, monkeypatch):
+    queries = [dict(team="Arsenal", stats=["xg", "npxg", "goals"], last_n_matches=3, side="both"),
+               dict(team="Arsenal", stats=["xg"], seasons=2, side="both"),
+               dict(team="Arsenal", opponent="Spurs", stats=["xg", "goals"], seasons=2, side="both"),
+               dict(team="Everton", stats=["xg"], venue="home", side="both")]
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: _live_understat({}, with_columns=False))
+    before = [_dump(mt.get_match_stats(**q)) for q in queries]            # the frame shape before the label existed
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: _live_understat({1: "understat", 2: "understat", 3: "understat"}))
+    assert [_dump(mt.get_match_stats(**q)) for q in queries] == before   # every row real: nothing added
+    # a fallback match the window never counts (GW3, Spurs v Everton, is not Arsenal's) leaves Arsenal's answers as they were
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: _live_understat({1: "understat", 2: "understat", 3: FPL_FB}))
+    assert [_dump(mt.get_match_stats(**q)) for q in queries[:3]] == before[:3]
+    # a fallback match outside the venue filter (GW2 is Arsenal AWAY) leaves the home answer as it was
+    home_q = dict(team="Arsenal", stats=["xg"], venue="home", side="both")
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: _live_understat({1: "understat", 2: "understat", 3: "understat"}))
+    home_before = _dump(mt.get_match_stats(**home_q))
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: _live_understat({1: "understat", 2: FPL_FB, 3: "understat"}))
+    assert _dump(mt.get_match_stats(**home_q)) == home_before
+
+
+def _nine_match_world():
+    """Arsenal's GW1-9 of 2026-27 (weekly from 22 Aug), alternating Spurs/Everton home/away, every match played."""
+    arch, us = [], []
+    for gw in range(1, 10):
+        day = pd.Timestamp("2026-08-22") + pd.Timedelta(days=7 * (gw - 1))
+        opp = "Spurs" if gw % 2 else "Everton"
+        home, away = ("Arsenal", opp) if gw % 4 in (1, 2) else (opp, "Arsenal")
+        arch.append(("2026-27", f"{day:%d/%m/%Y}", home if home != "Spurs" else "Tottenham",
+                     away if away != "Spurs" else "Tottenham", 2.0, 1.0) + (NAT,) * 12)
+        us.append(("2026-27", f"{day:%Y-%m-%d}", home, away, 1.5 + gw / 10, 0.9, 1.5 + gw / 10, 0.9, gw))
+    a = pd.DataFrame(arch, columns=ARCHIVE_COLS)
+    a["date_parsed"] = pd.to_datetime(a["Date"], format="mixed", dayfirst=True)
+    u = pd.DataFrame(us, columns=["season", "date", "home", "away", "xg_home", "xg_away", "npxg_home", "npxg_away", "gw"])
+    u["date_parsed"] = pd.to_datetime(u["date"])
+    return a, u
+
+
+def test_gw1_to_8_real_rows_are_byte_identical_and_gw9_fallback_is_listed_beside_them(mt, monkeypatch):
+    archive, u = _nine_match_world()
+    monkeypatch.setattr(mt, "_ms_archive", lambda seasons: archive)
+    real = u.assign(xg_source="understat")
+    with_fb = u.assign(xg_source=["understat"] * 8 + [FPL_FB])
+    # as of before GW9's day: the window is GW1-8, every row real -> identical output whatever GW9's label is
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: real)
+    before = _dump(mt.get_match_stats(team="Arsenal", stats=["xg", "npxg"], last_n_matches=8, side="both",
+                                      as_of="2026-10-17T12:00:00"))
+    monkeypatch.setattr(mt, "_ms_understat", lambda seasons: with_fb)
+    out = mt.get_match_stats(team="Arsenal", stats=["xg", "npxg"], last_n_matches=8, side="both", as_of="2026-10-17T12:00:00")
+    assert _stat(out, "xg")["window"]["matches_counted"] == 8 and _dump(out) == before
+    # as of after GW9: nine matches, eight Understat and one FPL fallback -- both sources listed
+    out = mt.get_match_stats(team="Arsenal", stats=["xg"], last_n_matches=9, side="both", as_of="2026-10-24T12:00:00")
+    x = _stat(out, "xg")
+    assert x["window"]["matches_counted"] == 9 and x["source"] == "understat+" + FPL_FB
+    assert x["xg_source"] == ("xG source: Understat for 8 matches (GW1-8); "
+                              "FPL (Opta) — understat fallback for GW9 (1 match)")
+    assert x["xg_sources"]["understat"]["gameweeks"] == list(range(1, 9)) and x["xg_sources"][FPL_FB]["gameweeks"] == [9]
+    # the GW9 match alone
+    out = mt.get_match_stats(team="Arsenal", stats=["xg"], last_n_matches=1, side="both", as_of="2026-10-24T12:00:00")
+    assert _stat(out, "xg")["source"] == FPL_FB
+    assert _stat(out, "xg")["xg_source"] == "xG source: FPL (Opta) — understat fallback for GW9"
+
+
+def test_ms_understat_reads_the_fallback_prefix_and_the_gameweek_from_the_per_match_file(monkeypatch, tmp_path):
+    """The IO reader labels each team-match row from the file itself: the match_id prefix eval/understat_fallback.py
+    writes (the file is the truth; the sidecar is a label), and the gameweek column every per-match file carries."""
+    import model_tools
+    sys.path.insert(0, str(REPO / "eval"))
+    import understat_fallback as usf
+    assert model_tools.MS_FALLBACK_PREFIX == usf.MATCH_PREFIX and model_tools.MS_FALLBACK_SOURCE == usf.SOURCE
+    h = tmp_path / "data" / "history"
+    h.mkdir(parents=True)
+    rows = []
+    for gw in range(1, 10):
+        mid = f"fpl{80 + gw}" if gw == 9 else str(30000 + gw)
+        day = pd.Timestamp("2026-08-22") + pd.Timedelta(days=7 * (gw - 1))
+        for side, team in (("h", "Arsenal"), ("a", "Tottenham")):
+            for k in range(2):                                      # two players a side, summed to the team
+                rows.append(dict(season="2026-27", match_id=mid, match_date=day, team=team, h_a=side,
+                                 xG=0.5 + 0.1 * k + gw / 100, npxG=0.4 + 0.1 * k + gw / 100, gw=gw,
+                                 understat_player_id=f"{side}{k}", minutes=90))
+    pd.DataFrame(rows).to_parquet(h / "understat_matches_2026_27.parquet", index=False)
+    monkeypatch.setattr(model_tools, "REPO", tmp_path)
+    u = model_tools._ms_understat(["2026-27"])
+    assert len(u) == 9 and list(u.columns[:8]) == ["season", "date_parsed", "home", "away", "xg_home", "xg_away",
+                                                   "npxg_home", "npxg_away"]
+    assert set(u.columns) >= {"xg_source", "gw"}
+    assert sorted(u["gw"].astype(int)) == list(range(1, 10))
+    by_gw = u.set_index(u["gw"].astype(int))["xg_source"].to_dict()
+    assert by_gw == {g: ("fpl_fallback" if g == 9 else "understat") for g in range(1, 10)}
+    assert set(u["away"]) == {"Spurs"} and set(u["home"]) == {"Arsenal"}         # the team map still applies
+    g1 = u[u["gw"] == 1].iloc[0]
+    assert abs(g1["xg_home"] - (0.51 + 0.61)) < 1e-9 and abs(g1["npxg_home"] - (0.41 + 0.51)) < 1e-9

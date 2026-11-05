@@ -3961,6 +3961,14 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
 
 # ---------------------------------------------------------------- match stats (as-of)
 MS_ARCHIVE_STAT_COLS = ["HS", "AS", "HST", "AST", "HC", "AC", "HF", "AF", "HY", "AY", "HR", "AR"]
+# Prompt L1 (2026-11-05): a gameweek ingested while understat.com was down carries FPL's per-player xG in the per-match
+# file (eval/understat_fallback.py: match_id prefix MATCH_PREFIX, sidecar source SOURCE -- the file is the truth, the
+# sidecar a label). The tool reads the prefix, so xG counted from such rows is said to be FPL's, never Understat's.
+MS_FALLBACK_PREFIX = "fpl"             # == understat_fallback.MATCH_PREFIX (Tests/test_match_stats.py pins the pair)
+MS_FALLBACK_SOURCE = "fpl_fallback"    # == understat_fallback.SOURCE
+MS_FALLBACK_ATTRIBUTION = ("FPL's official per-player xG/xA (Opta) written into the per-match file in place of "
+                           "Understat's rows while understat.com was unreachable (eval/understat_fallback.py), "
+                           "summed to the team per match; npxG := xG (FPL names penalty misses only)")
 FBREF_DIR = REPO / "data" / "fbref"
 FBREF_CATEGORIES = ("standard", "misc")          # the categories the registry reads
 
@@ -4010,21 +4018,82 @@ def _ms_understat(seasons):
     files = sorted((REPO / "data" / "history").glob("understat_matches_*.parquet"))   # every season on disk
     for p in files:
         s = p.stem.replace("understat_matches_", "").replace("_", "-")
-        u = pd.read_parquet(p, columns=["match_id", "match_date", "team", "h_a", "xG", "npxG"])
-        t = u.groupby(["match_id", "match_date", "h_a", "team"], as_index=False)[["xG", "npxG"]].sum()
+        u = pd.read_parquet(p, columns=["match_id", "match_date", "team", "h_a", "xG", "npxG", "gw"])
+        t = u.groupby(["match_id", "match_date", "gw", "h_a", "team"], as_index=False)[["xG", "npxG"]].sum()
         h = t[t["h_a"] == "h"].set_index("match_id")
         a = t[t["h_a"] == "a"].set_index("match_id")
         j = h.join(a, lsuffix="_h", rsuffix="_a", how="inner")
+        # Prompt L1: which rows are the R2 FPL fallback (match_id prefix), and the gameweek, so the tool can say so
+        fallback = j.index.astype(str).str.startswith(MS_FALLBACK_PREFIX)
         parts.append(pd.DataFrame({
             "season": s, "date_parsed": pd.to_datetime(j["match_date_h"]),
             "home": j["team_h"].map(lambda n: UNDERSTAT_TEAM_MAP.get(n, n)).values,
             "away": j["team_a"].map(lambda n: UNDERSTAT_TEAM_MAP.get(n, n)).values,
             "xg_home": j["xG_h"].values, "xg_away": j["xG_a"].values,
-            "npxg_home": j["npxG_h"].values, "npxg_away": j["npxG_a"].values}))
+            "npxg_home": j["npxG_h"].values, "npxg_away": j["npxG_a"].values,
+            "xg_source": [MS_FALLBACK_SOURCE if f else "understat" for f in fallback],
+            "gw": j["gw_h"].values}))
     if not parts:
         return pd.DataFrame(columns=["season", "date_parsed", "home", "away", "xg_home", "xg_away",
-                                     "npxg_home", "npxg_away"])
+                                     "npxg_home", "npxg_away", "xg_source", "gw"])
     return pd.concat(parts, ignore_index=True)
+
+
+def _ms_xg_sources(known, rows, team, opponent, venue, last_n):
+    """Prompt L1: per source, the matches the xG window COUNTS. `rows` = match_stats.club_rows(known, team);
+    the window is match_stats.select's and a match counts when both xG columns are present (aggregate's own
+    rule), so the label describes exactly the number beside it. None when the loader carries no label (an older
+    frame shape) or every counted row is Understat's own -- then nothing is added and the output of a real-row
+    window is byte-identical to what it was before the label existed."""
+    import pandas as pd
+    import match_stats as ms
+    if "xg_source" not in known.columns or not len(rows):
+        return None
+    scoped = ms.select(rows, opponent=opponent, venue=venue, last_n=last_n)
+    scoped = scoped[scoped["xg_for"].notna() & scoped["xg_against"].notna()]
+    if not len(scoped):
+        return None
+    has_gw = "gw" in known.columns
+    key = {}
+    for r in known.itertuples(index=False):
+        src = getattr(r, "xg_source", None)
+        gw = getattr(r, "gw", None) if has_gw else None
+        key[(pd.Timestamp(r.date_parsed).normalize(), r.home, r.away)] = (
+            src if isinstance(src, str) and src else "understat",
+            int(gw) if gw is not None and gw == gw else None)
+    per = {}
+    for r in scoped.itertuples(index=False):
+        home, away = (team, r.opponent) if r.venue == "H" else (r.opponent, team)
+        src, gw = key.get((pd.Timestamp(r.date).normalize(), home, away), ("understat", None))
+        d = per.setdefault(src, {"matches": 0, "gameweeks": []})
+        d["matches"] += 1
+        if gw is not None:
+            d["gameweeks"].append(gw)
+    if set(per) == {"understat"}:
+        return None
+    for d in per.values():
+        d["gameweeks"] = sorted(set(d["gameweeks"]))
+    return per
+
+
+def _ms_xg_source_label(per):
+    """'xG source: FPL (Opta) -- understat fallback for GW9' when every counted match is the fallback; a mixed
+    window lists each source with its match count and gameweeks."""
+    def gws(lst):
+        return ", ".join(f"GW{g}" for g in lst) if lst else "an unlabelled gameweek"
+
+    def span(lst):
+        return f"GW{lst[0]}" if lst[0] == lst[-1] else f"GW{lst[0]}-{lst[-1]}"
+
+    def n(k):
+        return f"{k} match" if k == 1 else f"{k} matches"
+    fb = per.get(MS_FALLBACK_SOURCE) or {"matches": 0, "gameweeks": []}
+    real = per.get("understat")
+    fb_part = f"FPL (Opta) — understat fallback for {gws(fb['gameweeks'])}"
+    if not real:
+        return "xG source: " + fb_part
+    real_part = f"Understat for {n(real['matches'])}" + (f" ({span(real['gameweeks'])})" if real["gameweeks"] else "")
+    return f"xG source: {real_part}; {fb_part} ({n(fb['matches'])})"
 
 
 def _ms_fbref(seasons):
@@ -4256,6 +4325,25 @@ def get_match_stats(team: str, opponent: str = None, stats: list = None, seasons
     out.update({"as_of": {"cutoff": f"{cutoff:%Y-%m-%d %H:%M:%S}", "source": source, "rule": AS_OF_RULE}})
     out.update(ms.build(resolved, opp, names, side, venue, last_n_matches, keys, rows, tables, coverage,
                         all_null, post_cutoff, sources, as_of=f"{cutoff:%Y-%m-%d}"))
+    # Prompt L1 (2026-11-05): xG counted from the R2 FPL-fallback rows is FPL's (Opta), not Understat's. Only when
+    # the window counts such a row: the xg/npxg stats say the source, the sources block gains the fallback entry and
+    # the Understat entry names the gameweeks; a window of real rows is left byte-identical.
+    per = _ms_xg_sources(known, rows, resolved, opp, venue, last_n_matches)
+    if per:
+        label = _ms_xg_source_label(per)
+        fb_gws = (per.get(MS_FALLBACK_SOURCE) or {}).get("gameweeks") or []
+        mixed = "understat" in per
+        for name in names:
+            st = out["stats"].get(name)
+            if st and st.get("source") == "understat" and "refusal" not in st:
+                st["source"] = f"understat+{MS_FALLBACK_SOURCE}" if mixed else MS_FALLBACK_SOURCE
+                st["xg_source"] = label
+                st["xg_sources"] = per
+        out["sources"][MS_FALLBACK_SOURCE] = {"attribution": MS_FALLBACK_ATTRIBUTION, "grain": "per_match",
+                                              "gameweeks": fb_gws, "statement": label}
+        gw_words = ", ".join(f"GW{g}" for g in fb_gws) or "some gameweeks"
+        out["sources"]["understat"]["attribution"] += (f"; the {gw_words} rows are the FPL fallback, not Understat's "
+                                                       f"(see {MS_FALLBACK_SOURCE})")
     return out
 
 
