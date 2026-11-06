@@ -928,6 +928,7 @@ def _round_cap(st):
     LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0, round_cap=cap, **usage)
     _usage_log(turn_id, usage, 0)
     st["trace"].end(ROUND_CAP_REPLY, round_cap=cap)
+    _note_turn(st)
     return {"rendered": ROUND_CAP_REPLY}
 
 
@@ -956,6 +957,7 @@ def _loop_guard(st):
                      guard={"stop_reason": response.stop_reason, "block_types": block_types}, **usage)
     _usage_log(turn_id, usage, 0)
     st["trace"].end(GUARD_REPLY, guard={"stop_reason": response.stop_reason, "block_types": block_types})
+    _note_turn(st)
     return {"rendered": GUARD_REPLY}
 
 
@@ -1094,7 +1096,21 @@ def _finish(st, raw):
     LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
     _usage_log(turn_id, usage, n_names)
     st["trace"].end(rendered)
+    _note_turn(st, raw)                                            # Prompt W4: the Chat page's structured fields
     return {"rendered": rendered}
+
+
+def _note_turn(st, raw=None):
+    """Prompt W4 (2026-11-06): the turn's record for the Chat page -- message_id (= the turn id) and, for a delivered reply,
+    sources / squad_preview / squad_applied derived from the tool calls (turn_extras; never the model, never the network).
+    Noted on the turn channel after the trace has ended: nothing here touches the request or the reply."""
+    import turn_extras
+    try:
+        extras = turn_extras.record_for({**st, "raw": raw}) if raw is not None else {}
+        turn_context.note(message_id=st["turn_id"], **extras)
+    except Exception as e:  # noqa: BLE001 -- the reply never depends on this
+        print(f"  [turn record not noted: {type(e).__name__}: {str(e)[:200]}]")
+        turn_context.note(message_id=st["turn_id"])
 
 
 def _engine():

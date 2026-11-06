@@ -140,11 +140,14 @@ def test_w4_threads_name_their_team(tc):
     legacy = "th_legacy_w4"
     with tc.conn.cursor() as cur:
         cur.execute("INSERT INTO chat_threads (thread_id, user_id) VALUES (%s, %s)", (legacy, U))
+    _chat(tc, "About banana", new)                                              # Prompt W4: a thread with no message is not listed
     rows = {x["thread_id"]: x for x in tc.client.get("/threads", headers=_h()).json()}
     assert rows[old]["team_label"] == "Team 111" and rows[new]["team_label"] == "Team 222"
-    assert rows[legacy]["team_label"] is None
-    assert set(rows[old]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id"}
-    assert (rows[old]["fpl_team_id"], rows[new]["fpl_team_id"], rows[legacy]["fpl_team_id"]) == (111, 222, None)   # W3
+    assert legacy not in rows                                                   # empty: hidden (W4)
+    assert set(rows[old]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id",
+                              "team_name", "updated_at"}                        # W4: + team_name, updated_at
+    assert (rows[old]["fpl_team_id"], rows[new]["fpl_team_id"]) == (111, 222)   # W3
+    assert (rows[old]["team_name"], rows[new]["team_name"]) == ("Team 111", "Team 222")   # W4: the label (else the FPL name)
 
 
 # ---- W5: zero-team users and off mode ---------------------------------------------------------------------------------
@@ -155,9 +158,9 @@ def test_w5_a_zero_team_users_legacy_and_new_threads_never_hit_the_owner_check(a
         cur.execute("INSERT INTO chat_threads (thread_id, user_id) VALUES (%s, 9001)", (legacy,))
     app.mp.setenv("FPL_USER_ID", "9001")
     r = app.client.post("/chat", json={"message": "About apple", "thread_id": legacy})
-    assert r.status_code == 200 and r.json() == {"answer": "Answer to About apple", "thread_id": legacy}
+    assert r.status_code == 200 and {k: r.json()[k] for k in ("answer", "thread_id")} == {"answer": "Answer to About apple", "thread_id": legacy}
     r = app.client.post("/chat", json={"message": "About banana"})
-    assert r.status_code == 200 and set(r.json()) == {"answer", "thread_id"}
+    assert r.status_code == 200 and set(r.json()) == {"answer", "thread_id", "message_id", "sources", "squad_preview", "squad_applied"}   # W4
     assert _q(app.conn, "SELECT owner_key FROM chat_threads WHERE thread_id = %s", (r.json()["thread_id"],)) == [(9001,)]
     r2 = app.client.post("/chat", json={"message": "About cherry", "thread_id": r.json()["thread_id"]})
     assert r2.status_code == 200

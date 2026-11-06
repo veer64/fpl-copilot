@@ -84,16 +84,18 @@ def test_e3_threads_lists_only_this_users_threads_with_a_masked_title(c):
     rows = r.json()
     print(f"E3 rows: count={len(rows)} first={rows[0]['thread_id'] if rows else None} last={rows[-1]['thread_id'] if rows else None}")
     by = {x["thread_id"]: x for x in rows}
-    assert set(by) == {t1, t2} and tb not in by
-    assert set(by[t1]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id"}   # F1b / W3
+    assert set(by) == {t1} and tb not in by and t2 not in by                # W4: a thread with no message is not listed
+    assert set(by[t1]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id",
+                           "team_name", "updated_at"}                       # F1b / W3 / W4
     assert by[t1]["team_label"] is None and by[t1]["fpl_team_id"] is None   # 9001 has no imported team
-    assert by[t1]["is_default"] is True and by[t2]["is_default"] is False
+    assert by[t1]["team_name"] is None and by[t1]["updated_at"] == by[t1]["last_active"]
+    assert by[t1]["is_default"] is True
     title = by[t1]["title"]
     assert len(title) <= 60 and "[email]" in title and "[phone]" in title and "example.com" not in title, title
     assert title.startswith("Email me at [email] or ring [phone]")
-    assert by[t2]["title"] is None and by[t2]["last_active"] == by[t2]["created_at"]
     assert by[t1]["last_active"] >= by[t1]["created_at"]
-    assert [x["thread_id"] for x in rows] == [t2, t1]                       # most recently active first
+    _chat(c, "About damson", t2)                                             # its first turn: listed, most recent first
+    assert [x["thread_id"] for x in c.client.get("/threads", headers=_h()).json()] == [t2, t1]
 
 
 # ---- E4 ----------------------------------------------------------------------------------------------------------------
@@ -109,7 +111,9 @@ def test_e4_messages_are_the_questions_and_the_delivered_answers_only(c):
     msgs = r.json()
     assert [(m["role"], m["text"]) for m in msgs] == [("user", q1), ("assistant", a1["answer"]),
                                                       ("user", q2), ("assistant", a2["answer"])]
-    assert all(set(m) == {"role", "text", "at"} and m["at"] for m in msgs)
+    assert all(set(m) == {"role", "text", "at"} and m["at"] for m in msgs[::2])          # user rows: unchanged
+    assert all(set(m) == {"role", "text", "at", "message_id", "sources", "squad_preview", "squad_applied", "feedback"} and m["at"]
+               for m in msgs[1::2])                                                      # W4: the answer's record
     assert msgs[0]["at"] <= msgs[1]["at"] <= msgs[2]["at"] <= msgs[3]["at"]
     blob = str(msgs)
     for leak in ("tool_use", "tool_result", "- Now:", "Next deadline", "thread_seen", "automatic check"):

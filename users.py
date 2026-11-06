@@ -251,6 +251,11 @@ def cap_reply():
     return CAP_REPLY.format(h=left // 3600, m=(left % 3600) // 60)
 
 
+def cap_reset_at(now=None):
+    """Prompt W4: the instant the daily cap resets -- the next 00:00 UTC (the same clock cap_reply reads)."""
+    return _midnight(now or clock()) + timedelta(days=1)
+
+
 def capped(user):
     """(True, the reply) when this user's turn must be refused for the day (a cap_hits row written), else (False, None)."""
     if user.get("is_exempt"):

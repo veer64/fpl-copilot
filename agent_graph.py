@@ -48,6 +48,7 @@ from langgraph.graph import END, START, StateGraph
 
 import agent
 import threads
+import turn_context
 
 RECURSION_LIMIT = 100_000
 LAST_RUN = {}
@@ -266,14 +267,34 @@ def thread_messages(thread_id):
         e = entries.get(q)
         if e is not None and e.get("user") == question:
             out.append({"role": "user", "text": question, "at": e.get("user_at")})
-            out.append({"role": "assistant", "text": e.get("answer"), "at": e.get("answer_at")})
+            out.append({"role": "assistant", "text": e.get("answer"), "at": e.get("answer_at"), "message_id": e.get("message_id")})
             continue
         out.append({"role": "user", "text": question, "at": None})
         if raw is not None:
             plain, _ = agent.replace_tool_names(raw)
             plain, _ = agent.plain_words(plain)
-            out.append({"role": "assistant", "text": plain, "at": None})
-    return out
+            out.append({"role": "assistant", "text": plain, "at": None, "message_id": None})
+    return _with_message_rows(thread_id, out)
+
+
+def _with_message_rows(thread_id, rows):
+    """Prompt W4: every assistant row carries message_id, sources, squad_preview, squad_applied and feedback -- from its
+    chat_messages row (joined by the message id the transcript entry stores, checkpoint C6); an answer from before W4 has no
+    row: message_id null, no sources, no feedback. User rows are unchanged."""
+    import chat_messages
+    ids = [r.get("message_id") for r in rows if r.get("role") == "assistant" and r.get("message_id")]
+    stored = chat_messages.by_thread(thread_id) if ids else {}
+    for r in rows:
+        if r.get("role") != "assistant":
+            continue
+        m = stored.get(r.get("message_id")) or {}
+        if not m:
+            r["message_id"] = None                       # a transcript id without a row reads as no record
+        r["sources"] = list(m.get("sources") or [])
+        r["squad_preview"] = m.get("squad_preview")
+        r["squad_applied"] = m.get("squad_applied")
+        r["feedback"] = m.get("feedback")
+    return rows
 
 
 def run_thread_turn(user_id, thread_id, user_message):
@@ -299,8 +320,9 @@ def run_thread_turn(user_id, thread_id, user_message):
             except Exception as e:                       # noqa: BLE001 -- the turn's own exception is the one to raise
                 print(f"  [thread {thread_id}: the failed turn was not rolled back: {type(e).__name__}: {str(e)[:200]}]")
             raise
+        record = turn_context.last() or {}               # Prompt W4: what the turn produced beside its text
         entry = {"q": sum(1 for m in before if _is_question(m)), "user": user_message, "user_at": asked_at,
-                 "answer": answer, "answer_at": _now_iso()}                     # Prompt F1a: the transcript
+                 "answer": answer, "answer_at": _now_iso(), "message_id": record.get("message_id")}   # Prompt F1a: the transcript
         if agent._engine() == "loop":                    # the loop does not checkpoint; its history is stored here
             g.update_state(cfg, {"messages": history, "transcript": transcript + [entry]}, as_node="finalize")
         else:
@@ -308,6 +330,14 @@ def run_thread_turn(user_id, thread_id, user_message):
                 g.update_state(cfg, {"transcript": transcript + [entry]}, as_node="finalize")
             except Exception as e:                       # noqa: BLE001 -- the reply stands; the website shows the stored text
                 print(f"  [thread {thread_id}: transcript not stored: {type(e).__name__}: {str(e)[:200]}]")
+        if record.get("message_id"):                     # Prompt W4: the answer's row (C6: joined by the transcript's id)
+            try:
+                import chat_messages
+                chat_messages.record(record["message_id"], thread_id, user_id, entry["q"], entry["answer_at"],
+                                     sources=record.get("sources"), squad_preview=record.get("squad_preview"),
+                                     squad_applied=record.get("squad_applied"))
+            except Exception as e:                       # noqa: BLE001 -- the reply stands
+                print(f"  [thread {thread_id}: message row not stored: {type(e).__name__}: {str(e)[:200]}]")
         return answer
 
 

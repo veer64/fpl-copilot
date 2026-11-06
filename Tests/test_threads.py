@@ -351,7 +351,7 @@ def test_t5_a_thread_survives_an_app_restart_and_a_yes_after_it_spends_the_pre_r
     n1 = _versions(tdb, 9001)
     with _Proc(9001, tmp_path / "b.jsonl") as b:                            # a NEW process: nothing in memory
         r = b.post(tf.YES_Q, thread_id=tid)
-        assert r.status_code == 200 and r.json() == {"answer": "Written.", "thread_id": tid}
+        assert r.status_code == 200 and {k: r.json()[k] for k in ("answer", "thread_id")} == {"answer": "Written.", "thread_id": tid}   # W4: + the record fields
         first = b.log()[0]
     assert _request_messages(first)[:-1] == stored_before                   # the restarted process sent the same history
     assert _versions(tdb, 9001) == n1 + 1 and _tickets(tdb)[0][3] is True    # the pre-restart ticket was spent once
@@ -382,7 +382,7 @@ def test_t8_two_users_five_parallel_turns_each_no_cross_talk_every_checkpoint_co
             results = list(ex.map(lambda j: (j, procs[j[0]].post(j[2], thread_id=j[1])), jobs))
     for (u, tid, q), r in results:
         assert r.status_code == 200, r.text
-        assert r.json() == {"answer": f"Answer to {q}", "thread_id": tid}
+        assert {k: r.json()[k] for k in ("answer", "thread_id")} == {"answer": f"Answer to {q}", "thread_id": tid}
     for u in names:
         for k, w in enumerate(words):
             h = _norm(_history(tids[u][k]))
@@ -452,7 +452,7 @@ def test_t6_a_twelve_turn_thread_sends_its_last_ten_turns_and_stores_all_twelve(
 
 def test_t7_no_thread_id_uses_the_default_thread_reset_starts_a_new_one_and_cancels_the_tickets(app):
     r1 = _chat(app, 9001, "About apple")
-    assert r1.status_code == 200 and set(r1.json()) == {"answer", "thread_id"}
+    assert r1.status_code == 200 and set(r1.json()) == {"answer", "thread_id", "message_id", "sources", "squad_preview", "squad_applied"}   # W4
     t1 = r1.json()["thread_id"]
     assert _chat(app, 9001, "About banana").json()["thread_id"] == t1
     assert _chat(app, 9001, tf.PREVIEW_Q).json()["thread_id"] == t1

@@ -598,6 +598,41 @@ def start_turn(turn_id, user_message, engine=None, session_id=None, user_id=None
         return NOOP
 
 
+FEEDBACK_SCORE = "user_feedback"
+FEEDBACK_VALUES = ("up", "down", "none")
+
+
+def score_feedback(trace_id, value, comment=None):
+    """Prompt W4 (2026-11-06): the user's thumb on an answer as ONE categorical score on its trace, "up" / "down" / "none",
+    with a FIXED score id (score_id(trace_id, name)) so a re-send updates the same score -- idempotent -- and an undo sends
+    "none" (the SDK deletes nothing; the trace keeps an honest history). Best effort, after the database row: returns
+    "sent", "skipped" (tracing off or no keys) or "failed" (logged once). The flush runs on its own thread, bounded by the
+    SDK; the request never waits for it."""
+    if value not in FEEDBACK_VALUES:
+        raise ValueError(f"feedback must be one of {FEEDBACK_VALUES}")
+    try:
+        if not switch_on() or not keys_present():
+            return "skipped"
+        backend = _backend()
+        if backend is None:
+            return "skipped"
+        client, _propagate = backend
+        client.create_score(trace_id=str(trace_id), name=FEEDBACK_SCORE, value=value, data_type="CATEGORICAL",
+                            score_id=score_id(str(trace_id), FEEDBACK_SCORE), comment=comment)
+        threading.Thread(target=lambda: _quiet_flush(client), name="langfuse-feedback-flush", daemon=True).start()
+        return "sent"
+    except Exception as e:                               # noqa: BLE001
+        _fail("score_feedback", e)
+        return "failed"
+
+
+def _quiet_flush(client):
+    try:
+        client.flush()
+    except Exception:                                    # noqa: BLE001 -- the background flush
+        pass
+
+
 def close_open():
     """Called in agent.run_agent's finally: a turn that raised before it replied is closed (the root at ERROR level)."""
     try:

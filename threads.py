@@ -213,7 +213,8 @@ SELECT t.thread_id, t.created_at, t.is_default, lc.ts AS last_ts,
          WHERE b.thread_id = t.thread_id AND b.checkpoint_ns = '' AND b.channel = 'messages'
            AND b.version = lc.mv AND b.type = %s) AS first_message,
        {team_label} AS team_label,
-       {team_id} AS fpl_team_id
+       {team_id} AS fpl_team_id,
+       {team_name} AS team_name
   FROM chat_threads t
   LEFT JOIN LATERAL (SELECT c.checkpoint ->> 'ts' AS ts, c.checkpoint -> 'channel_versions' ->> 'messages' AS mv
                        FROM checkpoints c
@@ -250,35 +251,50 @@ def thread_title(text):
     return t if len(t) <= TITLE_MAX else t[:TITLE_MAX - 1].rstrip() + "\u2026"
 
 
+# Prompt W4 (2026-11-06): the Chat page's tag -- the label, else the FPL team's own name (entry_name, a W3 summary column that
+# the guarded DDL adds on first use; absent on a database that never built a team card: then the label alone).
+_TEAM_NAME = "(SELECT COALESCE(f.label, f.entry_name) FROM user_fpl_teams f WHERE f.user_id = t.user_id AND f.squad_key = t.owner_key LIMIT 1)"
+
+
 def list_threads(user_id):
     """Prompt F1a: the user's threads, most recently active first: thread_id, created_at, last_active (the thread's
-    latest checkpoint, else its creation), is_default, title (thread_title of the first question; None before any turn).
-    One query: the latest checkpoint of each thread and the first element of its stored history (HistorySerde's JSON,
-    read in the database -- the history is never loaded here)."""
+    latest checkpoint, else its creation), is_default, title (thread_title of the first question), team_label, fpl_team_id
+    (W3), team_name and updated_at (W4: the label else the FPL team name; = last_active). Prompt W4 (USER DECISION at the
+    checkpoint, no flag): a thread with no message yet is NOT listed. One query: the latest checkpoint of each thread and
+    the first element of its stored history (HistorySerde's JSON, read in the database -- the history is never loaded here)."""
     checkpointer()                                       # the checkpoint tables exist (set up once per process)
     conn = _conn()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('public.user_fpl_teams') IS NOT NULL")
             teams = cur.fetchone()[0]
+            named = False
+            if teams:
+                cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+                            "AND table_name = 'user_fpl_teams' AND column_name = 'entry_name'")
+                named = cur.fetchone() is not None
             cur.execute(_LIST_SQL.format(team_label=_TEAM_LABEL if teams else "NULL::text",
-                                         team_id=_TEAM_ID if teams else "NULL::int"), (TAG, int(user_id)))
+                                         team_id=_TEAM_ID if teams else "NULL::int",
+                                         team_name=_TEAM_NAME if named else (_TEAM_LABEL if teams else "NULL::text")),
+                        (TAG, int(user_id)))
             rows = cur.fetchall()
     finally:
         conn.close()
     out = []
-    for tid, created, is_default, last_ts, first, team_label, fpl_team_id in rows:
+    for tid, created, is_default, last_ts, first, team_label, fpl_team_id, team_name in rows:
         title = None
-        if first is not None:
-            try:
-                m = _dec(first)
-                if isinstance(m, dict) and m.get("role") == "user":
-                    title = thread_title(m.get("content"))
-            except (ValueError, KeyError, TypeError):
-                title = None
+        if first is None:
+            continue                                     # W4: no message yet -> not listed
+        try:
+            m = _dec(first)
+            if isinstance(m, dict) and m.get("role") == "user":
+                title = thread_title(m.get("content"))
+        except (ValueError, KeyError, TypeError):
+            title = None
         out.append({"thread_id": tid, "created_at": iso(created), "last_active": iso(last_ts or created),
                     "is_default": bool(is_default), "title": title, "team_label": team_label,
-                    "fpl_team_id": None if fpl_team_id is None else int(fpl_team_id)})
+                    "fpl_team_id": None if fpl_team_id is None else int(fpl_team_id),
+                    "team_name": team_name, "updated_at": iso(last_ts or created)})
     out.sort(key=lambda r: r["last_active"], reverse=True)
     return out
 

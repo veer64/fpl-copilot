@@ -78,6 +78,7 @@ import config_roles
 import squad_previews                                   # Prompt E (2026-10-27): /reset cancels the user's preview tickets
 import threads                                         # Prompt B (2026-10-31): per-user threads, the checkpointer
 import tracing                                          # Prompt L (2026-10-30): Langfuse traces, flushed on shutdown
+import turn_context                                     # Prompt W4 (2026-11-06): the turn's record for the Chat page
 import users                                            # Prompt P7: app_users (clerk mode only)
 
 
@@ -148,7 +149,9 @@ CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET"
                 ("GET", "/me/squad"), ("GET", "/me/teams"), ("POST", "/me/teams"),
                 ("DELETE", "/me/active-team"), ("GET", "/deadlines")}           # Prompt W3: the Home page
 CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$")),
-                        ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$"))]
+                        ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$")),
+                        ("GET", re.compile(r"^/me/teams/[^/]+/card$")),                 # Prompt W4: the Chat page
+                        ("POST", re.compile(r"^/messages/[^/]+/feedback$"))]
 
 
 def _clerk_route(method, path):
@@ -281,6 +284,24 @@ def _team_changed(e):
 TOKEN_REFUSED = "missing or invalid session token"
 PROFILE_UNAVAILABLE = "your account profile could not be loaded; please try again shortly"
 RATE_LIMITED = f"rate limit: at most {users.RATE_LIMIT_PER_MINUTE} messages a minute; please wait a moment"
+# Prompt W4 (2026-11-06; approved at the checkpoint): the page's 2,000-character box has a server-side twin -- a longer
+# message is 422 before any model call or row, in both modes (the model's request for a message within it is unchanged).
+MESSAGE_MAX = 2000
+MESSAGE_TOO_LONG = "message too long: at most 2,000 characters"
+
+
+def _too_long(request):
+    if len(request.message or "") > MESSAGE_MAX:
+        return JSONResponse({"detail": MESSAGE_TOO_LONG}, status_code=422)
+    return None
+
+
+def _turn_fields():
+    """Prompt W4: the fields a delivered /chat reply carries beside its text -- message_id and the structured extras noted on
+    the turn channel (turn_extras); trace ids stay server-side (checkpoint C5)."""
+    rec = turn_context.last() or {}
+    return {"message_id": rec.get("message_id"), "sources": list(rec.get("sources") or []),
+            "squad_preview": rec.get("squad_preview"), "squad_applied": rec.get("squad_applied")}
 
 
 def _signed_in(http):
@@ -302,11 +323,15 @@ def _chat_signed_in(request, http):
     if refusal is not None:
         return refusal
     user_id = int(user["user_id"])
+    too_long = _too_long(request)                       # Prompt W4: after the token, before the windows and the cap
+    if too_long is not None:
+        return too_long
     if users.rate_limited(user):                        # Prompt P7 Part 2: 10 a minute per user (exempt: never)
         return JSONResponse({"detail": RATE_LIMITED}, status_code=429)
     refused, reply = users.capped(user)                 # $1/day per user (exempt: never): no model call, a cap_hits row
-    if refused:
-        return {"answer": reply, "thread_id": request.thread_id, "capped": True}
+    if refused:                                         # Prompt W4 Data 2: the same text + the structured limit
+        return {"answer": reply, "thread_id": request.thread_id, "capped": True,
+                "limit": {"kind": "daily", "reset_at": threads.iso(users.cap_reset_at())}}
     with config_roles.acting_user(user_id):             # every tool, ticket and trace of the turn answers for this user
         try:
             thread_id = threads.resolve(user_id, request.thread_id)
@@ -315,13 +340,16 @@ def _chat_signed_in(request, http):
         except threads.TeamChanged as e:
             return _team_changed(e)
         answer = agent_graph.run_thread_turn(user_id, thread_id, request.message)
-    return {"answer": answer, "thread_id": thread_id}
+    return {"answer": answer, "thread_id": thread_id, **_turn_fields()}
 
 
 @app.post("/chat")
 def chat(request: ChatRequest, http: Request):
     if auth.mode() == "clerk":
         return _chat_signed_in(request, http)
+    too_long = _too_long(request)
+    if too_long is not None:
+        return too_long
     user_id = config_roles.DEFAULT_USER_ID()            # server-side only: never from the request body or the model
     try:
         thread_id = threads.resolve(user_id, request.thread_id)
@@ -330,7 +358,7 @@ def chat(request: ChatRequest, http: Request):
     except threads.TeamChanged as e:                    # Prompt F1b: never fires for a user with no team
         return _team_changed(e)
     answer = agent_graph.run_thread_turn(user_id, thread_id, request.message)
-    return {"answer": answer, "thread_id": thread_id}
+    return {"answer": answer, "thread_id": thread_id, **_turn_fields()}
 
 
 @app.post("/reset")
@@ -598,6 +626,52 @@ def deadlines(http: Request):
 def refresh_team(fpl_team_id: str, http: Request):
     import fpl_teams
     return _team_call(http, lambda: (fpl_teams.refresh_team, (_team_id(fpl_team_id, path=True),)), imports=True)
+
+
+# ---- the Chat page (Prompt W4, 2026-11-06): the team card and the answer feedback ---------------------------------------------
+
+SQUAD_UNREADABLE = "this team's squad could not be read; please try again shortly"
+MESSAGE_NOT_FOUND = "message not found for this user"
+SCORE_INVALID = 'score must be "up", "down" or null'
+
+
+def _card(user_id, fpl_team_id):
+    import squad_store
+    import team_card
+    try:
+        return team_card.build(user_id, fpl_team_id)
+    except team_card.TeamNotFound:
+        return JSONResponse({"detail": TEAM_NOT_FOUND}, status_code=404)
+    except squad_store.SquadStateError as e:
+        print(f"  [team card of {fpl_team_id} for user {user_id}: {str(e)[:200]}]")
+        return JSONResponse({"detail": SQUAD_UNREADABLE}, status_code=503)
+
+
+@app.get("/me/teams/{fpl_team_id}/card")
+def team_card_route(fpl_team_id: str, http: Request):
+    """Data 4: the Chat page's team card for any of the user's teams (opening a chat is read-only -- the team is activated on
+    send). Reads count against the 60-a-minute window; FPL is read through the single-flight cache (team_card)."""
+    return _team_call(http, lambda: (_card, (_team_id(fpl_team_id, path=True),)))
+
+
+@app.post("/messages/{message_id}/feedback")
+def message_feedback(message_id: str, http: Request, payload: Any = Body(default=None)):
+    """Data 5: {"score": "up" | "down" | null} on one of the user's own answers (else 404, nothing written): the row first,
+    then the Langfuse score (best effort: "sent" | "skipped" | "failed"); the messages endpoint returns it again."""
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    body = payload if isinstance(payload, dict) else {}
+    if "score" not in body or body["score"] not in ("up", "down", None):
+        return JSONResponse({"detail": SCORE_INVALID}, status_code=422)
+    import chat_messages
+    row = chat_messages.set_feedback(int(user["user_id"]), message_id, body["score"])
+    if row is None:
+        return JSONResponse({"detail": MESSAGE_NOT_FOUND}, status_code=404)
+    value = row["feedback"] or "none"
+    status = tracing.score_feedback(tracing.trace_id_for(message_id), value,
+                                    comment="cleared by the user" if row["feedback"] is None else None)
+    return {"message_id": message_id, "feedback": row["feedback"], "feedback_at": threads.iso(row["feedback_at"]), "langfuse": status}
 
 
 @app.get("/threads")

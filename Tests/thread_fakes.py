@@ -199,6 +199,9 @@ def reseed(conn):
         cur.execute("DELETE FROM chat_threads")
         for t in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
             cur.execute(f"DELETE FROM {t}")
+        cur.execute("SELECT to_regclass('public.chat_messages') IS NOT NULL")   # Prompt W4: the answers' records
+        if cur.fetchone()[0]:
+            cur.execute("DELETE FROM chat_messages")
         doc = legal_document()
         for uid in (9001, 9002):
             cur.execute("INSERT INTO squad_versions (user_id, season, gw, squad_json, is_active, supersedes, note) "

@@ -15,6 +15,12 @@ import uuid
 from datetime import datetime, timezone
 
 _CURRENT = contextvars.ContextVar("fpl_turn", default=None)
+# Prompt W4 (2026-11-06): what the turn produced for the Chat page beside its text -- message_id, sources, squad_preview,
+# squad_applied -- noted by the loop's reply steps (agent._finish and the fixed replies), read by agent_graph.run_thread_turn
+# after the turn and by /chat for its response. Per request (a ContextVar), never process-global; end() keeps the record of
+# the turn that just closed so the caller can read it after run_agent returned.
+_RECORD = contextvars.ContextVar("fpl_turn_record", default=None)
+_LAST = contextvars.ContextVar("fpl_turn_last", default=None)
 
 
 def clock():
@@ -28,7 +34,22 @@ def begin(turn_id=None, started_at=None, thread_id=None):
     if thread_id is not None:
         turn["thread_id"] = str(thread_id)
     _CURRENT.set(turn)
+    _RECORD.set({})
+    _LAST.set(None)
     return dict(turn)
+
+
+def note(**fields):
+    """Record what the open turn produced for the Chat page (merged into the turn's record); a no-op outside a turn."""
+    rec = _RECORD.get()
+    if rec is not None:
+        rec.update(fields)
+
+
+def last():
+    """The record of the turn that closed most recently in this context (a dict copy), or None."""
+    rec = _LAST.get()
+    return dict(rec) if rec else None
 
 
 def current():
@@ -39,6 +60,9 @@ def current():
 
 def end():
     _CURRENT.set(None)
+    rec = _RECORD.get()
+    _RECORD.set(None)
+    _LAST.set(dict(rec) if rec else None)
 
 
 def adhoc():

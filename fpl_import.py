@@ -55,6 +55,13 @@ CHIP_KEEPS_TRANSFERS = ("wildcard", "freehit")
 
 _LOCK = threading.Lock()
 _STATE = {"last": 0.0, "bootstrap": None, "bootstrap_at": 0.0, "requests": 0}
+# Prompt W4 (2026-11-06): the per-process cache of FPL answers the Chat page's team card reads (bootstrap, fixtures?future=1,
+# entry history), one entry per path behind its own lock -- SINGLE-FLIGHT: concurrent callers of one path wait for the one
+# fetch and share its body (T1 measured three bootstrap fetches from three concurrent first calls). A failed refetch leaves
+# the old copy in place for last_copy() (checkpoint C8: served past its TTL with fpl_live false rather than nothing).
+CACHE_TTL_S = 300
+_CACHE = {}                               # path -> {"body", "at" (monotonic), "lock"}
+_CACHE_LOCK = threading.Lock()
 
 
 class FplNotFound(Exception):
@@ -74,9 +81,11 @@ def clock():
 
 
 def _reset():
-    """Forget the cached bootstrap and the request clock (tests only)."""
+    """Forget the cached bootstrap, the W4 cache and the request clock (tests only)."""
     with _LOCK:
         _STATE.update(last=0.0, bootstrap=None, bootstrap_at=0.0, requests=0)
+    with _CACHE_LOCK:
+        _CACHE.clear()
 
 
 def _http_get(url):
@@ -114,14 +123,44 @@ def fetch_json(path, get=None):
     return body
 
 
+def _entry(path):
+    with _CACHE_LOCK:
+        return _CACHE.setdefault(path, {"body": None, "at": 0.0, "lock": threading.Lock()})
+
+
+def cached_json(path, ttl=CACHE_TTL_S, get=None, now_mono=None):
+    """GET API/<path> at most once per `ttl` seconds per process; one fetch at a time per path (the second concurrent caller
+    waits and finds the body cached). Raises FplNotFound / FplUnavailable; the old copy, if any, stays for last_copy()."""
+    entry = _entry(path)
+    with entry["lock"]:
+        now = time.monotonic() if now_mono is None else now_mono
+        if entry["body"] is not None and now - entry["at"] < ttl:
+            return entry["body"]
+        body = fetch_json(path, get=get)
+        entry.update(body=body, at=time.monotonic() if now_mono is None else now_mono)
+        return body
+
+
+def peek(path, ttl=CACHE_TTL_S):
+    """The cached body of `path` when it is younger than `ttl`, else None -- never a fetch (what a /chat turn may read)."""
+    entry = _entry(path)
+    body, at = entry["body"], entry["at"]
+    return body if body is not None and time.monotonic() - at < ttl else None
+
+
+def last_copy(path):
+    """(the last successfully fetched body of `path` whatever its age, its age in seconds) or (None, None)."""
+    entry = _entry(path)
+    if entry["body"] is None:
+        return None, None
+    return entry["body"], time.monotonic() - entry["at"]
+
+
 def bootstrap(get=None, now_mono=None):
-    """bootstrap-static, cached BOOTSTRAP_TTL_S per process."""
-    now_mono = time.monotonic() if now_mono is None else now_mono
-    cached = _STATE["bootstrap"]
-    if cached is not None and now_mono - _STATE["bootstrap_at"] < BOOTSTRAP_TTL_S:
-        return cached
-    body = fetch_json("bootstrap-static/", get=get)
-    _STATE.update(bootstrap=body, bootstrap_at=now_mono)
+    """bootstrap-static, cached BOOTSTRAP_TTL_S per process (through the single-flight cache since Prompt W4; _STATE keeps
+    its copy for the callers that read it)."""
+    body = cached_json("bootstrap-static/", BOOTSTRAP_TTL_S, get=get, now_mono=now_mono)
+    _STATE.update(bootstrap=body, bootstrap_at=_entry("bootstrap-static/")["at"])
     return body
 
 
