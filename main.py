@@ -145,7 +145,8 @@ OPEN_ENDPOINTS = {("GET", "/health"), ("HEAD", "/health")}
 # the shared key; in off mode they are gated by the key like everything else.
 CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET", "/admin/users.csv"),
                 ("GET", "/me"), ("GET", "/threads"), ("POST", "/threads"),      # Prompt F1a: the website's endpoints
-                ("GET", "/me/squad"), ("GET", "/me/teams"), ("POST", "/me/teams")}
+                ("GET", "/me/squad"), ("GET", "/me/teams"), ("POST", "/me/teams"),
+                ("DELETE", "/me/active-team"), ("GET", "/deadlines")}           # Prompt W3: the Home page
 CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$")),
                         ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$"))]
 
@@ -441,6 +442,7 @@ def my_squad(http: Request):
 # is 401 whatever it carries; off mode is 404), so the ids and the body are validated by hand, not by FastAPI. ----------
 
 TEAM_NOT_FOUND = "team not found for this user"
+TOO_MANY_TEAMS = "You can add up to 3 teams"             # Prompt W3 (USER DECISION 5 Nov: 3 teams per user), the page's wording
 TEAM_ID_INVALID = "fpl_team_id must be an integer from 1 to 99,999,999"
 LABEL_INVALID = "label must be text of at most 40 characters"
 IMPORTS_LIMITED = f"rate limit: at most {users.IMPORTS_PER_MINUTE} team imports or refreshes a minute; please wait a moment"
@@ -475,7 +477,7 @@ def _import_refusal(e):
     if isinstance(e, fpl_teams.AlreadyAdded):
         return JSONResponse({"detail": "this FPL team is already added; refresh it instead"}, status_code=409)
     if isinstance(e, fpl_teams.TooManyTeams):
-        return JSONResponse({"detail": f"at most {fpl_teams.MAX_TEAMS} FPL teams per user"}, status_code=409)
+        return JSONResponse({"detail": TOO_MANY_TEAMS}, status_code=409)
     if isinstance(e, fpl_teams.TeamNotFound):
         return JSONResponse({"detail": TEAM_NOT_FOUND}, status_code=404)
     if isinstance(e, ValueError):                       # fpl_import.build: the squad is not legal here
@@ -506,8 +508,9 @@ def _team_call(http, work, imports=False):
 
 @app.get("/me/teams")
 def my_teams(http: Request):
+    """Prompt W3: each team as a Home card -- the F1a fields plus the stored score summary and last_used_at (fpl_teams.CARD_COLS)."""
     import fpl_teams
-    return _team_call(http, lambda: (fpl_teams.list_teams, ()))
+    return _team_call(http, lambda: (fpl_teams.team_cards, ()))
 
 
 @app.post("/me/teams")
@@ -523,27 +526,72 @@ def add_team(http: Request, payload: Any = Body(default=None)):
     return _team_call(http, work, imports=True)
 
 
-def _activate(user_id, fpl_team_id):
-    """Prompt F1b: the team made active, then a NEW default thread bound to it (the old threads stay the user's and readable;
-    a /chat in one of another team gets 409) and the user's open preview tickets cancelled (a ticket names a version of the
-    team it was issued for)."""
+def _cancel_tickets(user_id):
     import db_write
-    import fpl_teams
-    team = fpl_teams.activate(user_id, fpl_team_id)
-    threads.start_new_default(user_id)
-    thread_id = threads.default_thread(user_id)
     conn = db_write.connect()
     try:
         squad_previews.ensure_schema(conn)
-        cancelled = squad_previews.cancel_for_user(conn, user_id)
+        return squad_previews.cancel_for_user(conn, user_id)
     finally:
         conn.close()
-    return {**team, "thread_id": thread_id, "preview_tickets_cancelled": cancelled}
+
+
+def _activate(user_id, fpl_team_id):
+    """Prompt F1b: the team made active, then a NEW default thread bound to it (the old threads stay the user's and readable;
+    a /chat in one of another team gets 409) and the user's open preview tickets cancelled (a ticket names a version of the
+    team it was issued for). Prompt W3: activating the team that is ALREADY active (Home's "Ask about this team" on the
+    team in use) keeps its default thread and its tickets -- only last_used_at moves (fpl_teams.activate sets it)."""
+    import fpl_teams
+    current = fpl_teams.active_team(user_id)
+    already = current is not None and int(current["fpl_team_id"]) == int(fpl_team_id)
+    team = fpl_teams.activate(user_id, fpl_team_id)
+    if already:
+        return {**team, "thread_id": threads.default_thread(user_id), "preview_tickets_cancelled": 0}
+    threads.start_new_default(user_id)
+    thread_id = threads.default_thread(user_id)
+    return {**team, "thread_id": thread_id, "preview_tickets_cancelled": _cancel_tickets(user_id)}
+
+
+def _deactivate(user_id):
+    """Prompt W3 ("general / no team" mode): no team active -> the squad tools read the user's own record (zero-team behaviour),
+    a NEW default thread bound to the user's own id, the open preview tickets cancelled. With no team active already: nothing
+    changes (the current default thread, 0 cancelled)."""
+    import fpl_teams
+    was = fpl_teams.deactivate(user_id)
+    if was is None:
+        return {"active_team": None, "deactivated": None, "thread_id": threads.default_thread(user_id), "preview_tickets_cancelled": 0}
+    threads.start_new_default(user_id)
+    thread_id = threads.default_thread(user_id)
+    return {"active_team": None, "deactivated": was, "thread_id": thread_id, "preview_tickets_cancelled": _cancel_tickets(user_id)}
 
 
 @app.post("/me/teams/{fpl_team_id}/activate")
 def activate_team(fpl_team_id: str, http: Request):
     return _team_call(http, lambda: (_activate, (_team_id(fpl_team_id, path=True),)))
+
+
+@app.delete("/me/active-team")
+def clear_active_team(http: Request):
+    return _team_call(http, lambda: (_deactivate, ()))
+
+
+FPL_DOWN = "FPL could not be reached for the deadlines; please try again shortly"
+
+
+@app.get("/deadlines")
+def deadlines(http: Request):
+    """Prompt W3: the upcoming gameweek deadlines from FPL's bootstrap (fpl_import.bootstrap, cached BOOTSTRAP_TTL_S per
+    process): {"events": [{gw, deadline_time, finished}, ...soonest first], "fetched_at"}."""
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    import fpl_import
+    try:
+        boot = fpl_import.bootstrap()
+    except fpl_import.FplUnavailable as e:
+        print(f"  [/deadlines: {e}]")
+        return JSONResponse({"detail": FPL_DOWN}, status_code=503)
+    return {"events": fpl_import.upcoming_events(boot), "fetched_at": threads.iso(fpl_import.clock())}
 
 
 @app.post("/me/teams/{fpl_team_id}/refresh")

@@ -85,8 +85,8 @@ def test_e3_threads_lists_only_this_users_threads_with_a_masked_title(c):
     print(f"E3 rows: count={len(rows)} first={rows[0]['thread_id'] if rows else None} last={rows[-1]['thread_id'] if rows else None}")
     by = {x["thread_id"]: x for x in rows}
     assert set(by) == {t1, t2} and tb not in by
-    assert set(by[t1]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label"}   # F1b: + team_label
-    assert by[t1]["team_label"] is None                                    # 9001 has no imported team
+    assert set(by[t1]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id"}   # F1b / W3
+    assert by[t1]["team_label"] is None and by[t1]["fpl_team_id"] is None   # 9001 has no imported team
     assert by[t1]["is_default"] is True and by[t2]["is_default"] is False
     title = by[t1]["title"]
     assert len(title) <= 60 and "[email]" in title and "[phone]" in title and "example.com" not in title, title

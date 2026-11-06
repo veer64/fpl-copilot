@@ -212,7 +212,8 @@ SELECT t.thread_id, t.created_at, t.is_default, lc.ts AS last_ts,
           FROM checkpoint_blobs b
          WHERE b.thread_id = t.thread_id AND b.checkpoint_ns = '' AND b.channel = 'messages'
            AND b.version = lc.mv AND b.type = %s) AS first_message,
-       {team_label} AS team_label
+       {team_label} AS team_label,
+       {team_id} AS fpl_team_id
   FROM chat_threads t
   LEFT JOIN LATERAL (SELECT c.checkpoint ->> 'ts' AS ts, c.checkpoint -> 'channel_versions' ->> 'messages' AS mv
                        FROM checkpoints c
@@ -223,6 +224,8 @@ SELECT t.thread_id, t.created_at, t.is_default, lc.ts AS last_ts,
 # Prompt F1b: the thread's team -- the label of the user's imported team whose squad_key is the thread's owner_key (none for
 # a thread of the user's own record, a legacy thread, or before user_fpl_teams exists).
 _TEAM_LABEL = "(SELECT f.label FROM user_fpl_teams f WHERE f.user_id = t.user_id AND f.squad_key = t.owner_key LIMIT 1)"
+# Prompt W3: and its FPL id, so the Home page's recent chats can name the team (null for the user's own record).
+_TEAM_ID = "(SELECT f.fpl_team_id FROM user_fpl_teams f WHERE f.user_id = t.user_id AND f.squad_key = t.owner_key LIMIT 1)"
 
 
 def iso(dt):
@@ -258,12 +261,13 @@ def list_threads(user_id):
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('public.user_fpl_teams') IS NOT NULL")
             teams = cur.fetchone()[0]
-            cur.execute(_LIST_SQL.format(team_label=_TEAM_LABEL if teams else "NULL::text"), (TAG, int(user_id)))
+            cur.execute(_LIST_SQL.format(team_label=_TEAM_LABEL if teams else "NULL::text",
+                                         team_id=_TEAM_ID if teams else "NULL::int"), (TAG, int(user_id)))
             rows = cur.fetchall()
     finally:
         conn.close()
     out = []
-    for tid, created, is_default, last_ts, first, team_label in rows:
+    for tid, created, is_default, last_ts, first, team_label, fpl_team_id in rows:
         title = None
         if first is not None:
             try:
@@ -273,7 +277,8 @@ def list_threads(user_id):
             except (ValueError, KeyError, TypeError):
                 title = None
         out.append({"thread_id": tid, "created_at": iso(created), "last_active": iso(last_ts or created),
-                    "is_default": bool(is_default), "title": title, "team_label": team_label})
+                    "is_default": bool(is_default), "title": title, "team_label": team_label,
+                    "fpl_team_id": None if fpl_team_id is None else int(fpl_team_id)})
     out.sort(key=lambda r: r["last_active"], reverse=True)
     return out
 

@@ -337,7 +337,9 @@ def test_j1_import_list_and_me(api):
     row = _q(api.conn, "SELECT user_id, gw, is_active, supersedes, squad_json->'provenance'->>'source', "
                        "(squad_json->>'bank')::int FROM squad_versions WHERE version_id = %s", (body["version_id"],))
     assert row == [(key, 10, True, None, "fpl_import", 23)]
-    assert _get(api, "/me/teams").json() == [{"fpl_team_id": TID, "label": "Main", "is_active": True, "last_imported_gw": 10}]
+    [card] = _get(api, "/me/teams").json()                                    # W3: the card carries the summary too
+    assert {k: card[k] for k in ("fpl_team_id", "label", "is_active", "last_imported_gw")} == {
+        "fpl_team_id": TID, "label": "Main", "is_active": True, "last_imported_gw": 10}
     assert _get(api, "/me").json()["active_team"] == {"fpl_team_id": TID, "label": "Main", "is_active": True, "last_imported_gw": 10}
     import fpl_teams
     assert fpl_teams.squad_owner_id(U1) == key
@@ -372,17 +374,18 @@ def test_j3_refresh_writes_a_new_version_append_only(api):
     assert rows == [(first["version_id"], False, None), (r.json()["version_id"], True, first["version_id"])]
 
 
-def test_j4_a_duplicate_or_a_sixth_team_is_409_with_nothing_written(api, monkeypatch):
+def test_j4_a_duplicate_or_a_fourth_team_is_409_with_nothing_written(api, monkeypatch):
+    """Prompt W3 (2026-11-05): the limit is 3 teams per user (was 5), worded for the Home page."""
     clock = {"t": 0.0}
     monkeypatch.setattr(api.users, "monotonic", lambda: clock.update(t=clock["t"] + 61) or clock["t"])   # never rate-limited
-    for k in range(5):
+    for k in range(3):
         assert _post(api, "/me/teams", json={"fpl_team_id": TID + k}).status_code == 200
     before, asked = _all_counts(api.conn), len(api.fpl.asked)
     teams = _team_rows(api.conn)
     r = _post(api, "/me/teams", json={"fpl_team_id": TID})
     assert r.status_code == 409 and "already added" in r.json()["detail"]
     r = _post(api, "/me/teams", json={"fpl_team_id": TID + 9})
-    assert r.status_code == 409 and r.json() == {"detail": "at most 5 FPL teams per user"}
+    assert r.status_code == 409 and r.json() == {"detail": "You can add up to 3 teams"}
     assert _all_counts(api.conn) == before and _team_rows(api.conn) == teams and len(api.fpl.asked) == asked   # no FPL request
 
 

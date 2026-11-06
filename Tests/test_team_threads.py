@@ -143,7 +143,8 @@ def test_w4_threads_name_their_team(tc):
     rows = {x["thread_id"]: x for x in tc.client.get("/threads", headers=_h()).json()}
     assert rows[old]["team_label"] == "Team 111" and rows[new]["team_label"] == "Team 222"
     assert rows[legacy]["team_label"] is None
-    assert set(rows[old]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label"}
+    assert set(rows[old]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id"}
+    assert (rows[old]["fpl_team_id"], rows[new]["fpl_team_id"], rows[legacy]["fpl_team_id"]) == (111, 222, None)   # W3
 
 
 # ---- W5: zero-team users and off mode ---------------------------------------------------------------------------------

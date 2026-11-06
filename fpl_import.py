@@ -316,6 +316,70 @@ def build(raw, meta, season):
     return doc, info
 
 
+# ---- the Home page's score summary and deadlines (Prompt W3, 2026-11-05) ------------------------------------------------------
+
+def _int(v):
+    return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def finished_gws(boot):
+    """(the set of gameweeks FPL flags finished, whether the bootstrap carries the flag at all). The recorded fixture's
+    events have no flags; the live bootstrap has `finished` on every event."""
+    events = boot.get("events") or []
+    known = any("finished" in e for e in events)
+    done = {int(e["id"]) for e in events if e.get("id") is not None and e.get("finished") is True}
+    return done, known
+
+
+def latest_finished_gw(boot):
+    """FPL's latest finished gameweek by the bootstrap's flags, or None (no flag, or none finished)."""
+    done, known = finished_gws(boot)
+    return max(done) if known and done else None
+
+
+def team_summary(raw):
+    """The team's score card from the responses the import already fetched (fetch_team's `entry`, `history`, `bootstrap`):
+    entry_name, manager_name, total_points, overall_rank (FPL's history row of the last FINISHED gameweek -- the entry's own
+    summary totals when the team has no finished gameweek yet), last_gw, last_gw_points (that row), updated_after_gw (the
+    gameweek the card reflects). USER DECISION (5 Nov): scores from FPL's public history, the total from GW1."""
+    entry, history, boot = raw.get("entry") or {}, raw.get("history") or {}, raw.get("bootstrap") or {}
+    rows = sorted((r for r in (history.get("current") or []) if r.get("event") is not None), key=lambda r: int(r["event"]))
+    done, known = finished_gws(boot)
+    played = [r for r in rows if not known or int(r["event"]) in done]
+    last = played[-1] if played else None
+    manager = " ".join(str(x).strip() for x in (entry.get("player_first_name"), entry.get("player_last_name")) if x) or None
+    return {"entry_name": str(entry.get("name") or "").strip() or None,
+            "manager_name": manager,
+            "total_points": _int(last.get("total_points")) if last else _int(entry.get("summary_overall_points")),
+            "overall_rank": _int(last.get("overall_rank")) if last else _int(entry.get("summary_overall_rank")),
+            "last_gw": int(last["event"]) if last else None,
+            "last_gw_points": _int(last.get("points")) if last else None,
+            "updated_after_gw": int(last["event"]) if last else None}
+
+
+def fetch_summary(fpl_team_id, get=None):
+    """The weekly job's read: the bootstrap (cached BOOTSTRAP_TTL_S) and ONE request, entry/{id}/history/ -- no names (the
+    import stored them; write_summary keeps them). Raises FplNotFound / FplUnavailable."""
+    boot = bootstrap(get=get)
+    history = fetch_json(f"entry/{int(fpl_team_id)}/history/", get=get)
+    return team_summary({"entry": {}, "history": history, "bootstrap": boot})
+
+
+def upcoming_events(boot, now=None, limit=4):
+    """The next `limit` gameweek deadlines still ahead of `now`: [{gw, deadline_time, finished}], soonest first (the Home
+    page's deadline pill rolls over to the next one when one passes)."""
+    now = now or clock()
+    out = []
+    for e in sorted((e for e in (boot.get("events") or []) if e.get("id") is not None and e.get("deadline_time")),
+                    key=lambda e: int(e["id"])):
+        if _deadline(e) > now:
+            out.append({"gw": int(e["id"]), "deadline_time": _deadline(e).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "finished": bool(e.get("finished"))})
+        if len(out) >= limit:
+            break
+    return out
+
+
 def players_live_meta(elements, conn=None):
     """{element: {name, position, team}} from players_live (the names every other squad tool uses)."""
     import db_write
