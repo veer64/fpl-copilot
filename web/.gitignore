@@ -49,3 +49,7 @@ next-env.d.ts
 /public/players/
 /public/intro/
 /design/
+
+# Prompt W3 (2026-11-05): the Home handoff (BRIEF + references + the background photo) and the copied photo stay out of git.
+/design-handoff/
+/public/images/

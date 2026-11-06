@@ -30,7 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         {/* Core 3: the provider sits inside <body>; our own sign-in page is /login (no stock <SignIn/>). */}
-        <ClerkProvider signInUrl="/login" signUpUrl="/login" signInFallbackRedirectUrl="/teams" signUpFallbackRedirectUrl="/teams">
+        <ClerkProvider signInUrl="/login" signUpUrl="/login" signInFallbackRedirectUrl="/home" signUpFallbackRedirectUrl="/home">
           {children}
           <Toaster position="top-center" richColors={false} closeButton={false} />
         </ClerkProvider>

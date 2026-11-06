@@ -11,8 +11,8 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 /** The sign-in card (Prompt W1 Part 3). Clerk Core 3 hooks, our own UI:
  *  - email -> `signIn.create({identifier})` -> `signIn.emailCode.sendCode()`; an unknown address falls back to
  *    `signUp.create({emailAddress})` -> `signUp.verifications.sendEmailCode()` (form_identifier_not_found);
- *  - code (InputOTP, auto-submits on the 6th digit) -> `verifyCode` -> `finalize({navigate})` -> /teams;
- *  - Google -> `signIn.sso()` -> /sso-callback -> /teams.
+ *  - code (InputOTP, auto-submits on the 6th digit) -> `verifyCode` -> `finalize({navigate})` -> /home (Prompt W3: was /teams);
+ *  - Google -> `signIn.sso()` -> /sso-callback -> /home.
  *  States per BRIEF.md: loading, code sent, wrong, expired, resend (30 s cooldown + toast), too many attempts, generic
  *  error. Errors are announced (role="alert") and linked to their field (aria-describedby). */
 
@@ -100,7 +100,7 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
   }, [busy]);
 
   const goToApp = ({ decorateUrl }: { decorateUrl: (url: string) => string }) => {
-    const url = decorateUrl("/teams");
+    const url = decorateUrl("/home");
     if (url.startsWith("http")) window.location.href = url;
     else router.push(url);
   };
@@ -108,7 +108,7 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
   // --- step 1: send the code -------------------------------------------------------------------------------------------
   const failSend = (err: unknown) => {
     const c = apiCode(err);
-    if (c === "session_exists") return router.push("/teams");
+    if (c === "session_exists") return router.push("/home");
     if (c === "form_param_format_invalid" || c === "form_identifier_invalid" || c === "form_param_nil") return setEmailError(COPY.badEmail);
     if (c === "too_many_requests") return setEmailError(COPY.tooMany);
     console.error("[sign-in] sending the code failed", err);
@@ -248,9 +248,9 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
     clearDeadline();
     ssoDeadline.current = window.setTimeout(() => googleFailed(`no redirect to Google within ${SSO_TIMEOUT_MS / 1000} s`), SSO_TIMEOUT_MS);
     try {
-      const { error } = await signIn.sso({ strategy: "oauth_google", redirectCallbackUrl: "/sso-callback", redirectUrl: "/teams" });
+      const { error } = await signIn.sso({ strategy: "oauth_google", redirectCallbackUrl: "/sso-callback", redirectUrl: "/home" });
       if (error) {
-        if (apiCode(error) === "session_exists") return router.push("/teams");
+        if (apiCode(error) === "session_exists") return router.push("/home");
         return googleFailed(error);
       }
       // no error: the browser should now be leaving for Google. Per the docs, a sign-in that instead needs another step

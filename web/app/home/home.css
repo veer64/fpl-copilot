@@ -1,0 +1,265 @@
+/* app/home/home.css -- Prompt W3 (2026-11-05): the Home page's own styles, ported from the approved references
+   (design-handoff/home/reference/home-desktop.reference.html and home-mobile.reference.html). The numbers are the design's:
+   keep them. Prefixed .hm-* because the login page's stylesheet (.card, .hdr, .footer ...) stays loaded across client
+   navigations. Tokens are the login page's (globals.css --fpl-*). */
+
+.hm{position:relative;min-height:100vh;min-height:100dvh;overflow:hidden;background:#04070C;color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif}
+.hm *{box-sizing:border-box}
+.hm button{font:inherit;cursor:pointer}
+.hm button:disabled{cursor:default}
+.hm a{color:#9FB3C8;text-decoration:none}
+.hm a:hover{color:#E8F6FF}
+.hm :focus-visible,.hm-pop :focus-visible{outline:2px solid #3BE8FF;outline-offset:3px}
+.hm .mono,.hm-pop .mono{font-family:var(--font-geist-mono),ui-monospace,monospace}
+.hm-lbl{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;letter-spacing:.18em;color:#7FE9FF;text-transform:uppercase}
+.hm-nw{white-space:nowrap}
+
+/* ---- background: the photo (faces top-left), the glow, the pitch grid ---------------------------------------------------- */
+.hm-photo{position:absolute;top:0;left:0;height:900px;width:auto;opacity:.55;pointer-events:none;-webkit-mask-image:linear-gradient(to right,#000 40%,transparent 96%),linear-gradient(to bottom,#000 45%,transparent 95%);mask-image:linear-gradient(to right,#000 40%,transparent 96%),linear-gradient(to bottom,#000 45%,transparent 95%);-webkit-mask-composite:source-in;mask-composite:intersect}
+.hm-glow{position:absolute;inset:0;background:radial-gradient(40% 32% at 50% 18%,rgba(59,232,255,.10),rgba(4,7,12,0) 70%);pointer-events:none}
+.hm-grid{position:absolute;left:-30%;right:-30%;bottom:0;height:420px;transform:perspective(900px) rotateX(70deg);transform-origin:50% 100%;background-image:linear-gradient(rgba(59,232,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(59,232,255,.12) 1px,transparent 1px);background-size:72px 72px;-webkit-mask-image:linear-gradient(to top,#000 10%,transparent 90%);mask-image:linear-gradient(to top,#000 10%,transparent 90%);pointer-events:none}
+
+/* ---- the column ------------------------------------------------------------------------------------------------------ */
+.hm-col{position:relative;max-width:1200px;margin:0 auto;padding:0 40px 32px;display:flex;flex-direction:column;gap:28px}
+
+/* The avatar gradient's dark end is #2398AE, not the reference's #1C7C8F: the initials (#021016) on #1C7C8F are 3.98:1 and the brief
+   asks for >= 4.5:1 (5.67:1 now); the Add card's dashed border is .45 alpha, not .4, for the 3:1 non-text line (3.34:1). */
+/* ---- header ---------------------------------------------------------------------------------------------------------- */
+.hm-hdr{position:relative;z-index:20;height:76px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.hm-brand{display:flex;align-items:center;gap:10px;color:#3BE8FF}
+.hm-brand img{display:block;width:28px;height:28px}
+.hm-brand span{font-size:17px;font-weight:600;letter-spacing:-.01em;color:#E8F6FF}
+.hm-pill{height:40px;padding:0 16px;border-radius:999px;border:1px solid rgba(59,232,255,.35);background:rgba(8,15,24,.75);display:flex;align-items:center;gap:12px;font-size:13px;color:#C9D6E3}
+.hm-pill .hm-gw{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;letter-spacing:.16em;color:#7FE9FF}
+.hm-pill .hm-sep{width:1px;height:16px;background:#2C4052}
+.hm-pill .hm-in{font-family:var(--font-geist-mono),ui-monospace,monospace;color:#F2FBFF;white-space:nowrap}
+.hm-dot{width:8px;height:8px;border-radius:50%;background:#3BE8FF;box-shadow:0 0 10px #3BE8FF;flex-shrink:0}
+.hm-pulse{animation:hm-pulse 1.8s ease-in-out infinite}
+@keyframes hm-pulse{50%{opacity:.35}}
+.hm-pill-band{display:none}
+.hm-acct{height:44px;padding:0 10px 0 4px;border:1px solid #24384A;border-radius:999px;background:rgba(8,15,24,.7);color:#C9D6E3;display:flex;align-items:center;gap:8px}
+.hm-acct:hover{border-color:#3BE8FF}
+.hm-avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#3BE8FF,#2398AE);color:#021016;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.hm-avatar.lg{width:40px;height:40px;font-size:14px}
+
+/* the account menu (a popup: outside .hm) */
+.hm-menu{width:280px;padding:8px;border-radius:16px;background:rgba(8,15,24,.96);border:1px solid rgba(59,232,255,.3);box-shadow:0 28px 70px -24px rgba(0,0,0,.85);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);display:flex;flex-direction:column;gap:2px;color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif;position:relative;outline:none}
+.hm-menu-who{display:flex;align-items:center;gap:12px;padding:12px 10px 14px}
+.hm-menu-who div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hm-menu-name{font-size:15px;font-weight:600;color:#F2FBFF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-menu-email{font-size:13px;color:#A9BACB;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-menu-hr{height:1px;background:#172633;margin:0 6px 6px}
+.hm-mi{height:44px;width:100%;padding:0 10px;border:0;border-radius:10px;background:transparent;font-size:14px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;color:#FF8A7A;font:inherit}
+.hm-mi svg{color:#FF8A7A}
+.hm-mi:hover,.hm-mi[data-highlighted]{background:rgba(255,138,122,.08)}
+.hm-menu-in{animation:hm-menu-in .18s ease-out both}
+@keyframes hm-menu-in{from{opacity:0;transform:translateY(-6px)}}
+
+/* ---- glass cards + brackets ------------------------------------------------------------------------------------------- */
+.hm-glass{position:relative;background:rgba(8,15,24,.8);border:1px solid rgba(59,232,255,.18);border-radius:16px;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+.hm-br{position:absolute;width:12px;height:12px;border:0 solid #3BE8FF;pointer-events:none}
+.hm-tl{top:-6px;left:-6px;border-top-width:2px;border-left-width:2px}
+.hm-brr{bottom:-6px;right:-6px;border-bottom-width:2px;border-right-width:2px}
+
+/* ---- buttons, chips, tags --------------------------------------------------------------------------------------------- */
+.hm-btn-p{height:44px;border:0;border-radius:12px;background:#3BE8FF;color:#021016;font-weight:600;font-size:14px;display:flex;align-items:center;justify-content:center;gap:8px;width:100%}
+.hm-btn-p:hover{background:#7CF3FF}
+.hm-btn-s{height:44px;border:1px solid #2C4052;border-radius:12px;background:rgba(255,255,255,.03);color:#E8F6FF;font-weight:600;font-size:14px;display:flex;align-items:center;justify-content:center;gap:8px;width:100%}
+.hm-btn-s:hover{border-color:#3BE8FF}
+.hm-btn-o{height:44px;padding:0 18px;border:1px solid rgba(59,232,255,.45);border-radius:12px;background:rgba(59,232,255,.06);color:#DDF7FF;font-weight:500;font-size:14px;display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.hm-btn-o:hover{background:rgba(59,232,255,.14);border-color:#3BE8FF}
+.hm-btn-t{height:32px;padding:0 8px;border:0;background:transparent;color:#9FB3C8;font-size:12px;display:inline-flex;align-items:center;gap:6px;border-radius:8px;white-space:nowrap}
+.hm-btn-t:hover{color:#E8F6FF;background:rgba(255,255,255,.05)}
+.hm-btn-p:disabled,.hm-btn-s:disabled,.hm-btn-o:disabled,.hm-btn-t:disabled{opacity:.6}
+.hm-chip{min-height:44px;padding:0 16px;border:1px solid rgba(59,232,255,.28);border-radius:999px;background:rgba(59,232,255,.05);color:#DDF7FF;font-size:14px;display:inline-flex;align-items:center;gap:8px;justify-content:space-between;text-align:left}
+.hm-chip:hover{background:rgba(59,232,255,.14);border-color:#3BE8FF}
+.hm-tag{height:22px;padding:0 8px;border-radius:6px;font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10.5px;letter-spacing:.08em;display:inline-flex;align-items:center;white-space:nowrap}
+.hm-tag-last{background:#3BE8FF;color:#021016;font-weight:500}
+.hm-tag-ago{background:rgba(201,214,227,.08);color:#A9BACB}
+.hm-tag-team{background:rgba(59,232,255,.12);color:#9FF2FF}
+.hm-tag-gen{background:rgba(201,214,227,.1);color:#C9D6E3}
+.hm-spin{width:16px;height:16px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:hm-spin .8s linear infinite;flex-shrink:0}
+@keyframes hm-spin{to{transform:rotate(360deg)}}
+
+/* ---- greeting -------------------------------------------------------------------------------------------------------- */
+.hm-greet{min-height:190px;display:flex;align-items:center;justify-content:center;text-align:center}
+.hm-greet > div{max-width:720px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.hm-greet h1{margin:0;font-size:52px;line-height:56px;font-weight:600;letter-spacing:-.04em;color:#F2FBFF}
+.hm-greet p{margin:0;font-size:16px;line-height:24px;color:#A9BACB}
+
+/* ---- your teams ------------------------------------------------------------------------------------------------------ */
+.hm-sec{display:flex;flex-direction:column;gap:16px}
+.hm-sec-head{display:flex;align-items:center;justify-content:space-between}
+.hm-sec-head h2{margin:0}
+.hm-count{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:12px;color:#8A9BB0}
+.hm-teams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;align-items:stretch}
+.hm-team{padding:20px;display:flex;flex-direction:column;gap:16px;min-width:0;height:100%}
+.hm-team.last{border-color:rgba(59,232,255,.6);box-shadow:0 0 0 1px rgba(59,232,255,.25),0 24px 60px -28px rgba(59,232,255,.55)}
+.hm-team[data-new="true"]{animation:hm-newpulse 1.5s ease-out 1}
+@keyframes hm-newpulse{0%{box-shadow:0 0 0 1px rgba(59,232,255,.25),0 0 0 0 rgba(59,232,255,.6)}60%{box-shadow:0 0 0 1px rgba(59,232,255,.25),0 0 0 14px rgba(59,232,255,0)}100%{box-shadow:0 0 0 1px rgba(59,232,255,.25),0 0 0 0 rgba(59,232,255,0)}}
+.hm-team-top{display:flex;align-items:center;justify-content:space-between;gap:8px;height:30px}
+.hm-idchip{height:30px;padding:0 6px 0 10px;border:1px solid #24384A;border-radius:8px;background:#0B1520;color:#C9D6E3;display:inline-flex;align-items:center;gap:8px;font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:13px;white-space:nowrap;flex-shrink:0}
+.hm-idchip span{color:#8A9BB0}
+.hm-idchip:hover{border-color:#3BE8FF;color:#F2FBFF}
+.hm-team-names{display:flex;flex-direction:column;gap:4px;min-width:0}
+.hm-team-names h3{margin:0;font-size:20px;line-height:26px;font-weight:600;letter-spacing:-.01em;color:#F2FBFF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-team-names p{margin:0;font-size:13px;color:#A9BACB}
+.hm-stats{margin:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:14px 0;border-top:1px solid #172633;border-bottom:1px solid #172633}
+.hm-stat{min-width:0}
+.hm-stat dt{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;letter-spacing:.14em;color:#8A9BB0;margin:0}
+.hm-stat dd{margin:6px 0 0;font-size:20px;font-weight:600;letter-spacing:-.02em;color:#F2FBFF;white-space:nowrap}
+.hm-fresh{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.hm-fresh-line{display:flex;align-items:center;gap:6px;font-size:12px;color:#8A9BB0;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.hm-fresh-line i{width:6px;height:6px;border-radius:50%;background:#5BE3A4;flex-shrink:0}
+.hm-fresh-line.failed{color:#FF8A7A;white-space:normal}
+.hm-fresh-line.failed i{background:#FF8A7A}
+.hm-team-cta{margin-top:auto}
+.hm-add{height:100%;min-height:280px;border:1.5px dashed rgba(59,232,255,.45);border-radius:16px;background:rgba(59,232,255,.03);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;color:#C9D6E3}
+.hm-add:hover{background:rgba(59,232,255,.08);border-color:#3BE8FF}
+.hm-add-plus{width:52px;height:52px;border-radius:50%;border:1.5px solid rgba(59,232,255,.6);color:#3BE8FF;display:flex;align-items:center;justify-content:center}
+.hm-add-title{font-size:18px;font-weight:600;color:#F2FBFF}
+.hm-add-sub{font-size:13px;line-height:19px;color:#A9BACB}
+.hm-add-slots{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;letter-spacing:.12em;color:#7FE9FF}
+
+/* ---- the lower row ---------------------------------------------------------------------------------------------------- */
+.hm-lower{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:24px;align-items:stretch}
+.hm-gen{grid-column:span 7;padding:24px;display:flex;flex-direction:column;gap:20px}
+.hm-gen.wide{grid-column:span 12}
+.hm-gen-head{display:flex;align-items:center;gap:16px}
+.hm-gen-icon{width:48px;height:48px;flex-shrink:0;border-radius:12px;background:rgba(59,232,255,.1);border:1px solid rgba(59,232,255,.3);color:#3BE8FF;display:flex;align-items:center;justify-content:center}
+.hm-gen-head div{flex-grow:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.hm-gen-head h2{margin:0;font-size:20px;font-weight:600;color:#F2FBFF}
+.hm-gen-head p{margin:0;font-size:14px;color:#A9BACB}
+.hm-try{display:flex;flex-direction:column;gap:12px}
+.hm-chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.hm-gen-cta{margin-top:auto}
+.hm-recent{grid-column:span 5;padding:20px 12px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.hm-recent-head{display:flex;align-items:center;justify-content:space-between;padding:0 12px 8px}
+.hm-recent-head h2{margin:0}
+.hm-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;min-height:56px;color:inherit}
+.hm-row:hover{background:rgba(59,232,255,.06);color:inherit}
+.hm-row-icon{width:32px;height:32px;flex-shrink:0;border-radius:8px;background:#0E1A26;border:1px solid #1E2F3E;color:#7FE9FF;display:flex;align-items:center;justify-content:center}
+.hm-row-body{flex-grow:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.hm-row-title{font-size:14px;font-weight:500;color:#E8F6FF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-row-meta{display:flex;align-items:center;gap:8px}
+.hm-row-ago{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;color:#8A9BB0;white-space:nowrap}
+
+/* ---- new user: the two choice cards ----------------------------------------------------------------------------------- */
+.hm-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;align-items:stretch}
+.hm-choice{padding:28px;display:flex;flex-direction:column;gap:18px;min-height:300px}
+.hm-choice.primary{border-color:rgba(59,232,255,.6);box-shadow:0 0 0 1px rgba(59,232,255,.25),0 24px 60px -28px rgba(59,232,255,.55)}
+.hm-choice h2{margin:0;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-.02em;color:#F2FBFF}
+.hm-choice p{margin:0;font-size:15px;line-height:22px;color:#A9BACB}
+
+/* ---- states ------------------------------------------------------------------------------------------------------------ */
+.hm-skel{background:rgba(255,255,255,.06);border-radius:8px;animation:hm-shimmer 1.4s ease-in-out infinite}
+@keyframes hm-shimmer{50%{opacity:.45}}
+.hm-err{padding:20px;display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+.hm-err p{margin:0;font-size:14px;color:#FF8A7A}
+.hm-err small{font-size:12px;color:#8A9BB0}
+
+/* ---- footer ------------------------------------------------------------------------------------------------------------ */
+.hm-foot{display:flex;justify-content:flex-end;gap:20px;padding-top:4px;font-size:13px}
+
+/* ---- the Add team dialog / sheet (popups: outside .hm) ------------------------------------------------------------------- */
+.hm-dialog{position:relative;width:min(480px,calc(100% - 32px));max-width:none;padding:28px;border-radius:16px;background:rgba(8,15,24,.96);border:1px solid rgba(59,232,255,.3);box-shadow:0 28px 70px -24px rgba(0,0,0,.85);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif;display:block}
+.hm-sheet{background:rgba(8,15,24,.98);border-top:1px solid rgba(59,232,255,.3);color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif;max-height:calc(100dvh - 3rem)}
+.hm-sheet-in{position:relative;padding:20px 16px 24px;overflow-y:auto}
+.hm-form{display:flex;flex-direction:column;gap:18px}
+.hm-form h2{margin:0;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-.02em;color:#F2FBFF}
+.hm-form .hm-eyebrow{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;letter-spacing:.18em;color:#7FE9FF}
+.hm-field{display:flex;flex-direction:column;gap:8px}
+.hm-field label{font-size:13px;font-weight:500;color:#C9D6E3}
+.hm-input{height:48px;padding:0 16px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid #56687A;color:#E8F6FF;font-size:16px;width:100%;font:inherit}
+.hm-input::placeholder{color:#7D8EA0;opacity:1}
+.hm-input[aria-invalid="true"]{border-color:#FF8A7A}
+.hm-input:disabled{opacity:.6}
+.hm-alert{margin:0;font-size:13px;line-height:18px;color:#FF8A7A}
+.hm-fine{margin:0;font-size:12px;line-height:18px;color:#8A9BB0}
+.hm-help-btn{height:40px;padding:0;border:0;background:none;color:#C9D6E3;font-size:13px;display:inline-flex;align-items:center;gap:8px;text-decoration:underline;text-underline-offset:3px}
+.hm-help-btn:hover{color:#E8F6FF}
+.hm-help-btn svg{transition:transform .18s ease-out}
+.hm-help-btn[data-panel-open] svg{transform:rotate(180deg)}
+.hm-help{display:flex;flex-direction:column;gap:12px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid #223140}
+.hm-help ol{margin:0;padding-left:20px;font-size:13px;line-height:20px;color:#C9D6E3;display:flex;flex-direction:column;gap:4px}
+.hm-help ol strong{color:#F2FBFF;font-weight:600}
+.hm-help p{margin:0;font-size:12px;line-height:18px;color:#8A9BB0}
+.hm-urlbar{display:block;width:100%;height:auto}
+.hm-form-actions{display:flex;flex-direction:column;gap:10px}
+.hm-form-actions .hm-btn-p{height:48px;font-size:15px}
+.hm-cancel{height:40px;border:0;background:none;color:#C9D6E3;font-size:14px;text-decoration:underline;text-underline-offset:3px}
+.hm-cancel:hover{color:#E8F6FF}
+
+/* ---- the /chat placeholder -------------------------------------------------------------------------------------------- */
+.hm-chat{max-width:720px;margin:0 auto;padding:0 24px 48px;display:flex;flex-direction:column;gap:20px}
+.hm-chat .hm-glass{padding:24px;display:flex;flex-direction:column;gap:12px}
+.hm-chat dl{margin:0;display:grid;grid-template-columns:140px 1fr;gap:10px 16px;font-size:14px}
+.hm-chat dt{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;letter-spacing:.14em;color:#8A9BB0;text-transform:uppercase;padding-top:3px}
+.hm-chat dd{margin:0;color:#E8F6FF;min-width:0;overflow-wrap:anywhere}
+
+/* ---- reduced motion ------------------------------------------------------------------------------------------------------ */
+@media (prefers-reduced-motion:reduce){
+.hm-pulse,.hm-menu-in,.hm-skel,.hm-team[data-new="true"],.hm-spin{animation:none}
+.hm-skel{opacity:.7}
+}
+
+/* ---- narrow (<= 980px): the mobile reference ---------------------------------------------------------------------------- */
+@media (max-width:980px){
+.hm-photo{height:auto;width:min(390px,100%);-webkit-mask-image:linear-gradient(to bottom,#000 35%,transparent 92%);mask-image:linear-gradient(to bottom,#000 35%,transparent 92%);-webkit-mask-composite:source-over;mask-composite:add}
+.hm-glow{background:radial-gradient(70% 18% at 20% 4%,rgba(59,232,255,.12),rgba(4,7,12,0) 70%)}
+.hm-grid{display:none}
+.hm-col{padding:0 16px 24px;gap:20px}
+.hm-hdr{height:64px}
+.hm-brand{gap:8px}
+.hm-brand img{width:24px;height:24px}
+.hm-brand span{font-size:16px}
+.hm-hdr .hm-pill{display:none}
+.hm-acct{width:44px;height:44px;padding:0;border:0;border-radius:50%;background:linear-gradient(135deg,#3BE8FF,#2398AE);color:#021016;justify-content:center}
+.hm-acct .hm-avatar{width:44px;height:44px;font-size:14px;background:none}
+.hm-acct svg{display:none}
+.hm-band{height:150px}
+.hm-pill-band{display:flex;height:44px;padding:0 14px;gap:10px;background:rgba(8,15,24,.8)}
+.hm-pill-band .hm-when{flex-grow:1}
+.hm-greet{min-height:0;display:block;text-align:left;padding-top:4px}
+.hm-greet > div{max-width:none;align-items:flex-start;gap:8px}
+.hm-greet h1{font-size:32px;line-height:36px;letter-spacing:-.035em}
+.hm-greet h1 br{display:none}
+.hm-greet p{font-size:15px;line-height:22px}
+.hm-teams{grid-template-columns:repeat(1,minmax(0,1fr))}
+.hm-team{padding:18px;gap:14px}
+.hm-team-top{height:auto}
+.hm-idchip{height:44px;padding:0 10px 0 12px;border-radius:10px;font-size:14px}
+.hm-team-names p{font-size:14px}
+.hm-stats{gap:8px;padding:12px 0}
+.hm-stat dd{margin-top:4px}
+.hm-fresh-line{font-size:13px}
+.hm-btn-t{height:44px;padding:0 4px;font-size:13px}
+.hm-btn-p,.hm-btn-s{height:48px;font-size:15px}
+.hm-btn-o{height:48px;width:100%;justify-content:center;font-size:15px}
+.hm-add{min-height:88px;height:auto;flex-direction:row;align-items:center;gap:14px;padding:16px 18px;text-align:left}
+.hm-add-plus{width:44px;height:44px}
+.hm-add-text{flex-grow:1;display:flex;flex-direction:column;gap:4px}
+.hm-add-title{font-size:16px}
+.hm-add-sub br{display:none}
+.hm-add-slots{font-size:10.5px}
+.hm-lower{grid-template-columns:repeat(1,minmax(0,1fr))}
+.hm-lower > *{grid-column:auto}
+.hm-gen{padding:18px;gap:16px}
+.hm-gen-icon{width:44px;height:44px}
+.hm-gen-head h2{font-size:18px}
+.hm-gen-head p{font-size:13px;line-height:19px}
+.hm-gen-cta{order:1;margin-top:0}
+.hm-try{order:2}
+.hm-chips{display:flex;flex-wrap:wrap;gap:8px}
+.hm-chip{padding:0 14px}
+.hm-chip svg{display:none}
+.hm-recent{padding:16px 8px 8px;gap:2px}
+.hm-recent-head{padding:0 10px 8px}
+.hm-row{padding:12px 10px;min-height:60px}
+.hm-row-icon{display:none}
+.hm-row-title{font-size:15px}
+.hm-choices{grid-template-columns:repeat(1,minmax(0,1fr))}
+.hm-choice{min-height:0;padding:22px}
+.hm-foot{justify-content:center;gap:24px;padding:8px 0}
+.hm-chat dl{grid-template-columns:1fr}
+}

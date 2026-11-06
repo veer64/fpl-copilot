@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createTestUser, deleteUser, findTestUsers, testEmail } from "./clerk-users";
 
-/** Prompt W1 Part 5: the email-code sign-in end to end (A3) -- a +clerk_test user, the code 424242, /teams, and GET /me
+/** Prompt W1 Part 5: the email-code sign-in end to end (A3) -- a +clerk_test user, the code 424242, /home (W3), and GET /me
  *  on the laptop backend with the browser's session token (azp) -- the wrong-code state (A4), and the sign-up fallback for
  *  a new email. Desktop project only; the backend must be running in clerk mode (see README). */
 
@@ -63,19 +63,22 @@ test("A4: a wrong code shows the error, announces it, clears the slots and refoc
   await expect(otp).toHaveAttribute("aria-invalid", "true");
 });
 
-test("A3: email code 424242 reaches /teams and GET /me answers 200 with the browser token", async ({ page }) => {
+test("A3: email code 424242 reaches /home and GET /me answers 200 with the browser token", async ({ page }) => {
   test.skip(test.info().project.name !== "desktop", "one browser is enough for the Clerk flows");
   await toLogin(page);
   await sendCode(page, testEmail(NAMES.existing));
   await page.getByTestId("otp").fill("424242");
-  await page.waitForURL("**/teams", { timeout: 20_000 });
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Signed in as w***@e***");
-  await expect(page.getByTestId("me-status")).toHaveText("200", { timeout: 20_000 });
-  const me = JSON.parse((await page.getByTestId("me-json").textContent()) ?? "{}") as { user_id?: number; is_admin?: boolean };
+  await page.waitForURL("**/home", { timeout: 20_000 }); // Prompt W3: the post-login page is /home
+  await expect(page.getByTestId("home")).toHaveAttribute("data-state", /new|returning/, { timeout: 30_000 });
+  const t = await page.evaluate(() => (window as unknown as { Clerk: { session: { getToken: () => Promise<string> } } }).Clerk.session.getToken());
+  const r = await page.request.get(`${process.env.W3_API_BASE ?? "http://localhost:8000"}/me`, { headers: { Authorization: `Bearer ${t}` } });
+  expect(r.status()).toBe(200);
+  const me = (await r.json()) as { user_id?: number; is_admin?: boolean };
   expect(typeof me.user_id).toBe("number");
   expect(typeof me.is_admin).toBe("boolean");
   console.log(`A3 /me -> 200, user_id=${me.user_id}, is_admin=${me.is_admin}`);
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.getByTestId("account-menu").click();
+  await page.getByTestId("sign-out").click();
   await page.waitForURL("**/login**", { timeout: 15_000 });
 });
 
@@ -85,12 +88,13 @@ test("sign-up fallback: a new +clerk_test email gets a code; the outcome after 4
   await sendCode(page, testEmail(NAMES.fresh));
   await page.getByTestId("otp").fill("424242");
   const outcome = await Promise.race([
-    page.waitForURL("**/teams", { timeout: 20_000 }).then(() => "teams"),
+    page.waitForURL("**/home", { timeout: 20_000 }).then(() => "home"),
     page.getByTestId("code-error").waitFor({ timeout: 20_000 }).then(async () => `error: ${await page.getByTestId("code-error").textContent()}`),
   ]);
   console.log(`sign-up fallback outcome: ${outcome}`);
-  if (outcome === "teams") {
-    await page.getByRole("button", { name: "Sign out" }).click();
+  if (outcome === "home") {
+    await page.getByTestId("account-menu").click();
+    await page.getByTestId("sign-out").click();
     await page.waitForURL("**/login**", { timeout: 15_000 });
   }
 });
