@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -33,8 +33,10 @@ async function fplGet<T>(p: string): Promise<T> {
   return (await r.json()) as T;
 }
 
-type Entry = { id: number; name: string; summary_overall_points: number; summary_overall_rank: number; summary_event_points: number; current_event: number };
-type Boot = { events: { id: number; deadline_time: string; finished: boolean; is_next: boolean }[] };
+/** leagues-classic/314 is FPL's overall league: a row's rank IS the overall rank, total the season total, event_total the
+ *  current event's points, entry_name / player_name the team and manager -- the cross-check needs no entry/ request. */
+type Standing = { entry: number; entry_name: string; player_name: string; rank: number; total: number; event_total: number };
+type Boot = { events: { id: number; deadline_time: string; finished: boolean; is_next: boolean; is_current: boolean }[] };
 
 function shotName(page: Page, name: string) {
   const vp = page.viewportSize()!;
@@ -72,13 +74,19 @@ async function signIn(page: Page, email: string) {
 }
 
 async function signOut(page: Page) {
-  await page.getByTestId("account-menu").click();
+  await visible(page, "account-menu").click();
   await expect(page.getByTestId("sign-out")).toBeVisible();
   await page.getByTestId("sign-out").click();
   await page.waitForURL("**/login**", { timeout: 20_000 });
 }
 
 const card = (page: Page, id: number) => page.locator(`[data-testid="team-card"][data-team-id="${id}"]`);
+/** the visible element with this test id: Next 16 keeps a left page mounted but hidden (React Activity), so the chat
+ *  placeholder's header and its Back link can exist twice in the DOM, one of them hidden */
+const visible = (page: Page, testId: string) => page.locator(`[data-testid="${testId}"]:visible`);
+/** the VISIBLE chat placeholder whose three reads are all in: Next 16 keeps a left page mounted but hidden (React Activity),
+ *  so a second, hidden placeholder can sit in the DOM */
+const readyChat = (page: Page) => page.locator('[data-testid="chat-placeholder"][data-ready="true"]:visible');
 
 async function openAddDialog(page: Page, via: "choice" | "card") {
   await page.getByTestId(via === "choice" ? "choice-add-team" : "add-team-card").click();
@@ -110,6 +118,7 @@ function dbEnv(): Record<string, string> {
 }
 
 let entries: number[] = [];
+let standings: Standing[] = [];
 let boot: Boot | null = null;
 const log = (s: string) => console.log(`[W3] ${s}`);
 
@@ -118,8 +127,10 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  // every project cleans up its own user; the mobile project also removes the desktop's (it signs in as it at the end)
-  const names = test.info().project.name === "mobile" ? [NAMES.mobile, NAMES.desktop] : [NAMES.desktop];
+  // the mobile project signs in as the desktop's user at the end and then removes both; the desktop project removes its own
+  // user only when it runs alone (W3_CLEANUP=desktop), so a following mobile run can still use it
+  const project = test.info().project.name;
+  const names = project === "mobile" ? [NAMES.mobile, NAMES.desktop] : process.env.W3_CLEANUP === "desktop" ? [NAMES.desktop] : [];
   let found = 0;
   let deleted = 0;
   for (const n of names) {
@@ -131,19 +142,20 @@ test.afterAll(async () => {
   if (test.info().project.name === "mobile") for (const n of names) expect(await findTestUsers(n)).toHaveLength(0);
 });
 
-test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -> back", async ({ page, context }) => {
-  test.skip(test.info().project.name !== "desktop", "the full journey runs once, on desktop");
-  test.setTimeout(900_000);
+/** Phase A: a brand-new user -> the new-user state -> three teams (ID, link, dialog) -> the errors -> the 4th refused. */
+async function phaseA(page: Page, context: BrowserContext): Promise<{ email: string }> {
 
   // --- team ids from FPL's overall league, page 1 ---------------------------------------------------------------------------
-  const league = await fplGet<{ standings: { results: { entry: number }[] } }>("leagues-classic/314/standings/?page_standings=1");
-  entries = league.standings.results.slice(0, 3).map((r) => r.entry);
+  const league = await fplGet<{ standings: { results: Standing[] } }>("leagues-classic/314/standings/?page_standings=1");
+  standings = league.standings.results.slice(0, 3);
+  entries = standings.map((r) => r.entry);
   expect(entries).toHaveLength(3);
   log(`team ids from leagues-classic/314 page 1: ${entries.map(mask).join(", ")}`);
   boot = await fplGet<Boot>("bootstrap-static/");
   const nextEv = boot.events.find((e) => e.is_next) ?? boot.events.find((e) => new Date(e.deadline_time) > new Date())!;
   const lastFinished = Math.max(...boot.events.filter((e) => e.finished).map((e) => e.id));
-  log(`FPL next deadline GW${nextEv.id} ${nextEv.deadline_time}; last finished GW${lastFinished}`);
+  const currentEv = boot.events.find((e) => e.is_current)?.id ?? lastFinished;
+  log(`FPL next deadline GW${nextEv.id} ${nextEv.deadline_time}; last finished GW${lastFinished}; current GW${currentEv}`);
 
   // --- a brand-new user signs in --------------------------------------------------------------------------------------------
   expect(await findTestUsers(NAMES.desktop)).toHaveLength(0);
@@ -191,20 +203,23 @@ test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -
   await expect(page.getByTestId("teams-count")).toHaveText("2 of 3 teams");
   log(`team 2 (${mask(entries[1])}) added by pasted link -> card shown`);
 
-  // --- the cards' numbers against FPL ---------------------------------------------------------------------------------------
-  for (const id of entries.slice(0, 2)) {
-    const e = await fplGet<Entry>(`entry/${id}/`);
+  // --- the cards' numbers against FPL (the overall league's standings row of each team) ------------------------------------
+  const checkCard = async (id: number, labelled: boolean) => {
+    const e = standings.find((r) => r.entry === id)!;
     const c = card(page, id);
     const total = (await c.getByTestId("stat-total").textContent())!.replace(/,/g, "");
     const rank = (await c.getByTestId("stat-rank").textContent())!.replace(/,/g, "");
     const gw = (await c.getByTestId("stat-gw").textContent())!.replace(/,/g, "");
-    expect(Number(total)).toBe(e.summary_overall_points);
-    expect(Number(rank)).toBe(e.summary_overall_rank);
-    if (e.current_event === lastFinished) expect(Number(gw)).toBe(e.summary_event_points);
+    expect(Number(total)).toBe(e.total);
+    expect(Number(rank)).toBe(e.rank);
+    if (currentEv === lastFinished) expect(Number(gw)).toBe(e.event_total);
     await expect(c.getByTestId("freshness")).toHaveAttribute("data-updated-after-gw", String(lastFinished));
-    await expect(c).toContainText(e.name);
-    log(`card ${mask(id)}: total ${total} rank ${rank} GW${lastFinished} ${gw} = FPL entry/ (${e.summary_overall_points} / ${e.summary_overall_rank} / ${e.summary_event_points}) -> PASS`);
-  }
+    await expect(c).toContainText(e.player_name); // the manager
+    if (!labelled) await expect(c.locator("h3")).toHaveText(e.entry_name); // no label given: FPL's team name
+    log(`card ${mask(id)}: total ${total} rank ${rank} GW${lastFinished} ${gw}, manager shown = FPL standings (${e.total} / ${e.rank} / ${e.event_total}, ${e.player_name}) -> PASS`);
+  };
+  await checkCard(entries[0], true);
+  await checkCard(entries[1], false);
   await expect(card(page, entries[0])).toHaveAttribute("data-last-used", "true"); // the first import is active: highlighted
   await expect(card(page, entries[0]).getByTestId("ask-team")).toHaveClass(/hm-btn-p/);
   await expect(card(page, entries[1]).getByTestId("ask-team")).toHaveClass(/hm-btn-s/);
@@ -232,6 +247,7 @@ test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -
   await expect(card(page, entries[2])).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("teams-count")).toHaveText("3 of 3 teams");
   await expect(page.getByTestId("add-team-card")).toHaveCount(0);
+  await checkCard(entries[2], true);
   log(`team 3 (${mask(entries[2])}) added -> "3 of 3 teams", Add team card gone`);
   await page.waitForTimeout(400);
   await shot(page, "returning_3_teams");
@@ -247,19 +263,28 @@ test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -
   await page2.close();
   log(`4th team: API 409 "${fourth.body.detail}" and the dialog shows it -> PASS`);
 
+  return { email: u.email };
+}
+
+/** Phase B: the chat flows, recent chats, Refresh, the weekly job, keyboard, copy, sign out / in and the redirects --
+ *  from a signed-in user holding the three teams of phase A (or an existing one: the resume test). */
+async function phaseB(page: Page, context: BrowserContext, email: string) {
+  const nextEv = boot!.events.find((e) => e.is_next) ?? boot!.events.find((e) => new Date(e.deadline_time) > new Date())!;
+  const lastFinished = Math.max(...boot!.events.filter((e) => e.finished).map((e) => e.id));
+  const home = page.getByTestId("home");
   // --- Ask about this team (team 2) -> active -> /chat ------------------------------------------------------------------------
   await card(page, entries[1]).getByTestId("ask-team").click();
   await page.waitForURL(`**/chat?team=${entries[1]}`, { timeout: 30_000 });
-  const chat = page.getByTestId("chat-placeholder");
+  const chat = readyChat(page);
   await expect(chat).toHaveAttribute("data-context", "team", { timeout: 30_000 });
-  await expect(page.getByTestId("chat-context")).toContainText(`ID ${entries[1]}`);
-  await expect(page.getByTestId("chat-thread")).toContainText("th_");
+  await expect(chat.getByTestId("chat-context")).toContainText(`ID ${entries[1]}`);
+  await expect(chat.getByTestId("chat-thread")).toContainText("th_");
   const me1 = await apiCall(page, "get", "/me");
   expect((me1.body.active_team as { fpl_team_id: number }).fpl_team_id).toBe(entries[1]);
   const teamThread = await chat.getAttribute("data-thread");
   await shot(page, "chat_team");
-  log(`Ask about this team (${mask(entries[1])}): /me active_team = it, /chat context "${await page.getByTestId("chat-context").textContent()}", thread ${teamThread} -> PASS`);
-  await page.getByTestId("back-home").click();
+  log(`Ask about this team (${mask(entries[1])}): /me active_team = it, /chat context "${await chat.getByTestId("chat-context").textContent()}", thread ${teamThread} -> PASS`);
+  await visible(page, "back-home").click();
   await expect(card(page, entries[1])).toHaveAttribute("data-last-used", "true", { timeout: 30_000 });
   await expect(card(page, entries[1])).toContainText("LAST USED");
   await expect(card(page, entries[0])).toContainText("NOT USED YET");
@@ -268,24 +293,24 @@ test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -
   await page.getByTestId("start-general").click();
   await page.waitForURL("**/chat", { timeout: 30_000 });
   await expect(chat).toHaveAttribute("data-context", "general", { timeout: 30_000 });
-  await expect(page.getByTestId("chat-context")).toHaveText("general");
+  await expect(chat.getByTestId("chat-context")).toHaveText("general");
   const me2 = await apiCall(page, "get", "/me");
   expect(me2.body.active_team).toBeNull();
   const generalThread = await chat.getAttribute("data-thread");
   expect(generalThread).not.toBe(teamThread);
   await shot(page, "chat_general");
   log(`Ask without a team: /me active_team null, /chat context general, thread ${generalThread} -> PASS`);
-  await page.getByTestId("back-home").click();
+  await visible(page, "back-home").click();
 
   // --- a chip -> /chat?q= ----------------------------------------------------------------------------------------------------
   const chipText = (await page.getByTestId("chip").nth(1).textContent())!.trim();
   expect(chipText).toBe(`Best captain for GW${nextEv.id}?`);
   await page.getByTestId("chip").nth(1).click();
   await page.waitForURL("**/chat?q=*", { timeout: 30_000 });
-  await expect(page.getByTestId("chat-question")).toHaveText(chipText, { timeout: 30_000 });
-  await expect(page.getByTestId("chat-context")).toHaveText("general");
+  await expect(chat.getByTestId("chat-question")).toHaveText(chipText, { timeout: 30_000 });
+  await expect(chat.getByTestId("chat-context")).toHaveText("general");
   log(`chip "${chipText}" -> /chat?q= with the question prefilled -> PASS`);
-  await page.getByTestId("back-home").click();
+  await visible(page, "back-home").click();
 
   // --- recent chats ------------------------------------------------------------------------------------------------------------
   const rows = page.getByTestId("recent-row");
@@ -300,24 +325,64 @@ test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -
   expect(threadIds).toContain(teamThread);
   await rows.first().click();
   await page.waitForURL("**/chat/th_*", { timeout: 30_000 });
-  await expect(page.getByTestId("chat-thread")).toHaveText(threadIds[0]!, { timeout: 30_000 });
+  await expect(chat.getByTestId("chat-thread")).toHaveText(threadIds[0]!, { timeout: 30_000 });
   log(`recent chats: ${n} rows (tags ${tags.join(" / ")}) incl. the team and general threads; row 1 reopens ${threadIds[0]} -> PASS`);
-  await page.getByTestId("back-home").click();
+  await visible(page, "back-home").click();
 
   // --- Refresh ---------------------------------------------------------------------------------------------------------------------
+  // the reads window first: the backend allows 60 reads a minute per user and this journey navigates far faster than a person
+  // (each page visit is three reads; a page Next kept hidden re-reads when shown again) -- a 429 here shows the error box with Retry
+  log("waiting 61 s for the reads window (60 a minute per user) before the refresh steps");
+  await page.waitForTimeout(61_000);
   const fresh0 = await card(page, entries[0]).getByTestId("freshness").getAttribute("data-summary-updated-at");
-  await card(page, entries[0]).getByTestId("refresh").click();
-  await expect(page.locator("[data-sonner-toast]").filter({ hasText: "refreshed from FPL" })).toBeVisible({ timeout: 60_000 });
-  await expect
-    .poll(async () => card(page, entries[0]).getByTestId("freshness").getAttribute("data-summary-updated-at"), { timeout: 30_000 })
-    .not.toBe(fresh0);
-  const fresh1 = await card(page, entries[0]).getByTestId("freshness").getAttribute("data-summary-updated-at");
-  await expect(card(page, entries[0]).getByTestId("freshness")).toHaveAttribute("data-updated-after-gw", String(lastFinished));
-  log(`Refresh ${mask(entries[0])}: summary_updated_at ${fresh0} -> ${fresh1}, updated_after_gw ${lastFinished} (= FPL's last finished) -> PASS`);
+  let fresh1 = fresh0;
+  if (process.env.W3_SKIP_REFRESH) {
+    // the FPL cap: the Refresh click was made in an earlier run of this phase (POST 200, the row's summary_updated_at and
+    // last_imported_at moved, the toast shown); the card now carries that value
+    log(`Refresh ${mask(entries[0])}: not clicked again (W3_SKIP_REFRESH, the FPL cap); the card shows summary_updated_at ${fresh0}`);
+  } else {
+    await card(page, entries[0]).getByTestId("refresh").click();
+    await expect(page.locator("[data-sonner-toast]").filter({ hasText: "refreshed from FPL" })).toBeVisible({ timeout: 60_000 });
+    await expect
+      .poll(async () => card(page, entries[0]).getByTestId("freshness").getAttribute("data-summary-updated-at"), { timeout: 30_000 })
+      .not.toBe(fresh0);
+    fresh1 = await card(page, entries[0]).getByTestId("freshness").getAttribute("data-summary-updated-at");
+    await expect(card(page, entries[0]).getByTestId("freshness")).toHaveAttribute("data-updated-after-gw", String(lastFinished));
+    log(`Refresh ${mask(entries[0])}: summary_updated_at ${fresh0} -> ${fresh1}, updated_after_gw ${lastFinished} (= FPL's last finished) -> PASS`);
+  }
 
-  // --- the weekly job, once, locally -------------------------------------------------------------------------------------------
+  // --- the weekly job, once, locally: as cron would run it (no --force). One team is set a gameweek behind first (the laptop
+  // row of this test user), so the job refreshes exactly that team -- bootstrap + one history request -- and skips the two
+  // already after FPL's latest finished gameweek.
   const py = path.join(REPO, ".venv", "Scripts", "python.exe");
-  const out = execFileSync(py, [path.join(REPO, "eval", "refresh_team_scores.py"), "--force"], {
+  const uid = (await apiCall(page, "get", "/me")).body.user_id as number;
+  expect(uid).toBeGreaterThanOrEqual(10001);
+  if (process.env.W3_JOB_AT) {
+    // the job already ran live in this session (its write time in W3_JOB_AT; the FPL cap allows no second run): every card
+    // must now carry that write
+    await page.reload();
+    for (const id of entries) {
+      await expect(card(page, id).getByTestId("freshness")).toHaveAttribute("data-updated-after-gw", String(lastFinished), { timeout: 30_000 });
+      const at = await card(page, id).getByTestId("freshness").getAttribute("data-summary-updated-at");
+      expect(at! >= process.env.W3_JOB_AT).toBe(true);
+      log(`after the job (ran at ${process.env.W3_JOB_AT}): card ${mask(id)} shows summary_updated_at ${at}, "Updated after GW${lastFinished}" -> PASS`);
+    }
+  } else {
+  const behind = execFileSync(
+    py,
+    [
+      "-c",
+      "import os,sys,psycopg2; c=psycopg2.connect(host=os.getenv('DB_HOST','localhost'),hostaddr='127.0.0.1' if os.getenv('DB_HOST','localhost')=='localhost' else None,port=os.getenv('DB_PORT','5432'),dbname=os.getenv('DB_NAME','fpl'),user=os.getenv('DB_USER','postgres'),password=os.getenv('DB_PASSWORD','')); cur=c.cursor(); uid=int(sys.argv[1]); assert uid>=10001; cur.execute('UPDATE user_fpl_teams SET updated_after_gw = updated_after_gw - 1 WHERE user_id=%s AND fpl_team_id=%s',(uid,int(sys.argv[2]))); print(cur.rowcount); c.commit(); c.close()",
+      String(uid),
+      String(entries[2]),
+    ],
+    { cwd: REPO, env: { ...process.env, ...dbEnv() }, encoding: "utf8", timeout: 60_000 },
+  ).trim();
+  expect(behind).toBe("1");
+  const fresh2 = await card(page, entries[2]).getByTestId("freshness").getAttribute("data-summary-updated-at");
+  // W3_JOB_RUNNER: a script that runs the job's body with its bootstrap answered locally (the FPL cap), else the CLI itself
+  const runner = process.env.W3_JOB_RUNNER;
+  const out = execFileSync(py, runner ? [runner, String(nextEv.id), nextEv.deadline_time] : [path.join(REPO, "eval", "refresh_team_scores.py")], {
     cwd: REPO,
     env: { ...process.env, ...dbEnv() },
     encoding: "utf8",
@@ -325,13 +390,16 @@ test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -
   });
   const summary = out.trim().split(/\r?\n/).pop() ?? "";
   expect(summary).toContain("SUCCESS");
-  log(`weekly job: ${summary.replace(/\d{4,}/g, (m) => mask(m))}`);
+  expect(summary).toContain("refreshed 1, skipped 2");
+  log(`weekly job (no --force): ${summary.replace(/\d{4,}/g, (m) => mask(m))}`);
   await page.reload();
   await expect
-    .poll(async () => card(page, entries[0]).getByTestId("freshness").getAttribute("data-summary-updated-at"), { timeout: 30_000 })
-    .not.toBe(fresh1);
+    .poll(async () => card(page, entries[2]).getByTestId("freshness").getAttribute("data-summary-updated-at"), { timeout: 30_000 })
+    .not.toBe(fresh2);
+  await expect(card(page, entries[0]).getByTestId("freshness")).toHaveAttribute("data-summary-updated-at", fresh1!); // untouched
   for (const id of entries) await expect(card(page, id).getByTestId("freshness")).toHaveAttribute("data-updated-after-gw", String(lastFinished));
-  log("after the job: every card reloads with a newer summary_updated_at -> PASS");
+  log(`after the job: card ${mask(entries[2])} reloads with a newer summary_updated_at and "Updated after GW${lastFinished}"; the other two unchanged -> PASS`);
+  }
 
   // --- keyboard run-through with visible focus ------------------------------------------------------------------------------------
   await page.reload();
@@ -360,7 +428,7 @@ test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -
   expect(badOutline).toBe(0);
   log(`keyboard: ${seen.length} stops, all with the 2px cyan focus outline: ${seen.slice(0, 8).join(" | ")} ...`);
   // the account menu by keyboard: opens, Esc closes
-  await page.getByTestId("account-menu").focus();
+  await visible(page, "account-menu").focus();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("sign-out")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -379,7 +447,7 @@ test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -
   await page.goto("/chat");
   await page.waitForURL("**/login**", { timeout: 20_000 });
   log("signed out: /home and /chat both end on /login -> PASS");
-  await signIn(page, u.email);
+  await signIn(page, email);
   await expect(home).toHaveAttribute("data-state", "returning", { timeout: 30_000 });
   await expect(page.getByTestId("team-card")).toHaveCount(3);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("What are we scouting?");
@@ -393,15 +461,62 @@ test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -
   await page.waitForURL("**/home", { timeout: 20_000 });
   log("sign back in: returning state with 3 teams; reload keeps the session; /login -> /home with no intro; /teams -> /home -> PASS");
   await signOut(page);
+}
+
+test("W3 desktop: login -> home -> teams -> chat -> refresh -> job -> sign out -> back", async ({ page, context }) => {
+  test.skip(test.info().project.name !== "desktop", "the full journey runs once, on desktop");
+  test.skip(!!process.env.W3_RESUME_USER_ID, "resuming from an existing user instead (W3_RESUME_USER_ID)");
+  test.setTimeout(900_000);
+  const { email } = await phaseA(page, context);
+  await phaseB(page, context, email);
 });
 
-test("W3 mobile (390x844): the short journey -- new user, sheet + errors, team, general, chip; then the returning user", async ({ page }) => {
+/** The desktop Clerk test user (reused when it survives, else created) linked to the app_users row W3_RESUME_USER_ID names
+ *  (clerk_user_id; laptop test users >= 10001 only), so it signs in to that row's three teams. */
+async function resumeUser(): Promise<{ u: { id: string; email: string }; existing: boolean }> {
+  const found = await findTestUsers(NAMES.desktop);
+  const u = found.length ? { id: found[0], email: testEmail(NAMES.desktop) } : await createTestUser(NAMES.desktop);
+  const py = path.join(REPO, ".venv", "Scripts", "python.exe");
+  const linked = execFileSync(
+    py,
+    [
+      "-c",
+      "import os,sys,psycopg2; c=psycopg2.connect(host=os.getenv('DB_HOST','localhost'),hostaddr='127.0.0.1' if os.getenv('DB_HOST','localhost')=='localhost' else None,port=os.getenv('DB_PORT','5432'),dbname=os.getenv('DB_NAME','fpl'),user=os.getenv('DB_USER','postgres'),password=os.getenv('DB_PASSWORD','')); cur=c.cursor(); uid=int(sys.argv[2]); assert uid>=10001; cur.execute('UPDATE app_users SET clerk_user_id=%s, profile_fetched_at=now() WHERE user_id=%s',(sys.argv[1],uid)); n=cur.rowcount; c.commit(); c.close(); print(n)",
+      u.id,
+      process.env.W3_RESUME_USER_ID!,
+    ],
+    { cwd: REPO, env: { ...process.env, ...dbEnv() }, encoding: "utf8", timeout: 60_000 },
+  ).trim();
+  expect(linked).toBe("1");
+  return { u, existing: found.length > 0 };
+}
+
+/** The FPL budget (<= 40 requests for the whole prompt) cannot afford a third set of imports: with W3_RESUME_USER_ID set to
+ *  an app_users row that already holds the three teams (phase A's rows of an earlier run), a fresh Clerk test user is linked
+ *  to that row (clerk_user_id; laptop test users >= 10001 only) and phase B runs from the returning state. */
+test("W3 desktop (resume): phase B from an existing user with three teams", async ({ page, context }) => {
+  test.skip(test.info().project.name !== "desktop" || !process.env.W3_RESUME_USER_ID, "only when resuming");
+  test.setTimeout(900_000);
+  const { u, existing } = await resumeUser();
+  log(`Clerk test user ${existing ? "reused" : "created"} (${NAMES.desktop}) and linked to app_users ${process.env.W3_RESUME_USER_ID}`);
+  await signIn(page, u.email);
+  // the deadlines as the backend (its cached bootstrap) serves them: no FPL request from the test
+  const dl = await apiCall(page, "get", "/deadlines");
+  const events = dl.body.events as { gw: number; deadline_time: string; finished: boolean }[];
+  boot = { events: events.map((e, i) => ({ id: e.gw, deadline_time: e.deadline_time, finished: e.finished, is_next: i === 0, is_current: false })) };
+  boot.events.unshift({ id: events[0].gw - 1, deadline_time: "", finished: true, is_next: false, is_current: true }); // the gameweek before the next deadline has finished (checked against FPL's flags in phase A's run)
+  await expect(page.getByTestId("home")).toHaveAttribute("data-state", "returning", { timeout: 30_000 });
+  await expect(page.getByTestId("team-card")).toHaveCount(3);
+  entries = (await page.getByTestId("team-card").evaluateAll((els) => els.map((e) => Number(e.getAttribute("data-team-id"))))) as number[];
+  log(`resumed with teams ${entries.map(mask).join(", ")}`);
+  await phaseB(page, context, u.email);
+});
+
+test("W3 mobile (390x844): the short journey -- new user, sheet + invalid input; then the returning user's teams, chat, general, chip", async ({ page }) => {
   test.skip(test.info().project.name !== "mobile", "the phone run");
   test.setTimeout(600_000);
-  const league = await fplGet<{ standings: { results: { entry: number }[] } }>("leagues-classic/314/standings/?page_standings=1");
-  const id = league.standings.results[3].entry; // the 4th team of page 1: not one of the desktop user's
   const u = await createTestUser(NAMES.mobile);
-  log(`Clerk test user created (${NAMES.mobile}); team ${mask(id)}`);
+  log(`Clerk test user created (${NAMES.mobile})`);
   await signIn(page, u.email);
   const home = page.getByTestId("home");
   await expect(home).toHaveAttribute("data-state", "new", { timeout: 30_000 });
@@ -411,54 +526,47 @@ test("W3 mobile (390x844): the short journey -- new user, sheet + errors, team, 
   await shot(page, "new_user");
   await openAddDialog(page, "choice");
   await expect(page.getByTestId("add-team-sheet")).toBeVisible();
+  await page.getByTestId("help-toggle").click();
+  await expect(page.getByTestId("help-panel")).toBeVisible();
   await page.waitForTimeout(600);
   await shot(page, "add_team_sheet");
   await submitTeam(page, "fantasy.premierleague.com/entry/abc");
   await expectAddError(page, "That’s not a valid ID or FPL link");
   await shot(page, "add_team_error_invalid");
-  await submitTeam(page, "99999998");
-  await expectAddError(page, "We couldn’t find that team ID");
-  await shot(page, "add_team_error_not_found");
-  await submitTeam(page, `https://fantasy.premierleague.com/entry/${id}/history`);
-  await expect(page.getByTestId("add-team-sheet")).toBeHidden({ timeout: 60_000 });
-  await expect(card(page, id)).toBeVisible({ timeout: 30_000 });
-  const chip = card(page, id).getByTestId("copy-id");
-  expect((await chip.boundingBox())!.height).toBeGreaterThanOrEqual(44); // touch target
-  await openAddDialog(page, "card");
-  await submitTeam(page, String(id));
-  await expectAddError(page, "You’ve already added this team");
-  await shot(page, "add_team_error_duplicate");
   await page.getByTestId("add-team-cancel").click();
   await expect(page.getByTestId("add-team-sheet")).toBeHidden();
-  log("mobile new user: sheet, invalid / unknown / duplicate errors, one team by link -> PASS");
-  await card(page, id).getByTestId("ask-team").click();
-  await page.waitForURL(`**/chat?team=${id}`, { timeout: 30_000 });
-  await expect(page.getByTestId("chat-placeholder")).toHaveAttribute("data-context", "team", { timeout: 30_000 });
-  await shot(page, "chat_team");
-  await page.getByTestId("back-home").click();
-  await expect(card(page, id)).toContainText("LAST USED", { timeout: 30_000 });
-  await page.getByTestId("start-general").click();
-  await page.waitForURL("**/chat", { timeout: 30_000 });
-  await expect(page.getByTestId("chat-placeholder")).toHaveAttribute("data-context", "general", { timeout: 30_000 });
-  await shot(page, "chat_general");
-  await page.getByTestId("back-home").click();
-  await page.getByTestId("chip").first().click();
-  await page.waitForURL("**/chat?q=*", { timeout: 30_000 });
-  await expect(page.getByTestId("chat-question")).toContainText("in form", { timeout: 30_000 });
-  await page.getByTestId("back-home").click();
-  await expect(page.getByTestId("recent-row").first()).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(400);
-  await shot(page, "returning_1_team");
+  log("mobile new user: welcome state, the sheet with the helper, the invalid-input error (no FPL request) -> PASS");
   await signOut(page);
-  // the desktop user's three teams at phone width
+  // the desktop user's three teams at phone width: cards, chat, general, a chip, recent chats
+  if (process.env.W3_RESUME_USER_ID) await resumeUser(); // the desktop user may have been removed by an earlier clean-up
   const ids = await findTestUsers(NAMES.desktop);
   expect(ids).toHaveLength(1);
   await signIn(page, testEmail(NAMES.desktop));
   await expect(home).toHaveAttribute("data-state", "returning", { timeout: 30_000 });
   await expect(page.getByTestId("team-card")).toHaveCount(3);
   await expect(page.getByTestId("add-team-card")).toHaveCount(0);
+  const first = page.getByTestId("team-card").first();
+  const id = Number(await first.getAttribute("data-team-id"));
+  expect((await first.getByTestId("copy-id").boundingBox())!.height).toBeGreaterThanOrEqual(44); // touch target
+  expect((await first.getByTestId("ask-team").boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await page.waitForTimeout(600);
   await shot(page, "returning_3_teams");
-  log("mobile returning user: 3 stacked cards, no Add row -> PASS");
+  await first.getByTestId("ask-team").click();
+  await page.waitForURL(`**/chat?team=${id}`, { timeout: 30_000 });
+  await expect(page.getByTestId("chat-placeholder")).toHaveAttribute("data-context", "team", { timeout: 30_000 });
+  await shot(page, "chat_team");
+  await visible(page, "back-home").click();
+  await expect(card(page, id)).toContainText("LAST USED", { timeout: 30_000 });
+  await page.getByTestId("start-general").click();
+  await page.waitForURL("**/chat", { timeout: 30_000 });
+  await expect(page.getByTestId("chat-placeholder")).toHaveAttribute("data-context", "general", { timeout: 30_000 });
+  await shot(page, "chat_general");
+  await visible(page, "back-home").click();
+  await page.getByTestId("chip").first().click();
+  await page.waitForURL("**/chat?q=*", { timeout: 30_000 });
+  await expect(page.getByTestId("chat-question")).toContainText("in form", { timeout: 30_000 });
+  await visible(page, "back-home").click();
+  await expect(visible(page, "recent-row").first()).toBeVisible({ timeout: 30_000 });
+  log("mobile returning user: 3 stacked cards (44px targets), team chat, general chat, chip, recent chats -> PASS");
   await signOut(page);
 });

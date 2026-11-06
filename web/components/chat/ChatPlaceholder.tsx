@@ -55,8 +55,9 @@ export function ChatPlaceholder({ team, q, chatId }: { team?: string; q?: string
           ? `${thread.thread_id} (your current default thread)`
           : "a new thread, created with your first message";
 
+  const ready = me.status === "ready" && teams.status === "ready" && threads.status === "ready";
   return (
-    <div className="hm" data-testid="chat-placeholder" data-context={contextKind} data-thread={chatId ?? thread?.thread_id ?? ""}>
+    <div className="hm" data-testid="chat-placeholder" data-context={contextKind} data-ready={ready} data-thread={chatId ?? thread?.thread_id ?? ""}>
       <div aria-hidden="true" className="hm-glow" />
       <div className="hm-col">
         <header className="hm-hdr">

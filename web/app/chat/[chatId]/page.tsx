@@ -20,5 +20,5 @@ async function Protected({ params }: { params: PageProps<"/chat/[chatId]">["para
   const { userId } = await auth();
   if (!userId) redirect("/login");
   const { chatId } = await params;
-  return <ChatPlaceholder chatId={chatId} />;
+  return <ChatPlaceholder key={chatId} chatId={chatId} />;
 }

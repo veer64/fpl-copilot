@@ -21,5 +21,8 @@ async function Protected({ searchParams }: { searchParams: PageProps<"/chat">["s
   if (!userId) redirect("/login");
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
-  return <ChatPlaceholder team={one(sp.team)} q={one(sp.q)} />;
+  const team = one(sp.team);
+  const q = one(sp.q);
+  // a new context is a new placeholder (its reads start again), even when only the search params changed
+  return <ChatPlaceholder key={`${team ?? ""}|${q ?? ""}`} team={team} q={q} />;
 }

@@ -42,11 +42,12 @@ export function usedAgoTag(iso: string | null | undefined, now: Date = new Date(
   return weeks === 1 ? "1 WEEK AGO" : `${weeks} WEEKS AGO`;
 }
 
-/** "Fri 6 Nov · 18:30" in the browser's local time. */
+/** "Fri 6 Nov · 18:30" in the browser's local time zone; the words in the brief's order (day before month) whatever the
+ *  browser's locale, the time 24-hour. */
 export function formatDeadline(iso: string): string {
   const d = new Date(iso);
-  const day = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }).replace(",", "");
-  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const day = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }).replace(",", "");
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
   return `${day} · ${time}`;
 }
 

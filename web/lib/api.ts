@@ -80,7 +80,7 @@ export async function apiFetch<T>(getToken: TokenGetter, path: string, init: Ini
   }
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...rest, headers, body });
+    res = await fetch(`${API_BASE}${path}`, { ...rest, headers, body, cache: "no-store" }); // every read is live, never the browser cache
   } catch (err) {
     throw new ApiError(0, err instanceof Error ? err.message : "network error");
   }

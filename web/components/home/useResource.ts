@@ -16,6 +16,10 @@ export function useResource<T>(load: (t: TokenGetter) => Promise<T>): [Resource<
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
     let cancelled = false;
+    // Next 16 keeps a left page mounted but hidden (React Activity) and re-runs its effects when it is shown again: the
+    // data on it is then stale until this read lands, so the page shows its skeleton rather than the old answer
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a reload that starts with the effect, by design
+    setState((s) => (s.status === "loading" ? s : { status: "loading" }));
     load(getToken)
       .then((data) => {
         if (!cancelled) setState({ status: "ready", data });
