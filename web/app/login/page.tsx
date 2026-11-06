@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Sign in" };
  *  straight to /home (no intro replay) -- the session read is request-time, so it sits behind Suspense. */
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="stage" aria-busy="true" />}>
+    <Suspense fallback={<div aria-busy="true" style={{ minHeight: "100vh", background: "#04070C" }} />}>
       <LoginOrHome />
     </Suspense>
   );
