@@ -28,6 +28,8 @@ test.beforeAll(async ({ browser }) => {
   const resume = Number(process.env.W4_RESUME_USER_ID ?? 0);
   if (resume >= 10001) {
     py(`${DB_PREFIX}cur.execute("UPDATE app_users SET clerk_user_id = %s WHERE user_id = %s AND user_id >= 10001", ("${clerkId}", ${resume})); conn.commit(); print(cur.rowcount)`);
+    // the working cap: the resumed user's day already holds the desktop runs' turns (afterAll sets NULL at the end)
+    py(`${DB_PREFIX}cur.execute("UPDATE app_users SET daily_cap_usd = 5 WHERE user_id = %s AND user_id >= 10001", (${resume},)); conn.commit(); print(cur.rowcount)`);
     log(`resumed app user ${resume}`);
   }
   if (!teamId) {
@@ -138,7 +140,7 @@ test("phone: header, drawer, team bar, pitch panel, sheet, preview pill, general
   } else {
     await expect(vis(page, "changes-pill")).toHaveText(/^\d+ CHANGES?$/);
     await expect(vis(page, "pitch-panel")).toBeVisible();
-    await expect(page.locator('[data-testid="token"][data-mark="badge-in"]:visible')).toBeVisible();
+    await expect(page.locator('[data-testid="token"][data-mark="badge-in"]:visible').first()).toBeVisible(); // one or two (an armband swap marks both green)
     await shot(page, "m06_preview_pill_panel");
     await vis(page, "chat-input").fill("t");
     await expect(page.locator('[data-testid="pitch-panel"]')).toHaveCount(0);
