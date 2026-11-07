@@ -10,12 +10,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { DeadlineEvent } from "@/lib/api";
-import { countdown, formatDeadline, initials, nextEvent } from "@/lib/time";
+import { countdown, countdownShort, formatDeadline, initials, nextEvent } from "@/lib/time";
 import type { Resource } from "./useResource";
 import { ErrorBox } from "./ErrorBox";
 
-/** The header: logo + name, the deadline pill (desktop; on narrow screens it moves below the header as a band), the
- *  account button with the dropdown (avatar, name, email, Sign out -- nothing else). */
+/** The header: logo + name, the deadline pill (desktop; on narrow screens it moves below the header as a band; the Chat
+ *  page's phone header shows the same component's `compact` variant -- Prompt W4), the account button with the dropdown
+ *  (avatar, name, email, Sign out -- nothing else). */
 
 export function Logo() {
   return (
@@ -32,11 +33,14 @@ export function DeadlinePill({
   now,
   onExpired,
   band = false,
+  compact = false,
 }: {
   deadlines: Resource<{ events: DeadlineEvent[] }>;
   now: Date | null;
   onExpired: () => void;
   band?: boolean;
+  /** the phone chip: "GW10 6h 12m" from the same data (Prompt W4) */
+  compact?: boolean;
 }) {
   const next = deadlines.status === "ready" && now ? nextEvent(deadlines.data.events, now) : null;
   const expired = deadlines.status === "ready" && now !== null && next === null;
@@ -49,7 +53,25 @@ export function DeadlinePill({
     if (!expired) asked.current = false;
   }, [expired, onExpired]);
 
-  const cls = band ? "hm-pill hm-pill-band" : "hm-pill";
+  const cls = band ? "hm-pill hm-pill-band" : compact ? "hm-pill hm-pill-compact" : "hm-pill";
+  if (compact) {
+    if (!next) {
+      return (
+        <span className={cls} role="status" aria-label="Next deadline" aria-busy={deadlines.status !== "error"} data-testid="deadline-chip">
+          <span className="hm-dot hm-pulse" aria-hidden="true" />
+          <span className="hm-gw">{deadlines.status === "error" ? "GW?" : "GW"}</span>
+          <span className="hm-in">…</span>
+        </span>
+      );
+    }
+    return (
+      <span className={cls} role="status" aria-label={`GW${next.gw} deadline ${countdown(next.deadline_time, now!)}`} data-testid="deadline-chip" data-gw={next.gw} data-deadline={next.deadline_time}>
+        <span className="hm-dot hm-pulse" aria-hidden="true" />
+        <span className="hm-gw">GW{next.gw}</span>
+        <span className="hm-in">{countdownShort(next.deadline_time, now!)}</span>
+      </span>
+    );
+  }
   if (deadlines.status === "error") {
     return (
       <div className={cls} role="status" aria-label="Next deadline" data-testid={band ? "deadline-band" : "deadline-pill"}>

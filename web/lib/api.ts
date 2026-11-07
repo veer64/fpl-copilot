@@ -22,7 +22,7 @@ export type TeamCard = {
   last_imported_at: string | null;
 };
 
-/** GET /threads: most recently active first. */
+/** GET /threads: most recently active first; a thread with no message is not listed (Prompt W4). */
 export type ThreadRow = {
   thread_id: string;
   created_at: string;
@@ -31,7 +31,88 @@ export type ThreadRow = {
   title: string | null;
   team_label: string | null;
   fpl_team_id: number | null;
+  team_name: string | null;
+  updated_at: string;
 };
+
+// ---- the Chat page (Prompt W4, 2026-11-06) ---------------------------------------------------------------------------------
+
+export type Source = { name: string; headline: string; date: string; url?: string };
+
+/** The team card's player object (GET /me/teams/{id}/card); also the OUT / IN players of a squad-change preview. */
+export type Player = {
+  slot: number | null;
+  id: number;
+  short_name: string;
+  full_name: string;
+  club: string | null;
+  position: "GK" | "DEF" | "MID" | "FWD" | null;
+  price: number | null;
+  form: number | null;
+  role: "C" | "VC" | null;
+  next: { opp: string | null; home: boolean; n: number } | null;
+  flag: { chance: number | null; news: string | null; news_date: string | null } | null;
+  pred: { points: number; source: "ours" | "fpl_est" } | null;
+  in_squad: boolean;
+};
+
+export type ChangeType = "transfer" | "captain" | "vice_captain" | "bench";
+export type SquadChange = { type: ChangeType; out: Player; in: Player; slot: number | null };
+export type SquadPreview = {
+  gw: number | null;
+  expires_at: string | null;
+  changes: SquadChange[];
+  impact: { pts_delta: number | null; pts_horizon_gws: number | null; bank_after: number | null; ft_before: number | null; ft_after: number | null; hit_pts: number | null };
+};
+export type SquadApplied = { gw: number; version_id: number };
+
+/** POST /chat */
+export type ChatReply = {
+  answer: string;
+  thread_id: string | null;
+  message_id?: string | null;
+  sources?: Source[];
+  squad_preview?: SquadPreview | null;
+  squad_applied?: SquadApplied | null;
+  capped?: boolean;
+  limit?: { kind: "daily"; reset_at: string };
+};
+
+/** GET /threads/{id}/messages */
+export type MessageRow =
+  | { role: "user"; text: string; at: string | null }
+  | {
+      role: "assistant";
+      text: string;
+      at: string | null;
+      message_id: string | null;
+      sources: Source[];
+      squad_preview: SquadPreview | null;
+      squad_applied: SquadApplied | null;
+      feedback: "up" | "down" | null;
+    };
+
+export type TeamCardData = {
+  team: { fpl_team_id: number; name: string; entry_name: string | null; manager_name: string | null };
+  version_id: number;
+  squad_as_of_gw: number;
+  squad_updated_at: string;
+  formation: string;
+  bank: number;
+  free_transfers: number | null;
+  team_value: number | null;
+  next_gw: number | null;
+  next_deadline: string | null;
+  predictions_gw: number | null;
+  predictions_updated_at: string | null;
+  chips: { half: { from: number; to: number }; used: number; left: number; items: { code: string; name: string; used_gw: number | null }[] } | null;
+  players: Player[];
+  fpl_live: boolean;
+  fetched_at: string;
+};
+
+export type Feedback = "up" | "down" | null;
+export type FeedbackResult = { message_id: string; feedback: Feedback; feedback_at: string; langfuse: "sent" | "skipped" | "failed" };
 
 export type ActiveTeam = { fpl_team_id: number; label: string | null; is_active: boolean; last_imported_gw: number | null };
 
@@ -55,6 +136,8 @@ export type DeactivateResult = { active_team: null; deactivated: number | null; 
 export class ApiError extends Error {
   status: number;
   detail: string;
+  retryAfter?: number;
+  threadId?: string;
   constructor(status: number, detail: string) {
     super(status ? `HTTP ${status}: ${detail}` : detail);
     this.name = "ApiError";
@@ -65,24 +148,46 @@ export class ApiError extends Error {
 
 export type TokenGetter = () => Promise<string | null>;
 
-type Init = Omit<RequestInit, "body" | "headers"> & { json?: unknown };
+type Init = Omit<RequestInit, "body" | "headers"> & { json?: unknown; timeoutMs?: number };
 
-/** One call: the token, the JSON, the error as ApiError (status 0 = no token / network). */
+/** The GET reads in flight, by path: a second concurrent read of the same path shares the first one's promise (Prompt W4:
+ *  the Chat page's reads stay well under the server's 60 a minute; Next 16 re-runs a shown-again page's effects). */
+const inflight = new Map<string, Promise<unknown>>();
+
+/** One call: the token, the JSON, the error as ApiError (status 0 = no token / network, 408 = the client timeout).
+ *  Retry-After (seconds) rides on a 429's error as `retryAfter`. */
 export async function apiFetch<T>(getToken: TokenGetter, path: string, init: Init = {}): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
+  if (method === "GET") {
+    const running = inflight.get(path);
+    if (running) return running as Promise<T>;
+    const p = doFetch<T>(getToken, path, init).finally(() => inflight.delete(path));
+    inflight.set(path, p);
+    return p;
+  }
+  return doFetch<T>(getToken, path, init);
+}
+
+async function doFetch<T>(getToken: TokenGetter, path: string, init: Init): Promise<T> {
   const token = await getToken();
-  if (!token) throw new ApiError(0, "no session token");
+  if (!token) throw new ApiError(401, "no session token"); // signed out meanwhile: the page sends the user to /login
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-  const { json, ...rest } = init;
+  const { json, timeoutMs, ...rest } = init;
   let body: string | undefined;
   if (json !== undefined) {
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(json);
   }
+  const ctl = timeoutMs ? new AbortController() : null;
+  const timer = ctl ? window.setTimeout(() => ctl.abort(), timeoutMs) : null;
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...rest, headers, body, cache: "no-store" }); // every read is live, never the browser cache
+    res = await fetch(`${API_BASE}${path}`, { ...rest, headers, body, cache: "no-store", signal: ctl?.signal ?? rest.signal }); // every read is live, never the browser cache
   } catch (err) {
+    if (ctl?.signal.aborted) throw new ApiError(408, "the answer took too long");
     throw new ApiError(0, err instanceof Error ? err.message : "network error");
+  } finally {
+    if (timer !== null) window.clearTimeout(timer);
   }
   const text = await res.text();
   let data: unknown = null;
@@ -94,7 +199,11 @@ export async function apiFetch<T>(getToken: TokenGetter, path: string, init: Ini
   if (!res.ok) {
     const detail =
       data && typeof data === "object" && "detail" in data ? String((data as { detail: unknown }).detail) : text || res.statusText;
-    throw new ApiError(res.status, detail);
+    const err = new ApiError(res.status, detail);
+    const ra = res.headers.get("Retry-After");
+    if (ra && /^\d+$/.test(ra)) err.retryAfter = Number(ra);
+    if (data && typeof data === "object" && "thread_id" in data) err.threadId = String((data as { thread_id: unknown }).thread_id);
+    throw err;
   }
   return data as T;
 }
@@ -109,7 +218,19 @@ export const api = {
   activate: (t: TokenGetter, fplTeamId: number) => apiFetch<ActivateResult>(t, `/me/teams/${fplTeamId}/activate`, { method: "POST" }),
   refresh: (t: TokenGetter, fplTeamId: number) => apiFetch<TeamCard>(t, `/me/teams/${fplTeamId}/refresh`, { method: "POST" }),
   deactivate: (t: TokenGetter) => apiFetch<DeactivateResult>(t, "/me/active-team", { method: "DELETE" }),
+  // the Chat page (Prompt W4)
+  teamCard: (t: TokenGetter, fplTeamId: number) => apiFetch<TeamCardData>(t, `/me/teams/${fplTeamId}/card`),
+  messages: (t: TokenGetter, threadId: string) => apiFetch<MessageRow[]>(t, `/threads/${encodeURIComponent(threadId)}/messages`),
+  newThread: (t: TokenGetter) => apiFetch<{ thread_id: string }>(t, "/threads", { method: "POST" }),
+  chat: (t: TokenGetter, message: string, threadId: string | null, timeoutMs = CHAT_TIMEOUT_MS) =>
+    apiFetch<ChatReply>(t, "/chat", { method: "POST", json: threadId ? { message, thread_id: threadId } : { message }, timeoutMs }),
+  feedback: (t: TokenGetter, messageId: string, score: Feedback) =>
+    apiFetch<FeedbackResult>(t, `/messages/${encodeURIComponent(messageId)}/feedback`, { method: "POST", json: { score } }),
 };
+
+/** The brief: answers take 10-20 s and are not streamed; anything past this is system message d. */
+export const CHAT_TIMEOUT_MS = 90_000;
+export const MESSAGE_MAX = 2000;
 
 export const FPL_TEAM_ID_MAX = 99_999_999;
 

@@ -1,0 +1,27 @@
+[
+ {
+  "name": "club + fpl",
+  "rendered": "Saka is a doubt [1] and FPL agrees [2].\n\nSources\n[1] Arsenal official site · \"Saka a doubt for Sunderland trip with tags and a newline\" · 2026-11-03 · https://www.arsenal.com/news/saka\n[2] FPL official notice · 2026-11-04",
+  "has_sources": true
+ },
+ {
+  "name": "repeated id, bracketed",
+  "rendered": "First [1], again [1], then [2] (no url).\n\nSources\n[1] Arsenal official site · \"Saka a doubt for Sunderland trip with tags and a newline\" · 2026-11-03 · https://www.arsenal.com/news/saka\n[2] BBC Sport · \"Round-up\" · 2026-11-02",
+  "has_sources": true
+ },
+ {
+  "name": "unverified id",
+  "rendered": "Cites [unverified] only.",
+  "has_sources": false
+ },
+ {
+  "name": "no citation",
+  "rendered": "Nothing cited here.\n\nSources\n[1] looks like one but is the model's own text",
+  "has_sources": false
+ },
+ {
+  "name": "trailing whitespace",
+  "rendered": "Cited [1].\n\nSources\n[1] FPL official notice · 2026-11-04",
+  "has_sources": true
+ }
+]

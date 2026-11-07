@@ -37,6 +37,11 @@
 .hm-pulse{animation:hm-pulse 1.8s ease-in-out infinite}
 @keyframes hm-pulse{50%{opacity:.35}}
 .hm-pill-band{display:none}
+/* Prompt W4: the Chat page's phone chip -- the same component, compact ("GW10 6h 12m"); shown only on the chat header */
+.hm-pill-compact{height:30px;padding:0 9px;gap:6px;font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;background:transparent}
+.hm-pill-compact .hm-dot{width:6px;height:6px;box-shadow:0 0 8px #3BE8FF}
+.hm-pill-compact .hm-gw{letter-spacing:.04em}
+.hm-pill-compact .hm-in{color:#C9D6E3;font-size:11px}
 .hm-acct{height:44px;padding:0 10px 0 4px;border:1px solid #24384A;border-radius:999px;background:rgba(8,15,24,.7);color:#C9D6E3;display:flex;align-items:center;gap:8px}
 .hm-acct:hover{border-color:#3BE8FF}
 .hm-avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#3BE8FF,#2398AE);color:#021016;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
