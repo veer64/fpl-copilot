@@ -295,13 +295,17 @@ def test_write_version_validates_before_touching_the_database():
 
 
 # ------------------------------------------------------------ the DDL pin
-DDL_SHA256 = "c53561a600a38070a5104da96b06009ad7d8729478aab7c12afc7c33d73d00ff"
+DDL_SHA256 = "6f61bf74819dbfe0ece97b72d02590342649f19674556c7be4d4d337571d77e8"
 
 
 def test_ddl_is_stable():
     """The schema of record applied to the server on 2026-09-12. A change
     here must be deliberate: re-pin AND re-apply (ensure_schema is
-    idempotent for the table and index; the trigger body is replaced)."""
+    idempotent for the table and index; the trigger body is replaced).
+    Re-pinned 2026-11-10 (Prompt W5, checkpoint Q5): the append-only trigger
+    allows DELETE under SET LOCAL fpl.account_delete = 'on' (+ the
+    transaction id) -- deletion.py's account / team deletes; re-apply with
+    `python squad_store.py --init` at the deploy."""
     assert hashlib.sha256(squad_store.DDL.encode("utf-8")).hexdigest() == DDL_SHA256
     for must in ("CREATE TABLE IF NOT EXISTS squad_versions", "ux_squad_versions_one_active",
                  "trg_squad_versions_append_only", "BEFORE UPDATE OR DELETE",

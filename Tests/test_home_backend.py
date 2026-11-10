@@ -350,8 +350,9 @@ def test_h8_deadlines_are_the_upcoming_gameweeks_from_the_cached_bootstrap(api):
     assert [e["gw"] for e in body["events"]] == [10, 11, 12, 13] and all(e["deadline_time"] > NOW.strftime("%Y-%m-%dT%H:%M:%SZ") for e in body["events"])
     assert _get(api, "/deadlines").status_code == 200
     assert api.fpl.asked[asked0:] == ["bootstrap-static/"]                       # cached: one request for two calls
-    assert api.client.get("/deadlines").status_code == 401
-    assert api.client.get("/deadlines", headers=bearer(_bad_tokens()["wrong azp"])).status_code == 401
+    # Prompt W5 (checkpoint Q1 A): /deadlines is open in clerk mode -- public FPL data, no token needed, a bad token ignored
+    assert api.client.get("/deadlines").status_code == 200
+    assert api.client.get("/deadlines", headers=bearer(_bad_tokens()["wrong azp"])).status_code == 200
 
 
 def test_h8_deadlines_when_fpl_is_down(api):
@@ -390,7 +391,7 @@ def test_h9_the_summary_columns_are_added_once_guarded_and_legacy_rows_are_null(
 
 def test_h10_zero_team_users_are_unchanged(api):
     assert api.client.get("/me", headers=bearer(mint("user_a9001"))).json() == {
-        "user_id": 9001, "is_admin": False, "daily_cap_usd": 1.0, "spent_today_usd": 0.0, "active_team": None}
+        "user_id": 9001, "is_admin": False, "is_owner": False, "daily_cap_usd": 1.0, "spent_today_usd": 0.0, "active_team": None}
     assert _get(api, "/me/teams", sub=T2).json() == []
 
 
@@ -405,9 +406,10 @@ def test_h10_off_mode_has_none_of_the_routes(app, monkeypatch, method, path):
 
 @pytest.mark.parametrize("case", ["missing", "expired", "no azp", "wrong azp"])
 def test_h10_a_bad_token_is_401_on_the_new_routes(api, case):
+    """/deadlines left this list with Prompt W5 (checkpoint Q1 A): it is open in clerk mode -- test_deletion_backend D."""
     token = _bad_tokens()[case]
     before = _all_counts(api.conn)
-    for method, path in (("delete", "/me/active-team"), ("get", "/deadlines")):
+    for method, path in (("delete", "/me/active-team"), ("get", "/me/teams")):
         r = getattr(api.client, method)(path, headers=bearer(token) if token else {})
         assert r.status_code == 401, (case, path, r.status_code)
     assert _all_counts(api.conn) == before and api.fpl.asked == []

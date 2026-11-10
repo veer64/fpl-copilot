@@ -134,9 +134,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_squad_versions_one_active
 
 -- append-only, enforced: no DELETE; the only UPDATE allowed is is_active
 -- true -> false on the row being superseded. Undo = a new row.
+-- Prompt W5 (2026-11-10, checkpoint Q5): the ONE exception is a user deleting
+-- their account or one of their imported teams (deletion.py), which runs with
+-- SET LOCAL fpl.account_delete = 'on' inside its own transaction. A session
+-- setting (SET without LOCAL) is not the switch: SET LOCAL ends with the
+-- transaction, so nothing outside deletion.py can leave it on.
 CREATE OR REPLACE FUNCTION squad_versions_append_only() RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
+        IF current_setting('fpl.account_delete', true) = 'on'
+           AND current_setting('fpl.account_delete_txn', true) = txid_current()::text THEN
+            RETURN OLD;
+        END IF;
         RAISE EXCEPTION 'squad_versions is append-only: DELETE refused'
             USING DETAIL = 'version_id ' || OLD.version_id;
     END IF;
@@ -211,6 +220,12 @@ COMMENT ON TABLE squad_scores IS '""" + RULE_1_COMMENT.replace("'", "''") + """'
 -- append-only, enforced: no UPDATE, no DELETE, ever
 CREATE OR REPLACE FUNCTION squad_scores_append_only() RETURNS trigger AS $$
 BEGIN
+    -- Prompt W5: the same one exception as squad_versions_append_only (a user deleting their account or a team:
+    -- deletion.py, SET LOCAL fpl.account_delete = 'on' + this transaction's id); UPDATE is never allowed.
+    IF TG_OP = 'DELETE' AND current_setting('fpl.account_delete', true) = 'on'
+       AND current_setting('fpl.account_delete_txn', true) = txid_current()::text THEN
+        RETURN OLD;
+    END IF;
     RAISE EXCEPTION 'squad_scores is append-only: UPDATE and DELETE are refused'
         USING DETAIL = TG_OP || ' on score_id ' || OLD.score_id;
 END

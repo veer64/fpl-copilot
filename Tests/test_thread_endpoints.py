@@ -50,8 +50,8 @@ ENDPOINTS = [("get", "/me"), ("get", "/threads"), ("post", "/threads"), ("get", 
 def test_e1_me_names_the_signed_in_user_their_cap_and_todays_spend(c):
     r = c.client.get("/me", headers=_h())
     assert r.status_code == 200, r.text
-    assert r.json() == {"user_id": 9001, "is_admin": False, "daily_cap_usd": 1.0, "spent_today_usd": 0.0,
-                        "active_team": None}
+    assert r.json() == {"user_id": 9001, "is_admin": False, "is_owner": False, "daily_cap_usd": 1.0, "spent_today_usd": 0.0,
+                        "active_team": None}                                    # is_owner: Prompt W5 (B1)
     with c.conn.cursor() as cur:
         cur.execute("INSERT INTO chat_usage (turn_id, model, api_calls, usd, user_id) VALUES ('t_e1', 'm', 1, 0.25, 9001)")
     try:

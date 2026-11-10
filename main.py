@@ -147,11 +147,14 @@ OPEN_ENDPOINTS = {("GET", "/health"), ("HEAD", "/health")}
 CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET", "/admin/users.csv"),
                 ("GET", "/me"), ("GET", "/threads"), ("POST", "/threads"),      # Prompt F1a: the website's endpoints
                 ("GET", "/me/squad"), ("GET", "/me/teams"), ("POST", "/me/teams"),
-                ("DELETE", "/me/active-team"), ("GET", "/deadlines")}           # Prompt W3: the Home page
+                ("DELETE", "/me/active-team"), ("GET", "/deadlines"),           # Prompt W3: the Home page
+                ("DELETE", "/me")}                                              # Prompt W5: delete account
 CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$")),
                         ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$")),
                         ("GET", re.compile(r"^/me/teams/[^/]+/card$")),                 # Prompt W4: the Chat page
-                        ("POST", re.compile(r"^/messages/[^/]+/feedback$"))]
+                        ("POST", re.compile(r"^/messages/[^/]+/feedback$")),
+                        ("DELETE", re.compile(r"^/me/teams/[^/]+$")),                   # Prompt W5: remove team
+                        ("DELETE", re.compile(r"^/threads/[^/]+$"))]                    # Prompt W5: delete chat
 
 
 def _clerk_route(method, path):
@@ -444,8 +447,60 @@ def me(http: Request):
     if refusal is not None:
         return refusal
     uid = int(user["user_id"])
-    return {"user_id": uid, "is_admin": bool(user.get("is_admin")), "daily_cap_usd": users.cap_for(user),
-            "spent_today_usd": round(users.spent_today(uid), 6), "active_team": _active_team(uid)}
+    return {"user_id": uid, "is_admin": bool(user.get("is_admin")), "is_owner": users.is_owner(user),   # is_owner: Prompt W5 B1
+            "daily_cap_usd": users.cap_for(user), "spent_today_usd": round(users.spent_today(uid), 6),
+            "active_team": _active_team(uid)}
+
+
+# ---- Prompt W5 (2026-11-10): delete account / remove team / delete chat (deletion.py) ---------------------------------------
+# Clerk mode only (404 in off mode), the token's user only, through the read window (users.reads_limited) like every other
+# read of the website; the rows go in one transaction each, scoped to the user in SQL. The owner and the reserved ids are
+# refused before any write.
+
+OWNER_LOCKED = "The owner account can't be deleted here."
+ACCOUNT_LOCKED = "this account can't be deleted here"
+CLERK_DELETE_FAILED = "the sign-in account could not be deleted; nothing was removed — try again"
+SIGN_IN_REMOVED = ("your sign-in was removed but our copy of your data could not be deleted; email veersanghavi8@gmail.com "
+                   "and we'll finish it for you")
+
+
+@app.delete("/me")
+def delete_account(http: Request):
+    import deletion
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    if users.is_owner(user):
+        return JSONResponse({"detail": OWNER_LOCKED}, status_code=403)
+    if not users.deletable(user):
+        return JSONResponse({"detail": ACCOUNT_LOCKED}, status_code=403)
+    try:
+        return deletion.delete_account(user)
+    except deletion.NotDeletable:
+        return JSONResponse({"detail": ACCOUNT_LOCKED}, status_code=403)
+    except users.ClerkDeleteFailed as e:
+        print(f"  [account delete of user {user['user_id']}: Clerk refused: {e}; rolled back]")
+        return JSONResponse({"detail": CLERK_DELETE_FAILED}, status_code=502)
+    except deletion.CommitFailedAfterClerk:
+        return JSONResponse({"detail": SIGN_IN_REMOVED}, status_code=500)
+
+
+@app.delete("/me/teams/{fpl_team_id}")
+def remove_team(fpl_team_id: str, http: Request):
+    import deletion
+    return _team_call(http, lambda: (deletion.delete_team, (_team_id(fpl_team_id, path=True),)))
+
+
+@app.delete("/threads/{thread_id}")
+def delete_thread(thread_id: str, http: Request):
+    import deletion
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    try:
+        return deletion.delete_thread(int(user["user_id"]), thread_id)
+    except threads.ThreadRefused:                       # another user's or no such thread: the same answer
+        return JSONResponse({"detail": THREAD_REFUSED}, status_code=403)
 
 
 @app.get("/me/squad")
@@ -606,20 +661,25 @@ def clear_active_team(http: Request):
 FPL_DOWN = "FPL could not be reached for the deadlines; please try again shortly"
 
 
+DEADLINES_CACHE = "public, max-age=60"
+
+
 @app.get("/deadlines")
 def deadlines(http: Request):
     """Prompt W3: the upcoming gameweek deadlines from FPL's bootstrap (fpl_import.bootstrap, cached BOOTSTRAP_TTL_S per
-    process): {"events": [{gw, deadline_time, finished}, ...soonest first], "fetched_at"}."""
-    user, refusal = _account(http)
-    if refusal is not None:
-        return refusal
+    process): {"events": [{gw, deadline_time, finished}, ...soonest first], "fetched_at"}. Prompt W5 (checkpoint Q1 A): OPEN
+    in clerk mode -- public FPL data only, no token needed (one is ignored), no user and no read counted -- so the About
+    page's chips can name the next gameweek for a signed-out visitor; off mode 404 as before."""
+    if auth.mode() != "clerk":
+        return JSONResponse(NOT_FOUND, status_code=404)
     import fpl_import
     try:
         boot = fpl_import.bootstrap()
     except fpl_import.FplUnavailable as e:
         print(f"  [/deadlines: {e}]")
         return JSONResponse({"detail": FPL_DOWN}, status_code=503)
-    return {"events": fpl_import.upcoming_events(boot), "fetched_at": threads.iso(fpl_import.clock())}
+    return JSONResponse({"events": fpl_import.upcoming_events(boot), "fetched_at": threads.iso(fpl_import.clock())},
+                        headers={"Cache-Control": DEADLINES_CACHE})
 
 
 @app.post("/me/teams/{fpl_team_id}/refresh")

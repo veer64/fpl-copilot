@@ -33,6 +33,7 @@ import db_write
 
 FIRST_NEW_USER_ID = 10001
 RESERVED_USER_IDS = (1, 9001, 9002)
+OWNER_USER_ID = 1                                        # Prompt W5: the owner = the row the ADMIN_EMAIL link maps to (user 1)
 PROFILE_MAX_AGE = timedelta(days=1)
 BACKEND_API = "https://api.clerk.com/v1"
 DAILY_CAP_ENV = "DAILY_CAP_USD"
@@ -74,6 +75,39 @@ CREATE INDEX IF NOT EXISTS ix_chat_usage_user_ts ON chat_usage (user_id, ts);
 
 class ProfileUnavailable(Exception):
     """Clerk's Backend API did not give us the user's profile."""
+
+
+class ClerkDeleteFailed(Exception):
+    """Prompt W5: Clerk's Backend API did not delete the user (anything but 200 / 404, or unreachable)."""
+
+
+def is_owner(user):
+    """Prompt W5 (B1): the owner account -- user 1, the row the first verified ADMIN_EMAIL sign-in is linked to."""
+    return int(user["user_id"]) == OWNER_USER_ID
+
+
+def deletable(user):
+    """Prompt W5 (B2): an account that may delete itself -- never the owner, never a reserved id (anything below
+    FIRST_NEW_USER_ID: 1, the eval users 9001 / 9002)."""
+    return not is_owner(user) and int(user["user_id"]) >= FIRST_NEW_USER_ID
+
+
+def delete_clerk_user(clerk_user_id):
+    """Prompt W5 (B2): delete the sign-in account at Clerk (DELETE /v1/users/{id}, CLERK_SECRET_KEY). "deleted" on 200,
+    "already_gone" on 404 (a retry after a failed commit); ClerkDeleteFailed otherwise -- the caller rolls back."""
+    import requests
+    secret = (os.environ.get("CLERK_SECRET_KEY") or "").strip()
+    if not secret:
+        raise ClerkDeleteFailed("CLERK_SECRET_KEY is not set")
+    try:
+        r = requests.delete(f"{BACKEND_API}/users/{clerk_user_id}", headers={"Authorization": f"Bearer {secret}"}, timeout=15)
+    except Exception as e:                               # noqa: BLE001
+        raise ClerkDeleteFailed(f"Clerk unreachable: {type(e).__name__}") from e
+    if r.status_code == 200:
+        return "deleted"
+    if r.status_code == 404:
+        return "already_gone"
+    raise ClerkDeleteFailed(f"Clerk answered {r.status_code}")
 
 
 _WINDOWS = {}                                            # user_id -> deque of monotonic request times (the last minute)

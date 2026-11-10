@@ -296,7 +296,8 @@ def test_summary_total_points_come_from_scores_not_the_document():
 
 
 # ------------------------------------------------------------ the DDL pin
-SCORES_DDL_SHA256 = "6f15ca40208f01b8574be9c206f5a8ac15ab612555d55af9269079342771f186"
+SCORES_DDL_SHA256 = "3d0f46669cba0d499e6eb137476564a4afdc2329efa2508a352a574a44a935b8"   # re-pinned 2026-11-10 (Prompt W5: the
+                                                                                        # delete exception, as squad_versions')
 
 
 def test_scores_ddl_is_stable_and_carries_rule_1():
