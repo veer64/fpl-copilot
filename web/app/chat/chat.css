@@ -34,9 +34,9 @@
 
 /* ---- the body: sidebar + main (+ the team column) ----------------------------------------------------------------------- */
 .ch-body{flex-grow:1;min-height:0;display:flex;position:relative}
-.ch-bg{position:absolute;top:0;bottom:0;left:264px;right:0;overflow:hidden;pointer-events:none;z-index:0}
+.ch-bg{position:absolute;top:0;bottom:0;left:264px;right:348px;overflow:hidden;pointer-events:none;z-index:0}
 .ch-bg.collapsed{left:56px}
-.ch-bg img{position:absolute;top:0;right:190px;height:100%;width:auto;opacity:.5;-webkit-mask-image:linear-gradient(to right,transparent 0%,#000 38%,#000 100%),linear-gradient(to bottom,transparent 0%,#000 22%,#000 82%,transparent 100%);-webkit-mask-composite:source-in;mask-image:linear-gradient(to right,transparent 0%,#000 38%,#000 100%),linear-gradient(to bottom,transparent 0%,#000 22%,#000 82%,transparent 100%);mask-composite:intersect}
+.ch-bg img{position:absolute;top:-11%;left:50%;height:111%;width:auto;transform:translateX(-50%);opacity:.5;-webkit-mask-image:linear-gradient(to right,transparent 0%,#000 38%,#000 100%),linear-gradient(to bottom,transparent 0%,#000 22%,#000 82%,transparent 100%);-webkit-mask-composite:source-in;mask-image:linear-gradient(to right,transparent 0%,#000 38%,#000 100%),linear-gradient(to bottom,transparent 0%,#000 22%,#000 82%,transparent 100%);mask-composite:intersect}
 /* general mode: the glow, the photo at right -110px, the perspective grid */
 .ch-gen-glow{position:absolute;left:50%;top:-220px;width:900px;height:560px;margin-left:-450px;background:radial-gradient(closest-side,rgba(59,232,255,.13),transparent);pointer-events:none;z-index:0}
 .ch-gen-photo{position:absolute;top:0;right:-110px;height:100%;width:auto;opacity:.5;pointer-events:none;z-index:0;-webkit-mask-image:linear-gradient(to right,transparent 0%,#000 45%,#000 100%),linear-gradient(to bottom,#000 0%,#000 70%,transparent 100%);-webkit-mask-composite:source-in;mask-image:linear-gradient(to right,transparent 0%,#000 45%,#000 100%),linear-gradient(to bottom,#000 0%,#000 70%,transparent 100%);mask-composite:intersect}
@@ -360,8 +360,8 @@
 .ch-hdr .hm-acct svg{display:none}
 .ch-body{flex-direction:column}
 .ch-side,.ch-right{display:none}
-.ch-bg{left:0;top:52px}
-.ch-bg img{bottom:60px;top:auto;right:-84px;height:620px;opacity:.45;-webkit-mask-image:linear-gradient(to right,transparent 0%,#000 42%,#000 100%),linear-gradient(to bottom,transparent 0%,#000 25%,#000 80%,transparent 100%);mask-image:linear-gradient(to right,transparent 0%,#000 42%,#000 100%),linear-gradient(to bottom,transparent 0%,#000 25%,#000 80%,transparent 100%)}
+.ch-bg{left:0;right:0;top:52px}
+.ch-bg img{bottom:60px;top:auto;left:auto;right:-84px;height:620px;transform:none;opacity:.45;-webkit-mask-image:linear-gradient(to right,transparent 0%,#000 42%,#000 100%),linear-gradient(to bottom,transparent 0%,#000 25%,#000 80%,transparent 100%);mask-image:linear-gradient(to right,transparent 0%,#000 42%,#000 100%),linear-gradient(to bottom,transparent 0%,#000 25%,#000 80%,transparent 100%)}
 .ch-gen-glow{display:none}
 .ch-gen-photo{top:0;right:-46px;height:470px;opacity:.55;-webkit-mask-image:linear-gradient(to right,transparent 0%,#000 40%,#000 100%),linear-gradient(to bottom,#000 0%,#000 55%,transparent 92%);mask-image:linear-gradient(to right,transparent 0%,#000 40%,#000 100%),linear-gradient(to bottom,#000 0%,#000 55%,transparent 92%)}
 .ch-gen-grid{left:-20%;right:-20%;bottom:-120px;height:300px;background-size:48px 48px;transform:perspective(600px) rotateX(70deg)}
