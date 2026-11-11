@@ -57,8 +57,9 @@ export async function apiCall(page: Page, method: "get" | "post" | "delete", p: 
 
 export async function signIn(page: Page, email: string) {
   await page.goto("/login");
-  await page.getByTestId("skip-intro").click();
-  await expect(page.locator(".stage")).toHaveAttribute("data-phase", "login");
+  // W5b: while the login page streams in, two intro overlays can exist for a moment (the W3 lesson): the visible first one
+  await page.locator('[data-testid="skip-intro"]:visible').first().click();
+  await expect(page.locator(".stage").first()).toHaveAttribute("data-phase", "login");
   await page.locator("#c-email").fill(email);
   await page.getByTestId("send-code").click();
   await expect(page.getByTestId("code-sent-title")).toHaveText("Check your email");

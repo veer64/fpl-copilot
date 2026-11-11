@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import type { DeadlineEvent } from "@/lib/api";
 import { AccountMenu, DeadlinePill, Logo } from "@/components/home/HomeHeader";
+import { MusicButton } from "@/components/music/MusicButton";
 import type { Resource } from "@/components/home/useResource";
 
 /** The header (64px desktop / 60px phone): the phone menu button, the logo, "← Home" (desktop), the deadline pill (desktop)
@@ -15,15 +17,16 @@ export function ChatHeader({ deadlines, now, onExpired, onMenu, isOwner }: { dea
         </svg>
       </button>
       <Logo />
-      <a href="/home" className="ch-home" data-testid="back-home">
+      <Link href="/home" className="ch-home" data-testid="back-home">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M19 12H5M11 18l-6-6 6-6" />
         </svg>
         Home
-      </a>
+      </Link>
       <div className="ch-grow" />
       <DeadlinePill deadlines={deadlines} now={now} onExpired={onExpired} />
       <DeadlinePill deadlines={deadlines} now={now} onExpired={onExpired} compact />
+      <MusicButton />
       <AccountMenu isOwner={isOwner} />
     </header>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Arrow, Backdrop, PublicFooter, PublicHeader } from "./PublicChrome";
@@ -280,7 +281,7 @@ export function PrivacyExperience() {
                 </Ic>
                 <div>
                   <b>Small preferences</b>
-                  <span className="d">Your browser remembers little things, like whether the chat sidebar is collapsed or the login music is muted.</span>
+                  <span className="d">Your browser remembers little things, like whether the chat sidebar is collapsed or the music is muted.</span>
                 </div>
               </div>
             </div>
@@ -339,7 +340,7 @@ export function PrivacyExperience() {
                       </>
                     ) : (
                       <>
-                        <a href="/login">Sign in</a>, then open your account menu (top right) and choose <strong>Delete account</strong>.
+                        <Link href="/login" prefetch={false}>Sign in</Link>, then open your account menu (top right) and choose <strong>Delete account</strong>.
                       </>
                     )}{" "}
                     It removes everything below straight away — this can’t be undone. Our backups and the monitoring copy are kept as described in How long we keep it, and usage totals stay without your name.
@@ -375,7 +376,7 @@ export function PrivacyExperience() {
               </span>
               <Arrow />
             </a>
-            <a href="/about" className="hm-glass pp-card" data-testid="contact-about">
+            <Link href="/about" className="hm-glass pp-card" data-testid="contact-about">
               <Ic>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <circle cx="12" cy="12" r="9" />
@@ -387,7 +388,7 @@ export function PrivacyExperience() {
                 <span className="d">How it works and where the data comes from</span>
               </span>
               <Arrow />
-            </a>
+            </Link>
           </section>
         </main>
       </div>

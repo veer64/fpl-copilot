@@ -45,7 +45,7 @@ next-env.d.ts
 
 # Prompt W1 (2026-11-02): media stays out of git -- the player cut-outs and the football (the user's own photo edits),
 # the purchased song, and the unzipped Claude Design handoff (BRIEF.md + the two reference pages + the originals).
-# Copy them in by hand: public/players/{vandijk,haaland}-{body,head}.webp + ball.webp, public/intro/love-me-again.mp3.
+# Copy them in by hand: public/players/{vandijk,haaland}-{body,head}.webp + ball.webp, public/music/*.mp3 (the W5b music; the old public/intro/ song is no longer read).
 /public/players/
 /public/intro/
 /design/
@@ -53,3 +53,4 @@ next-env.d.ts
 # Prompt W3 (2026-11-05): the Home handoff (BRIEF + references + the background photo) and the copied photo stay out of git.
 /design-handoff/
 /public/images/
+/public/music/

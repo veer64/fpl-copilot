@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { api, deadlinesPublic, type TeamCard } from "@/lib/api";
@@ -177,10 +178,10 @@ export function AboutExperience() {
             FPL Copilot is your AI assistant for Fantasy Premier League. Ask about players, captains, transfers and your own team — and get answers built on real data, not hunches.
           </p>
           <div className="pp-hero-cta">
-            <a href={primary.href} className="pp-btn-p" data-testid="hero-primary">
+            <Link href={primary.href} prefetch={signedIn ? undefined : false} className="pp-btn-p" data-testid="hero-primary">
               {primary.text}
               <Arrow />
-            </a>
+            </Link>
             <a href="#features" className="pp-btn-s" data-testid="hero-secondary">
               See what it does
             </a>
@@ -267,10 +268,10 @@ export function AboutExperience() {
             </div>
             <div className="pp-chips" data-testid="ask-chips">
               {askChips(gw).map((c) => (
-                <a href={chipHref(signedIn, c.team, teamId, c.text)} className="pp-chip" key={c.text} data-testid="ask-chip" data-team={c.team}>
+                <Link href={chipHref(signedIn, c.team, teamId, c.text)} prefetch={signedIn ? undefined : false} className="pp-chip" key={c.text} data-testid="ask-chip" data-team={c.team}>
                   <Chat />
                   {c.text}
-                </a>
+                </Link>
               ))}
             </div>
           </div>
@@ -376,10 +377,10 @@ export function AboutExperience() {
               The next deadline is coming.
             </h2>
             <p className="pp-p">Get your squad sorted before it does.</p>
-            <a href={primary.href} className="pp-btn-p" data-testid="closing-primary">
+            <Link href={primary.href} prefetch={signedIn ? undefined : false} className="pp-btn-p" data-testid="closing-primary">
               {primary.text}
               <Arrow />
-            </a>
+            </Link>
           </div>
         </section>
       </main>

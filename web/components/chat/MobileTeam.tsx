@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Player, SquadPreview, TeamCardData, ThreadRow } from "@/lib/api";
 import type { Resource } from "@/components/home/useResource";
@@ -73,12 +74,12 @@ export function MobileDrawer({
   return (
     <Modal onClose={onClose} label="Past chats" className="ch-drawer-root" testId="drawer">
       <div className="ch-drawer-head">
-        <a href="/home" className="ch-drawer-home" data-testid="drawer-home">
+        <Link href="/home" className="ch-drawer-home" data-testid="drawer-home">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M19 12H5M11 18l-6-6 6-6" />
           </svg>
           Home
-        </a>
+        </Link>
         <button type="button" className="ch-ib" onClick={onClose} aria-label="Close menu" data-testid="drawer-close">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />

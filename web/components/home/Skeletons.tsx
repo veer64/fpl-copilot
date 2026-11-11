@@ -45,7 +45,7 @@ export function TeamsSkeleton() {
 
 export function LowerSkeleton() {
   return (
-    <div className="hm-lower" aria-busy="true" aria-label="Loading">
+    <div className="hm-lower" role="status" aria-busy="true" aria-label="Loading">
       <div className="hm-glass hm-gen" aria-hidden="true">
         <div className="hm-gen-head">
           <span className="hm-skel" style={{ width: 48, height: 48, borderRadius: 12 }} />

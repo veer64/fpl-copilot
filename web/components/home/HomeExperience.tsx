@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
@@ -252,8 +253,8 @@ export function HomeExperience() {
           ))}
 
         <footer className="hm-foot">
-          <a href="/privacy">Privacy</a>
-          <a href="/about">About</a>
+          <Link href="/privacy">Privacy</Link>
+          <Link href="/about">About</Link>
         </footer>
       </div>
 

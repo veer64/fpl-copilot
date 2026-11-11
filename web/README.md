@@ -27,7 +27,7 @@ uv run python -m uvicorn main:app --port 8000
 - `.env.local` — `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `NEXT_PUBLIC_API_BASE` (= `http://localhost:8000` on the laptop),
   `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/login`. Optional `SITE_PASSWORD` turns on the
   Basic-Auth site gate (`proxy.ts`); unset = off.
-- `public/players/` (the five cut-outs: `vandijk-body/head`, `haaland-body/head`, `ball` as .webp), `public/intro/love-me-again.mp3`
+- `public/players/` (the five cut-outs: `vandijk-body/head`, `haaland-body/head`, `ball` as .webp), `public/music/*.mp3` (the shuffled background music, Prompt W5b; the list in `lib/music-tracks.ts`)
   and `design/` (the unzipped login handoff). Copy them in by hand; without the images the page shows the SVG fallback figures,
   without the song it runs silent.
 - `public/images/home-bg.webp` (the Home page's background photo) and `design-handoff/home/` (the unzipped Home handoff:
@@ -43,13 +43,16 @@ uv run python -m uvicorn main:app --port 8000
   the team ids; the chat specs spend real agent turns
 - `node scripts/contrast_home.mjs` — the Home page's contrast table
 - `node scripts/contrast_public.mjs` — the About / Privacy pages' and the delete dialogs' contrast table (Prompt W5);
+  `--live http://localhost:3002` adds the computed-colour sweep of every button and button-styled link on the signed-out pages
+  (Prompt W5b: the static table cannot see a cascade accident; `scripts/lib/sweep.mjs` reads what the browser painted; the
+  signed-in pages are swept by `e2e/w5b-music.spec.ts`), `--selftest` proves the sweep fails the W5b case on a fixture;
   `node scripts/render_references_w5.mjs` — the five W5 references rendered beside the journey's screenshots
 
 ## Layout
 
-- `app/login/` — the page (`page.tsx` + `login.css` keyframes), `components/login/` — LoginExperience (intro auto-starts; the song
-  tries to play on load and otherwise starts on the first interaction; the header button mutes, remembered), IntroOverlay,
-  PlayerStage, SignInCard
+- `app/login/` — the page (`page.tsx` + `login.css` keyframes), `components/login/` — LoginExperience (intro auto-starts; the
+  music is the site's MusicProvider since Prompt W5b: volume 1 during the intro, 35 % on login; the header button is the shared
+  MusicButton), IntroOverlay, PlayerStage, SignInCard
 - `app/sso-callback/` — Google OAuth return
 - `app/home/` (+ `home.css`), `components/home/` — the Home page (Prompt W3, "Command Deck"): HomeExperience (GET /me/teams,
   /threads, /deadlines with the browser's Clerk token; every action opens the Chat page), HomeHeader (deadline pill, account
@@ -82,6 +85,13 @@ uv run python -m uvicorn main:app --port 8000
   the same confirm
 - `e2e/w5-journey.spec.ts` (desktop) and `e2e/w5-mobile.spec.ts` (phone) — the W5 journey against the scratchpad backend
   wrapper (clerk mode, :8010, FPL counted, a test-only Clerk-failure switch); `e2e/w5.ts` its helpers
+- `components/music/` + `lib/music-tracks.ts` — the site-wide background music (Prompt W5b): MusicProvider in the root layout owns
+  the ONE audio element (it keeps playing across every client navigation), shuffles the list (a visit never starts on the previous
+  visit's track; every track plays before a repeat), resumes the same track after a full page load (sessionStorage), starts on
+  the first click or key when autoplay is blocked, and pauses + drops the source when muted (the existing `fpl-sound` choice);
+  MusicButton is the mute control every header shows next to the account button (Login, Home, Chat, About, Privacy). The track
+  list lives ONLY in `lib/music-tracks.ts`; the files in `public/music/` are gitignored and re-encoded to 128 kbps / -16 LUFS.
+  `e2e/w5b-music.spec.ts` (the CTA fix, the sweep, the music) and `e2e/w5b-regression.spec.ts` (the W5 deletes on seeded rows)
 - `lib/api.ts` — the API client and types (one in-flight promise per GET path; a 90 s timeout on /chat), `parseTeamInput`;
   `lib/time.ts` — greeting, time ago, deadline words
 - `/teams` redirects to `/home`; a signed-in visit to `/login` goes to `/home`

@@ -462,3 +462,8 @@
 .ch-sheet .ch-pop-st span{font-size:9px}
 .ch-sheet .ch-pop-next{font-size:13.5px}
 }
+
+/* Prompt W5b: the mute button sits between the deadline chip and the account button; at 360px wide the brand's text goes so
+   the phone header still fits (menu 44 + logo 24 + chip + mute 44 + avatar 40) */
+.ch-hdr .mu-btn{flex-shrink:0}
+@media (max-width:400px){.ch-hdr .hm-brand span{display:none}.ch-hdr{gap:8px;padding:0 10px}}

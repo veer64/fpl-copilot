@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useClerk, useUser } from "@clerk/nextjs";
 import {
@@ -10,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DeleteAccountDialog } from "@/components/account/DeleteAccountDialog";
+import { MusicButton } from "@/components/music/MusicButton";
 import { api, type DeadlineEvent, type Me } from "@/lib/api";
 import { countdown, countdownShort, formatDeadline, initials, nextEvent } from "@/lib/time";
 import { useResource, type Resource } from "./useResource";
@@ -21,11 +23,11 @@ import { ErrorBox } from "./ErrorBox";
 
 export function Logo() {
   return (
-    <a href="/home" className="hm-brand" aria-label="FPL Copilot home">
+    <Link href="/home" className="hm-brand" aria-label="FPL Copilot home">
       {/* eslint-disable-next-line @next/next/no-img-element -- the 28px logo, as on the login page */}
       <img src="/logo.svg" alt="" width={28} height={28} />
       <span>FPL Copilot</span>
-    </a>
+    </Link>
   );
 }
 
@@ -185,7 +187,10 @@ export function HomeHeader({ deadlines, now, onExpired }: { deadlines: Resource<
     <header className="hm-hdr">
       <Logo />
       <DeadlinePill deadlines={deadlines} now={now} onExpired={onExpired} />
-      <AccountMenu />
+      <div className="hm-hdr-right">
+        <MusicButton />
+        <AccountMenu />
+      </div>
     </header>
   );
 }
