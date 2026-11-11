@@ -1,5 +1,11 @@
 // Prompt W5: the About / Privacy pages' and the delete dialogs' text / background pairs (app/public-pages.css, home.css W5
 // section + the references) at >= 4.5:1. Run: node scripts/contrast_public.mjs
+//
+// Prompt W5b: this static table lists the DESIGN's pairs (#021016 on #3BE8FF for the primary button) and so could not see the
+// cascade accident that painted the About CTAs cyan on cyan (`.pp a` outranking `.pp-btn-p`). `--live <baseURL>` adds the
+// computed-colour sweep (scripts/lib/sweep.mjs): every button and button-styled link on /login, /about and /privacy, signed
+// out, desktop 1440 and phone 390, as the browser painted them -- that case fails here. The signed-in pages are swept by
+// e2e/w5b-music.spec.ts with the same function. Run: node scripts/contrast_public.mjs --live http://localhost:3002
 const BG = "#04070C";
 const over = (hex, alpha, base) => {
   const c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -84,4 +90,47 @@ for (const [name, fg, bg] of pairs) {
   console.log(`${ok ? "ok  " : "FAIL"} ${r.toFixed(2)}:1  ${name}`);
 }
 console.log(`\n${pairs.length} pairs, lowest (non-exempt) ${worst.toFixed(2)}:1, ${fails} below 4.5:1`);
-process.exit(fails ? 1 : 0);
+// --selftest: the W5b cascade on a fixture (the page-wide link colour outranking the button class) MUST fail the sweep
+if (process.argv.includes("--selftest")) {
+  const { chromium } = await import("playwright");
+  const { sweepPage } = await import("./lib/sweep.mjs");
+  const browser = await chromium.launch({ channel: "msedge", headless: true });
+  const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+  await page.setContent(`<style>body{background:#04070C}.pp a{color:#7FE9FF}.pp-btn-p{background:#3BE8FF;color:#021016;padding:8px 16px;display:inline-flex}</style>
+    <div class="pp"><a href="/home" class="pp-btn-p">Ask your first question</a></div>`);
+  const r = await sweepPage(page);
+  await browser.close();
+  const f = r.fails[0];
+  console.log(`selftest (the W5b cascade on a fixture): ${f ? "FAILS as it must -- " + f.ratio.toFixed(2) + ":1 " + f.fg + " on " + f.bg : "NOT caught"}`);
+  process.exit(f ? 0 : 1);
+}
+
+// --live <baseURL>: the computed-colour sweep of the signed-out pages (scripts/lib/sweep.mjs)
+const liveAt = process.argv.indexOf("--live");
+if (liveAt < 0) process.exit(fails ? 1 : 0);
+const base = (process.argv[liveAt + 1] || "http://localhost:3002").replace(/\/$/, "");
+const { chromium } = await import("playwright");
+const { sweepPage } = await import("./lib/sweep.mjs");
+const browser = await chromium.launch({ channel: "msedge", headless: true });
+let liveFails = 0;
+let liveLowest = null;
+for (const [w, h] of [[1440, 900], [390, 844]]) {
+  const page = await browser.newPage({ viewport: { width: w, height: h } });
+  for (const path of ["/login", "/about", "/privacy"]) {
+    await page.goto(base + path, { waitUntil: "networkidle" });
+    if (path === "/login") {
+      await page.getByTestId("skip-intro").click().catch(() => undefined);
+      await page.waitForSelector('.stage[data-phase="login"]', { timeout: 15000 }).catch(() => undefined);
+    }
+    await page.waitForTimeout(500);
+    const r = await sweepPage(page);
+    liveFails += r.fails.length;
+    if (r.lowest && (liveLowest === null || r.lowest.ratio < liveLowest.ratio)) liveLowest = { ...r.lowest, where: `${path} @${w}` };
+    console.log(`live ${path} @${w}x${h}: ${r.text.length} text controls, lowest ${r.lowest ? r.lowest.ratio.toFixed(2) + ":1 " + r.lowest.label : "n/a"}, ${r.fails.length} below the bar`);
+    for (const f of r.fails) console.log(`  FAIL ${f.ratio.toFixed(2)}:1  ${f.fg} on ${f.bg}  ${f.label}${f.note ? "  (" + f.note + ")" : ""}`);
+  }
+  await page.close();
+}
+await browser.close();
+console.log(`live sweep (signed out): ${liveFails} failures, lowest ${liveLowest ? liveLowest.ratio.toFixed(2) + ":1 " + liveLowest.label + " on " + liveLowest.where : "n/a"}`);
+process.exit(fails || liveFails ? 1 : 0);

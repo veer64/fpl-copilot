@@ -6,6 +6,9 @@
 .pp{position:relative;min-height:100vh;min-height:100dvh;background:#04070C;color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif;overflow-x:clip}
 .pp *{box-sizing:border-box}
 .pp button{font:inherit;cursor:pointer}
+/* the page's prose links are cyan; a button-styled link (.pp-signin, .pp-home, .pp-btn-p, .pp-btn-s, .pp-chip, .pp-lk, .pp-card) keeps
+   its own colour: those rules are written as `.pp a.x` so they outrank this one (W5b: the single-class rules lost the cascade and
+   the cyan CTAs rendered cyan text on a cyan fill) */
 .pp a{color:#7FE9FF;text-decoration:none}
 .pp a:hover{color:#BDF7FF}
 .pp :focus-visible{outline:2px solid #3BE8FF;outline-offset:3px;border-radius:6px}
@@ -26,19 +29,19 @@
 .pp-hdr{position:relative;z-index:5;height:72px;padding:0 40px;display:flex;align-items:center;gap:14px;border-bottom:1px solid #142331;background:rgba(4,7,12,.85)}
 .pp-hdr .hm-brand span{font-size:16px;letter-spacing:0}
 .pp-grow{flex-grow:1}
-.pp-signin{height:40px;padding:0 18px;border:0;border-radius:10px;background:#3BE8FF;color:#021016;font-weight:600;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
-.pp-signin:hover{background:#7CF3FF;color:#021016}
-.pp-home{height:38px;padding:0 14px;border-radius:10px;border:1px solid #24384A;background:rgba(8,15,24,.6);color:#C9D6E3;font-size:13.5px;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
-.pp-home:hover{color:#F2FBFF;border-color:#3BE8FF}
+.pp a.pp-signin,.pp-signin{height:40px;padding:0 18px;border:0;border-radius:10px;background:#3BE8FF;color:#021016;font-weight:600;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.pp a.pp-signin:hover,.pp-signin:hover{background:#7CF3FF;color:#021016}
+.pp a.pp-home,.pp-home{height:38px;padding:0 14px;border-radius:10px;border:1px solid #24384A;background:rgba(8,15,24,.6);color:#C9D6E3;font-size:13.5px;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.pp a.pp-home:hover,.pp-home:hover{color:#F2FBFF;border-color:#3BE8FF}
 .pp-hdr .hm-acct{height:40px;padding:0 8px 0 3px}
 .pp-hdr .hm-avatar{width:32px;height:32px;font-size:12px}
 .pp-hdr-slot{width:40px;height:40px}
 
 /* ---- buttons, chips, cards ------------------------------------------------------------------------------------------- */
-.pp-btn-p{height:48px;padding:0 22px;border:0;border-radius:10px;background:#3BE8FF;color:#021016;font-weight:600;font-size:15px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
-.pp-btn-p:hover{background:#7CF3FF;color:#021016}
-.pp-btn-s{height:48px;padding:0 18px;border:1px solid #2C4052;border-radius:10px;background:rgba(255,255,255,.03);color:#E8F6FF;font-weight:500;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
-.pp-btn-s:hover{border-color:#5E7184;color:#F2FBFF}
+.pp a.pp-btn-p,.pp-btn-p{height:48px;padding:0 22px;border:0;border-radius:10px;background:#3BE8FF;color:#021016;font-weight:600;font-size:15px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.pp a.pp-btn-p:hover,.pp-btn-p:hover{background:#7CF3FF;color:#021016}
+.pp a.pp-btn-s,.pp-btn-s{height:48px;padding:0 18px;border:1px solid #2C4052;border-radius:10px;background:rgba(255,255,255,.03);color:#E8F6FF;font-weight:500;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.pp a.pp-btn-s:hover,.pp-btn-s:hover{border-color:#5E7184;color:#F2FBFF}
 .pp-ic{width:36px;height:36px;flex-shrink:0;border-radius:10px;background:rgba(59,232,255,.09);border:1px solid rgba(59,232,255,.28);color:#3BE8FF;display:flex;align-items:center;justify-content:center}
 .pp-ic.lg{width:40px;height:40px}
 .pp-ic.green{background:rgba(91,227,164,.1);border-color:rgba(91,227,164,.35);color:#5BE3A4}
@@ -83,8 +86,8 @@
 .pp-ask-glow{position:absolute;right:-120px;top:-160px;width:420px;height:420px;background:radial-gradient(closest-side,rgba(59,232,255,.16),transparent);pointer-events:none}
 .pp-ask-head{position:relative;display:flex;flex-direction:column;gap:10px}
 .pp-chips{position:relative;display:flex;flex-wrap:wrap;gap:10px}
-.pp-chip{height:40px;padding:0 16px;border-radius:999px;border:1px solid #24384A;background:rgba(8,15,24,.8);color:#E8F6FF;font-size:14.5px;display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
-.pp-chip:hover{border-color:#3BE8FF;color:#F2FBFF}
+.pp a.pp-chip,.pp-chip{height:40px;padding:0 16px;border-radius:999px;border:1px solid #24384A;background:rgba(8,15,24,.8);color:#E8F6FF;font-size:14.5px;display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.pp a.pp-chip:hover,.pp-chip:hover{border-color:#3BE8FF;color:#F2FBFF}
 .pp-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:stretch}
 .pp-box{padding:24px;display:flex;flex-direction:column;gap:16px}
 .pp-box.made{gap:18px}
