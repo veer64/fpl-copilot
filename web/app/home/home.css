@@ -309,6 +309,9 @@
 .hm-del-spin{animation:hm-spin 1s linear infinite;transform-origin:50% 50%}
 @keyframes hm-spin{to{transform:rotate(360deg)}}
 .hm-del-sheet{border-radius:22px 22px 0 0;background:#07101A;border-top:1px solid rgba(229,72,77,.55);box-shadow:0 -20px 60px -10px rgba(0,0,0,.85);color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif}
+/* the confirm sheet opened from the Chat page's phone drawer (.ch-drawer-root, z-index 60) sits above it: the shadcn drawer's
+   overlay and viewport are z-50 by default */
+[data-slot="drawer-viewport"]:has(> .hm-del-sheet),[data-slot="drawer-overlay"]:has(+ [data-slot="drawer-viewport"] > .hm-del-sheet){z-index:70}
 .hm-del.phone{padding:10px 18px 26px;gap:14px}
 .hm-del-handle{align-self:center;width:40px;height:4px;border-radius:2px;background:#3A4B5C}
 .hm-del.phone .hm-del-acts{flex-direction:column-reverse}

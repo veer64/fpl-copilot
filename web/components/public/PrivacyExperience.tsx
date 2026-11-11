@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Arrow, Backdrop, PublicFooter, PublicHeader } from "./PublicChrome";
 
@@ -47,29 +47,43 @@ const Clock = () => (
   </svg>
 );
 
-/** The section in view: the last section whose top is above the 35% line, by scroll position (robust at the end of the page). */
-export function useCurrentSection(ids: string[]): string {
+/** The section in view: the last section whose top is above the 35% line, by scroll position (an IntersectionObserver is
+ *  the trigger); at the very bottom of the page the last section. A clicked entry stays current until the visitor scrolls
+ *  themselves (wheel, touch, keys): the sections near the end cannot reach the top of a tall viewport. */
+export function useCurrentSection(ids: string[]): [string, (id: string) => void] {
   const [current, setCurrent] = useState(ids[0]);
+  const pinned = useRef<string | null>(null);
   useEffect(() => {
     const els = ids.map((id) => document.getElementById(id)).filter((el): el is HTMLElement => !!el);
     if (!els.length) return;
     const pick = () => {
+      if (pinned.current) return;
       const line = window.innerHeight * 0.35;
       let best = els[0].id;
       for (const el of els) if (el.getBoundingClientRect().top <= line) best = el.id;
       if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) best = els[els.length - 1].id;
       setCurrent((c) => (c === best ? c : best));
     };
+    const unpin = () => {
+      pinned.current = null;
+      pick();
+    };
     const io = new IntersectionObserver(pick, { threshold: [0, 0.25, 0.5, 0.75, 1] });
     for (const el of els) io.observe(el);
     window.addEventListener("scroll", pick, { passive: true });
+    for (const ev of ["wheel", "touchmove", "keydown"] as const) window.addEventListener(ev, unpin, { passive: true });
     pick();
     return () => {
       io.disconnect();
       window.removeEventListener("scroll", pick);
+      for (const ev of ["wheel", "touchmove", "keydown"] as const) window.removeEventListener(ev, unpin);
     };
   }, [ids]);
-  return current;
+  const pin = (id: string) => {
+    pinned.current = id;
+    setCurrent(id);
+  };
+  return [current, pin];
 }
 
 const IDS = SECTIONS.map((s) => s.id);
@@ -77,11 +91,12 @@ const IDS = SECTIONS.map((s) => s.id);
 export function PrivacyExperience() {
   const { isLoaded, isSignedIn } = useAuth();
   const signedIn = isLoaded && !!isSignedIn;
-  const current = useCurrentSection(IDS);
+  const [current, pin] = useCurrentSection(IDS);
   const go = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     const el = document.getElementById(id);
     if (!el) return;
     e.preventDefault();
+    pin(id);
     el.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
     window.history.replaceState(null, "", `#${id}`);
   };

@@ -72,7 +72,7 @@ print(json.dumps(rows))`);
 export function sql1(sql: string, params: unknown[] = []): unknown {
   const out = py(`${DB_PREFIX}
 import json
-cur.execute(${JSON.stringify(sql)}, ${JSON.stringify(params).replace(/^\[/, "(").replace(/\]$/, ",)")}); row = cur.fetchone(); conn.rollback()
+cur.execute(${JSON.stringify(sql)}, ${params.length ? "(" + JSON.stringify(params).slice(1, -1) + ",)" : "()"}); row = cur.fetchone(); conn.rollback()
 print(json.dumps(row[0] if row and len(row) == 1 else row, default=str))`);
   return JSON.parse(out.trim().split("\n").pop()!);
 }

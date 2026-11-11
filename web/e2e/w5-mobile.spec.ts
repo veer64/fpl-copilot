@@ -48,9 +48,23 @@ test.afterAll(async () => {
   await context?.close();
 });
 
+/** The sheet slides up (450 ms): wait until its box stops moving before measuring anything inside it. */
+async function settled(loc: ReturnType<Page["locator"]>) {
+  let last = JSON.stringify(await boxOf(loc));
+  for (let i = 0; i < 30; i++) {
+    await page.waitForTimeout(150);
+    const now = JSON.stringify(await boxOf(loc));
+    if (now === last) return;
+    last = now;
+  }
+}
+
 async function sheetChecks(testId: string) {
   const sheet = vis(page, `${testId}-sheet`);
   await expect(sheet).toBeVisible({ timeout: 10_000 });
+  await settled(sheet);
+  const sb = await boxOf(sheet);
+  expect(sb!.y + sb!.h, "the sheet sits at the bottom of the viewport").toBeLessThanOrEqual(846);
   const del = await boxOf(vis(page, "confirm-delete"));
   const cancel = await boxOf(vis(page, "confirm-cancel"));
   expect(del!.y, "Delete sits above Cancel").toBeLessThan(cancel!.y);

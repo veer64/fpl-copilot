@@ -1,7 +1,7 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { createTestUser, deleteUser, findTestUsers } from "./clerk-users";
-import { addTeamOnHome, apiCall, fplCounter, fplGet, mask, signIn, token, vis, type Standing } from "./w4";
+import { DB_PREFIX, addTeamOnHome, apiCall, fplCounter, fplGet, mask, py, signIn, token, vis, type Standing } from "./w4";
 import { API5, boxOf, control, ownerRows, shot5, signOutViaMenu, sql1, squadKeys, usageOf, user1Guard } from "./w5";
 
 /** Prompt W5 PART 3: ONE continuous desktop journey (1440x900) through /about, /privacy, the account menu's Delete account,
@@ -17,6 +17,11 @@ const B = "w5b";
 const CAP_USD = 1.0;
 const CAP_TURNS = 6;
 const RESERVED = [1, 9001, 9002];
+/** W5_FROM_STEP=n with W5_RESUME_USER_ID=<app user> resumes a run at step n: a fresh Clerk user w5a takes over user A's row
+ *  (its teams, chats and the pending preview are reused -- no FPL import, no agent turn repeated); user B is made if missing. */
+const FROM = Number(process.env.W5_FROM_STEP ?? 0);
+const RESUME = Number(process.env.W5_RESUME_USER_ID ?? 0);
+const skipBefore = (n: number) => test.skip(FROM > n, `resumed from step ${FROM}`);
 
 let context: BrowserContext;
 let page: Page;
@@ -90,11 +95,29 @@ async function focusedTestId(): Promise<string | null> {
   return page.evaluate(() => (document.activeElement as HTMLElement | null)?.getAttribute("data-testid") ?? null);
 }
 
+/** User B: signed out of A, a fresh Clerk user, one team, one chat; its per-table counts recorded; then A signed in again. */
+async function makeUserB() {
+  await signOutViaMenu(page);
+  log(`Clerk test user ${B} created: ${(await createTestUser(B)).id.slice(0, 9)}…`);
+  await signIn(page, `${B}+clerk_test@example.com`);
+  userB = Number((await apiCall(page, "get", "/me")).body.user_id);
+  await addTeamOnHome(page, teamA1, "choice");
+  keysB = squadKeys(userB);
+  await openChat(`/chat?team=${teamA1}`);
+  await turn("B team", "Who is my vice-captain? One line.");
+  await threadIdAfterSend();
+  bBefore = ownerRows([userB, ...keysB]);
+  log(`user B ${userB} rows: ${JSON.stringify(bBefore)}`);
+  await signOutViaMenu(page);
+  await signIn(page, `${A}+clerk_test@example.com`);
+}
+
 test.beforeAll(async ({ browser }) => {
   guardBefore = user1Guard();
   log(`user 1 guard before: ${guardBefore}`);
   reservedBefore = ownerRows(RESERVED);
   for (const name of [A, B]) for (const id of await findTestUsers(name)) await deleteUser(id);
+  if (FROM && !(RESUME >= 10001 && teamA1 && teamA2)) throw new Error("a resume needs W5_RESUME_USER_ID, W5_TEAM_A and W5_TEAM_B");
   if (!teamA1 || !teamA2) {
     const league = await fplGet<{ standings: { results: Standing[] } }>("leagues-classic/314/standings/?page_standings=1");
     teamA1 = teamA1 || league.standings.results[0].entry;
@@ -119,9 +142,47 @@ test.afterAll(async () => {
   await context?.close();
 });
 
+// ---- 0: resume an earlier run (W5_FROM_STEP) --------------------------------------------------------------------------------------
+
+test("0 resume", async () => {
+  test.skip(!FROM, "a full run");
+  test.setTimeout(900_000);
+  if (FROM <= 8) {
+    const id = (await createTestUser(A)).id;
+    py(`${DB_PREFIX}cur.execute("UPDATE app_users SET clerk_user_id = %s WHERE user_id = %s AND user_id >= 10001", ("${id}", ${RESUME})); conn.commit(); print(cur.rowcount)`);
+    await signIn(page, `${A}+clerk_test@example.com`);
+    userA = Number((await apiCall(page, "get", "/me")).body.user_id);
+    expect(userA).toBe(RESUME);
+    keysA = squadKeys(userA);
+    const rows = (await apiCall(page, "get", "/threads")).body as unknown as { thread_id: string; fpl_team_id: number | null }[];
+    threadA1 = rows.find((r) => r.fpl_team_id === teamA1)?.thread_id ?? "";
+    threadA2 = rows.find((r) => r.fpl_team_id === teamA2)?.thread_id ?? "";
+    threadGen = rows.find((r) => r.fpl_team_id === null)?.thread_id ?? "";
+    log(`resumed app user ${userA} at step ${FROM}: teams ${mask(teamA1)} / ${mask(teamA2)}, keys ${keysA.length}, threads ${rows.length}`);
+  } else {
+    userA = RESUME; // deleted in an earlier run: the steps from 9 on run as user B
+    log(`resumed at step ${FROM}: user A ${userA} already deleted; continuing as user B`);
+  }
+  // user B: an earlier run's row (by its test email) is taken over by a fresh Clerk user; else B is made now
+  const existing = Number(sql1("SELECT user_id FROM app_users WHERE email = %s AND user_id >= 10001 ORDER BY user_id DESC LIMIT 1", [`${B}+clerk_test@example.com`]) ?? 0);
+  if (existing >= 10001) {
+    const idB = (await createTestUser(B)).id;
+    py(`${DB_PREFIX}cur.execute("UPDATE app_users SET clerk_user_id = %s WHERE user_id = %s AND user_id >= 10001", ("${idB}", ${existing})); conn.commit(); print(cur.rowcount)`);
+    userB = existing;
+    keysB = squadKeys(userB);
+    bBefore = ownerRows([userB, ...keysB]);
+    log(`user B ${userB} resumed, rows: ${JSON.stringify(bBefore)}`);
+  } else if (FROM <= 8) {
+    await makeUserB();
+  } else {
+    throw new Error("a resume from step 9 needs user B's row from an earlier run");
+  }
+});
+
 // ---- 1: signed out ---------------------------------------------------------------------------------------------------------------
 
 test("1 signed out: /about and /privacy render, Sign in header, links, chips -> /login", async () => {
+  skipBefore(1);
   await page.goto("/about");
   await expect(page.locator('[data-testid="about"][data-signed-in="false"]')).toBeVisible({ timeout: 20_000 });
   await expect(vis(page, "header-sign-in")).toHaveAttribute("href", "/login");
@@ -193,6 +254,7 @@ async function photoStyle(p: Page) {
 }
 
 test("2 photos: fixed at 1440 (content scrolls over it), absolute at 800, masks and opacity as the references", async () => {
+  skipBefore(2);
   for (const which of ["about", "privacy"] as const) {
     await page.goto(`/${which}`);
     await expect(page.locator(`[data-testid="${which}"]`)).toBeVisible();
@@ -228,12 +290,14 @@ test("2 photos: fixed at 1440 (content scrolls over it), absolute at 800, masks 
 // ---- 3: the Privacy nav ----------------------------------------------------------------------------------------------------------
 
 test("3 Privacy nav: scrolling highlights each section in turn; clicking an entry scrolls there", async () => {
+  skipBefore(3);
   await page.goto("/privacy");
   await expect(page.locator('[data-testid="privacy"]')).toBeVisible();
   const ids = ["keep", "never", "who", "cookies", "how-long", "delete", "contact"];
   const seen: string[] = [];
   for (const id of ids) {
-    await page.evaluate((i) => document.getElementById(i)!.scrollIntoView({ block: "start", behavior: "auto" }), id);
+    // each section scrolled to the highlight line (35% of the viewport); the last one clamps at the bottom of the page
+    await page.evaluate((i) => window.scrollTo(0, document.getElementById(i)!.getBoundingClientRect().top + window.scrollY - window.innerHeight * 0.3), id);
     await expect.poll(async () => page.locator('[data-testid="privacy"]').getAttribute("data-current"), { timeout: 5_000 }).toBe(id);
     await expect(page.locator(`[data-testid="toc"] a[data-section="${id}"]`)).toHaveAttribute("aria-current", "true");
     seen.push(id);
@@ -244,19 +308,28 @@ test("3 Privacy nav: scrolling highlights each section in turn; clicking an entr
   await page.waitForTimeout(200);
   await page.locator('[data-testid="toc"] a[data-section="cookies"]').click();
   await expect.poll(async () => page.locator('[data-testid="privacy"]').getAttribute("data-current"), { timeout: 5_000 }).toBe("cookies");
+  // the smooth scroll lands with the section at the top (scroll-margin 24px)
+  await expect.poll(async () => page.evaluate(() => Math.round(document.getElementById("cookies")!.getBoundingClientRect().top)), { timeout: 5_000 }).toBeLessThan(120);
   const top = await page.evaluate(() => document.getElementById("cookies")!.getBoundingClientRect().top);
   expect(top).toBeGreaterThanOrEqual(0);
-  expect(top).toBeLessThan(120);
+  // a clicked entry near the end stays current although the page cannot scroll it to the top
+  await page.locator('[data-testid="toc"] a[data-section="delete"]').click();
+  await expect.poll(async () => page.locator('[data-testid="privacy"]').getAttribute("data-current"), { timeout: 5_000 }).toBe("delete");
+  await page.waitForTimeout(400);
+  expect(await page.locator('[data-testid="privacy"]').getAttribute("data-current")).toBe("delete");
+  await page.mouse.wheel(0, -200); // the visitor scrolls: the position rule is back
+  await expect.poll(async () => page.locator('[data-testid="privacy"]').getAttribute("data-current"), { timeout: 5_000 }).not.toBe("contact");
   const sticky = await page.locator('[data-testid="toc"]').evaluate((el) => getComputedStyle(el).position);
   expect(sticky).toBe("sticky");
   await shot5(page, "privacy_nav_cookies");
-  pass("3 Privacy nav: 7 sections highlighted in turn (one aria-current at a time), click scrolls (Cookies within 120px of the top), sticky");
+  pass("3 Privacy nav: 7 sections highlighted in turn (one aria-current at a time), click scrolls (Cookies within 120px of the top) and pins the entry until the visitor scrolls, sticky");
 });
 
 // ---- 4: user A: 2 teams, 3 real chats (+ a pending captain preview); About chips; then user B --------------------------------------------
 
 test("4 user A: 2 teams, 3 real chats, a pending captain preview; About chips -> the right /chat URLs; user B made", async () => {
-  test.setTimeout(900_000);
+  skipBefore(4);
+  test.setTimeout(1_500_000);
   log(`Clerk test user ${A} created: ${(await createTestUser(A)).id.slice(0, 9)}…`);
   await signIn(page, `${A}+clerk_test@example.com`);
   userA = Number((await apiCall(page, "get", "/me")).body.user_id);
@@ -313,35 +386,24 @@ test("4 user A: 2 teams, 3 real chats, a pending captain preview; About chips ->
   await shot5(page, "about_signed_in_viewport");
   await shot5(page, "about_signed_in", true);
   const q = (await chips.nth(2).textContent())!.trim();
+  const general = (await chips.nth(4).getAttribute("href"))!;
+  expect(general.startsWith("/chat?q=")).toBe(true);
   await chips.nth(2).click();
   await expect(page.locator('[data-testid="chat"][data-ready="true"]:visible')).toBeVisible({ timeout: 30_000 });
   await expect(page).toHaveURL(new RegExp(`/chat\\?team=${lastUsed}&q=`));
   await expect(vis(page, "chat-input")).toHaveValue(q);
   await expect(page.locator('[data-testid="thinking"]')).toHaveCount(0);
   expect(await page.locator('[data-testid="chat"]:visible').getAttribute("data-busy")).toBe("false");
-  const general = (await chips.nth(4).getAttribute("href"))!;
-  expect(general.startsWith("/chat?q=")).toBe(true);
 
   // user B, made now with a team and a chat: its counts must not change through A's deletions
-  await signOutViaMenu(page);
-  log(`Clerk test user ${B} created: ${(await createTestUser(B)).id.slice(0, 9)}…`);
-  await signIn(page, `${B}+clerk_test@example.com`);
-  userB = Number((await apiCall(page, "get", "/me")).body.user_id);
-  await addTeamOnHome(page, teamA1, "choice");
-  keysB = squadKeys(userB);
-  await openChat(`/chat?team=${teamA1}`);
-  await turn("B team", "Who is my vice-captain? One line.");
-  await threadIdAfterSend();
-  bBefore = ownerRows([userB, ...keysB]);
-  log(`user B ${userB} rows: ${JSON.stringify(bBefore)}`);
-  await signOutViaMenu(page);
-  await signIn(page, `${A}+clerk_test@example.com`);
+  await makeUserB();
   pass(`4 user A ${userA}: teams ${mask(teamA1)}, ${mask(teamA2)}; chats team1 / team2 / General (+ captain preview ${hasPreview ? "pending" : "NOT produced"}); About chips -> /chat?team=${mask(lastUsed)}&q= / /chat?q=, prefilled not sent; user B ${userB} made`);
 });
 
 // ---- 5: Delete chat ----------------------------------------------------------------------------------------------------------------
 
 test("5 Delete chat: the General chat by keyboard -> gone everywhere, cost rows kept; the OPEN chat -> a new empty chat, same team", async () => {
+  skipBefore(5);
   test.setTimeout(300_000);
   await openChat(`/chat?team=${teamA2}`);
   const spentBefore = await spent();
@@ -350,6 +412,7 @@ test("5 Delete chat: the General chat by keyboard -> gone everywhere, cost rows 
   // keyboard only: Tab from the top of the page to the General row's trash button
   await page.keyboard.press("Tab");
   let found = false;
+  let tabs = 1;
   for (let i = 0; i < 60; i++) {
     const info = await page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null;
@@ -360,6 +423,7 @@ test("5 Delete chat: the General chat by keyboard -> gone everywhere, cost rows 
       break;
     }
     await page.keyboard.press("Tab");
+    tabs++;
   }
   expect(found, "the General row's trash button is reachable by Tab").toBe(true);
   const visibleOnFocus = await page.evaluate(() => getComputedStyle(document.activeElement as HTMLElement).opacity);
@@ -402,12 +466,13 @@ test("5 Delete chat: the General chat by keyboard -> gone everywhere, cost rows 
   await expect(page.locator('[data-testid="assistant-message"]:visible')).toHaveCount(0);
   expect(sql1("SELECT count(*) FROM chat_threads WHERE thread_id = %s", [threadA2])).toBe(0);
   await shot5(page, "chat_after_delete_open");
-  pass(`5 Delete chat: General chat by keyboard (Tab x${genUsage} reached the trash) -> gone from sidebar, /threads, DB (thread, checkpoints, messages, tickets); ${usageAfter.length} cost rows kept with user + amount; spend unchanged $${spentBefore.toFixed(4)}; the open chat -> new empty chat in team ${mask(teamA2)}`);
+  pass(`5 Delete chat: General chat by keyboard (Tab x${tabs} reached the trash) -> gone from sidebar, /threads, DB (thread, checkpoints, messages, tickets); ${usageAfter.length} cost rows kept with user + amount; spend unchanged $${spentBefore.toFixed(4)}; the open chat -> new empty chat in team ${mask(teamA2)}`);
 });
 
 // ---- 6: Remove team ----------------------------------------------------------------------------------------------------------------
 
 test("6 Remove team: team 1 (active, with the pending preview) -> '1 chat', card gone, Add team back, General mode, team 2 untouched", async () => {
+  skipBefore(6);
   test.setTimeout(300_000);
   await apiCall(page, "post", `/me/teams/${teamA1}/activate`); // team 1 is the active team (as after a send in it)
   const key1 = keysA[0];
@@ -449,6 +514,7 @@ test("6 Remove team: team 1 (active, with the pending preview) -> '1 chat', card
 // ---- 7 + 8: Delete account (the error path first) --------------------------------------------------------------------------------------
 
 test("7+8 Delete account: Clerk fails -> error + nothing deleted; Try again -> deleting -> /login + note once; DB, Clerk, old token, user B", async () => {
+  skipBefore(7);
   test.setTimeout(300_000);
   await page.goto("/privacy");
   await expect(page.locator('[data-testid="privacy"][data-signed-in="true"]')).toBeVisible({ timeout: 20_000 });
@@ -468,7 +534,7 @@ test("7+8 Delete account: Clerk fails -> error + nothing deleted; Try again -> d
   await page.locator('[data-testid="delete-account"]').click();
   await expect(vis(page, "delete-account-dialog")).toBeVisible();
   await expect(vis(page, "confirm-title")).toHaveText("Delete your account?");
-  await expect(vis(page, "confirm-list")).toHaveText(["Your account", "Your FPL teams", "Saved squads", "Chats", "Feedback"]);
+  await expect(page.locator('[data-testid="confirm-list"]:visible li')).toHaveText(["Your account", "Your FPL teams", "Saved squads", "Chats", "Feedback"]);
   await expect(vis(page, "confirm-delete")).toHaveText("Delete my account");
   expect(await focusedTestId()).toBe("confirm-cancel");
   await shot5(page, "dialog_delete_account_confirm");
@@ -516,6 +582,7 @@ test("7+8 Delete account: Clerk fails -> error + nothing deleted; Try again -> d
 // ---- 9: the owner ----------------------------------------------------------------------------------------------------------------
 
 test("9 owner: a /me mock with is_owner -> the item is disabled with the note (the backend's 403 is pytest-pinned)", async () => {
+  skipBefore(9);
   test.setTimeout(180_000);
   await signIn(page, `${B}+clerk_test@example.com`);
   await page.route(`${API5}/me`, async (route) => {
@@ -539,7 +606,9 @@ test("9 owner: a /me mock with is_owner -> the item is disabled with the note (t
 // ---- 10: every page's menu ---------------------------------------------------------------------------------------------------------------
 
 test("10 every page's account menu has Sign out + divider + Delete account; focus trap; Esc returns focus", async () => {
+  skipBefore(10);
   test.setTimeout(300_000);
+  if (FROM >= 10) await signIn(page, `${B}+clerk_test@example.com`);
   const pages = [
     ["/home", '[data-testid="home"]'],
     [`/chat?team=${teamA1}`, '[data-testid="chat"][data-ready="true"]'],
@@ -567,9 +636,14 @@ test("10 every page's account menu has Sign out + divider + Delete account; focu
     const seen = new Set<string>();
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press("Tab");
-      const inside = await page.evaluate(() => !!(document.activeElement as HTMLElement | null)?.closest('[data-testid="delete-account-dialog"]'));
+      // inside = the dialog or its portal (base-ui's invisible focus guards wrap the cycle); never the page behind
+      const inside = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        return !!el?.closest('[data-testid="delete-account-dialog"]') || !!el?.closest("[data-base-ui-portal]");
+      });
       expect(inside, `${url}: focus stays inside the dialog (Tab ${i + 1})`).toBe(true);
-      seen.add((await focusedTestId()) ?? "?");
+      const tid = await focusedTestId();
+      if (tid) seen.add(tid);
     }
     expect([...seen].sort()).toEqual(["confirm-cancel", "confirm-delete"]);
     await page.keyboard.press("Escape");
@@ -583,6 +657,7 @@ test("10 every page's account menu has Sign out + divider + Delete account; focu
 // ---- 11: keyboard, axe, contrast, reduced motion -------------------------------------------------------------------------------------
 
 test("11 keyboard-only with visible focus; axe 0 serious/critical; reduced motion: no spin / pulse", async () => {
+  skipBefore(11);
   test.setTimeout(300_000);
   const axeOn = async (what: string) => {
     const r = await new AxeBuilder({ page }).disableRules(["color-contrast"]).analyze();
