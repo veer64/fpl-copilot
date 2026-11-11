@@ -336,7 +336,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
 
   return (
     <div className="ch" data-testid="chat" data-context={ctx?.kind ?? "loading"} data-team-id={teamId ?? ""} data-thread-id={threadId ?? ""} data-ready={opening === "ready"} data-busy={busy}>
-      <ChatHeader deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} onMenu={() => setDrawer(true)} isOwner={me.status === "ready" ? me.data.is_owner : null} />
+      <ChatHeader deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} onMenu={() => setDrawer(true)} isOwner={me.status === "ready" ? me.data.is_owner : null} isAdmin={me.status === "ready" ? me.data.is_admin : null} />
       <div className="ch-body">
         {!general && (
           <div aria-hidden="true" className={`ch-bg${collapsed ? " collapsed" : ""}`}>

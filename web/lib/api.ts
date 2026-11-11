@@ -144,6 +144,60 @@ export type RemoveTeamResult = {
 };
 export type DeleteThreadResult = { thread_id: string; deleted: true; removed_messages: number; was_default: boolean };
 
+// ---- Prompt W6 (2026-11-11): the admin page (GET /admin/summary; the owner only -- 403 for anyone else) ----------------------
+export type AdminUser = {
+  user_id: number;
+  name: string | null;
+  email: string | null;
+  sign_in_method: string | null;
+  joined: string | null;
+  last_active: string | null;
+  answers: number;
+  usd: number;
+  answers_today: number;
+  usd_today: number;
+  answers_7_days: number;
+  usd_7_days: number;
+  cap_hits: number;
+  is_admin: boolean;
+};
+export type AdminCapHit = { user_id: number; name: string | null; email: string | null; at: string; spent_usd: number; cap_usd: number };
+export type AdminDown = {
+  message_id: string;
+  thread_id: string;
+  at: string | null;
+  user_id: number;
+  name: string | null;
+  question: string | null;
+  answer: string | null;
+  answer_chars: number;
+  answer_truncated: boolean;
+  trace_id: string;
+  trace_url: string | null;
+};
+export type AdminSummary = {
+  at: string;
+  users_total: number;
+  sign_ups_today: number;
+  sign_ups_7_days: number;
+  active_today: number;
+  active_7_days: number;
+  answers_today: number;
+  answers_total: number;
+  usd_today: number;
+  usd_month: number;
+  usd_total: number;
+  sign_ups_per_day: { day: string; n: number }[];
+  users: AdminUser[];
+  deleted_accounts: { answers: number; usd: number };
+  cap_hits: AdminCapHit[];
+  cap_hits_today: number;
+  cap_hits_total: number;
+  sign_in_methods: Record<string, number>;
+  feedback: { up_total: number; down_total: number; up_7_days: number; down_7_days: number; recent_down: AdminDown[] };
+  langfuse: { host: string | null; project_id: string | null };
+};
+
 export type DeadlineEvent = { gw: number; deadline_time: string; finished: boolean };
 /** GET /deadlines */
 export type Deadlines = { events: DeadlineEvent[]; fetched_at: string };
@@ -250,6 +304,9 @@ export const api = {
   removeTeam: (t: TokenGetter, fplTeamId: number) => apiFetch<RemoveTeamResult>(t, `/me/teams/${fplTeamId}`, { method: "DELETE", timeoutMs: 60_000 }),
   deleteThread: (t: TokenGetter, threadId: string) =>
     apiFetch<DeleteThreadResult>(t, `/threads/${encodeURIComponent(threadId)}`, { method: "DELETE", timeoutMs: 60_000 }),
+  // Prompt W6: the admin page; the CSV is the P7 file (text/csv, formula-prefixed cells) read with the token and saved by the page
+  adminSummary: (t: TokenGetter) => apiFetch<AdminSummary>(t, "/admin/summary"),
+  adminUsersCsv: (t: TokenGetter) => apiFetch<string>(t, "/admin/users.csv"),
 };
 
 /** GET /deadlines without a token (Prompt W5: open in clerk mode -- public FPL data, cached a minute), for the About page's

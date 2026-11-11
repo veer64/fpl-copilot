@@ -110,17 +110,20 @@ const noMe = () => Promise.resolve<Me | null>(null);
 
 /** The account menu. `isOwner` (Prompt W5): a page that already read /me passes it; otherwise the menu reads /me once on
  *  mount. "Delete account" stays disabled until the answer is known (checkpoint C2), then is enabled -- or disabled with the
- *  owner note for user 1. The confirm dialog is the shared ConfirmDelete; focus returns to the account button. */
-export function AccountMenu({ isOwner }: { isOwner?: boolean | null }) {
+ *  owner note for user 1. The confirm dialog is the shared ConfirmDelete; focus returns to the account button.
+ *  `isAdmin` (Prompt W6): the "Admin" item (above Sign out) shows only when /me says is_admin -- passed by a page that read
+ *  /me, else from the menu's own read; the backend's 403 on /admin/summary is the real guard. */
+export function AccountMenu({ isOwner, isAdmin }: { isOwner?: boolean | null; isAdmin?: boolean | null }) {
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
-  const [me] = useResource<Me | null>(isOwner === undefined ? api.me : noMe);
+  const [me] = useResource<Me | null>(isOwner === undefined || isAdmin === undefined ? api.me : noMe);
   const [del, setDel] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const name = user?.fullName || user?.firstName || null;
   const email = user?.primaryEmailAddress?.emailAddress ?? null;
   const ini = isLoaded ? initials(name, email) : "";
   const owner: boolean | null = isOwner !== undefined ? isOwner : me.status === "ready" && me.data ? me.data.is_owner : null;
+  const admin: boolean | null = isAdmin !== undefined ? isAdmin : me.status === "ready" && me.data ? me.data.is_admin : null;
   return (
     <>
       <DropdownMenu>
@@ -149,6 +152,14 @@ export function AccountMenu({ isOwner }: { isOwner?: boolean | null }) {
             </div>
           </div>
           <DropdownMenuSeparator className="hm-menu-hr" />
+          {admin && (
+            <DropdownMenuItem className="hm-mi hm-mi-admin" render={<Link href="/admin" prefetch={false} />} data-testid="menu-admin">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+              </svg>
+              <span>Admin</span>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem className="hm-mi" onClick={() => void signOut({ redirectUrl: "/login" })} data-testid="sign-out">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

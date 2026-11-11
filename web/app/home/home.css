@@ -275,6 +275,10 @@
    reference's #E5484D: white text on #E5484D is 3.94:1 and the brief asks for 4.5:1 (4.68:1 now); the border and the
    brackets keep #E5484D (non-text). ------------------------------------------------------------------------------------ */
 .hm-menu-hr-2{margin:6px 6px}
+/* Prompt W6: the "Admin" item (the owner only) -- neutral text, cyan icon, a cyan tint on hover; the coral items stay coral */
+.hm-mi-admin{color:#DDF7FF}
+.hm-mi-admin svg{color:#7FE9FF}
+.hm-mi-admin:hover,.hm-mi-admin[data-highlighted]{background:rgba(59,232,255,.08);color:#F2FBFF}
 .hm-mi-del{height:36px;font-size:13.5px;color:#FF6B6B}
 .hm-mi-del svg{color:#FF6B6B}
 .hm-mi-del:hover,.hm-mi-del[data-highlighted]{background:rgba(229,72,77,.1)}

@@ -6,6 +6,9 @@
 // computed-colour sweep (scripts/lib/sweep.mjs): every button and button-styled link on /login, /about and /privacy, signed
 // out, desktop 1440 and phone 390, as the browser painted them -- that case fails here. The signed-in pages are swept by
 // e2e/w5b-music.spec.ts with the same function. Run: node scripts/contrast_public.mjs --live http://localhost:3002
+//
+// Prompt W6: `--storage <state.json>` (a Playwright storageState of a signed-in ADMIN session, as e2e/w6-admin.spec.ts saves
+// one) adds /admin to the live sweep at both widths: the page needs the owner's session, so the signed-out run cannot see it.
 const BG = "#04070C";
 const over = (hex, alpha, base) => {
   const c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -131,6 +134,28 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
   }
   await page.close();
 }
+// Prompt W6: /admin with a signed-in admin session (--storage <state.json>)
+const storageAt = process.argv.indexOf("--storage");
+if (storageAt > 0 && process.argv[storageAt + 1]) {
+  for (const [w, h] of [[1440, 900], [390, 844]]) {
+    const ctx = await browser.newContext({ storageState: process.argv[storageAt + 1], viewport: { width: w, height: h } });
+    const page = await ctx.newPage();
+    await page.goto(base + "/admin", { waitUntil: "networkidle" });
+    const ready = await page.waitForSelector('[data-testid="admin"][data-state="ready"]', { timeout: 30000 }).then(() => true).catch(() => false);
+    if (!ready) {
+      console.log(`live /admin @${w}x${h}: NOT READY (no admin session in the storage state, or the API refused) -- counted as a failure`);
+      liveFails += 1;
+    } else {
+      await page.waitForTimeout(500);
+      const r = await sweepPage(page);
+      liveFails += r.fails.length;
+      if (r.lowest && (liveLowest === null || r.lowest.ratio < liveLowest.ratio)) liveLowest = { ...r.lowest, where: `/admin @${w}` };
+      console.log(`live /admin @${w}x${h} (signed in): ${r.text.length} text controls, lowest ${r.lowest ? r.lowest.ratio.toFixed(2) + ":1 " + r.lowest.label : "n/a"}, ${r.fails.length} below the bar`);
+      for (const f of r.fails) console.log(`  FAIL ${f.ratio.toFixed(2)}:1  ${f.fg} on ${f.bg}  ${f.label}${f.note ? "  (" + f.note + ")" : ""}`);
+    }
+    await ctx.close();
+  }
+}
 await browser.close();
-console.log(`live sweep (signed out): ${liveFails} failures, lowest ${liveLowest ? liveLowest.ratio.toFixed(2) + ":1 " + liveLowest.label + " on " + liveLowest.where : "n/a"}`);
+console.log(`live sweep (signed out${storageAt > 0 ? " + /admin signed in" : ""}): ${liveFails} failures, lowest ${liveLowest ? liveLowest.ratio.toFixed(2) + ":1 " + liveLowest.label + " on " + liveLowest.where : "n/a"}`);
 process.exit(fails || liveFails ? 1 : 0);
