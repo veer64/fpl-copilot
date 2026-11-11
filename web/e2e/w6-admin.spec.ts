@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createTestUser, deleteUser, findTestUsers } from "./clerk-users";
 import { sweepPage } from "../scripts/lib/sweep.mjs";
-import { API, apiCall, dbEnv, signIn, vis } from "./w4";
+import { API, DB_PREFIX, apiCall, dbEnv, py, signIn, vis } from "./w4";
 import { SHOTS5, shot5, sql1 } from "./w5";
 
 /** Prompt W6 PART 3: the owner's /admin page against the scratchpad backend (clerk mode on :8010, the TEST-ONLY admin switch
@@ -24,6 +24,7 @@ test.describe.configure({ mode: "serial" });
 
 const A = "w6a";
 const B = "w6b";
+const REUSE_B = process.env.W6_REUSE_B ? Number(process.env.W6_REUSE_B) : 0;
 const STATE = path.join(SHOTS5, "w6_admin_storage_state.json");
 const results: string[] = [];
 const notes: string[] = [];
@@ -110,7 +111,13 @@ async function axe(p: Page, where: string) {
   expect(bad.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`), `axe ${where}`).toEqual([]);
 }
 
+/** after a full page load Clerk's session object appears a moment after the page is interactive: wait for it before reading a token */
+async function clerkReady(p: Page) {
+  await expect.poll(() => p.evaluate(() => !!(window as unknown as { Clerk?: { session?: unknown } }).Clerk?.session), { timeout: 20_000 }).toBe(true);
+}
+
 async function spent(p: Page): Promise<number> {
+  await clerkReady(p);
   const me = await apiCall(p, "get", "/me");
   return Number(me.body.spent_today_usd ?? 0);
 }
@@ -165,10 +172,24 @@ test.afterAll(async ({}) => {
 
 test("1 user B (not admin): no Admin item, /admin -> /home, the API 403", async () => {
   test.setTimeout(180_000);
-  log(`Clerk test user ${B} created: ${(await createTestUser(B)).id.slice(0, 9)}…`);
+  const clerkB = await createTestUser(B);
+  log(`Clerk test user ${B} created: ${clerkB.id.slice(0, 9)}…`);
+  if (REUSE_B) {
+    // W6_REUSE_B=<user_id>: an earlier run's user B row (test user >= 10001, this email) is re-linked to the fresh Clerk user
+    expect(REUSE_B).toBeGreaterThanOrEqual(10_001);
+    const n = num(sql1("SELECT count(*) FROM app_users WHERE user_id = %s AND email = %s", [REUSE_B, `${B}+clerk_test@example.com`]));
+    expect(n, `user B ${REUSE_B} with that email exists on the laptop`).toBe(1);
+    py(`${DB_PREFIX}
+cur.execute("UPDATE app_users SET clerk_user_id = %s, profile_fetched_at = now() WHERE user_id = %s AND email = %s", (${JSON.stringify(clerkB.id)}, ${REUSE_B}, ${JSON.stringify(`${B}+clerk_test@example.com`)}))
+assert cur.rowcount == 1
+conn.commit()
+print("relinked")`);
+    log(`user B ${REUSE_B} re-linked to the fresh Clerk user (laptop write: app_users.clerk_user_id of that test row)`);
+  }
   await signIn(pageB, `${B}+clerk_test@example.com`);
   userB = Number((await apiCall(pageB, "get", "/me")).body.user_id);
   expect(userB).toBeGreaterThanOrEqual(10_001);
+  if (REUSE_B) expect(userB).toBe(REUSE_B);
   await vis(pageB, "account-menu").first().click();
   await expect(pageB.locator('[data-testid="delete-account"]')).toHaveAttribute("data-owner", "false", { timeout: 10_000 }); // /me answered
   await expect(pageB.locator('[data-testid="menu-admin"]')).toHaveCount(0);
@@ -185,18 +206,27 @@ test("1 user B (not admin): no Admin item, /admin -> /home, the API 403", async 
 
 test("2 user B: two real answers (general chat), thumb up the first, thumb down the second", async () => {
   test.setTimeout(400_000);
-  await pageB.goto("/chat");
-  await expect(pageB.locator('[data-testid="chat"][data-ready="true"]:visible')).toBeVisible({ timeout: 30_000 });
-  await turn(pageB, "B q1", "In one short sentence, what does the Bench Boost chip do in FPL?");
-  await turn(pageB, "B q2", "In one short sentence, how many free transfers can an FPL manager bank at most?");
-  await expect.poll(async () => pageB.locator('[data-testid="chat"]:visible').getAttribute("data-thread-id"), { timeout: 10_000 }).toMatch(/^th_/);
-  bThread = (await pageB.locator('[data-testid="chat"]:visible').getAttribute("data-thread-id"))!;
-  const answers = pageB.locator('[data-testid="assistant-message"]:visible');
-  await expect(answers).toHaveCount(2);
-  await answers.nth(0).locator('[data-testid="thumb-up"]').click();
-  await expect(answers.nth(0).locator('[data-testid="thumb-up"]')).toHaveAttribute("aria-pressed", "true");
-  await answers.nth(1).locator('[data-testid="thumb-down"]').click();
-  await expect(answers.nth(1).locator('[data-testid="thumb-down"]')).toHaveAttribute("aria-pressed", "true");
+  if (REUSE_B) {
+    // a re-run under the Anthropic cap: the answers and thumbs of an earlier run's user B (whose Clerk user the earlier run
+    // deleted) are reused -- that row is re-linked to the fresh Clerk user B, so the same account signs in again
+    bThread = String(sql1("SELECT thread_id FROM chat_messages WHERE user_id = %s ORDER BY created_at LIMIT 1", [userB]));
+    log(`reusing user B ${userB}'s thread ${bThread} from an earlier run (no new agent turns)`);
+    notes.push(`2: re-run under the cap -- user B ${userB}'s two answers and thumbs come from an earlier run (W6_REUSE_B)`);
+  } else {
+    await pageB.goto("/chat");
+    await expect(pageB.locator('[data-testid="chat"][data-ready="true"]:visible')).toBeVisible({ timeout: 30_000 });
+    await turn(pageB, "B q1", "In one short sentence, what does the Bench Boost chip do in FPL?");
+    await turn(pageB, "B q2", "In one short sentence, how many free transfers can an FPL manager bank at most?");
+    await expect.poll(async () => pageB.locator('[data-testid="chat"]:visible').getAttribute("data-thread-id"), { timeout: 10_000 }).toMatch(/^th_/);
+    bThread = (await pageB.locator('[data-testid="chat"]:visible').getAttribute("data-thread-id"))!;
+    const answers = pageB.locator('[data-testid="assistant-message"]:visible');
+    await expect(answers).toHaveCount(2);
+    await answers.nth(0).locator('[data-testid="thumb-up"]').click();
+    await expect(answers.nth(0).locator('[data-testid="thumb-up"]')).toHaveAttribute("aria-pressed", "true");
+    await answers.nth(1).locator('[data-testid="thumb-down"]').click();
+    await expect(answers.nth(1).locator('[data-testid="thumb-down"]')).toHaveAttribute("aria-pressed", "true");
+  }
+  await clerkReady(pageB);
   const rows = (await apiCall(pageB, "get", `/threads/${bThread}/messages`)).body as unknown as { role: string; text: string; message_id?: string; feedback?: string }[];
   const a = rows.filter((m) => m.role === "assistant");
   const u = rows.filter((m) => m.role === "user");
@@ -289,7 +319,7 @@ test("3 admin A: the Admin item -> /admin; every number matches SQL; 30 bars; so
   await vis(pageA, "sort-joined").click();
   await expect(table.locator("th").nth(3)).toHaveAttribute("aria-sort", "descending");
   const idsPage = await table.locator("[data-testid='user-row']").evaluateAll((trs) => trs.map((tr) => Number(tr.getAttribute("data-user-id"))));
-  const idsSql = JSON.parse(String(sql1("SELECT json_agg(user_id ORDER BY created_at DESC NULLS LAST, user_id) FROM app_users"))) as number[];
+  const idsSql = sql1("SELECT json_agg(user_id ORDER BY created_at DESC NULLS LAST, user_id) FROM app_users") as number[];
   expect(idsPage, "joined newest first = SQL order").toEqual(idsSql);
   log(`sorting: name asc/desc, answers desc, joined desc all in order (${idsPage.length} rows)`);
 
@@ -340,17 +370,24 @@ test("4 the thumbs section lists B's thumbs-down with the right question, answer
       expect(href.startsWith(host), "the link is on the configured host").toBe(true);
       let found: { value?: string; stringValue?: string }[] = [];
       let traceOk = false;
+      let observations = 0;
+      let traceStatus = 0;
       for (let i = 0; i < 12 && !(traceOk && found.length); i++) {
         if (i) await pageA.waitForTimeout(5000);
+        // the v5 SDK's traces are read through the observations (the Langfuse v1 lesson: the root is isRootObservation); the
+        // /traces/{id} status is reported beside it
         const t = await fetch(`${host}/api/public/traces/${traceId}`, { headers: { Authorization: `Basic ${auth}` } });
-        traceOk = t.status === 200;
+        traceStatus = t.status;
+        const o = await fetch(`${host}/api/public/v2/observations?traceId=${traceId}&limit=50`, { headers: { Authorization: `Basic ${auth}` } });
+        if (o.status === 200) observations = (((await o.json()) as { data?: unknown[] }).data ?? []).length;
+        traceOk = traceStatus === 200 || observations > 0;
         const s = await fetch(`${host}/api/public/v3/scores?traceId=${traceId}&name=user_feedback`, { headers: { Authorization: `Basic ${auth}` } });
         if (s.status === 200) found = ((await s.json()) as { data: { value?: string; stringValue?: string }[] }).data ?? [];
       }
-      log(`Langfuse: trace ${traceId} ${traceOk ? "EXISTS" : "not found"}; user_feedback scores ${JSON.stringify(found.map((x) => x.stringValue ?? x.value))}`);
-      expect(traceOk, "the linked trace exists on the host").toBe(true);
+      log(`Langfuse: trace ${traceId}: /traces/{id} HTTP ${traceStatus}, ${observations} observations; user_feedback scores ${JSON.stringify(found.map((x) => x.stringValue ?? x.value))}`);
+      expect(traceOk, "the linked trace exists on the host (observations under that trace id)").toBe(true);
       expect(found.some((x) => (x.stringValue ?? x.value) === "down"), "it carries user_feedback = down").toBe(true);
-      traceNote = `link ${href.replace(traceId, "<trace>")} -> the trace exists with user_feedback=down (API); the UI open itself NOT DETERMINED (needs the owner's Langfuse login)`;
+      traceNote = `link ${href.replace(traceId, "<trace>")} -> the trace exists (${observations} observations${traceStatus === 200 ? ", /traces 200" : `, /traces HTTP ${traceStatus}`}) with user_feedback=down (API); the UI open itself NOT DETERMINED (needs the owner's Langfuse login)`;
     } else {
       traceNote = `link ${href}; Langfuse API check skipped (no keys in .env)`;
       notes.push("4: the Langfuse trace was not checked through the API (no keys)");
@@ -450,8 +487,9 @@ test("6 Refresh, loading, empty and error states; keyboard-only; axe; the contra
 
   // error: 500 -> the error card with Retry; Retry reads again
   await pageA.route("**/admin/summary", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "boom" }) }));
-  await refresh(pageA).catch(() => undefined);
+  await vis(pageA, "refresh").click();
   await expect(vis(pageA, "error-admin-data")).toBeVisible({ timeout: 15_000 });
+  await expect(pageA.locator('[data-testid="admin"][data-state="error"]:visible')).toBeVisible();
   await expect(vis(pageA, "error-admin-data")).toContainText("Couldn’t load admin data.");
   await shot5(pageA, "w6_admin_error");
   await pageA.unroute("**/admin/summary");

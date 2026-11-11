@@ -28,7 +28,7 @@
 .ad-tile-lbl{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#7FE9FF}
 .ad-tile-v{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:30px;line-height:34px;font-weight:600;letter-spacing:-.03em;color:#F2FBFF}
 .ad-tile-v b{font-weight:600}
-.ad-tile-v i{font-style:normal;font-weight:400;color:#56687A}
+.ad-tile-v i{font-style:normal;font-weight:400;color:#8A9BB0}
 .ad-tile.small .ad-tile-v{font-size:22px;line-height:28px}
 
 /* ---- the sign-ups chart ------------------------------------------------------------------------------------------------ */
@@ -52,17 +52,17 @@
 .ad-table th,.ad-table td{text-align:left;padding:10px 10px;border-bottom:1px solid #172633;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ad-table th{padding:4px 4px 8px;font-weight:500}
 .ad-table th.n,.ad-table td.n{text-align:right}
-.ad-table th:nth-child(1),.ad-table td:nth-child(1){width:19%}
-.ad-table th:nth-child(2),.ad-table td:nth-child(2){width:24%}
-.ad-table th:nth-child(3),.ad-table td:nth-child(3){width:11%}
-.ad-table th:nth-child(4),.ad-table td:nth-child(4){width:17%}
-.ad-table th:nth-child(5),.ad-table td:nth-child(5){width:17%}
-.ad-table th:nth-child(6),.ad-table td:nth-child(6){width:6%}
-.ad-table th:nth-child(7),.ad-table td:nth-child(7){width:6%}
+.ad-table th:nth-child(1),.ad-table td:nth-child(1){width:17%}
+.ad-table th:nth-child(2),.ad-table td:nth-child(2){width:22%}
+.ad-table th:nth-child(3),.ad-table td:nth-child(3){width:10%}
+.ad-table th:nth-child(4),.ad-table td:nth-child(4){width:15.5%}
+.ad-table th:nth-child(5),.ad-table td:nth-child(5){width:15.5%}
+.ad-table th:nth-child(6),.ad-table td:nth-child(6){width:10%}   /* 6% cut the "ANSWERS" / "$ SPENT" headers at 1440 (run 4's screenshot) */
+.ad-table th:nth-child(7),.ad-table td:nth-child(7){width:10%}
 .ad-table th.n .ad-sort{justify-content:flex-end;width:100%}
 .ad-sort{height:32px;padding:0 6px;border:0;border-radius:8px;background:transparent;color:#9FB3C8;font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .ad-sort:hover{color:#E8F6FF;background:rgba(255,255,255,.05)}
-.ad-arrow{color:#56687A;font-size:12px}
+.ad-arrow{color:#8A9BB0;font-size:12px}  /* >= 4.5:1 on the glass even though decorative: the sweep reads every text node of a button */
 [aria-sort="ascending"] .ad-sort,[aria-sort="descending"] .ad-sort{color:#DDF7FF}
 [aria-sort="ascending"] .ad-arrow,[aria-sort="descending"] .ad-arrow{color:#3BE8FF}
 .ad-table td.ad-name{font-weight:500;color:#F2FBFF}

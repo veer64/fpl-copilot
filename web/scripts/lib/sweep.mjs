@@ -5,7 +5,7 @@
 
 /** Runs inside the page. Returns one row per visible text-bearing control: {label, fg, bg, ratio, large, note}. */
 export function sweepInPage() {
-  const SEL = 'button, [role="button"], a[class*="btn"], a.pp-signin, a.pp-home, a.pp-chip, a.pp-lk, a.pp-card, a.ch-home, a.ch-drawer-home, .hm-chip, .pp-chip, .hm-idchip';
+  const SEL = 'button, [role="button"], a[class*="btn"], a.pp-signin, a.pp-home, a.pp-chip, a.pp-lk, a.pp-card, a.ch-home, a.ch-drawer-home, a.ad-lf, .hm-chip, .pp-chip, .hm-idchip';
   const toRgba = (s) => {
     const m = s.match(/rgba?\(([^)]+)\)/);
     if (!m) return null;

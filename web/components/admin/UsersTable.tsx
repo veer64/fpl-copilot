@@ -75,7 +75,7 @@ export function UsersTable({ users, deleted, onDownload, downloading }: { users:
             <tr className="ad-deleted" data-testid="deleted-row" data-usd={deleted.usd} data-answers={deleted.answers}>
               <td className="ad-name">Deleted accounts</td>
               <td colSpan={4} className="ad-muted">
-                anonymous cost rows kept after account deletion — spend only
+                anonymous cost rows — deleted accounts, and answers from before sign-in existed — spend only
               </td>
               <td className="n ad-muted">—</td>
               <td className="n">{fmtUsd(deleted.usd)}</td>
