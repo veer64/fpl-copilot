@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { AdminExperience } from "@/components/admin/AdminExperience";
+import { loginUrlFor } from "@/lib/redirects";
 import "../home/home.css";
 import "../public-pages.css";
 import "./admin.css";
@@ -22,6 +23,6 @@ export default function AdminPage() {
 
 async function Protected() {
   const { userId } = await auth();
-  if (!userId) redirect("/login");
+  if (!userId) redirect(loginUrlFor("/admin"));
   return <AdminExperience />;
 }

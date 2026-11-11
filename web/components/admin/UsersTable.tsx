@@ -28,7 +28,11 @@ function compare(a: AdminUser, b: AdminUser, col: Col, dir: 1 | -1): number {
 
 /** The users table (Prompt W6): click a header to sort (default: last active, newest first); the row of the anonymous
  *  cost rows of deleted accounts (spend only) closes the table; "Download CSV" is the caller's (the P7 file with the token). */
-export function UsersTable({ users, deleted, onDownload, downloading }: { users: AdminUser[]; deleted: { answers: number; usd: number }; onDownload: () => void; downloading: boolean }) {
+type Line = { answers: number; usd: number };
+
+/** W7b: real people only in the rows; the deleted accounts' spend is in the totals, the owner's own use and the pre-launch
+ *  testing are shown as two grey lines that are NOT in the totals. */
+export function UsersTable({ users, deleted, owner, testing, onDownload, downloading }: { users: AdminUser[]; deleted: Line; owner?: Line; testing?: Line; onDownload: () => void; downloading: boolean }) {
   const [sort, setSort] = useState<{ col: Col; dir: 1 | -1 }>({ col: "last_active", dir: -1 });
   const rows = useMemo(() => [...users].sort((a, b) => compare(a, b, sort.col, sort.dir) || a.user_id - b.user_id), [users, sort]);
   const click = (col: Col) => setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: col === "name" || col === "email" || col === "sign_in_method" ? 1 : -1 }));
@@ -75,10 +79,30 @@ export function UsersTable({ users, deleted, onDownload, downloading }: { users:
             <tr className="ad-deleted" data-testid="deleted-row" data-usd={deleted.usd} data-answers={deleted.answers}>
               <td className="ad-name">Deleted accounts</td>
               <td colSpan={4} className="ad-muted">
-                anonymous cost rows — deleted accounts, and answers from before sign-in existed — spend only
+                anonymous cost rows kept after account deletion — in the totals, spend only
               </td>
               <td className="n ad-muted">—</td>
               <td className="n">{fmtUsd(deleted.usd)}</td>
+            </tr>
+          )}
+          {owner && (owner.answers > 0 || owner.usd > 0) && (
+            <tr className="ad-deleted ad-grey" data-testid="owner-row" data-usd={owner.usd} data-answers={owner.answers}>
+              <td className="ad-name ad-muted">Your own use (owner)</td>
+              <td colSpan={4} className="ad-muted">
+                not in the totals
+              </td>
+              <td className="n ad-muted">{owner.answers}</td>
+              <td className="n ad-muted">{fmtUsd(owner.usd)}</td>
+            </tr>
+          )}
+          {testing && (testing.answers > 0 || testing.usd > 0) && (
+            <tr className="ad-deleted ad-grey" data-testid="testing-row" data-usd={testing.usd} data-answers={testing.answers}>
+              <td className="ad-name ad-muted">Before launch: testing</td>
+              <td colSpan={4} className="ad-muted">
+                answers from before accounts existed and the reserved test accounts — not in the totals
+              </td>
+              <td className="n ad-muted">{testing.answers}</td>
+              <td className="n ad-muted">{fmtUsd(testing.usd)}</td>
             </tr>
           )}
         </tbody>

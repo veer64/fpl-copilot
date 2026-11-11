@@ -12,6 +12,7 @@ import { FeedbackCard } from "./FeedbackCard";
 import { SignupsChart } from "./SignupsChart";
 import { UsersTable } from "./UsersTable";
 import { fmtUsd, fmtUtc, methodLabel, pct } from "./format";
+import { loginSignedOut, useSignedOutRedirect } from "@/lib/session";
 
 /** /admin (Prompt W6): the owner's basic dashboard -- everything on it is ONE read, GET /admin/summary, with the browser's
  *  Clerk token; "Refresh" reads it again (no polling). Signed out: the server page already sent the visitor to /login; signed
@@ -22,11 +23,12 @@ export function AdminExperience() {
   const { getToken } = useAuth();
   const [summary, reload] = useResource(api.adminSummary);
   const [downloading, setDownloading] = useState(false);
+  useSignedOutRedirect();
 
   useEffect(() => {
     if (summary.status !== "error") return;
     if (summary.error.status === 403) router.replace("/home");
-    else if (summary.error.status === 401) router.replace("/login");
+    else if (summary.error.status === 401) loginSignedOut(router);
   }, [summary, router]);
 
   const download = async () => {
@@ -88,7 +90,7 @@ function Dashboard({ s, onDownload, downloading }: { s: AdminSummary; onDownload
           Top numbers
         </h2>
         <div className="ad-tiles" data-testid="tiles">
-          <Tile label="Total users" testid="tile-users">
+          <Tile label="Total users (real people)" testid="tile-users">
             <V k="users_total" v={s.users_total} />
           </Tile>
           <Tile label="Sign-ups · today / 7 days" testid="tile-signups">
@@ -121,7 +123,7 @@ function Dashboard({ s, onDownload, downloading }: { s: AdminSummary; onDownload
       </Card>
 
       <Card title="Users" sub="Click a column to sort" id="h-users" testid="card-users">
-        <UsersTable users={s.users} deleted={s.deleted_accounts} onDownload={onDownload} downloading={downloading} />
+        <UsersTable users={s.users} deleted={s.deleted_accounts} owner={s.owner_use} testing={s.testing_use} onDownload={onDownload} downloading={downloading} />
       </Card>
 
       <div className="ad-grid2">

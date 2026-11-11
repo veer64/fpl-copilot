@@ -81,6 +81,7 @@ export type ChatReply = {
 /** GET /threads/{id}/messages */
 export type MessageRow =
   | { role: "user"; text: string; at: string | null }
+  | { role: "pending"; text: string; started_at: string | null; message_id: string } // W7b: a turn being written
   | {
       role: "assistant";
       text: string;
@@ -190,6 +191,8 @@ export type AdminSummary = {
   sign_ups_per_day: { day: string; n: number }[];
   users: AdminUser[];
   deleted_accounts: { answers: number; usd: number };
+  owner_use: { answers: number; usd: number }; // W7b: not in the totals
+  testing_use: { answers: number; usd: number }; // W7b: not in the totals
   cap_hits: AdminCapHit[];
   cap_hits_today: number;
   cap_hits_total: number;

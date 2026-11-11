@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { HomeExperience } from "@/components/home/HomeExperience";
+import { loginUrlFor } from "@/lib/redirects";
 import "./home.css";
 
 export const metadata: Metadata = { title: "Home" };
@@ -19,6 +20,6 @@ export default function HomePage() {
 
 async function Protected() {
   const { userId } = await auth();
-  if (!userId) redirect("/login");
+  if (!userId) redirect(loginUrlFor("/home"));
   return <HomeExperience />;
 }

@@ -61,6 +61,23 @@ export function LoginExperience() {
     setRawPhase("login");
   }, [music]);
 
+  // Prompt W7b (F2): arriving because the session ended (?reason=signed_out) -- one line above the card, the intro and its
+  // music skipped (a normal Sign out carries no reason and shows nothing)
+  const [signedOutNote, setSignedOutNote] = useState(false);
+  useEffect(() => {
+    let reason: string | null = null;
+    try {
+      reason = new URLSearchParams(window.location.search).get("reason");
+    } catch {
+      reason = null;
+    }
+    if (reason !== "signed_out") return;
+    music?.holdThisVisit();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the one-time note, decided by the URL
+    setSignedOutNote(true);
+    setRawPhase("login");
+  }, [music]);
+
   useEffect(() => {
     noHover.current = !!window.matchMedia?.("(hover: none)").matches;
   }, []);
@@ -163,6 +180,15 @@ export function LoginExperience() {
 
           <div className="card-wrap">
             <div className="card-col">
+              {signedOutNote && !deletedNote && (
+                <div role="status" className="deleted-note signed-out-note" data-testid="signed-out-note">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 8v5M12 16h.01" />
+                  </svg>
+                  You were signed out — sign in to continue.
+                </div>
+              )}
               {deletedNote && (
                 <div role="status" className="deleted-note" data-testid="deleted-note">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

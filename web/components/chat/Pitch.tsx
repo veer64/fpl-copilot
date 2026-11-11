@@ -245,7 +245,7 @@ export function Pitch({
       </div>
       <div className="ch-rows">
         {rows.map((row, ri) => (
-          <div className="ch-prow" key={ri}>
+          <div className={`ch-prow${row.length >= 5 ? " five" : ""}`} key={ri} data-testid="pitch-row" data-n={row.length}>
             {row.map((s, i) => (
               <Token key={s.player.id} s={s} vert={ri < 2 ? "below" : "above"} horiz={horizFor(i, row.length)} pinned={pinnedId === s.player.id} onPick={() => onPick(s.player)} nextGw={nextGw} bench={null} phone={phone} />
             ))}

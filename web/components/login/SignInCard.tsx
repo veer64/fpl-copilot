@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { safeRedirect } from "@/lib/redirects";
 import { useClerk, useSignIn, useSignUp } from "@clerk/nextjs";
 import { isClerkAPIResponseError } from "@clerk/nextjs/errors";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
@@ -99,10 +100,35 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
     otpRef.current?.focus();
   }, [busy]);
 
+  // W7b (F2): back to the page the visitor came from (?redirect_url, same-site relative paths only), else /home
+  const returnTo = safeRedirect(params.get("redirect_url")) ?? "/home";
   const goToApp = ({ decorateUrl }: { decorateUrl: (url: string) => string }) => {
-    const url = decorateUrl("/home");
+    const url = decorateUrl(returnTo);
     if (url.startsWith("http")) window.location.href = url;
     else router.push(url);
+  };
+
+  // W7b (F11): the code step is a history entry, so Back returns to the email step instead of leaving the page
+  const codeEntry = useRef(false);
+  useEffect(() => {
+    const onPop = () => {
+      if (codeEntry.current) {
+        codeEntry.current = false;
+        setStep("email");
+        setCode("");
+        setCodeError(null);
+        window.requestAnimationFrame(() => emailRef.current?.focus());
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const enterCodeStep = () => {
+    if (!codeEntry.current) {
+      window.history.pushState({ step: "code" }, "", window.location.href);
+      codeEntry.current = true;
+    }
+    setStep("code");
   };
 
   // --- step 1: send the code -------------------------------------------------------------------------------------------
@@ -144,7 +170,7 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
       setCode("");
       setCodeError(null);
       setCooldown(RESEND_SECONDS);
-      setStep("code");
+      enterCodeStep();
     } catch (err) {
       failSend(err);
     } finally {
@@ -210,6 +236,10 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
   };
 
   const differentEmail = async () => {
+    if (codeEntry.current) {
+      codeEntry.current = false;
+      window.history.back(); // drops the code-step entry; popstate has nothing left to do
+    }
     setStep("email");
     setCode("");
     setCodeError(null);
@@ -248,7 +278,7 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
     clearDeadline();
     ssoDeadline.current = window.setTimeout(() => googleFailed(`no redirect to Google within ${SSO_TIMEOUT_MS / 1000} s`), SSO_TIMEOUT_MS);
     try {
-      const { error } = await signIn.sso({ strategy: "oauth_google", redirectCallbackUrl: "/sso-callback", redirectUrl: "/home" });
+      const { error } = await signIn.sso({ strategy: "oauth_google", redirectCallbackUrl: "/sso-callback", redirectUrl: returnTo });
       if (error) {
         if (apiCode(error) === "session_exists") return router.push("/home");
         return googleFailed(error);
@@ -282,6 +312,9 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
       <span className="bracket b-tr" aria-hidden="true" />
       <span className="bracket b-bl" aria-hidden="true" />
       <span className="bracket b-br" aria-hidden="true" />
+      {/* W7b (F1): Clerk's custom-flow CAPTCHA mount point -- in the DOM before any signUp.create() or signIn.sso() call
+          (both steps and the Google button can start a sign-up); Clerk's smart CAPTCHA renders here on production */}
+      <div id="clerk-captcha" data-testid="clerk-captcha" data-cl-theme="dark" data-cl-size="flexible" />
 
       {fatal ? (
         <>

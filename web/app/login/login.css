@@ -124,6 +124,8 @@
 /* Prompt W5: the one-time "deleted" note above the card (delete-account-states 06) */
 .card-col{display:flex;flex-direction:column;align-items:stretch;gap:18px}
 .deleted-note{align-self:center;height:40px;padding:0 14px;border-radius:10px;background:rgba(91,227,164,.1);border:1px solid rgba(91,227,164,.4);color:#B8F5D8;font-size:14px;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.signed-out-note{background:rgba(255,194,61,.1);border-color:rgba(255,194,61,.45);color:#FFD98A}   /* W7b: the session ended */
+#clerk-captcha:empty{display:none}
 .card{position:relative;width:400px;padding:32px;border-radius:16px;background:rgba(6,12,20,.84);border:1px solid rgba(59,232,255,.3);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);display:flex;flex-direction:column;gap:20px;animation-delay:.2s;outline:none}
 .bracket{position:absolute;width:14px;height:14px;border:0 solid #3BE8FF}
 .b-tl{top:-7px;left:-7px;border-top-width:2px;border-left-width:2px}

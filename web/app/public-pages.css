@@ -168,6 +168,18 @@
 .pp-card span.d{font-size:13.5px;color:#A9BACB}
 .pp-card > svg{flex-shrink:0;color:#C9D6E3}
 
+/* ---- W7b (F4): the branded 404 / error screens (components/public/Oops.tsx) ---------------------------------------------- */
+.oops-main{position:relative;z-index:1;min-height:calc(100vh - 72px);min-height:calc(100dvh - 72px);display:flex;align-items:center;justify-content:center;padding:40px 20px}
+.oops-card{width:min(520px,100%);padding:32px;display:flex;flex-direction:column;gap:14px}
+.oops-card h1{margin:0;font-size:32px;line-height:38px;font-weight:600;letter-spacing:-.03em;color:#F2FBFF}
+.oops-card .pp-p{font-size:15px;line-height:23px}
+.oops-actions{display:flex;gap:10px;flex-wrap:wrap;padding-top:6px}
+.pp a.oops-btn,.oops-btn{width:auto;padding:0 20px;display:inline-flex}
+.pp a.hm-btn-p.oops-btn{color:#021016}
+.pp a.hm-btn-p.oops-btn:hover{background:#7CF3FF;color:#021016}
+.pp a.hm-btn-s.oops-btn{color:#E8F6FF}
+.pp a.hm-btn-s.oops-btn:hover{border-color:#3BE8FF;color:#F2FBFF}
+
 /* ---- reduced motion ------------------------------------------------------------------------------------------------- */
 @media (prefers-reduced-motion:reduce){.pp html{scroll-behavior:auto}}
 

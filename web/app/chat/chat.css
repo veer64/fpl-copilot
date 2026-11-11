@@ -241,7 +241,9 @@
 .ch-card-head{display:flex;align-items:center;gap:10px}
 .ch-card-names{min-width:0;flex-grow:1;display:flex;flex-direction:column;gap:2px}
 .ch-card-name{font-size:13.5px;font-weight:600;color:#F2FBFF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ch-card-line{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:9.5px;letter-spacing:-.01em;color:#8A9BB0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* W6b Part B (done in W7b): the line wraps at its " · " separators onto a second line instead of cutting the team value (the
+   name above keeps its own ellipsis line) */
+.ch-card-line{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:9.5px;line-height:12px;letter-spacing:-.02em;color:#8A9BB0;white-space:normal;overflow-wrap:anywhere}
 .ch-ib-s{width:30px;height:30px;flex-shrink:0;border-radius:8px;border:1px solid #1C2A38;background:transparent;color:#A9BACB;display:inline-flex;align-items:center;justify-content:center}
 .ch-ib-s:hover{color:#F2FBFF;border-color:#3A4B5C}
 .ch-ib-s:disabled{opacity:.5}
@@ -264,6 +266,15 @@
 .ch-pl{position:absolute;border:1.5px solid rgba(214,255,240,.3)}
 .ch-rows{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-around;padding:10px 4px}
 .ch-prow{display:flex;justify-content:space-evenly;align-items:center}
+/* W6b Part B (done in W7b): a row of FIVE (3-5-2, 4-5-1, 5-4-1, 5-3-2, 5-2-3) -- five 66px tokens are 330px in a 286px row.
+   Tokens shrink to 50px with 8px gaps (250 + 32 = 282), the badges / flags / swap tags reach 4px outside a token (never into
+   the neighbour), names ellipsize; rows of 1-4 are unchanged. */
+.ch-prow.five{justify-content:center;gap:8px}
+.ch-prow.five .ch-tok{width:50px}
+.ch-prow.five .ch-tok-name{font-size:10.5px;padding:0 3px}
+.ch-prow.five .ch-badge-c,.ch-prow.five .ch-badge-vc{right:-4px}
+.ch-prow.five .ch-flag,.ch-prow.five .ch-swaptag{left:-4px}
+.ch-prow.five .ch-tok.ghost{left:-6px}
 .ch-tw{position:relative}
 .ch-tok{position:relative;width:66px;padding:6px 0 0;border-radius:9px;background:rgba(4,10,16,.9);border:1px solid rgba(255,255,255,.16);color:#F2FBFF;display:flex;flex-direction:column;align-items:stretch;gap:5px;box-shadow:0 6px 14px -8px rgba(0,0,0,.8)}
 .ch-tok:hover,.ch-tok.sel{border-color:#3BE8FF}
@@ -415,11 +426,14 @@
 .ch-teambar[aria-expanded="true"] svg.chev{transform:rotate(180deg)}
 .ch-panel{position:relative;z-index:2;flex-shrink:0;padding:8px 12px 10px;border-bottom:1px solid #142331;background:#060B11;display:flex;flex-direction:column;gap:10px;box-shadow:0 16px 30px -18px rgba(0,0,0,.9)}
 .ch-panel-top{height:28px;display:flex;align-items:center;justify-content:space-between;gap:8px}
-.ch-panel-top .line{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;color:#8A9BB0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-panel-top{height:auto;min-height:28px}
+.ch-panel-top .line{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;line-height:13px;color:#8A9BB0;white-space:normal;overflow-wrap:anywhere}   /* W6b Part B: wraps, never cut */
+.ch-box textarea{font-size:16px}   /* W7b (F6): 16px on phone widths -- iOS Safari zooms a focused input under 16px (desktop keeps 15px above) */
 .ch-panel-refresh{height:28px;padding:0 4px;border:0;background:transparent;color:#7FE9FF;font-size:12px;display:inline-flex;align-items:center;gap:5px}
 .ch-panel .ch-pitch{height:250px}
 .ch-panel .ch-rows{padding:8px 4px}
 .ch-panel .ch-tok{width:72px}
+.ch-panel .ch-prow.five .ch-tok{width:56px}   /* W6b Part B: five 72px tokens are 360px in a 358px (390 wide) / 328px (360 wide) row */
 .ch-panel .ch-pitch-bg{background:repeating-linear-gradient(180deg,#0F3B29 0 34px,#0D3324 34px 68px)}
 .ch-panel .ch-pop{display:none !important}
 .ch-panel-bench{display:flex;justify-content:space-between;gap:6px;padding-top:6px}

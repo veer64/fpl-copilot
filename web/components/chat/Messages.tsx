@@ -125,7 +125,7 @@ export function MessageList({
           return (
             <div className="ch-ai center" key={m.key}>
               <Avatar />
-              <Thinking startedAt={m.startedAt} />
+              <Thinking startedAt={m.startedAt} resumed={m.resumed} />
             </div>
           );
         if (m.kind === "system")

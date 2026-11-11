@@ -15,10 +15,17 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"; // W7b: the absolute base of the preview image (set on Vercel)
+const ABOUT_SUB = "FPL Copilot is your AI assistant for Fantasy Premier League. Ask about players, captains, transfers and your own team — and get answers built on real data, not hunches.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: { default: "FPL Copilot", template: "%s · FPL Copilot" },
   description: "AI assistant for FPL managers: injury flags, points predictions, fixtures and cited club news.",
-  icons: { icon: "/logo.svg" },
+  icons: { icon: "/logo.svg", apple: "/apple-icon.png" },
+  // W7b (F5): the link preview (WhatsApp, iMessage, Slack, X): app/opengraph-image.tsx is the 1200 x 630 image
+  openGraph: { type: "website", siteName: "FPL Copilot", title: "FPL Copilot", description: ABOUT_SUB, url: "/" },
+  twitter: { card: "summary_large_image", title: "FPL Copilot", description: ABOUT_SUB },
 };
 
 export const viewport: Viewport = {

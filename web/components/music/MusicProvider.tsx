@@ -17,7 +17,9 @@ import { MUSIC_TRACKS, trackUrl, type MusicTrack } from "@/lib/music-tracks";
  *    The choice lives in the existing "fpl-sound" key (login's mute), so earlier visitors' choice carries over.
  *  - Volume: the login page's 0.35 everywhere; the login intro asks for 1.0 for its 6.2 s (setLevel), with a ~1.5 s fade-in at
  *    every start. Muted = paused (the <audio> is also muted, as the login page's tests expect).
- *  - An empty track list: no element, no button, nothing stored. */
+ *  - An empty track list: no element, no button, nothing stored.
+ *  - Prompt W7b (F7): on a touch device (phones) nothing plays and NOTHING downloads until the first tap anywhere; with the
+ *    browser's data-saver on (navigator.connection.saveData) the music never auto-starts (the button still plays). */
 
 export const LAST_KEY = "fpl.music.last";
 export const RESUME_KEY = "fpl.music.resume";
@@ -65,6 +67,22 @@ export function makeQueue(tracks: readonly MusicTrack[], avoidFirst: string | nu
 }
 
 type Saved = { file: string; pos: number; at: number };
+
+/** a phone / tablet: the PRIMARY pointer is coarse (a touch-screen laptop with a mouse / trackpad stays "desktop": its
+ *  primary pointer is fine even though navigator.maxTouchPoints is 10, so that count is not used) */
+export function touchDevice(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return !!window.matchMedia?.("(pointer: coarse)").matches;
+  } catch {
+    return false;
+  }
+}
+export function saveData(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const c = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  return c?.saveData === true;
+}
 
 function readResume(tracks: readonly MusicTrack[]): Saved | null {
   try {
@@ -232,6 +250,19 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     const first = queue.current[0];
     setCurrent(first);
     if (!readSoundPref() || held.current) return; // a remembered mute never auto-starts; a held visit neither
+    if (saveData()) return; // W7b: data-saver -> never on its own (the button still plays)
+    if (touchDevice()) {
+      // W7b: phones -- no play attempt and no download before the first tap anywhere (the src is set only then)
+      const onFirst = () => {
+        if (!readSoundPref() || held.current) return;
+        const el = audioRef.current;
+        if (!el || el.getAttribute("src")) return; // already started by an earlier tap
+        start(first, resume ? resume.pos : 0, true);
+      };
+      const opts: AddEventListenerOptions = { capture: true, passive: true, once: true };
+      for (const ev of ["pointerdown", "touchstart", "keydown"] as const) window.addEventListener(ev, onFirst, opts);
+      return;
+    }
     start(first, resume ? resume.pos : 0, true);
   }, [tracks, start]);
 

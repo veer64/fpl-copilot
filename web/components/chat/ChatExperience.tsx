@@ -18,17 +18,43 @@ import { MobileDrawer, MobileTeam } from "./MobileTeam";
 import { Sidebar, readCollapsed, threadTag, writeCollapsed } from "./Sidebar";
 import { TeamCardPanel, type RefreshState } from "./TeamCardPanel";
 import { key, pendingPreview, type AssistantMsg, type Context, type Msg } from "./types";
+import { loginSignedOut, useSignedOutRedirect } from "@/lib/session";
+
+const RESUME_POLL_MS = 5000;        // W7b (F3): a reload during an answer re-reads the thread every ~5 s ...
+const RESUME_MAX_MS = 120_000;      // ... for at most 2 minutes, then the error state with Retry
+const DRAFT_PREFIX = "fpl.draft.";  // W7b (F2): the unsent question, per chat, in sessionStorage
+
+function readDraft(k: string): string {
+  try {
+    return window.sessionStorage.getItem(DRAFT_PREFIX + k) ?? "";
+  } catch {
+    return "";
+  }
+}
+function writeDraft(k: string, v: string) {
+  try {
+    if (v) window.sessionStorage.setItem(DRAFT_PREFIX + k, v);
+    else window.sessionStorage.removeItem(DRAFT_PREFIX + k);
+  } catch {
+    /* no storage */
+  }
+}
 
 const RATE_WAIT_S = 60;
 const TEAM_BG = "/images/chat-team-bg.webp";
 const GENERAL_BG = "/images/chat-general-bg.webp";
 
 function fromRows(rows: MessageRow[]): Msg[] {
-  return rows.map((r) =>
-    r.role === "user"
-      ? { kind: "user", key: key("u"), text: r.text, at: r.at }
-      : { kind: "assistant", key: key("a"), messageId: r.message_id, text: r.text, at: r.at, sources: r.sources ?? [], preview: r.squad_preview ?? null, applied: r.squad_applied ?? null, feedback: r.feedback ?? null },
-  );
+  const out: Msg[] = [];
+  for (const r of rows) {
+    if (r.role === "user") out.push({ kind: "user", key: key("u"), text: r.text, at: r.at });
+    else if (r.role === "pending") {
+      // W7b: the question whose answer is being written: shown with the thinking row, from the server's started_at
+      out.push({ kind: "user", key: key("u"), text: r.text, at: r.started_at });
+      out.push({ kind: "thinking", key: key("t"), startedAt: r.started_at ? Date.parse(r.started_at) : Date.now(), resumed: true, question: r.text });
+    } else out.push({ kind: "assistant", key: key("a"), messageId: r.message_id, text: r.text, at: r.at, sources: r.sources ?? [], preview: r.squad_preview ?? null, applied: r.squad_applied ?? null, feedback: r.feedback ?? null });
+  }
+  return out;
 }
 
 function titleOf(msgs: Msg[], row: ThreadRow | undefined): string {
@@ -54,7 +80,8 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
   const threadRef = useRef<string | null>(chatId ?? null);
   const activeTeam = useRef<number | null | undefined>(undefined); // undefined until /me answers
   const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [draft, setDraft] = useState(q ?? "");
+  const [draft, setDraftState] = useState(q ?? "");
+  useSignedOutRedirect();
   const [prefilled, setPrefilled] = useState(!!q);
   const [busy, setBusy] = useState(false);
   const [limitUntil, setLimitUntil] = useState<string | null>(null);
@@ -65,6 +92,21 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
   const [cardOpen, setCardOpen] = useState(true);
   const [refresh, setRefresh] = useState<RefreshState>("idle");
   const [opening, setOpening] = useState<"loading" | "ready" | "error">(chatId ? "loading" : "ready");
+  // W7b (F2): the unsent question is kept per chat (sessionStorage) -- saved as you type, restored when you come back, cleared on send
+  const draftKey = threadId ?? (teamParam ? `new-team-${teamParam}` : "new-general");
+  const setDraft = useCallback(
+    (v: string) => {
+      setDraftState(v);
+      writeDraft(draftKey, v);
+    },
+    [draftKey],
+  );
+  useEffect(() => {
+    if (q) return; // a prefilled question wins
+    const saved = readDraft(draftKey);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the remembered draft of this chat, read once per chat
+    if (saved) setDraftState(saved);
+  }, [draftKey, q]);
   const [openError, setOpenError] = useState<ApiError | null>(null);
   const textarea = useRef<HTMLTextAreaElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -97,7 +139,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
     if (stored.status === "error") {
       const err = stored.error;
       if (err.status === 401) {
-        router.push("/login");
+        loginSignedOut(router);
         return;
       }
       if (err.status === 403 || err.status === 404) {
@@ -131,6 +173,41 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
 
   const pending = useMemo(() => pendingPreview(msgs), [msgs]);
   const pendingKey = pending?.msg.key ?? null;
+
+  // W7b (F3): an answer that was in flight when the page loaded -- re-read the thread every RESUME_POLL_MS until the pending
+  // row is gone (the answer appears, no re-send), or give up after RESUME_MAX_MS with the error state and its Retry
+  const resumed = useMemo(() => msgs.find((m): m is Extract<Msg, { kind: "thinking" }> => m.kind === "thinking" && !!m.resumed) ?? null, [msgs]);
+  const resumedKey = resumed?.key ?? null;
+  const resumedStart = resumed?.startedAt ?? 0;
+  const resumedQuestion = resumed?.question ?? "";
+  useEffect(() => {
+    if (!resumedKey || !chatId) return;
+    let stop = false;
+    const tick = async () => {
+      if (stop) return;
+      if (Date.now() - resumedStart > RESUME_MAX_MS) {
+        setMsgs((m) => m.map((x) => (x.key === resumedKey ? { kind: "system", key: key("s"), variant: "error", question: resumedQuestion, why: "timeout" } : x)));
+        return;
+      }
+      try {
+        const rows = await api.messages(getToken, chatId);
+        if (stop) return;
+        if (!rows.some((r) => r.role === "pending")) {
+          setMsgs(fromRows(rows));
+          reloadThreads();
+          return;
+        }
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) loginSignedOut(router);
+      }
+      timer = window.setTimeout(tick, RESUME_POLL_MS);
+    };
+    let timer = window.setTimeout(tick, RESUME_POLL_MS);
+    return () => {
+      stop = true;
+      window.clearTimeout(timer);
+    };
+  }, [resumedKey, resumedStart, resumedQuestion, chatId, getToken, reloadThreads, router]);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the brief: the phone panel opens itself when a preview arrives
     if (pendingKey && narrow) setPanel(true);
@@ -167,6 +244,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
       const question = text.trim();
       if (!question || busy || !ctx || disabledText) return;
       setDraft("");
+      writeDraft(draftKey, "");
       setPrefilled(false);
       setPanel(false);
       const thinkKey = key("t");
@@ -211,7 +289,8 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
       } catch (e) {
         const err = e instanceof ApiError ? e : new ApiError(0, e instanceof Error ? e.message : String(e));
         if (err.status === 401) {
-          router.push("/login");
+          writeDraft(draftKey, question); // the question is kept for after the sign-in
+          loginSignedOut(router);
           return;
         }
         if (err.status === 429) {
@@ -227,7 +306,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
         setBusy(false);
       }
     },
-    [busy, ctx, disabledText, getToken, me, reloadCard, reloadThreads, replaceThinking, router],
+    [busy, ctx, disabledText, draftKey, getToken, me, reloadCard, reloadThreads, replaceThinking, router, setDraft],
   );
 
   /** d's Retry: re-read the thread first -- an answer that landed meanwhile is shown; else the question is sent once more. */
@@ -276,7 +355,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
     try {
       await api.deleteThread(getToken, t.thread_id);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) router.push("/login");
+      if (e instanceof ApiError && e.status === 401) loginSignedOut(router);
       throw e;
     }
     setDeleting(null);
@@ -299,7 +378,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
         await api.feedback(getToken, m.messageId, score);
       } catch (e) {
         setMsgs((all) => all.map((x) => (x.key === m.key && x.kind === "assistant" ? { ...x, feedback: before } : x)));
-        if (e instanceof ApiError && e.status === 401) router.push("/login");
+        if (e instanceof ApiError && e.status === 401) loginSignedOut(router);
         else toast.error("Couldn’t save your feedback");
       }
     },
@@ -314,7 +393,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
       reloadCard();
     } catch (e) {
       setRefresh(e instanceof ApiError && e.status === 429 ? "limited" : "failed");
-      if (e instanceof ApiError && e.status === 401) router.push("/login");
+      if (e instanceof ApiError && e.status === 401) loginSignedOut(router);
     }
   }, [teamId, getToken, reloadCard, router]);
   const chip = (text: string) => {

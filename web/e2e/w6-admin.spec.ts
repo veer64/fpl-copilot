@@ -59,28 +59,34 @@ async function pageValues(p: Page): Promise<Record<string, number>> {
 
 /** the same numbers straight from the laptop database (UTC days), independent of admin.py */
 function sqlValues(): Record<string, number> {
+  // W7b: real people only (user_id >= 10001); the totals = real users + deleted accounts (turn_id 'deleted'); the owner and
+  // the pre-launch testing rows (user_id NULL not 'deleted', 9001 / 9002) are two separate lines
   const day = "date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'";
   const month = "date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'";
   const week = "now() - interval '7 days'";
+  const real = "user_id >= 10001";
+  const counted = "(user_id >= 10001 OR (user_id IS NULL AND coalesce(turn_id, '') = 'deleted'))";
   const q = (sql: string) => num(sql1(sql));
   return {
-    users_total: q("SELECT count(*) FROM app_users"),
-    sign_ups_today: q(`SELECT count(*) FROM app_users WHERE created_at >= ${day}`),
-    sign_ups_7_days: q(`SELECT count(*) FROM app_users WHERE created_at >= ${week}`),
-    active_today: q(`SELECT count(*) FROM app_users WHERE last_active_at >= ${day}`),
-    active_7_days: q(`SELECT count(*) FROM app_users WHERE last_active_at >= ${week}`),
-    answers_today: q(`SELECT count(*) FROM chat_usage WHERE ts >= ${day}`),
-    answers_total: q("SELECT count(*) FROM chat_usage"),
-    usd_today: q(`SELECT coalesce(sum(usd), 0) FROM chat_usage WHERE ts >= ${day}`),
-    usd_month: q(`SELECT coalesce(sum(usd), 0) FROM chat_usage WHERE ts >= ${month}`),
-    usd_total: q("SELECT coalesce(sum(usd), 0) FROM chat_usage"),
-    up_total: q("SELECT count(*) FROM chat_messages WHERE feedback = 'up'"),
-    down_total: q("SELECT count(*) FROM chat_messages WHERE feedback = 'down'"),
-    up_7_days: q(`SELECT count(*) FROM chat_messages WHERE feedback = 'up' AND feedback_at >= ${week}`),
-    down_7_days: q(`SELECT count(*) FROM chat_messages WHERE feedback = 'down' AND feedback_at >= ${week}`),
-    deleted_usd: q("SELECT coalesce(sum(usd), 0) FROM chat_usage WHERE user_id IS NULL"),
-    deleted_answers: q("SELECT count(*) FROM chat_usage WHERE user_id IS NULL"),
-    cap_hits_30: q(`SELECT count(*) FROM cap_hits WHERE hit_at >= ${day} - interval '29 days'`),
+    users_total: q(`SELECT count(*) FROM app_users WHERE ${real}`),
+    sign_ups_today: q(`SELECT count(*) FROM app_users WHERE ${real} AND created_at >= ${day}`),
+    sign_ups_7_days: q(`SELECT count(*) FROM app_users WHERE ${real} AND created_at >= ${week}`),
+    active_today: q(`SELECT count(*) FROM app_users WHERE ${real} AND last_active_at >= ${day}`),
+    active_7_days: q(`SELECT count(*) FROM app_users WHERE ${real} AND last_active_at >= ${week}`),
+    answers_today: q(`SELECT count(*) FROM chat_usage WHERE ${counted} AND ts >= ${day}`),
+    answers_total: q(`SELECT count(*) FROM chat_usage WHERE ${counted}`),
+    usd_today: q(`SELECT coalesce(sum(usd), 0) FROM chat_usage WHERE ${counted} AND ts >= ${day}`),
+    usd_month: q(`SELECT coalesce(sum(usd), 0) FROM chat_usage WHERE ${counted} AND ts >= ${month}`),
+    usd_total: q(`SELECT coalesce(sum(usd), 0) FROM chat_usage WHERE ${counted}`),
+    up_total: q(`SELECT count(*) FROM chat_messages WHERE ${real} AND feedback = 'up'`),
+    down_total: q(`SELECT count(*) FROM chat_messages WHERE ${real} AND feedback = 'down'`),
+    up_7_days: q(`SELECT count(*) FROM chat_messages WHERE ${real} AND feedback = 'up' AND feedback_at >= ${week}`),
+    down_7_days: q(`SELECT count(*) FROM chat_messages WHERE ${real} AND feedback = 'down' AND feedback_at >= ${week}`),
+    deleted_usd: q("SELECT coalesce(sum(usd), 0) FROM chat_usage WHERE user_id IS NULL AND coalesce(turn_id, '') = 'deleted'"),
+    deleted_answers: q("SELECT count(*) FROM chat_usage WHERE user_id IS NULL AND coalesce(turn_id, '') = 'deleted'"),
+    owner_usd: q("SELECT coalesce(sum(usd), 0) FROM chat_usage WHERE user_id = 1"),
+    testing_usd: q("SELECT coalesce(sum(usd), 0) FROM chat_usage WHERE (user_id IS NULL AND coalesce(turn_id, '') <> 'deleted') OR user_id IN (9001, 9002)"),
+    cap_hits_30: q(`SELECT count(*) FROM cap_hits WHERE ${real} AND hit_at >= ${day} - interval '29 days'`),
   };
 }
 
@@ -281,6 +287,14 @@ test("3 admin A: the Admin item -> /admin; every number matches SQL; 30 bars; so
   const delUsd = (await deletedRow.count()) ? num(await deletedRow.getAttribute("data-usd")) : 0;
   log(`SQL vs page deleted-accounts spend: ${sv.deleted_usd} vs ${delUsd} (${sv.deleted_answers} anonymous rows)`);
   expect(close(delUsd, sv.deleted_usd)).toBe(true);
+  // W7b: the two grey lines outside the totals
+  const ownerRow = pageA.locator('[data-testid="owner-row"]:visible');
+  const ownerUsd = (await ownerRow.count()) ? num(await ownerRow.getAttribute("data-usd")) : 0;
+  const testingRow = pageA.locator('[data-testid="testing-row"]:visible');
+  const testingUsd = (await testingRow.count()) ? num(await testingRow.getAttribute("data-usd")) : 0;
+  log(`SQL vs page owner line: ${sv.owner_usd} vs ${ownerUsd}; testing line: ${sv.testing_usd} vs ${testingUsd}`);
+  expect(close(ownerUsd, sv.owner_usd)).toBe(true);
+  expect(close(testingUsd, sv.testing_usd)).toBe(true);
   const splitTotal = await pageA.locator('[data-testid="signin-split"] li:visible').evaluateAll((els) => els.reduce((a, e) => a + Number(e.getAttribute("data-count")), 0));
   log(`SQL vs page sign-in split total: ${sv.users_total} vs ${splitTotal}`);
   expect(splitTotal).toBe(sv.users_total);
@@ -319,7 +333,7 @@ test("3 admin A: the Admin item -> /admin; every number matches SQL; 30 bars; so
   await vis(pageA, "sort-joined").click();
   await expect(table.locator("th").nth(3)).toHaveAttribute("aria-sort", "descending");
   const idsPage = await table.locator("[data-testid='user-row']").evaluateAll((trs) => trs.map((tr) => Number(tr.getAttribute("data-user-id"))));
-  const idsSql = sql1("SELECT json_agg(user_id ORDER BY created_at DESC NULLS LAST, user_id) FROM app_users") as number[];
+  const idsSql = sql1("SELECT json_agg(user_id ORDER BY created_at DESC NULLS LAST, user_id) FROM app_users WHERE user_id >= 10001") as number[];
   expect(idsPage, "joined newest first = SQL order").toEqual(idsSql);
   log(`sorting: name asc/desc, answers desc, joined desc all in order (${idsPage.length} rows)`);
 
@@ -474,7 +488,7 @@ test("6 Refresh, loading, empty and error states; keyboard-only; axe; the contra
   // empty: an all-zero summary
   const today = new Date();
   const days = Array.from({ length: 30 }, (_, i) => ({ day: new Date(today.getTime() - (29 - i) * 86_400_000).toISOString().slice(0, 10), n: 0 }));
-  const empty = { at: today.toISOString(), users_total: 0, sign_ups_today: 0, sign_ups_7_days: 0, active_today: 0, active_7_days: 0, answers_today: 0, answers_total: 0, usd_today: 0, usd_month: 0, usd_total: 0, sign_ups_per_day: days, users: [], deleted_accounts: { answers: 0, usd: 0 }, cap_hits: [], cap_hits_today: 0, cap_hits_total: 0, sign_in_methods: {}, feedback: { up_total: 0, down_total: 0, up_7_days: 0, down_7_days: 0, recent_down: [] }, langfuse: { host: null, project_id: null } };
+  const empty = { at: today.toISOString(), users_total: 0, sign_ups_today: 0, sign_ups_7_days: 0, active_today: 0, active_7_days: 0, answers_today: 0, answers_total: 0, usd_today: 0, usd_month: 0, usd_total: 0, sign_ups_per_day: days, users: [], deleted_accounts: { answers: 0, usd: 0 }, owner_use: { answers: 0, usd: 0 }, testing_use: { answers: 0, usd: 0 }, cap_hits: [], cap_hits_today: 0, cap_hits_total: 0, sign_in_methods: {}, feedback: { up_total: 0, down_total: 0, up_7_days: 0, down_7_days: 0, recent_down: [] }, langfuse: { host: null, project_id: null } };
   await pageA.route("**/admin/summary", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(empty) }));
   await refresh(pageA);
   await expect(vis(pageA, "signups-empty")).toHaveText("No sign-ups yet.");

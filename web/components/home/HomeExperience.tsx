@@ -13,7 +13,8 @@ import { ErrorBox } from "./ErrorBox";
 import { BallIcon, Chips, GeneralCard, RecentChats } from "./GeneralCard";
 import { DeadlinePill, HomeHeader } from "./HomeHeader";
 import { LowerSkeleton, TeamsSkeleton } from "./Skeletons";
-import { AddTeamCard, Spinner, TeamCard, teamName } from "./TeamCard";
+import { AddTeamCard, Spinner, TeamCard, TeamsFull, teamName } from "./TeamCard";
+import { loginSignedOut, useSignedOutRedirect } from "@/lib/session";
 import { useNow, useResource } from "./useResource";
 
 export const MAX_TEAMS = 3;
@@ -26,6 +27,7 @@ export function HomeExperience() {
   const { getToken } = useAuth();
   const { user, isLoaded: userLoaded } = useUser();
   const now = useNow();
+  useSignedOutRedirect();
 
   const [teams, reloadTeams] = useResource(api.teams);
   const [threads, reloadThreads] = useResource(api.threads);
@@ -113,7 +115,7 @@ export function HomeExperience() {
     try {
       await api.removeTeam(getToken, t.fpl_team_id);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) router.push("/login");
+      if (err instanceof ApiError && err.status === 401) loginSignedOut(router);
       throw err;
     }
     setRemoving(null);
@@ -235,7 +237,7 @@ export function HomeExperience() {
                   }}
                 />
               ))}
-              {cards.length < MAX_TEAMS && <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} />}
+              {cards.length < MAX_TEAMS ? <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} /> : <TeamsFull max={MAX_TEAMS} />}
             </div>
           </section>
         )}

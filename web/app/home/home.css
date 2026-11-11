@@ -123,6 +123,8 @@
 .hm-add{height:100%;min-height:280px;border:1.5px dashed rgba(59,232,255,.45);border-radius:16px;background:rgba(59,232,255,.03);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;color:#C9D6E3}
 .hm-add:hover{background:rgba(59,232,255,.08);border-color:#3BE8FF}
 .hm-add-plus{width:52px;height:52px;border-radius:50%;border:1.5px solid rgba(59,232,255,.6);color:#3BE8FF;display:flex;align-items:center;justify-content:center}
+.hm-full{cursor:default;border-style:solid;border-color:#1C2A38;background:rgba(255,255,255,.02);gap:6px}   /* W7b: the slot is full */
+.hm-full .hm-add-title{color:#C9D6E3}
 .hm-add-title{font-size:18px;font-weight:600;color:#F2FBFF}
 .hm-add-sub{font-size:13px;line-height:19px;color:#A9BACB}
 .hm-add-slots{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;letter-spacing:.12em;color:#7FE9FF}
@@ -223,6 +225,7 @@
 .hm-acct{width:44px;height:44px;padding:0;border:0;border-radius:50%;background:linear-gradient(135deg,#3BE8FF,#2398AE);color:#021016;justify-content:center}
 .hm-acct .hm-avatar{width:44px;height:44px;font-size:14px;background:none}
 .hm-acct svg{display:none}
+.hm-input{font-size:16px}
 .hm-band{height:150px}
 .hm-pill-band{display:flex;height:44px;padding:0 14px;gap:10px;background:rgba(8,15,24,.8)}
 .hm-pill-band .hm-when{flex-grow:1}

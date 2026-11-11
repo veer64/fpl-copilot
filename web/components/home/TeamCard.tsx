@@ -142,6 +142,18 @@ export function TeamCard({
   );
 }
 
+/** Prompt W7b (F10): at the limit the Add card's place says so (the Home brief: "3 of 3 teams"). */
+export function TeamsFull({ max }: { max: number }) {
+  return (
+    <div className="hm-add hm-full" role="note" data-testid="teams-full">
+      <span className="hm-add-title">
+        {max} of {max} teams
+      </span>
+      <span className="hm-add-sub">Remove a team to add another.</span>
+    </div>
+  );
+}
+
 export function AddTeamCard({ slotsLeft, onOpen }: { slotsLeft: number; onOpen: () => void }) {
   return (
     <button type="button" className="hm-add" onClick={onOpen} data-testid="add-team-card">
