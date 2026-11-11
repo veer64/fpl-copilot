@@ -23,7 +23,7 @@ T   squad_versions stays append-only for a normal session: DELETE raises; only S
     deleting transaction is allowed through (checkpoint Q5).
 D   GET /deadlines is open in clerk mode (public FPL data from the process cache; no token needed, a bad token ignored;
     Cache-Control: public, max-age=60); off mode still 404 (checkpoint Q1 A).
-R   the deletes go through the existing per-user read window (users.READS_PER_MINUTE = 60): the 61st request is 429.
+R   the deletes go through the existing per-user read window (users.READS_PER_MINUTE, 120 since W7b): the next request is 429.
 
 Offline: test_fpl_import's `api` fixture (clerk mode on the test database, the recorded FPL responses, users 10001 / 10002)
 and test_auth's `c`; Clerk's delete-user faked and counted; the per-turn log rows (chat_usage, checks, plans, scores, tickets)

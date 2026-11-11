@@ -188,14 +188,16 @@ def test_e6_off_mode_has_none_of_them(app, monkeypatch, method, path):
 
 # ---- E7 ----------------------------------------------------------------------------------------------------------------
 
-def test_e7_sixty_requests_a_minute_then_429_and_the_admin_is_exempt(c, monkeypatch):
+def test_e7_the_reads_window_then_429_and_the_admin_is_exempt(c, monkeypatch):
+    import users
     clock = {"t": 1000.0}
     monkeypatch.setattr(c.users, "monotonic", lambda: clock["t"])
     h = _h()
-    codes = [c.client.get("/me", headers=h).status_code for _ in range(60)]
-    assert codes == [200] * 60
+    n = users.READS_PER_MINUTE                                               # W7b: 120 (was 60)
+    codes = [c.client.get("/me", headers=h).status_code for _ in range(n)]
+    assert codes == [200] * n
     r = c.client.get("/threads", headers=h)
-    assert r.status_code == 429 and "60" in r.json()["detail"]
+    assert r.status_code == 429 and str(n) in r.json()["detail"]
     assert c.client.get("/me", headers=_h(B)).status_code == 200            # per user
     assert _chat(c, "About apple")["answer"] == "Answer to About apple"     # /chat keeps its own window
     clock["t"] += 61

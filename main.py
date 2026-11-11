@@ -60,6 +60,7 @@ import contextlib
 import os
 import re
 import secrets
+import sys
 import time
 from collections import deque
 
@@ -70,6 +71,23 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+
+
+def _utf8_console(*streams):
+    """Prompt W7b (F12): a print must never raise on a cp1252 console (a Windows dev server: a reply with an arrow or an
+    umlaut crashed the turn in the print of the raw reply). Each text stream that can be reconfigured gets UTF-8 with
+    errors="replace"; a stream already in UTF-8 with that policy (production's Docker) is left as it is."""
+    for stream in streams:
+        try:
+            enc = (getattr(stream, "encoding", "") or "").lower().replace("-", "")
+            if enc != "utf8" or getattr(stream, "errors", "") != "replace":
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+_utf8_console(sys.stdout, sys.stderr)
 
 import admin                                            # Prompt P7: the admin dashboard + users CSV (clerk mode)
 import agent_graph                                      # Prompt B: /chat turns run in stored threads

@@ -9,7 +9,14 @@ squad_applied (JSON, derived server-side from the turn's tool calls -- turn_extr
 transcript entry -- so a failed turn writes nothing -- and joined back by message_id (checkpoint C6: the transcript entry
 carries the id; the transcript is not model-visible). Answers from before W4 have no row.
 
-Feedback is stored HERE first; the Langfuse score (tracing.score_feedback) is best effort and never gates the answer."""
+Feedback is stored HERE first; the Langfuse score (tracing.score_feedback) is best effort and never gates the answer.
+
+Prompt W7b (2026-11-11, F3 "refresh during an answer"): the row is written at TURN START as a PENDING entry (status
+'pending', question = the user's text, started_at), keyed by the turn's message_id (agent_graph passes the id into the
+turn); on success record() turns it into the normal row (status 'done'); on failure drop_pending() removes it, so a failed
+turn still leaves the thread unchanged. /threads lists a thread with a pending row (its question as the title) and
+/threads/{id}/messages ends with {"role": "pending", "text", "started_at", "message_id"} while the answer is being written.
+SCHEMA CHANGE: chat_messages + status TEXT NOT NULL DEFAULT 'done', question TEXT, started_at TIMESTAMPTZ (idempotent ALTERs)."""
 from datetime import datetime, timezone
 
 import psycopg2
@@ -31,7 +38,11 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     feedback_at    TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS ix_chat_messages_thread ON chat_messages (thread_id, q);
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'done';
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS question TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
 """
+PENDING, DONE = "pending", "done"
 SCORES = ("up", "down")
 _SCHEMA_READY = set()
 
@@ -59,20 +70,83 @@ def _reset():
     _SCHEMA_READY.clear()
 
 
-def record(message_id, thread_id, user_id, q, created_at, sources=None, squad_preview=None, squad_applied=None, conn=None):
-    """One row per answer (a second write of the same id changes nothing). Commits on its own connection."""
+def begin_pending(message_id, thread_id, user_id, q, question, started_at=None, conn=None):
+    """Prompt W7b: the turn's in-flight entry, written at turn start (status 'pending'). Commits on its own connection."""
+    own = conn is None
+    if own:
+        conn = db_write.connect()
+    try:
+        _ready(conn)
+        at = started_at or clock()
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO chat_messages (message_id, thread_id, user_id, q, created_at, status, question, started_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING",
+                        (str(message_id), str(thread_id), int(user_id), int(q), at, PENDING, question, at))
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        if own:
+            conn.close()
+
+
+def drop_pending(message_id, conn=None):
+    """Prompt W7b: a failed turn removes its pending entry (a done row is never touched). Returns the rows removed."""
     own = conn is None
     if own:
         conn = db_write.connect()
     try:
         _ready(conn)
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO chat_messages (message_id, thread_id, user_id, q, created_at, sources, squad_preview, squad_applied) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING",
+            cur.execute("DELETE FROM chat_messages WHERE message_id = %s AND status = %s", (str(message_id), PENDING))
+            n = cur.rowcount
+        conn.commit()
+        return n
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        if own:
+            conn.close()
+
+
+def pending_of_thread(thread_id, conn=None):
+    """Prompt W7b: the thread's pending entries, oldest first: [{message_id, q, question, started_at}]."""
+    own = conn is None
+    if own:
+        conn = db_write.connect()
+    try:
+        _ready(conn)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT message_id, q, question, started_at FROM chat_messages WHERE thread_id = %s AND status = %s "
+                        "ORDER BY started_at, q", (str(thread_id), PENDING))
+            rows = [dict(r) for r in cur.fetchall()]
+        conn.rollback()
+        return rows
+    finally:
+        if own:
+            conn.close()
+
+
+def record(message_id, thread_id, user_id, q, created_at, sources=None, squad_preview=None, squad_applied=None, conn=None):
+    """One row per answer. Prompt W7b: the pending row of the same id becomes the done row (its question and started_at
+    kept); a second write of a DONE id changes nothing. Commits on its own connection."""
+    own = conn is None
+    if own:
+        conn = db_write.connect()
+    try:
+        _ready(conn)
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO chat_messages (message_id, thread_id, user_id, q, created_at, sources, squad_preview, squad_applied, status) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO UPDATE SET "
+                        "status = EXCLUDED.status, q = EXCLUDED.q, created_at = EXCLUDED.created_at, sources = EXCLUDED.sources, "
+                        "squad_preview = EXCLUDED.squad_preview, squad_applied = EXCLUDED.squad_applied "
+                        "WHERE chat_messages.status = %s",
                         (str(message_id), str(thread_id), int(user_id), int(q), created_at,
                          psycopg2.extras.Json(list(sources or [])),
                          None if squad_preview is None else psycopg2.extras.Json(squad_preview),
-                         None if squad_applied is None else psycopg2.extras.Json(squad_applied)))
+                         None if squad_applied is None else psycopg2.extras.Json(squad_applied), DONE, PENDING))
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -90,8 +164,8 @@ def by_thread(thread_id, conn=None):
     try:
         _ready(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT message_id, sources, squad_preview, squad_applied, feedback FROM chat_messages WHERE thread_id = %s",
-                        (str(thread_id),))
+            cur.execute("SELECT message_id, sources, squad_preview, squad_applied, feedback FROM chat_messages "
+                        "WHERE thread_id = %s AND status = %s", (str(thread_id), DONE))
             rows = [dict(r) for r in cur.fetchall()]
         conn.rollback()
         return {r["message_id"]: r for r in rows}
@@ -112,7 +186,7 @@ def set_feedback(user_id, message_id, score, conn=None):
         _ready(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("UPDATE chat_messages SET feedback = %s, feedback_at = %s WHERE message_id = %s AND user_id = %s "
-                        "RETURNING message_id, feedback, feedback_at", (score, clock(), str(message_id), int(user_id)))
+                        "AND status = %s RETURNING message_id, feedback, feedback_at", (score, clock(), str(message_id), int(user_id), DONE))
             row = cur.fetchone()
         conn.commit()
         return dict(row) if row else None

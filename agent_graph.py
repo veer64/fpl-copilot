@@ -280,7 +280,12 @@ def thread_messages(thread_id):
             plain, _ = agent.replace_tool_names(raw)
             plain, _ = agent.plain_words(plain)
             out.append({"role": "assistant", "text": plain, "at": None, "message_id": None})
-    return _with_message_rows(thread_id, out)
+    out = _with_message_rows(thread_id, out)
+    import chat_messages                                 # Prompt W7b: the turn being written, after the stored rows
+    for p in chat_messages.pending_of_thread(thread_id):
+        out.append({"role": "pending", "text": p.get("question"), "started_at": threads.iso(p.get("started_at")),
+                    "message_id": p["message_id"]})
+    return out
 
 
 def _with_message_rows(thread_id, rows):
@@ -309,7 +314,10 @@ def run_thread_turn(user_id, thread_id, user_message):
     request trimmed to the last threads.MAX_TURNS turns, the stored thread kept whole. A turn that raises leaves the
     thread as it was (its partial history is overwritten by the history before the turn) and re-raises. Turns of one
     thread run one at a time (threads.turn_lock). Returns the rendered reply."""
-    thread = {"thread_id": str(thread_id), "user_id": int(user_id), "max_turns": threads.MAX_TURNS}
+    import uuid
+    import chat_messages
+    turn_id = uuid.uuid4().hex                           # Prompt W7b: the turn's id, known before the turn runs
+    thread = {"thread_id": str(thread_id), "user_id": int(user_id), "max_turns": threads.MAX_TURNS, "turn_id": turn_id}
     with threads.turn_lock(thread_id):
         g = thread_graph()
         cfg = _thread_config(thread_id)
@@ -318,6 +326,11 @@ def run_thread_turn(user_id, thread_id, user_message):
         transcript = list(stored.get("transcript") or [])
         history = list(before)
         asked_at = _now_iso()
+        q_index = sum(1 for m in before if _is_question(m))
+        try:                                             # W7b: the in-flight entry -- a reload shows the question + "still working"
+            chat_messages.begin_pending(turn_id, thread_id, user_id, q_index, user_message)
+        except Exception as e:                           # noqa: BLE001 -- the turn runs regardless
+            print(f"  [thread {thread_id}: pending row not written: {type(e).__name__}: {str(e)[:200]}]")
         try:
             answer, history = agent.run_agent(user_message, history, thread=thread)
         except BaseException:
@@ -325,9 +338,13 @@ def run_thread_turn(user_id, thread_id, user_message):
                 g.update_state(cfg, {"messages": before}, as_node="finalize")
             except Exception as e:                       # noqa: BLE001 -- the turn's own exception is the one to raise
                 print(f"  [thread {thread_id}: the failed turn was not rolled back: {type(e).__name__}: {str(e)[:200]}]")
+            try:
+                chat_messages.drop_pending(turn_id)      # W7b: a failed turn leaves the thread unchanged -- no pending row either
+            except Exception as e:                       # noqa: BLE001
+                print(f"  [thread {thread_id}: pending row not removed: {type(e).__name__}: {str(e)[:200]}]")
             raise
         record = turn_context.last() or {}               # Prompt W4: what the turn produced beside its text
-        entry = {"q": sum(1 for m in before if _is_question(m)), "user": user_message, "user_at": asked_at,
+        entry = {"q": q_index, "user": user_message, "user_at": asked_at,
                  "answer": answer, "answer_at": _now_iso(), "message_id": record.get("message_id")}   # Prompt F1a: the transcript
         if agent._engine() == "loop":                    # the loop does not checkpoint; its history is stored here
             g.update_state(cfg, {"messages": history, "transcript": transcript + [entry]}, as_node="finalize")
@@ -337,13 +354,19 @@ def run_thread_turn(user_id, thread_id, user_message):
             except Exception as e:                       # noqa: BLE001 -- the reply stands; the website shows the stored text
                 print(f"  [thread {thread_id}: transcript not stored: {type(e).__name__}: {str(e)[:200]}]")
         if record.get("message_id"):                     # Prompt W4: the answer's row (C6: joined by the transcript's id)
-            try:
-                import chat_messages
+            try:                                         # W7b: the pending row of the same id becomes the done row
                 chat_messages.record(record["message_id"], thread_id, user_id, entry["q"], entry["answer_at"],
                                      sources=record.get("sources"), squad_preview=record.get("squad_preview"),
                                      squad_applied=record.get("squad_applied"))
+                if record["message_id"] != turn_id:
+                    chat_messages.drop_pending(turn_id)
             except Exception as e:                       # noqa: BLE001 -- the reply stands
                 print(f"  [thread {thread_id}: message row not stored: {type(e).__name__}: {str(e)[:200]}]")
+        else:
+            try:
+                chat_messages.drop_pending(turn_id)      # a reply with no record (the loop guard): nothing stays pending
+            except Exception as e:                       # noqa: BLE001
+                print(f"  [thread {thread_id}: pending row not removed: {type(e).__name__}: {str(e)[:200]}]")
         return answer
 
 

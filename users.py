@@ -40,7 +40,7 @@ DAILY_CAP_ENV = "DAILY_CAP_USD"
 DEFAULT_DAILY_CAP_USD = 1.00
 RATE_LIMIT_PER_MINUTE = 10
 RATE_WINDOW_S = 60.0
-READS_PER_MINUTE = 60                                    # Prompt F1a: the website's other endpoints (/me, /threads, ...)
+READS_PER_MINUTE = 120                                   # Prompt F1a: the website's other endpoints (/me, /threads, ...); W7b: 60 -> 120 (a fast Home / Chat walk is 4 reads a page)
 IMPORTS_PER_MINUTE = 5                                   # Prompt F1a: FPL team imports and refreshes (FPL's API is a guest's)
 CAP_REPLY = "You've reached today's limit. It resets at 00:00 UTC (in {h} h {m} m)."
 

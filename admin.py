@@ -15,7 +15,14 @@ the totals over EVERY chat_usage row (the anonymous rows of deleted accounts -- 
 totals and appear as one "Deleted accounts" line, spend only), the 30 days zero-filled, the limit hits of the last 30 days
 with names, and the feedback section: thumbs up / down counts and the RECENT_DOWN most recent thumbs-down answers, each with
 its question and answer from the thread's transcript entry matched by message_id (never on text) and its Langfuse trace id
-(+ the UI link when tracing can give one). The HTML and the CSV are untouched."""
+(+ the UI link when tracing can give one).
+
+Prompt W7b (2026-11-11, USER: "we need to account for only real ones"): REAL PEOPLE ONLY. Users, sign-ups, active counts,
+the sign-in split, the users table, the limit hits and the thumbs count accounts that signed up through the site
+(user_id >= users.FIRST_NEW_USER_ID); the owner (1) and the reserved test accounts (9001 / 9002) are excluded everywhere.
+The answer / spend totals = real users + deleted accounts (the anonymised rows, turn_id 'deleted'); the owner's own use
+and the pre-launch testing rows (user_id NULL and not 'deleted', plus 9001 / 9002) are two separate lines, not in the
+totals. stats() -- and so the P7 HTML page and the CSV -- follow the same rule."""
 import csv
 import html
 import io
@@ -25,7 +32,11 @@ import psycopg2.extras
 
 import db_write
 
+import users as _users
+
 CSV_COLUMNS = ["name", "email", "sign-in method", "joined", "last active", "answers", "$ total"]
+REAL_USER_MIN = _users.FIRST_NEW_USER_ID                 # W7b: accounts that signed up through the site
+TEST_USER_IDS = (9001, 9002)                             # the reserved eval accounts (never real people)
 CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
 SIGN_UP_DAYS = 30
 
@@ -54,7 +65,7 @@ def stats(conn=None):
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             people = _rows(cur, "SELECT user_id, name, email, sign_in_method, created_at, last_active_at, is_admin, is_exempt "
-                                "FROM app_users ORDER BY created_at, user_id")
+                                "FROM app_users WHERE user_id >= %s ORDER BY created_at, user_id", (REAL_USER_MIN,))
             usage = {r["user_id"]: r for r in _rows(cur, """
                 SELECT user_id,
                        count(*) FILTER (WHERE ts >= %(today)s)                AS answers_today,
@@ -63,11 +74,12 @@ def stats(conn=None):
                        COALESCE(sum(usd) FILTER (WHERE ts >= %(week)s), 0)   AS usd_7_days,
                        count(*)                                               AS answers_total,
                        COALESCE(sum(usd), 0)                                  AS usd_total
-                FROM chat_usage WHERE user_id IS NOT NULL GROUP BY user_id""", {"today": today, "week": week})}
-            hits = {r["user_id"]: r["n"] for r in _rows(cur, "SELECT user_id, count(*) AS n FROM cap_hits GROUP BY user_id")}
-            hits_today = _rows(cur, "SELECT count(*) AS n FROM cap_hits WHERE hit_at >= %s", (today,))[0]["n"]
+                FROM chat_usage WHERE user_id >= %(real)s GROUP BY user_id""", {"today": today, "week": week, "real": REAL_USER_MIN})}
+            hits = {r["user_id"]: r["n"] for r in _rows(cur, "SELECT user_id, count(*) AS n FROM cap_hits WHERE user_id >= %s "
+                                                              "GROUP BY user_id", (REAL_USER_MIN,))}
+            hits_today = _rows(cur, "SELECT count(*) AS n FROM cap_hits WHERE hit_at >= %s AND user_id >= %s", (today, REAL_USER_MIN))[0]["n"]
             sign_ups = _rows(cur, "SELECT (created_at AT TIME ZONE 'UTC')::date AS day, count(*) AS n FROM app_users "
-                                  "WHERE created_at >= %s GROUP BY 1 ORDER BY 1", (first_day,))
+                                  "WHERE created_at >= %s AND user_id >= %s GROUP BY 1 ORDER BY 1", (first_day, REAL_USER_MIN))
     finally:
         if own:
             conn.close()
@@ -193,12 +205,12 @@ def _feedback(cur, week):
                count(*) FILTER (WHERE feedback = 'down')                               AS down_total,
                count(*) FILTER (WHERE feedback = 'up'   AND feedback_at >= %(week)s)  AS up_7_days,
                count(*) FILTER (WHERE feedback = 'down' AND feedback_at >= %(week)s)  AS down_7_days
-        FROM chat_messages""", {"week": week})[0]
+        FROM chat_messages WHERE user_id >= %(real)s""", {"week": week, "real": REAL_USER_MIN})[0]
     rows = _rows(cur, """
         SELECT m.message_id, m.thread_id, m.user_id, m.feedback_at, u.name
         FROM chat_messages m LEFT JOIN app_users u ON u.user_id = m.user_id
-        WHERE m.feedback = 'down'
-        ORDER BY m.feedback_at DESC NULLS LAST, m.created_at DESC LIMIT %s""", (RECENT_DOWN,))
+        WHERE m.feedback = 'down' AND m.user_id >= %s
+        ORDER BY m.feedback_at DESC NULLS LAST, m.created_at DESC LIMIT %s""", (REAL_USER_MIN, RECENT_DOWN))
     entries = _transcripts(sorted({r["thread_id"] for r in rows}))
     host = tracing.langfuse_host()
     project = tracing.langfuse_project_id() if rows else None
@@ -232,19 +244,30 @@ def summary(conn=None):
         s = stats(conn)
         chat_messages._ready(conn)                       # the feedback table exists before W4's first answer is ever given
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # W7b: the totals = real users + deleted accounts; the owner and the pre-launch testing rows on their own lines
             totals = _rows(cur, """
-                SELECT count(*) FILTER (WHERE ts >= %(today)s)                          AS answers_today,
-                       count(*)                                                         AS answers_total,
-                       COALESCE(sum(usd) FILTER (WHERE ts >= %(today)s), 0)            AS usd_today,
-                       COALESCE(sum(usd) FILTER (WHERE ts >= %(month)s), 0)            AS usd_month,
-                       COALESCE(sum(usd), 0)                                            AS usd_total,
-                       count(*) FILTER (WHERE user_id IS NULL)                          AS deleted_answers,
-                       COALESCE(sum(usd) FILTER (WHERE user_id IS NULL), 0)            AS deleted_usd
-                FROM chat_usage""", {"today": today, "month": month})[0]
+                SELECT count(*) FILTER (WHERE counted AND ts >= %(today)s)                    AS answers_today,
+                       count(*) FILTER (WHERE counted)                                        AS answers_total,
+                       COALESCE(sum(usd) FILTER (WHERE counted AND ts >= %(today)s), 0)      AS usd_today,
+                       COALESCE(sum(usd) FILTER (WHERE counted AND ts >= %(month)s), 0)      AS usd_month,
+                       COALESCE(sum(usd) FILTER (WHERE counted), 0)                          AS usd_total,
+                       count(*) FILTER (WHERE deleted)                                        AS deleted_answers,
+                       COALESCE(sum(usd) FILTER (WHERE deleted), 0)                          AS deleted_usd,
+                       count(*) FILTER (WHERE user_id = %(owner)s)                            AS owner_answers,
+                       COALESCE(sum(usd) FILTER (WHERE user_id = %(owner)s), 0)              AS owner_usd,
+                       count(*) FILTER (WHERE testing)                                        AS testing_answers,
+                       COALESCE(sum(usd) FILTER (WHERE testing), 0)                          AS testing_usd
+                FROM (SELECT ts, usd, user_id,
+                             (user_id IS NULL AND COALESCE(turn_id, '') = 'deleted')                       AS deleted,
+                             (user_id >= %(real)s OR (user_id IS NULL AND COALESCE(turn_id, '') = 'deleted')) AS counted,
+                             ((user_id IS NULL AND COALESCE(turn_id, '') <> 'deleted') OR user_id IN %(tests)s) AS testing
+                      FROM chat_usage) x""",
+                {"today": today, "month": month, "real": REAL_USER_MIN, "owner": _users.OWNER_USER_ID, "tests": TEST_USER_IDS})[0]
             hits = _rows(cur, """
                 SELECT h.user_id, u.name, u.email, h.hit_at, h.spent_usd, h.cap_usd
                 FROM cap_hits h LEFT JOIN app_users u ON u.user_id = h.user_id
-                WHERE h.hit_at >= %s ORDER BY h.hit_at DESC, h.id DESC""", (today - timedelta(days=CAP_HIT_DAYS - 1),))
+                WHERE h.hit_at >= %s AND h.user_id >= %s ORDER BY h.hit_at DESC, h.id DESC""",
+                         (today - timedelta(days=CAP_HIT_DAYS - 1), REAL_USER_MIN))
             feedback = _feedback(cur, week)
     finally:
         if own:
@@ -265,6 +288,8 @@ def summary(conn=None):
             "sign_ups_per_day": [{"day": d, "n": int(by_day.get(d, 0))} for d in days],
             "users": users,
             "deleted_accounts": {"answers": int(totals["deleted_answers"]), "usd": _usd(totals["deleted_usd"])},
+            "owner_use": {"answers": int(totals["owner_answers"]), "usd": _usd(totals["owner_usd"])},
+            "testing_use": {"answers": int(totals["testing_answers"]), "usd": _usd(totals["testing_usd"])},
             "cap_hits": [{"user_id": h["user_id"], "name": h.get("name"), "email": h.get("email"), "at": _iso(h["hit_at"]),
                           "spent_usd": _usd(h.get("spent_usd")), "cap_usd": _usd(h.get("cap_usd"))} for h in hits],
             "cap_hits_today": s["cap_hits_today"], "cap_hits_total": s["cap_hits_total"],

@@ -214,7 +214,9 @@ SELECT t.thread_id, t.created_at, t.is_default, lc.ts AS last_ts,
            AND b.version = lc.mv AND b.type = %s) AS first_message,
        {team_label} AS team_label,
        {team_id} AS fpl_team_id,
-       {team_name} AS team_name
+       {team_name} AS team_name,
+       {pending_q} AS pending_question,
+       {pending_at} AS pending_at
   FROM chat_threads t
   LEFT JOIN LATERAL (SELECT c.checkpoint ->> 'ts' AS ts, c.checkpoint -> 'channel_versions' ->> 'messages' AS mv
                        FROM checkpoints c
@@ -222,6 +224,10 @@ SELECT t.thread_id, t.created_at, t.is_default, lc.ts AS last_ts,
                       ORDER BY c.checkpoint_id DESC LIMIT 1) lc ON TRUE
  WHERE t.user_id = %s
 """
+# Prompt W7b: the question of a turn being written right now (chat_messages status 'pending'), so the thread is listed from
+# the moment the turn starts (its title = the question until the answer lands).
+_PENDING_Q = "(SELECT m.question FROM chat_messages m WHERE m.thread_id = t.thread_id AND m.status = 'pending' ORDER BY m.started_at DESC LIMIT 1)"
+_PENDING_AT = "(SELECT m.started_at FROM chat_messages m WHERE m.thread_id = t.thread_id AND m.status = 'pending' ORDER BY m.started_at DESC LIMIT 1)"
 # Prompt F1b: the thread's team -- the label of the user's imported team whose squad_key is the thread's owner_key (none for
 # a thread of the user's own record, a legacy thread, or before user_fpl_teams exists).
 _TEAM_LABEL = "(SELECT f.label FROM user_fpl_teams f WHERE f.user_id = t.user_id AND f.squad_key = t.owner_key LIMIT 1)"
@@ -273,18 +279,31 @@ def list_threads(user_id):
                 cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
                             "AND table_name = 'user_fpl_teams' AND column_name = 'entry_name'")
                 named = cur.fetchone() is not None
+            cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+                        "AND table_name = 'chat_messages' AND column_name = 'status'")
+            pending = cur.fetchone() is not None
             cur.execute(_LIST_SQL.format(team_label=_TEAM_LABEL if teams else "NULL::text",
                                          team_id=_TEAM_ID if teams else "NULL::int",
-                                         team_name=_TEAM_NAME if named else (_TEAM_LABEL if teams else "NULL::text")),
+                                         team_name=_TEAM_NAME if named else (_TEAM_LABEL if teams else "NULL::text"),
+                                         pending_q=_PENDING_Q if pending else "NULL::text",
+                                         pending_at=_PENDING_AT if pending else "NULL::timestamptz"),
                         (TAG, int(user_id)))
             rows = cur.fetchall()
     finally:
         conn.close()
     out = []
-    for tid, created, is_default, last_ts, first, team_label, fpl_team_id, team_name in rows:
+    for tid, created, is_default, last_ts, first, team_label, fpl_team_id, team_name, pending_q, pending_at in rows:
         title = None
-        if first is None:
+        if first is None and pending_q is None:
             continue                                     # W4: no message yet -> not listed
+        if first is None:                                # W7b: the first turn is being written: listed under its question
+            out.append({"thread_id": tid, "created_at": iso(created), "last_active": iso(pending_at or created),
+                        "is_default": bool(is_default), "title": thread_title(pending_q), "team_label": team_label,
+                        "fpl_team_id": None if fpl_team_id is None else int(fpl_team_id),
+                        "team_name": team_name, "updated_at": iso(pending_at or created)})
+            continue
+        if pending_at is not None and (last_ts is None or iso(pending_at) > iso(last_ts)):
+            last_ts = pending_at
         try:
             m = _dec(first)
             if isinstance(m, dict) and m.get("role") == "user":

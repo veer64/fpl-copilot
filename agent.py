@@ -804,7 +804,8 @@ def _begin_turn(user_message, messages=None, engine="loop", thread=None):
 
     messages.append({"role": "user", "content": user_message})
     question_index = len(messages) - 1               # the turn's question: the clock line rides on it at send time
-    turn_id = uuid.uuid4().hex                       # Piece 7: one id per reply, for citation_checks
+    turn_id = thread.get("turn_id") or uuid.uuid4().hex   # Piece 7: one id per reply, for citation_checks (W7b: a stored
+                                                     # thread's turn brings the id its pending chat_messages row was written under)
     turn_context.begin(turn_id, thread_id=thread.get("thread_id"))   # Prompt E: the loop's channel; tools read it, the model cannot set it
     trace = tracing.start_turn(turn_id, user_message, engine=engine,  # Prompt L: one Langfuse trace per turn (no-op when off)
                                session_id=thread.get("thread_id"), user_id=thread.get("user_id"))
