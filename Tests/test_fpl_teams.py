@@ -244,7 +244,9 @@ def _dev_db_or_skip():
 def test_m4_zero_team_outputs_are_byte_identical(monkeypatch, user, tool):
     _dev_db_or_skip()
     import fpl_teams
-    assert fpl_teams.squad_owner_id(user) is user                                  # no team for the reserved users
+    if fpl_teams.squad_owner_id(user) is not user:                                 # the premise: no team for the reserved users
+        pytest.skip(f"reserved user {user} has an active team on this developer DB (the owner's own team, added through "
+                    "the site on 11 Nov 2026): the zero-team premise cannot be checked here; 9001 / 9002 still cover it")
     new = _masked(tool, READ_ONLY[tool](user))
     monkeypatch.setattr(mt, "_squad_owner", lambda uid: uid)                       # the code before Part 4: no lookup
     old = _masked(tool, READ_ONLY[tool](user))
