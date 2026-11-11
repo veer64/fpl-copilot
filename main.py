@@ -148,7 +148,8 @@ CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET"
                 ("GET", "/me"), ("GET", "/threads"), ("POST", "/threads"),      # Prompt F1a: the website's endpoints
                 ("GET", "/me/squad"), ("GET", "/me/teams"), ("POST", "/me/teams"),
                 ("DELETE", "/me/active-team"), ("GET", "/deadlines"),           # Prompt W3: the Home page
-                ("DELETE", "/me")}                                              # Prompt W5: delete account
+                ("DELETE", "/me"),                                              # Prompt W5: delete account
+                ("GET", "/admin/summary")}                                      # Prompt W6: the admin page's JSON
 CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$")),
                         ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$")),
                         ("GET", re.compile(r"^/me/teams/[^/]+/card$")),                 # Prompt W4: the Chat page
@@ -415,6 +416,17 @@ def admin_users_csv(http: Request):
         return refusal
     return Response(content=admin.users_csv(admin.stats()), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="users.csv"'})
+
+
+@app.get("/admin/summary")
+def admin_summary(http: Request):
+    """Prompt W6 (2026-11-11): the JSON the website's /admin page reads (admin.summary): the P7 numbers plus the totals over
+    every cost row, the 30 days zero-filled, the limit hits with names, the sign-in split and the feedback section. The
+    same guard as /admin: 404 in off mode, 401 for a bad token, 403 for anyone but an admin."""
+    _, refusal = _admin(http)
+    if refusal is not None:
+        return refusal
+    return admin.summary()
 
 
 # ---- the website's endpoints (Prompt F1a, 2026-11-02): clerk mode only (404 in off mode, like /admin); the token's user

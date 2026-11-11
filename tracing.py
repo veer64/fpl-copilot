@@ -626,6 +626,40 @@ def score_feedback(trace_id, value, comment=None):
         return "failed"
 
 
+# ---- Prompt W6 (2026-11-11): the admin page's "Open in Langfuse" links ----------------------------------------------------------
+
+_PROJECT_RE = re.compile(r"/project/([^/]+)/traces/")
+
+
+def langfuse_host():
+    """The configured Langfuse host (LANGFUSE_BASE_URL or LANGFUSE_HOST, no trailing slash) or None."""
+    host = (os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or "").strip().rstrip("/")
+    return host or None
+
+
+def langfuse_project_id():
+    """The project id the UI links need, learnt ONCE per process from the SDK (get_trace_url asks the API for the project
+    behind the keys) when tracing is on with keys; None when tracing is off, the keys are missing or the lookup fails (the
+    admin page then shows the trace id alone). Never raises; the public SDK surface only."""
+    if _STATE.get("project_id"):
+        return _STATE["project_id"]
+    try:
+        if not switch_on() or not keys_present():
+            return None
+        backend = _backend()
+        if backend is None:
+            return None
+        client, _propagate = backend
+        url = client.get_trace_url(trace_id="0" * 32) or ""
+        m = _PROJECT_RE.search(url)
+        if m:
+            _STATE["project_id"] = m.group(1)
+        return _STATE.get("project_id")
+    except Exception as e:                               # noqa: BLE001
+        _fail("langfuse_project_id", e)
+        return None
+
+
 def _quiet_flush(client):
     try:
         client.flush()

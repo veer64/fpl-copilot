@@ -218,6 +218,12 @@ def _stored(thread_id):
     return dict(st.values or {})
 
 
+def transcript(thread_id):
+    """Prompt W6: a stored thread's transcript entries (a fresh list; [] for a thread with none) -- the admin page reads an
+    answer's text by its message_id from here, never from the model-visible history."""
+    return list(_stored(thread_id).get("transcript") or [])
+
+
 def load_history(thread_id):
     """A stored thread's history (a fresh list), [] for a thread with no turn yet."""
     return list(_stored(thread_id).get("messages") or [])
