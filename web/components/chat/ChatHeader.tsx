@@ -6,7 +6,7 @@ import type { Resource } from "@/components/home/useResource";
 
 /** The header (64px desktop / 60px phone): the phone menu button, the logo, "← Home" (desktop), the deadline pill (desktop)
  *  or its compact chip (phone) -- Home's component either way -- and Home's account dropdown. */
-export function ChatHeader({ deadlines, now, onExpired, onMenu }: { deadlines: Resource<{ events: DeadlineEvent[] }>; now: Date | null; onExpired: () => void; onMenu: () => void }) {
+export function ChatHeader({ deadlines, now, onExpired, onMenu, isOwner }: { deadlines: Resource<{ events: DeadlineEvent[] }>; now: Date | null; onExpired: () => void; onMenu: () => void; isOwner?: boolean | null }) {
   return (
     <header className="ch-hdr" data-testid="chat-header">
       <button type="button" className="ch-menu-btn" onClick={onMenu} aria-label="Past chats and menu" data-testid="menu-button">
@@ -24,7 +24,7 @@ export function ChatHeader({ deadlines, now, onExpired, onMenu }: { deadlines: R
       <div className="ch-grow" />
       <DeadlinePill deadlines={deadlines} now={now} onExpired={onExpired} />
       <DeadlinePill deadlines={deadlines} now={now} onExpired={onExpired} compact />
-      <AccountMenu />
+      <AccountMenu isOwner={isOwner} />
     </header>
   );
 }

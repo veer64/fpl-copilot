@@ -36,12 +36,15 @@ export function ThreadList({
   newRow,
   now,
   onOpen,
+  onDelete,
 }: {
   threads: Resource<ThreadRow[]>;
   currentId: string | null;
   newRow: { text: string; cls: string } | null;
   now: Date | null;
   onOpen: (t: ThreadRow) => void;
+  /** Prompt W5: the trash button on each row (desktop: on hover / focus-within; the phone drawer: always, 44px) */
+  onDelete?: (t: ThreadRow) => void;
 }) {
   if (threads.status === "loading") {
     return (
@@ -81,14 +84,24 @@ export function ThreadList({
           {g.items.map((t) => {
             const tag = threadTag(t);
             const on = t.thread_id === currentId;
+            const title = t.title ?? "New chat";
             return (
-              <button type="button" className={`ch-row${on ? " on" : ""}`} key={t.thread_id} onClick={() => onOpen(t)} aria-current={on ? "page" : undefined} data-testid="thread-row" data-thread-id={t.thread_id}>
-                <span className="ch-row-title">{t.title ?? "New chat"}</span>
-                <span className="ch-row-meta">
-                  <span className={tag.cls}>{tag.text}</span>
-                  <span className="ch-row-ago">{agoShort(t.updated_at, at)}</span>
-                </span>
-              </button>
+              <div className={`ch-rowwrap${on ? " on" : ""}`} key={t.thread_id} data-testid="thread-rowwrap" data-thread-id={t.thread_id}>
+                <button type="button" className={`ch-row${on ? " on" : ""}`} onClick={() => onOpen(t)} aria-current={on ? "page" : undefined} data-testid="thread-row" data-thread-id={t.thread_id}>
+                  <span className="ch-row-title">{title}</span>
+                  <span className="ch-row-meta">
+                    <span className={tag.cls}>{tag.text}</span>
+                    <span className="ch-row-ago">{agoShort(t.updated_at, at)}</span>
+                  </span>
+                </button>
+                {onDelete && (
+                  <button type="button" className="ch-row-del" onClick={() => onDelete(t)} aria-label={`Delete chat: ${title}`} data-testid="thread-delete" data-thread-id={t.thread_id}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -111,6 +124,7 @@ export function Sidebar({
   newRow: { text: string; cls: string } | null;
   now: Date | null;
   onOpen: (t: ThreadRow) => void;
+  onDelete?: (t: ThreadRow) => void;
 }) {
   return (
     <aside aria-label="Past chats" className={`ch-side${collapsed ? " collapsed" : ""}`} data-testid="sidebar" data-collapsed={collapsed}>

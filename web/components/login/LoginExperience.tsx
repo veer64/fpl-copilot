@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { preload } from "react-dom";
+import { DELETED_FLAG } from "@/components/account/DeleteAccountDialog";
 import { IntroOverlay } from "./IntroOverlay";
 import { useReducedMotion } from "./media";
 import { PlayerStage, PLAYER_IMAGES, type Phase } from "./PlayerStage";
@@ -31,6 +32,25 @@ export function LoginExperience() {
   const [musicStarted, setMusicStarted] = useState(false);
   const soundOn = useSoundPref();
 
+  // Prompt W5 (checkpoint C4): arriving from "Delete account" -- the flag the dialog queued in sessionStorage -- skips the
+  // intro and its music and shows the green note above the card, once; the flag is cleared, so a reload is a normal visit.
+  const [deletedNote, setDeletedNote] = useState(false);
+  const fromDelete = useRef(false);
+  useEffect(() => {
+    let flagged = false;
+    try {
+      flagged = window.sessionStorage.getItem(DELETED_FLAG) === "1";
+      if (flagged) window.sessionStorage.removeItem(DELETED_FLAG);
+    } catch {
+      flagged = false;
+    }
+    if (!flagged) return;
+    fromDelete.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the one-time note, decided by a flag only the browser holds
+    setDeletedNote(true);
+    setRawPhase("login");
+  }, []);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLElement | null>(null);
@@ -48,10 +68,11 @@ export function LoginExperience() {
   }, []);
 
   // --- music ----------------------------------------------------------------------------------------------------------
-  const startMusic = useCallback((volume: number) => {
+  const startMusic = useCallback((volume: number, manual = false) => {
     const a = audioRef.current;
     if (!a || starting.current) return;
     if (!readSoundPref()) return; // a remembered mute never auto-starts -- checked against storage, not the render
+    if (fromDelete.current && !manual) return; // Prompt W5: no music after a deletion unless the button asks for it
     starting.current = true;
     try {
       a.currentTime = AUDIO_START_OFFSET;
@@ -105,7 +126,7 @@ export function LoginExperience() {
     const a = audioRef.current;
     if (!a) return;
     a.muted = !unmute;
-    if (unmute && a.paused) startMusic(phase === "intro" ? INTRO_VOLUME : LOGIN_VOLUME);
+    if (unmute && a.paused) startMusic(phase === "intro" ? INTRO_VOLUME : LOGIN_VOLUME, true);
   };
 
   // --- phases: intro (6.2 s, from mount) -> login; Skip and Esc go straight to login ---------------------------------------
@@ -223,10 +244,20 @@ export function LoginExperience() {
           </div>
 
           <div className="card-wrap">
-            {/* the card reads ?sso= (useSearchParams), which the static page can only do behind Suspense */}
-            <Suspense fallback={null}>
-              <SignInCard ref={cardRef} />
-            </Suspense>
+            <div className="card-col">
+              {deletedNote && (
+                <div role="status" className="deleted-note" data-testid="deleted-note">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M5 12l5 5L20 7" />
+                  </svg>
+                  Your account and data were deleted.
+                </div>
+              )}
+              {/* the card reads ?sso= (useSearchParams), which the static page can only do behind Suspense */}
+              <Suspense fallback={null}>
+                <SignInCard ref={cardRef} />
+              </Suspense>
+            </div>
           </div>
 
           <footer className="footer rise">

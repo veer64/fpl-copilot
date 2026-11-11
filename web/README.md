@@ -42,6 +42,8 @@ uv run python -m uvicorn main:app --port 8000
   `e2e/home-journey.spec.ts` and the two chat specs need the API in clerk mode (`W4_API_BASE`, default :8000) and read FPL for
   the team ids; the chat specs spend real agent turns
 - `node scripts/contrast_home.mjs` — the Home page's contrast table
+- `node scripts/contrast_public.mjs` — the About / Privacy pages' and the delete dialogs' contrast table (Prompt W5);
+  `node scripts/render_references_w5.mjs` — the five W5 references rendered beside the journey's screenshots
 
 ## Layout
 
@@ -67,6 +69,19 @@ uv run python -m uvicorn main:app --port 8000
   `news_search.render_citations`); `node scripts/contrast_chat.mjs` — the Chat page's contrast table
 - `e2e/chat-journey.spec.ts` (desktop) and `e2e/chat-mobile.spec.ts` (phone) — real backend in clerk mode + real agent turns;
   `e2e/w4.ts` the shared helpers
+- `app/about/`, `app/privacy/` (+ `app/public-pages.css`), `components/public/` — the public About and Privacy pages (Prompt W5):
+  PublicChrome (the header switches on the Clerk session: "Sign in" / "← Home" + the account menu; the footer; the backdrop
+  photo fixed from 1024px, absolute below), AboutExperience (the JUST ASK chips: signed out -> /login, signed in -> /chat?team=
+  {last-used team}&q=... or /chat?q=...; "GW{n}" from the open `/deadlines`), PrivacyExperience (the sticky "ON THIS PAGE" list
+  with aria-current, section chips on phones, `PRIVACY_UPDATED` the one "Last updated" constant)
+- `components/account/` — ConfirmDelete (the shared destructive confirm: Dialog on desktop, bottom sheet on phones; focus starts
+  on Cancel; cannot close while deleting; the inline alert + "Try again") and DeleteAccountDialog (DELETE /me -> the one-time
+  note queued for /login in sessionStorage -> Clerk sign-out). HomeHeader's AccountMenu is the ONE menu every page imports:
+  Sign out, a divider, Delete account (disabled until /me answers; disabled with the owner note for user 1). Delete chat (the
+  trash on a past-chat row -> DELETE /threads/{id}) and Remove team (the trash on a Home card -> DELETE /me/teams/{id}) use
+  the same confirm
+- `e2e/w5-journey.spec.ts` (desktop) and `e2e/w5-mobile.spec.ts` (phone) — the W5 journey against the scratchpad backend
+  wrapper (clerk mode, :8010, FPL counted, a test-only Clerk-failure switch); `e2e/w5.ts` its helpers
 - `lib/api.ts` — the API client and types (one in-flight promise per GET path; a 90 s timeout on /chat), `parseTeamInput`;
   `lib/time.ts` — greeting, time ago, deadline words
 - `/teams` redirects to `/home`; a signed-in visit to `/login` goes to `/home`

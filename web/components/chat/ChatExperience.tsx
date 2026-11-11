@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ApiError, api, type Feedback, type MessageRow, type TeamCardData, type ThreadRow } from "@/lib/api";
 import { nextEvent } from "@/lib/time";
 import { NARROW, useMediaQuery } from "@/lib/useMediaQuery";
+import { ConfirmDelete } from "@/components/account/ConfirmDelete";
 import { ErrorBox } from "@/components/home/ErrorBox";
 import { useNow, useResource } from "@/components/home/useResource";
 import { ChatHeader } from "./ChatHeader";
@@ -261,6 +262,27 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
     setDrawer(false);
     router.push(ctx?.kind === "team" ? `/chat?team=${ctx.teamId}` : "/chat");
   }, [ctx, router]);
+  // Prompt W5: Delete chat -- the trash on a row opens the shared confirm; DELETE /threads/{id}; the row goes; the open
+  // chat deleted -> a new empty chat in the same team / General
+  const [deleting, setDeleting] = useState<ThreadRow | null>(null);
+  const deleteOpener = useRef<HTMLElement | null>(null);
+  const askDelete = (t: ThreadRow) => {
+    deleteOpener.current = document.activeElement as HTMLElement | null;
+    setDeleting(t);
+  };
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    const t = deleting;
+    try {
+      await api.deleteThread(getToken, t.thread_id);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) router.push("/login");
+      throw e;
+    }
+    setDeleting(null);
+    reloadThreads();
+    if (t.thread_id === threadRef.current) newChat();
+  };
   const openThread = useCallback(
     (t: ThreadRow) => {
       setDrawer(false);
@@ -314,7 +336,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
 
   return (
     <div className="ch" data-testid="chat" data-context={ctx?.kind ?? "loading"} data-team-id={teamId ?? ""} data-thread-id={threadId ?? ""} data-ready={opening === "ready"} data-busy={busy}>
-      <ChatHeader deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} onMenu={() => setDrawer(true)} />
+      <ChatHeader deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} onMenu={() => setDrawer(true)} isOwner={me.status === "ready" ? me.data.is_owner : null} />
       <div className="ch-body">
         {!general && (
           <div aria-hidden="true" className={`ch-bg${collapsed ? " collapsed" : ""}`}>
@@ -322,7 +344,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
             <img src={TEAM_BG} alt="" />
           </div>
         )}
-        <Sidebar collapsed={collapsed} onToggle={toggleCollapsed} onNew={newChat} threads={threads} currentId={threadId} newRow={newRow} now={now} onOpen={openThread} />
+        <Sidebar collapsed={collapsed} onToggle={toggleCollapsed} onNew={newChat} threads={threads} currentId={threadId} newRow={newRow} now={now} onOpen={openThread} onDelete={askDelete} />
         <main className={`ch-main${general ? " general" : ""}`}>
           {general && (
             <>
@@ -397,7 +419,24 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
           </div>
         )}
       </div>
-      {narrow && drawer && <MobileDrawer onClose={() => setDrawer(false)} onNew={newChat} threads={threads} currentId={threadId} newRow={newRow} now={now} onOpen={openThread} />}
+      {narrow && drawer && <MobileDrawer onClose={() => setDrawer(false)} onNew={newChat} threads={threads} currentId={threadId} newRow={newRow} now={now} onOpen={openThread} onDelete={askDelete} />}
+      <ConfirmDelete
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title="Delete this chat?"
+        intro={
+          <>
+            <strong>“{deleting?.title ?? "New chat"}”</strong> and its messages will be removed.
+          </>
+        }
+        warning="This can’t be undone."
+        confirmLabel="Delete chat"
+        busyLabel="Deleting…"
+        errorFor={() => "Couldn’t delete this chat — try again."}
+        onConfirm={confirmDelete}
+        returnTo={deleteOpener}
+        testId="delete-chat"
+      />
     </div>
   );
 }

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { ApiError, api, type TeamCard as Card } from "@/lib/api";
 import { greetingWord, nextEvent } from "@/lib/time";
+import { ConfirmDelete } from "@/components/account/ConfirmDelete";
 import { AddTeamDialog, ADD_COPY } from "./AddTeamDialog";
 import { ErrorBox } from "./ErrorBox";
 import { BallIcon, Chips, GeneralCard, RecentChats } from "./GeneralCard";
@@ -94,6 +95,30 @@ export function HomeExperience() {
   };
 
   const onDeadlinesExpired = useCallback(() => reloadDeadlines(), [reloadDeadlines]);
+
+  // Prompt W5: Remove team -- the trash on a card opens the shared confirm ("its n chats" from /threads); DELETE
+  // /me/teams/{id}; the card goes, the Add team slot returns, General mode if it was the active team (the server's doing)
+  const [removing, setRemoving] = useState<Card | null>(null);
+  const removeOpener = useRef<HTMLElement | null>(null);
+  const chatsOf = (t: Card) => (threads.status === "ready" ? threads.data.filter((r) => r.fpl_team_id === t.fpl_team_id).length : 0);
+  const removeIntro = (t: Card) => {
+    const n = chatsOf(t);
+    const chats = n === 0 ? "" : n === 1 ? " and its 1 chat" : ` and its ${n} chats`;
+    return `This removes the team, its saved squads${chats} from FPL Copilot. Your real FPL team isn’t affected.`;
+  };
+  const confirmRemove = async () => {
+    if (!removing) return;
+    const t = removing;
+    try {
+      await api.removeTeam(getToken, t.fpl_team_id);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) router.push("/login");
+      throw err;
+    }
+    setRemoving(null);
+    reloadTeams();
+    reloadThreads();
+  };
 
   const greeting = isNew ? (
     <div className="hm-greet" data-testid="greeting" data-state="new">
@@ -203,6 +228,10 @@ export function HomeExperience() {
                   refreshFailed={!!refreshFailed[t.fpl_team_id]}
                   onAsk={() => ask(t)}
                   onRefresh={() => refresh(t)}
+                  onRemove={() => {
+                    removeOpener.current = document.activeElement as HTMLElement | null;
+                    setRemoving(t);
+                  }}
                 />
               ))}
               {cards.length < MAX_TEAMS && <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} />}
@@ -229,6 +258,19 @@ export function HomeExperience() {
       </div>
 
       <AddTeamDialog open={addOpen} onOpenChange={setAddOpen} onAdded={added} />
+      <ConfirmDelete
+        open={removing !== null}
+        onClose={() => setRemoving(null)}
+        title={`Remove ${removing ? teamName(removing) : "this team"}?`}
+        intro={removing ? removeIntro(removing) : ""}
+        warning="This can’t be undone."
+        confirmLabel="Remove team"
+        busyLabel="Removing…"
+        errorFor={() => "Couldn’t remove this team — try again."}
+        onConfirm={confirmRemove}
+        returnTo={removeOpener}
+        testId="remove-team"
+      />
     </div>
   );
 }

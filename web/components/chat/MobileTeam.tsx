@@ -59,6 +59,7 @@ export function MobileDrawer({
   newRow,
   now,
   onOpen,
+  onDelete,
 }: {
   onClose: () => void;
   onNew: () => void;
@@ -67,6 +68,7 @@ export function MobileDrawer({
   newRow: { text: string; cls: string } | null;
   now: Date | null;
   onOpen: (t: ThreadRow) => void;
+  onDelete?: (t: ThreadRow) => void;
 }) {
   return (
     <Modal onClose={onClose} label="Past chats" className="ch-drawer-root" testId="drawer">
@@ -92,7 +94,7 @@ export function MobileDrawer({
         </button>
       </div>
       <span className="ch-lbl ch-side-lbl">Past chats</span>
-      <ThreadList threads={threads} currentId={currentId} newRow={newRow} now={now} onOpen={onOpen} />
+      <ThreadList threads={threads} currentId={currentId} newRow={newRow} now={now} onOpen={onOpen} onDelete={onDelete} />
     </Modal>
   );
 }

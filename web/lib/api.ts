@@ -116,14 +116,33 @@ export type FeedbackResult = { message_id: string; feedback: Feedback; feedback_
 
 export type ActiveTeam = { fpl_team_id: number; label: string | null; is_active: boolean; last_imported_gw: number | null };
 
-/** GET /me */
+/** GET /me (is_owner: Prompt W5 -- user 1, the account the Delete account item is disabled for) */
 export type Me = {
   user_id: number;
   is_admin: boolean;
+  is_owner: boolean;
   daily_cap_usd: number;
   spent_today_usd: number;
   active_team: ActiveTeam | null;
 };
+
+// ---- Prompt W5 (2026-11-10): delete account / remove team / delete chat ------------------------------------------------------
+export type DeleteAccountResult = {
+  deleted: true;
+  user_id: number;
+  removed: Record<string, number>;
+  cost_rows_anonymised: number;
+  clerk: "deleted" | "already_gone";
+};
+export type RemoveTeamResult = {
+  fpl_team_id: number;
+  removed_chats: number;
+  removed_squad_versions: number;
+  removed_previews: number;
+  removed_plans: number;
+  active_team_id: number | null;
+};
+export type DeleteThreadResult = { thread_id: string; deleted: true; removed_messages: number; was_default: boolean };
 
 export type DeadlineEvent = { gw: number; deadline_time: string; finished: boolean };
 /** GET /deadlines */
@@ -226,7 +245,20 @@ export const api = {
     apiFetch<ChatReply>(t, "/chat", { method: "POST", json: threadId ? { message, thread_id: threadId } : { message }, timeoutMs }),
   feedback: (t: TokenGetter, messageId: string, score: Feedback) =>
     apiFetch<FeedbackResult>(t, `/messages/${encodeURIComponent(messageId)}/feedback`, { method: "POST", json: { score } }),
+  // Prompt W5: the three deletes (each one transaction on the server, scoped to the signed-in user)
+  deleteAccount: (t: TokenGetter) => apiFetch<DeleteAccountResult>(t, "/me", { method: "DELETE", timeoutMs: 60_000 }),
+  removeTeam: (t: TokenGetter, fplTeamId: number) => apiFetch<RemoveTeamResult>(t, `/me/teams/${fplTeamId}`, { method: "DELETE", timeoutMs: 60_000 }),
+  deleteThread: (t: TokenGetter, threadId: string) =>
+    apiFetch<DeleteThreadResult>(t, `/threads/${encodeURIComponent(threadId)}`, { method: "DELETE", timeoutMs: 60_000 }),
 };
+
+/** GET /deadlines without a token (Prompt W5: open in clerk mode -- public FPL data, cached a minute), for the About page's
+ *  chips whoever is looking; the same shape as api.deadlines. */
+export async function deadlinesPublic(): Promise<Deadlines> {
+  const res = await fetch(`${API_BASE}/deadlines`, { cache: "no-store" });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return (await res.json()) as Deadlines;
+}
 
 /** The brief: answers take 10-20 s and are not streamed; anything past this is system message d. */
 export const CHAT_TIMEOUT_MS = 90_000;

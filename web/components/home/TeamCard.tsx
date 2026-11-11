@@ -25,6 +25,7 @@ export function TeamCard({
   refreshFailed,
   onAsk,
   onRefresh,
+  onRemove,
 }: {
   team: Card;
   lastUsed: boolean;
@@ -34,6 +35,8 @@ export function TeamCard({
   refreshFailed: boolean;
   onAsk: () => void;
   onRefresh: () => void;
+  /** Prompt W5: the trash button next to Refresh -> the Remove team confirm */
+  onRemove?: () => void;
 }) {
   const name = teamName(team);
   const copyId = async () => {
@@ -113,6 +116,13 @@ export function TeamCard({
           )}
           Refresh
         </button>
+        {onRemove && (
+          <button type="button" className="hm-btn-t hm-btn-trash" aria-label={`Remove ${name}`} onClick={onRemove} disabled={busy !== null} data-testid="remove-team">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+            </svg>
+          </button>
+        )}
       </div>
       <div className="hm-team-cta">
         <button type="button" className={lastUsed ? "hm-btn-p" : "hm-btn-s"} onClick={onAsk} disabled={busy !== null} data-testid="ask-team">

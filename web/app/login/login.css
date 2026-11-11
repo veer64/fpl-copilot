@@ -121,6 +121,9 @@
 .eyebrow{font-size:12px;letter-spacing:.2em;color:#7FE9FF}
 .headline h1{margin:0;font-size:56px;line-height:58px;font-weight:600;letter-spacing:-.035em;color:#F2FBFF}
 .card-wrap{position:absolute;top:0;bottom:0;right:5vw;z-index:4;display:flex;align-items:center}
+/* Prompt W5: the one-time "deleted" note above the card (delete-account-states 06) */
+.card-col{display:flex;flex-direction:column;align-items:stretch;gap:18px}
+.deleted-note{align-self:center;height:40px;padding:0 14px;border-radius:10px;background:rgba(91,227,164,.1);border:1px solid rgba(91,227,164,.4);color:#B8F5D8;font-size:14px;display:flex;align-items:center;gap:8px;white-space:nowrap}
 .card{position:relative;width:400px;padding:32px;border-radius:16px;background:rgba(6,12,20,.84);border:1px solid rgba(59,232,255,.3);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);display:flex;flex-direction:column;gap:20px;animation-delay:.2s;outline:none}
 .bracket{position:absolute;width:14px;height:14px;border:0 solid #3BE8FF}
 .b-tl{top:-7px;left:-7px;border-top-width:2px;border-left-width:2px}

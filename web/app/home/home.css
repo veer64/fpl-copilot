@@ -268,3 +268,54 @@
 .hm-foot{justify-content:center;gap:24px;padding:8px 0}
 .hm-chat dl{grid-template-columns:1fr}
 }
+
+/* ---- Prompt W5 (2026-11-10): the account menu's Delete account item, the owner note, and the shared destructive confirm
+   (delete-account-states 01-07): a dialog on desktop, a bottom sheet on the phone. The red action is #C8484D, not the
+   reference's #E5484D: white text on #E5484D is 3.94:1 and the brief asks for 4.5:1 (4.68:1 now); the border and the
+   brackets keep #E5484D (non-text). ------------------------------------------------------------------------------------ */
+.hm-menu-hr-2{margin:6px 6px}
+.hm-mi-del{height:36px;font-size:13.5px;color:#FF6B6B}
+.hm-mi-del svg{color:#FF6B6B}
+.hm-mi-del:hover,.hm-mi-del[data-highlighted]{background:rgba(229,72,77,.1)}
+.hm-mi-del[data-disabled],.hm-mi-del[aria-disabled="true"]{color:#5E4548;cursor:not-allowed;background:transparent;opacity:1}
+.hm-mi-del[data-disabled] svg,.hm-mi-del[aria-disabled="true"] svg{color:#5E4548}
+.hm-owner-note{display:block;padding:0 10px 6px 36px;font-size:12px;line-height:16px;color:#8A9BB0}
+.hm-del-dialog{position:relative;width:460px;max-width:calc(100% - 32px);padding:24px;border-radius:18px;background:rgba(7,13,20,.98);border:1px solid rgba(229,72,77,.5);box-shadow:0 40px 100px -30px rgba(0,0,0,.95);color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif;display:block;outline:none}
+.hm-del{display:flex;flex-direction:column;gap:16px}
+.hm-del *{box-sizing:border-box}
+.hm-del button{font:inherit;cursor:pointer}
+.hm-del button:disabled{cursor:default}
+.hm-br-red{border-color:#E5484D}
+.hm-del-head{display:flex;gap:12px;align-items:flex-start}
+.hm-del-head > div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.hm-del-ic{width:36px;height:36px;flex-shrink:0;border-radius:10px;background:rgba(255,138,122,.1);border:1px solid rgba(255,138,122,.35);color:#FF8A7A;display:flex;align-items:center;justify-content:center}
+.hm-del-title{margin:0;font-size:18px;line-height:24px;font-weight:600;color:#F2FBFF;font-family:inherit}
+.hm-del-intro{font-size:14px;line-height:20px;color:#A9BACB}
+.hm-del-intro strong{color:#F2FBFF;font-weight:600}
+.hm-del-list{margin:0;padding:12px 14px;list-style:none;display:flex;flex-direction:column;gap:8px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid #1C2A38}
+.hm-del-list li{display:flex;align-items:center;gap:10px;font-size:14.5px;color:#E8F6FF}
+.hm-del-list li span{color:#FF8A7A;display:flex}
+.hm-del-warn{font-size:14px;font-weight:600;color:#FF8A7A}
+.hm-del-alert{border-radius:10px;padding:10px 12px;background:rgba(255,138,122,.1);border:1px solid rgba(255,138,122,.4);font-size:13.5px;line-height:20px;color:#FFC2B8}
+.hm-del-link{color:#FFD9D2;text-decoration:underline}
+.hm-del-acts{display:flex;gap:10px;justify-content:flex-end}
+.hm-del-cancel{height:42px;padding:0 18px;border:1px solid #2C4052;border-radius:10px;background:rgba(255,255,255,.03);color:#E8F6FF;font-weight:500;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.hm-del-cancel:hover{border-color:#5E7184}
+.hm-del-cancel:disabled{opacity:.5}
+.hm-btn-d{height:44px;padding:0 18px;border:0;border-radius:10px;background:#C8484D;color:#FFFFFF;font-weight:600;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.hm-btn-d:hover{background:#B93F44}
+.hm-btn-d[aria-busy="true"]{opacity:.85}
+.hm-btn-d:disabled:not([aria-busy="true"]){background:#2A1A1D;color:#7A5A5D;cursor:not-allowed}
+.hm-del-spin{animation:hm-spin 1s linear infinite;transform-origin:50% 50%}
+@keyframes hm-spin{to{transform:rotate(360deg)}}
+.hm-del-sheet{border-radius:22px 22px 0 0;background:#07101A;border-top:1px solid rgba(229,72,77,.55);box-shadow:0 -20px 60px -10px rgba(0,0,0,.85);color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif}
+.hm-del.phone{padding:10px 18px 26px;gap:14px}
+.hm-del-handle{align-self:center;width:40px;height:4px;border-radius:2px;background:#3A4B5C}
+.hm-del.phone .hm-del-acts{flex-direction:column-reverse}
+.hm-del.phone .hm-del-cancel,.hm-del.phone .hm-btn-d{width:100%}
+.hm-del.phone .hm-btn-d{height:48px}
+.hm-del.phone .hm-del-cancel{height:44px}
+.hm-btn-trash{width:32px;padding:0;justify-content:center;color:#8A9BB0}
+.hm-btn-trash:hover{color:#FF8A7A;background:rgba(255,138,122,.1)}
+@media (prefers-reduced-motion:reduce){.hm-del-spin{animation:none}}
+@media (max-width:980px){.hm-btn-trash{width:44px;height:44px}}

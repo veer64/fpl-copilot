@@ -68,6 +68,12 @@
 .ch-row-meta{display:flex;align-items:center;gap:8px}
 .ch-row-ago{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10.5px;color:#8A9BB0}
 .ch-side-empty{padding:12px 16px;font-size:12.5px;color:#8A9BB0}
+/* Prompt W5: the trash button on a past-chat row -- shown on hover / focus-within on the desktop sidebar, always in the drawer */
+.ch-rowwrap{position:relative}
+.ch-rowwrap .ch-row{padding-right:44px}
+.ch-row-del{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:#8A9BB0;display:inline-flex;align-items:center;justify-content:center;opacity:0;cursor:pointer}
+.ch-rowwrap:hover .ch-row-del,.ch-rowwrap:focus-within .ch-row-del,.ch-row-del:focus-visible{opacity:1}
+.ch-row-del:hover{color:#FF8A7A;background:rgba(255,138,122,.1)}
 
 /* ---- the chat column -------------------------------------------------------------------------------------------------------- */
 .ch-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0;position:relative;z-index:1}
@@ -439,6 +445,8 @@
 .ch-drawer .ch-side-lbl{padding:10px 18px 0}
 .ch-drawer .ch-side-list{padding:0 8px 14px}
 .ch-drawer .ch-row{padding:12px;min-height:60px}
+.ch-drawer .ch-rowwrap .ch-row{padding-right:52px}
+.ch-drawer .ch-row-del{opacity:1;width:44px;height:44px;right:4px;color:#A9BACB}
 .ch-drawer .ch-row-title{font-size:14px}
 .ch-sheet{position:absolute;left:0;right:0;bottom:0;border-radius:22px 22px 0 0;background:#07101A;border-top:1px solid rgba(59,232,255,.45);box-shadow:0 -20px 60px -10px rgba(0,0,0,.8);padding:10px 16px 24px;display:flex;flex-direction:column;gap:12px;color:#E8F6FF;font-family:var(--font-geist-sans),system-ui,sans-serif}
 .ch-sheet-handle{align-self:center;width:40px;height:4px;border-radius:2px;background:#3A4B5C}
