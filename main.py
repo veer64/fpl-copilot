@@ -93,6 +93,7 @@ import admin                                            # Prompt P7: the admin d
 import agent_graph                                      # Prompt B: /chat turns run in stored threads
 import auth                                             # Prompt P7: AUTH_MODE, Clerk session tokens
 import config_roles
+import guest                                           # Prompt W9: guest mode (start / ping / leave / the reaper)
 import squad_previews                                   # Prompt E (2026-10-27): /reset cancels the user's preview tickets
 import threads                                         # Prompt B (2026-10-31): per-user threads, the checkpointer
 import tracing                                          # Prompt L (2026-10-30): Langfuse traces, flushed on shutdown
@@ -109,7 +110,14 @@ async def _lifespan(app):
     if auth.mode() == "clerk" and not auth.authorized_parties():     # Prompt F1a: azp is required, so a list is too
         print(f"  [{AUTHORIZED_PARTIES_MISSING}]", flush=True)
         raise RuntimeError(AUTHORIZED_PARTIES_MISSING)
+    if auth.mode() == "clerk":                           # Prompt W9: the guest schema (idempotent) + the reaper, clerk mode only
+        try:
+            guest.ensure_schema()
+        except Exception as e:                           # noqa: BLE001 -- reported; the explicit schema step covers it
+            print(f"  [guest schema not ensured at startup: {type(e).__name__}: {str(e)[:160]}]", flush=True)
+        guest.start_reaper()
     yield
+    guest.stop_reaper()
     tracing.shutdown()                                  # flush the traces at shutdown, bounded (tracing.SHUTDOWN_TIMEOUT_S)
     threads._reset()                                    # Prompt B: close the checkpointer's connection pool
 
@@ -167,7 +175,9 @@ CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET"
                 ("GET", "/me/squad"), ("GET", "/me/teams"), ("POST", "/me/teams"),
                 ("DELETE", "/me/active-team"), ("GET", "/deadlines"),           # Prompt W3: the Home page
                 ("DELETE", "/me"),                                              # Prompt W5: delete account
-                ("GET", "/admin/summary")}                                      # Prompt W6: the admin page's JSON
+                ("GET", "/admin/summary"),                                      # Prompt W6: the admin page's JSON
+                ("GET", "/guest/status"), ("POST", "/guest/start"),             # Prompt W9: guest mode (public; 404 in off mode)
+                ("POST", "/me/ping"), ("POST", "/me/leave")}                    # Prompt W9: the guest session's signals
 CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$")),
                         ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$")),
                         ("GET", re.compile(r"^/me/teams/[^/]+/card$")),                 # Prompt W4: the Chat page
@@ -350,10 +360,14 @@ def _chat_signed_in(request, http):
         return too_long
     if users.rate_limited(user):                        # Prompt P7 Part 2: 10 a minute per user (exempt: never)
         return JSONResponse({"detail": RATE_LIMITED}, status_code=429)
+    if user.get("is_guest"):                            # Prompt W9: the switch and the shared daily guest budget, 0 model calls
+        refusal = _guest_refusal(user, request)
+        if refusal is not None:
+            return refusal
     refused, reply = users.capped(user)                 # $1/day per user (exempt: never): no model call, a cap_hits row
     if refused:                                         # Prompt W4 Data 2: the same text + the structured limit
         return {"answer": reply, "thread_id": request.thread_id, "capped": True,
-                "limit": {"kind": "daily", "reset_at": threads.iso(users.cap_reset_at())}}
+                "limit": {"kind": "guest" if user.get("is_guest") else "daily", "reset_at": threads.iso(users.cap_reset_at())}}
     with config_roles.acting_user(user_id):             # every tool, ticket and trace of the turn answers for this user
         try:
             thread_id = threads.resolve(user_id, request.thread_id)
@@ -363,6 +377,20 @@ def _chat_signed_in(request, http):
             return _team_changed(e)
         answer = agent_graph.run_thread_turn(user_id, thread_id, request.message)
     return {"answer": answer, "thread_id": thread_id, **_turn_fields()}
+
+
+def _guest_refusal(user, request):
+    """Prompt W9: a guest's turn is refused -- in the chat's own system-message shape -- when GUEST_MODE is off (the brake) or
+    when every guest's spend today has reached GUEST_DAILY_BUDGET_USD (a cap_hits row + the start row's counter). None = go."""
+    if not guest.enabled():
+        return {"answer": guest.UNAVAILABLE, "thread_id": request.thread_id, "capped": True, "limit": {"kind": "guest_off", "reset_at": None}}
+    if not guest.budget_open():
+        uid = int(user["user_id"])
+        users.record_cap_hit(uid, guest.budget_used_today(), guest.daily_budget_usd())
+        guest.record_hit(uid, "budget")
+        return {"answer": guest.BUDGET_FULL, "thread_id": request.thread_id, "capped": True,
+                "limit": {"kind": "guest_budget", "reset_at": threads.iso(users.cap_reset_at())}}
+    return None
 
 
 @app.post("/chat")
@@ -479,7 +507,59 @@ def me(http: Request):
     uid = int(user["user_id"])
     return {"user_id": uid, "is_admin": bool(user.get("is_admin")), "is_owner": users.is_owner(user),   # is_owner: Prompt W5 B1
             "daily_cap_usd": users.cap_for(user), "spent_today_usd": round(users.spent_today(uid), 6),
-            "active_team": _active_team(uid)}
+            "active_team": _active_team(uid),
+            "is_guest": bool(user.get("is_guest")), "guest": guest.me_block(user)}                      # Prompt W9
+
+
+# ---- Prompt W9 (2026-11-12): guest mode (guest.py) -- clerk mode only (404 in off mode) ----------------------------------------
+GUEST_START_FAILED = "guest sign-in could not be prepared; please try again"
+
+
+@app.get("/guest/status")
+def guest_status():
+    """Public: the login card's switch. {enabled, idle_minutes, cap_usd, leave_grace_seconds}."""
+    if auth.mode() != "clerk":
+        return JSONResponse(NOT_FOUND, status_code=404)
+    return guest.status()
+
+
+@app.post("/guest/start")
+def guest_start(http: Request):
+    """Public: a one-time Clerk sign-in token for a brand-new guest -- after the switch, the per-IP limit (X-Forwarded-For
+    only behind Caddy, stored hashed) and the daily guest budget. {ticket, expires_in_seconds}; 403 guest_off; 429
+    guest_ip_limit / guest_budget; 502 when Clerk failed (nothing half-made is left)."""
+    if auth.mode() != "clerk":
+        return JSONResponse(NOT_FOUND, status_code=404)
+    try:
+        return guest.start(guest.client_ip(http))
+    except guest.GuestRefused as e:
+        return JSONResponse({"detail": e.detail, "code": e.code}, status_code=e.status)
+    except guest.ClerkFailed as e:
+        print(f"  [guest start failed: {e}]", flush=True)
+        return JSONResponse({"detail": GUEST_START_FAILED, "code": "guest_clerk"}, status_code=502)
+
+
+@app.post("/me/ping")
+def guest_ping(http: Request):
+    """A guest's activity (<= once a minute from the client, on load and when a tab becomes visible): the idle clock
+    restarts and a pending leave is cancelled. 204 for anyone signed in (a non-guest: nothing written)."""
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    if user.get("is_guest"):
+        guest.ping(user["user_id"])
+    return Response(status_code=204)
+
+
+@app.post("/me/leave")
+def guest_leave(http: Request):
+    """The last desktop tab of a guest closed (fetch keepalive): the leave grace starts; a ping within it cancels it. 204."""
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    if user.get("is_guest"):
+        guest.leave(user["user_id"])
+    return Response(status_code=204)
 
 
 # ---- Prompt W5 (2026-11-10): delete account / remove team / delete chat (deletion.py) ---------------------------------------
@@ -505,7 +585,7 @@ def delete_account(http: Request):
     if not users.deletable(user):
         return JSONResponse({"detail": ACCOUNT_LOCKED}, status_code=403)
     try:
-        return deletion.delete_account(user)
+        return deletion.delete_account(user, guest=bool(user.get("is_guest")))   # W9: a guest's own "End guest session"
     except deletion.NotDeletable:
         return JSONResponse({"detail": ACCOUNT_LOCKED}, status_code=403)
     except users.ClerkDeleteFailed as e:

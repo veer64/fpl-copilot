@@ -140,6 +140,8 @@ def ensure_schema(conn=None):
         with conn.cursor() as cur:
             cur.execute(DDL)
         conn.commit()
+        import guest as _guest                           # Prompt W9: the guest columns + guest_starts (idempotent)
+        _guest.ensure_schema(conn)
     finally:
         if own:
             conn.close()
@@ -154,7 +156,8 @@ def _profile_from(u):
     name = " ".join(x for x in (u.get("first_name"), u.get("last_name")) if x) or u.get("username") or None
     providers = {str(x.get("provider") or "") for x in (u.get("external_accounts") or [])}
     method = "google" if providers & {"oauth_google", "google"} else ("email" if email else "other")
-    return {"email": email, "email_verified": bool(verified), "name": name, "sign_in_method": method}
+    guest = bool(((u.get("public_metadata") or {}).get("guest")))   # Prompt W9: a guest our backend created (guest.py)
+    return {"email": email, "email_verified": bool(verified), "name": name, "sign_in_method": method, "guest": guest}
 
 
 def fetch_profile(clerk_user_id):
@@ -205,7 +208,17 @@ def user_for_claims(claims, conn=None):
                 return dict(row)
             profile = fetch_profile(sub)                 # a new user: no profile, no row
             row = None
-            if _is_admin_email(profile):
+            if profile.get("guest"):                     # Prompt W9: a guest (Clerk public_metadata.guest) -- the guest cap, flagged, its start claimed
+                import guest as _guest
+                cur.execute("INSERT INTO app_users (clerk_user_id, email, name, sign_in_method, last_active_at, profile_fetched_at, "
+                            "is_guest, daily_cap_usd, guest_started_at, guest_last_seen_at) "
+                            "VALUES (%s, %s, %s, 'guest', now(), now(), TRUE, %s, now(), now()) "
+                            "ON CONFLICT (clerk_user_id) DO NOTHING RETURNING *",
+                            (sub, profile["email"], profile["name"], _guest.cap_usd()))
+                row = cur.fetchone()
+                if row is not None:
+                    _guest.claim(sub, row["user_id"], cur)
+            elif _is_admin_email(profile):
                 cur.execute("INSERT INTO app_users (user_id, clerk_user_id, email, name, sign_in_method, last_active_at, "
                             "profile_fetched_at, is_admin, is_exempt) VALUES (1, %s, %s, %s, %s, now(), now(), TRUE, TRUE) "
                             "ON CONFLICT DO NOTHING RETURNING *",
@@ -297,6 +310,10 @@ def capped(user):
     cap, spent = cap_for(user), spent_today(user["user_id"])
     if spent >= cap:
         record_cap_hit(user["user_id"], spent, cap)
+        if user.get("is_guest"):                         # Prompt W9: the guest's own wording; the hit counted on its start row too
+            import guest as _guest
+            _guest.record_hit(user["user_id"], "cap")
+            return True, _guest.CAP_REACHED
         return True, cap_reply()
     return False, None
 

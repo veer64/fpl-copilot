@@ -65,7 +65,7 @@ def stats(conn=None):
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             people = _rows(cur, "SELECT user_id, name, email, sign_in_method, created_at, last_active_at, is_admin, is_exempt "
-                                "FROM app_users WHERE user_id >= %s ORDER BY created_at, user_id", (REAL_USER_MIN,))
+                                "FROM app_users WHERE user_id >= %s AND NOT is_guest ORDER BY created_at, user_id", (REAL_USER_MIN,))   # W9: guests are not people
             usage = {r["user_id"]: r for r in _rows(cur, """
                 SELECT user_id,
                        count(*) FILTER (WHERE ts >= %(today)s)                AS answers_today,
@@ -74,12 +74,14 @@ def stats(conn=None):
                        COALESCE(sum(usd) FILTER (WHERE ts >= %(week)s), 0)   AS usd_7_days,
                        count(*)                                               AS answers_total,
                        COALESCE(sum(usd), 0)                                  AS usd_total
-                FROM chat_usage WHERE user_id >= %(real)s GROUP BY user_id""", {"today": today, "week": week, "real": REAL_USER_MIN})}
-            hits = {r["user_id"]: r["n"] for r in _rows(cur, "SELECT user_id, count(*) AS n FROM cap_hits WHERE user_id >= %s "
-                                                              "GROUP BY user_id", (REAL_USER_MIN,))}
-            hits_today = _rows(cur, "SELECT count(*) AS n FROM cap_hits WHERE hit_at >= %s AND user_id >= %s", (today, REAL_USER_MIN))[0]["n"]
+                FROM chat_usage WHERE user_id >= %(real)s AND user_id NOT IN (SELECT user_id FROM app_users WHERE is_guest)
+                GROUP BY user_id""", {"today": today, "week": week, "real": REAL_USER_MIN})}
+            hits = {r["user_id"]: r["n"] for r in _rows(cur, "SELECT h.user_id, count(*) AS n FROM cap_hits h JOIN app_users u ON u.user_id = h.user_id "
+                                                              "WHERE h.user_id >= %s AND NOT u.is_guest GROUP BY h.user_id", (REAL_USER_MIN,))}   # W9 (Q8): guest hits apart
+            hits_today = _rows(cur, "SELECT count(*) AS n FROM cap_hits h JOIN app_users u ON u.user_id = h.user_id WHERE h.hit_at >= %s "
+                                    "AND h.user_id >= %s AND NOT u.is_guest", (today, REAL_USER_MIN))[0]["n"]
             sign_ups = _rows(cur, "SELECT (created_at AT TIME ZONE 'UTC')::date AS day, count(*) AS n FROM app_users "
-                                  "WHERE created_at >= %s AND user_id >= %s GROUP BY 1 ORDER BY 1", (first_day, REAL_USER_MIN))
+                                  "WHERE created_at >= %s AND user_id >= %s AND NOT is_guest GROUP BY 1 ORDER BY 1", (first_day, REAL_USER_MIN))
     finally:
         if own:
             conn.close()
@@ -229,6 +231,33 @@ def _feedback(cur, week):
             "up_7_days": int(counts["up_7_days"]), "down_7_days": int(counts["down_7_days"]), "recent_down": recent}
 
 
+def _guests(cur, today, week):
+    """Prompt W9: the Guests card. Sessions from guest_starts (kept 7 days; the limit-hit counters survive the guest's
+    deletion), the live count from app_users.is_guest, answers / spend from the live guests' cost rows + the anonymised
+    'deleted-guest' rows (today's = the daily budget used). Zeros when the table is not there yet."""
+    import guest as _guest
+    have = _rows(cur, "SELECT to_regclass('public.guest_starts') IS NOT NULL AS ok")[0]["ok"]
+    starts = (_rows(cur, """
+        SELECT count(*) FILTER (WHERE started_at >= %(today)s)                                   AS sessions_today,
+               count(*) FILTER (WHERE started_at >= %(week)s)                                    AS sessions_7_days,
+               COALESCE(sum(cap_hits + budget_hits) FILTER (WHERE started_at >= %(today)s), 0)  AS limit_hits_today
+        FROM guest_starts""", {"today": today, "week": week})[0] if have
+              else {"sessions_today": 0, "sessions_7_days": 0, "limit_hits_today": 0})
+    live = _rows(cur, "SELECT count(*) AS n FROM app_users WHERE is_guest")[0]["n"]
+    use = _rows(cur, """
+        SELECT count(*) FILTER (WHERE ts >= %(today)s)                              AS answers_today,
+               COALESCE(sum(usd) FILTER (WHERE ts >= %(today)s), 0)                AS usd_today,
+               count(*) FILTER (WHERE turn_id = 'deleted-guest')                    AS deleted_answers,
+               COALESCE(sum(usd) FILTER (WHERE turn_id = 'deleted-guest'), 0)      AS deleted_usd
+        FROM chat_usage
+        WHERE turn_id = 'deleted-guest' OR user_id IN (SELECT user_id FROM app_users WHERE is_guest)""", {"today": today})[0]
+    return {"enabled": _guest.enabled(), "sessions_today": int(starts["sessions_today"]), "sessions_7_days": int(starts["sessions_7_days"]),
+            "live_now": int(live), "answers_today": int(use["answers_today"]), "usd_today": _usd(use["usd_today"]),
+            "limit_hits_today": int(starts["limit_hits_today"]), "budget_usd": float(_guest.daily_budget_usd()),
+            "budget_used_today_usd": _usd(use["usd_today"]), "cap_usd": float(_guest.cap_usd()),
+            "deleted": {"answers": int(use["deleted_answers"]), "usd": _usd(use["deleted_usd"])}}
+
+
 def summary(conn=None):
     """Everything the website's /admin page shows, JSON-ready (ISO 8601 UTC instants, floats for $). See the module docstring."""
     import chat_messages
@@ -259,16 +288,17 @@ def summary(conn=None):
                        COALESCE(sum(usd) FILTER (WHERE testing), 0)                          AS testing_usd
                 FROM (SELECT ts, usd, user_id,
                              (user_id IS NULL AND COALESCE(turn_id, '') = 'deleted')                       AS deleted,
-                             (user_id >= %(real)s OR (user_id IS NULL AND COALESCE(turn_id, '') = 'deleted')) AS counted,
-                             ((user_id IS NULL AND COALESCE(turn_id, '') <> 'deleted') OR user_id IN %(tests)s) AS testing
+                             (user_id >= %(real)s OR (user_id IS NULL AND COALESCE(turn_id, '') IN ('deleted', 'deleted-guest'))) AS counted,   -- W9 (Q2): guest spend counts
+                             ((user_id IS NULL AND COALESCE(turn_id, '') NOT IN ('deleted', 'deleted-guest')) OR user_id IN %(tests)s) AS testing
                       FROM chat_usage) x""",
                 {"today": today, "month": month, "real": REAL_USER_MIN, "owner": _users.OWNER_USER_ID, "tests": TEST_USER_IDS})[0]
             hits = _rows(cur, """
                 SELECT h.user_id, u.name, u.email, h.hit_at, h.spent_usd, h.cap_usd
                 FROM cap_hits h LEFT JOIN app_users u ON u.user_id = h.user_id
-                WHERE h.hit_at >= %s AND h.user_id >= %s ORDER BY h.hit_at DESC, h.id DESC""",
+                WHERE h.hit_at >= %s AND h.user_id >= %s AND NOT COALESCE(u.is_guest, FALSE) ORDER BY h.hit_at DESC, h.id DESC""",   # W9 (Q8): guest hits apart
                          (today - timedelta(days=CAP_HIT_DAYS - 1), REAL_USER_MIN))
             feedback = _feedback(cur, week)
+            guests = _guests(cur, today, week)          # W9: the Guests card (never people; spend in the totals, broken out here)
     finally:
         if own:
             conn.close()
@@ -293,6 +323,6 @@ def summary(conn=None):
             "cap_hits": [{"user_id": h["user_id"], "name": h.get("name"), "email": h.get("email"), "at": _iso(h["hit_at"]),
                           "spent_usd": _usd(h.get("spent_usd")), "cap_usd": _usd(h.get("cap_usd"))} for h in hits],
             "cap_hits_today": s["cap_hits_today"], "cap_hits_total": s["cap_hits_total"],
-            "sign_in_methods": s["sign_in_methods"], "feedback": feedback,
+            "sign_in_methods": s["sign_in_methods"], "feedback": feedback, "guests": guests,
             "langfuse": {"host": tracing.langfuse_host(),
                          "project_id": tracing.langfuse_project_id() if feedback["recent_down"] else None}}

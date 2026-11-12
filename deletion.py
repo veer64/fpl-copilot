@@ -229,14 +229,17 @@ def delete_team(user_id, fpl_team_id):
 
 # ---- B2: the account --------------------------------------------------------------------------------------------------------
 
-def delete_account(user, clerk_delete=None):
+def delete_account(user, clerk_delete=None, guest=False, guest_reason=None):
     """Everything of `user` (an app_users row dict) per the module docstring, then the Clerk user, then the commit. Returns
     {deleted, user_id, removed {...}, cost_rows_anonymised, clerk: deleted | already_gone}. NotDeletable for the owner or a
     reserved id (nothing touched); users.ClerkDeleteFailed after a rollback; CommitFailedAfterClerk when the commit fails
-    after Clerk succeeded (printed loudly first)."""
+    after Clerk succeeded (printed loudly first). Prompt W9: guest=True marks the anonymised cost rows 'deleted-guest'
+    (Admin shows guests apart; today's rows keep counting against the guest budget) and closes the guest_starts row with
+    guest_reason ('left', 'idle', 'switch_off', else 'ended')."""
     if not users.deletable(user):
         raise NotDeletable(str(user.get("user_id")))
     uid = int(user["user_id"])
+    marker = "deleted-guest" if guest else "deleted"
     clerk_delete = clerk_delete or users.delete_clerk_user
     conn = db_write.connect()
     clerk_status = None
@@ -273,8 +276,11 @@ def delete_account(user, clerk_delete=None):
                 if _exists(cur, "cap_hits"):
                     cur.execute("DELETE FROM cap_hits WHERE user_id = %s", (uid,))
                     removed["cap_hits"] = cur.rowcount
-                cur.execute("UPDATE chat_usage SET user_id = NULL, turn_id = 'deleted' WHERE user_id = %s", (uid,))
+                cur.execute("UPDATE chat_usage SET user_id = NULL, turn_id = %s WHERE user_id = %s", (marker, uid))
                 anonymised = cur.rowcount
+                if guest and _exists(cur, "guest_starts"):
+                    cur.execute("UPDATE guest_starts SET ended_at = now(), end_reason = %s WHERE user_id = %s AND ended_at IS NULL",
+                                (guest_reason or "ended", uid))
                 cur.execute("DELETE FROM app_users WHERE user_id = %s", (uid,))
                 assert cur.rowcount == 1
                 clerk_status = clerk_delete(clerk_user_id) if clerk_user_id else "already_gone"

@@ -41,7 +41,8 @@ from test_admin import adm, NOW, R1, R2                                        #
 ALICE = "user_alice"
 KEYS = {"at", "users_total", "sign_ups_today", "sign_ups_7_days", "active_today", "active_7_days", "answers_today",
         "answers_total", "usd_today", "usd_month", "usd_total", "sign_ups_per_day", "users", "deleted_accounts",
-        "owner_use", "testing_use", "cap_hits", "cap_hits_today", "cap_hits_total", "sign_in_methods", "feedback", "langfuse"}
+        "owner_use", "testing_use", "cap_hits", "cap_hits_today", "cap_hits_total", "sign_in_methods", "feedback", "langfuse",
+        "guests"}                                        # W9: the Guests card (never people)
 USER_KEYS = {"user_id", "name", "email", "sign_in_method", "joined", "last_active", "answers", "usd", "answers_today",
              "usd_today", "answers_7_days", "usd_7_days", "cap_hits", "is_admin"}
 DOWN_KEYS = {"message_id", "thread_id", "at", "user_id", "name", "question", "answer", "answer_chars", "answer_truncated",
