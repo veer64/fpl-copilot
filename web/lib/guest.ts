@@ -10,8 +10,7 @@
  *  Tabs: every open tab writes a heartbeat into localStorage every 20 s; a closing tab sends POST /me/leave (fetch keepalive)
  *  only when no other tab beat in the last 60 s. */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth, useClerk } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { api, type Me } from "./api";
 import { loginGuestEndedUrl } from "./redirects";
 
@@ -21,6 +20,7 @@ const TAB_BEAT_MS = 20_000;
 const TAB_STALE_MS = 60_000;
 const PING_EVERY_MS = 60_000;
 const WARN_BEFORE_MS = 2 * 60_000;
+const TOKEN_WAIT_MS = 8000;
 const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"];
 
 export function hasGuestCookie(): boolean {
@@ -93,9 +93,7 @@ export type GuestWarning = { secondsLeft: number } | null;
 /** The guest session's client logic for a page that knows the signed-in user (`me`). Returns the idle warning (null when
  *  none) and `stay` (the "I'm here" button) / `end` ("End guest session": deletes now, signs out, goes to /login). */
 export function useGuestSession(me: Me | null): { warning: GuestWarning; stay: () => void; end: () => Promise<void> } {
-  const router = useRouter();
   const { getToken } = useAuth();
-  const { signOut } = useClerk();
   const isGuest = !!me?.is_guest;
   const idleMs = (me?.guest?.idle_minutes ?? 30) * 60_000;
   const [warning, setWarning] = useState<GuestWarning>(null);
@@ -103,6 +101,14 @@ export function useGuestSession(me: Me | null): { warning: GuestWarning; stay: (
   const lastPing = useRef(0);
   const ending = useRef(false);
 
+  // Leaving is a FULL navigation to the login note, never Clerk's signOut: once the Clerk user is gone, clerk-js retries its
+  // token refresh with backoff for a long time (measured: 404s every ~2 s, the session still "signed in" after 100 s) and
+  // signOut hangs with it; a fresh page load re-reads /v1/client, finds no session and is cleanly signed out. The cookie goes
+  // first, so the login page shows the guest note.
+  const leaveToLogin = useCallback(async () => {
+    clearGuestCookie();
+    window.location.assign(loginGuestEndedUrl());
+  }, []);
   const end = useCallback(async () => {
     if (ending.current) return;
     ending.current = true;
@@ -111,18 +117,31 @@ export function useGuestSession(me: Me | null): { warning: GuestWarning; stay: (
     } catch {
       /* already gone (the reaper got there first) or offline: the sign-out below still ends it here */
     }
-    clearGuestCookie();
-    try {
-      await signOut({ redirectUrl: loginGuestEndedUrl() });
-    } catch {
-      router.replace(loginGuestEndedUrl());
-    }
-  }, [getToken, router, signOut]);
+    await leaveToLogin();
+  }, [getToken, leaveToLogin]);
 
+  // a ping answered 401 (no session) or 503 (the row and the Clerk user are gone, the token not yet expired) means the server
+  // already ended this guest (the reaper, the switch): go to the login note at once
+  const endedElsewhere = useCallback(async () => {
+    if (ending.current) return;
+    ending.current = true;
+    await leaveToLogin();
+  }, [leaveToLogin]);
+  // the ping fetches with its own bounded token wait: no token within TOKEN_WAIT_MS (clerk-js stuck refreshing a session the
+  // server already ended) counts as "the session is over", like a 401 / 503 from the API
   const ping = useCallback(() => {
     lastPing.current = Date.now();
-    api.ping(getToken).catch(() => undefined);
-  }, [getToken]);
+    void (async () => {
+      const token = await Promise.race([getToken().catch(() => null), new Promise<null>((r) => window.setTimeout(() => r(null), TOKEN_WAIT_MS))]);
+      if (!token) return void endedElsewhere();
+      try {
+        const res = await fetch(`${api.base}/me/ping`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+        if (res.status === 401 || res.status === 503) void endedElsewhere();
+      } catch {
+        /* offline: the next ping tries again */
+      }
+    })();
+  }, [getToken, endedElsewhere]);
 
   const stay = useCallback(() => {
     lastActivity.current = Date.now();

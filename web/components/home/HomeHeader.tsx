@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { loginGuestEndedUrl } from "@/lib/redirects";
 import { clearGuestCookie } from "@/lib/guest";
 import { ConfirmDelete } from "@/components/account/ConfirmDelete";
@@ -119,9 +118,8 @@ const noMe = () => Promise.resolve<Me | null>(null);
  *  /me, else from the menu's own read; the backend's 403 on /admin/summary is the real guard. */
 export function AccountMenu({ isOwner, isAdmin, isGuest }: { isOwner?: boolean | null; isAdmin?: boolean | null; isGuest?: boolean | null }) {
   const { user, isLoaded } = useUser();
-  const { signOut, session } = useClerk();
+  const { signOut } = useClerk();
   const { getToken } = useAuth();
-  const router = useRouter();
   const [me] = useResource<Me | null>(isOwner === undefined || isAdmin === undefined || isGuest === undefined ? api.me : noMe);
   const [del, setDel] = useState(false);
   const [endGuest, setEndGuest] = useState(false); // W9
@@ -137,17 +135,12 @@ export function AccountMenu({ isOwner, isAdmin, isGuest }: { isOwner?: boolean |
     try {
       await api.deleteAccount(getToken);
     } catch {
-      /* the reaper may have got there first: the sign-out below still ends it here */
+      /* the reaper may have got there first: the page leaves anyway */
     }
     clearGuestCookie();
-    try {
-      await signOut({ redirectUrl: loginGuestEndedUrl() });
-    } catch {
-      router.replace(loginGuestEndedUrl());
-    }
+    window.location.assign(loginGuestEndedUrl()); // a full load: clerk-js re-reads /v1/client and is cleanly signed out (lib/guest.ts)
     await new Promise(() => undefined); // the page is leaving
   };
-  void session;
   return (
     <>
       <DropdownMenu>
