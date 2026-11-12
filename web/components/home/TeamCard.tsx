@@ -165,7 +165,7 @@ export function AddTeamCard({ slotsLeft, onOpen }: { slotsLeft: number; onOpen: 
       <span className="hm-add-text">
         <span className="hm-add-title">Add team</span>
         <span className="hm-add-sub">
-          Paste your FPL team ID
+          Paste your FPL team ID{" "}
           <br />
           or the link to your team
         </span>

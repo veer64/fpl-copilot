@@ -156,6 +156,11 @@ sidecar or running `--force-gw N` by hand. A FAILED tick decision (API
 unreachable) writes `FAILED -- could not decide` to the tick file and retries next
 tick without touching the volume.
 
+**Cost of `--force-gw N` (Prompt S1, 2026-11-12):** it re-runs the whole chain, and step 1
+(`fetch_fpl_history --gw N`) makes one FPL `element-summary` call per element (~670 for a gameweek, plus
+bootstrap-static, fixtures and event/live), and step 6 spends an odds credit -- it is not a cheap re-run; to refresh only the
+crosswalk, run `eval/build_crosswalk.py --season <season>` under the dispatcher lock instead.
+
 ## 7. Not done / unknowns, stated plainly
 
 - The cron's own first firing (00:17Z) was not observed; the command string was
