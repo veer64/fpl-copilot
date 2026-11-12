@@ -12,6 +12,8 @@ export type AssistantMsg = {
   preview: SquadPreview | null;
   applied: SquadApplied | null;
   feedback: Feedback;
+  /** W10: the reply that just arrived in this tab -- it writes itself out once (never set on stored rows) */
+  reveal?: boolean;
 };
 export type SystemMsg =
   | { kind: "system"; key: string; variant: "limit"; resetAt: string }
@@ -54,4 +56,11 @@ let seq = 0;
 export function key(prefix: string): string {
   seq += 1;
   return `${prefix}-${Date.now().toString(36)}-${seq}`;
+}
+
+/** W10: every answer still writing itself out shows in full at once (a new message was sent, the tab was hidden). Returns
+ *  the same array when nothing was revealing, so a no-op never re-renders the thread. */
+export function finishReveal(msgs: Msg[]): Msg[] {
+  if (!msgs.some((m) => m.kind === "assistant" && m.reveal)) return msgs;
+  return msgs.map((m) => (m.kind === "assistant" && m.reveal ? { ...m, reveal: false } : m));
 }

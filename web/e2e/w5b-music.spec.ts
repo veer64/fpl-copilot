@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createTestUser, deleteUser, findTestUsers } from "./clerk-users";
+import { SHARED_USER, acquireUser, deleteUser, findTestUsers, userName } from "./clerk-users";
 import { MUSIC_TRACKS } from "../lib/music-tracks";
 import { sweepPage } from "../scripts/lib/sweep.mjs";
 import { signIn, vis } from "./w4";
@@ -13,7 +13,7 @@ import { shot5, signOutViaMenu } from "./w5";
 
 test.describe.configure({ mode: "serial" });
 
-const NAME = "w5bm";
+const NAME = userName("w5bm"); // W10: E2E_SHARED_USER runs it on the run's one test user
 let context: BrowserContext;
 let page: Page;
 const results: string[] = [];
@@ -48,13 +48,13 @@ async function cta(p: Page) {
 }
 
 test.beforeAll(async ({ browser }) => {
-  for (const id of await findTestUsers(NAME)) await deleteUser(id);
+  if (!SHARED_USER) for (const id of await findTestUsers(NAME)) await deleteUser(id);
   context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   page = await context.newPage();
 });
 
 test.afterAll(async () => {
-  for (const id of await findTestUsers(NAME)) await deleteUser(id);
+  if (!SHARED_USER) for (const id of await findTestUsers(NAME)) await deleteUser(id);
   const lowest = lowestSeen.reduce<{ where: string; ratio: number; label: string } | null>((m, r) => (m === null || r.ratio < m.ratio ? r : m), null);
   log(`SUMMARY lowest contrast across the sweep: ${lowest ? `${lowest.ratio.toFixed(2)}:1 ${lowest.label} on ${lowest.where}` : "n/a"} | clerk test users left ${(await findTestUsers(NAME)).length}`);
   for (const r of results) log(`RESULT ${r}`);
@@ -80,7 +80,7 @@ test("1 About CTAs readable signed out and in; the computed-colour sweep of ever
   await expect(page.locator(".stage").first()).toHaveAttribute("data-phase", "login");
   await sweep(page, "/login @1440");
 
-  await createTestUser(NAME);
+  await acquireUser(NAME);
   await signIn(page, `${NAME}+clerk_test@example.com`);
   await expect(page.locator('[data-testid="home"]:visible')).toBeVisible({ timeout: 30_000 });
   await sweep(page, "/home signed in @1440");

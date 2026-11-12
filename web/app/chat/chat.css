@@ -80,7 +80,16 @@
 .ch-main.general{overflow:hidden}
 .ch-title{height:52px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 28px;border-bottom:1px solid #101C27}
 .ch-title h1{margin:0;font-size:15px;font-weight:600;color:#F2FBFF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.ch-scroll{position:relative;flex-grow:1;overflow:auto;padding:28px 28px 12px}
+.ch-scroll{position:relative;flex-grow:1;overflow:auto;padding:28px 28px 12px;overflow-anchor:none}
+/* W10: the scroll box's frame (the down-arrow sits on it), the turns, the last turn's room for the question-at-top rule */
+.ch-scroll-wrap{position:relative;flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.ch-turn{display:flex;flex-direction:column;gap:24px;flex-shrink:0}
+.ch-turn.last{min-height:var(--ch-turn-min,0px)}
+/* the screen-reader copy of an answer that is writing itself out: no scroll boxes inside the 1px clip */
+.sr-only .ch-tbl-wrap{overflow:visible}
+.ch-down{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:3;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(10,20,30,.92);border:1px solid rgba(59,232,255,.45);color:#E8F6FF;box-shadow:0 10px 26px -10px rgba(0,0,0,.8);cursor:pointer}
+.ch-down:hover{background:#123041;border-color:#3BE8FF}
+.ch-down:focus-visible{outline:2px solid #3BE8FF;outline-offset:3px}
 .ch-thread{max-width:760px;min-height:100%;margin:0 auto;display:flex;flex-direction:column;gap:24px}
 /* W8a (2026-11-12): never centre or bottom-align the thread with flex alignment inside the scroll container -- a thread taller
    than the box then overflows ABOVE the scrollable range and the top of the conversation cannot be reached (the live bug:
@@ -383,6 +392,8 @@
 .ch-title{display:none}
 .ch-scroll{padding:16px 16px 10px;display:flex;flex-direction:column}   /* W8a: no justify-content:flex-end (see the desktop note) */
 .ch-thread{gap:16px;min-height:0;width:100%;flex-shrink:0;margin-top:auto}
+.ch-turn{gap:16px}
+.ch-down{bottom:10px;width:40px;height:40px}
 .ch-main.general .ch-scroll{align-items:stretch;padding:24px 20px 14px}
 .ch-main.general .ch-thread{margin:auto 0 0}
 .ch-user{max-width:84%;padding:11px 14px;line-height:21px}

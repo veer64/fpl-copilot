@@ -322,6 +322,18 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
     ssoDeadline.current = null;
   };
   useEffect(() => clearDeadline, []);
+  // W10: back from Google (or any page restored from the back-forward cache): the pending button is given back and the
+  // redirect deadline, frozen with the page, can no longer fire "Google failed" afterwards
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return;
+      if (ssoDeadline.current !== null) window.clearTimeout(ssoDeadline.current);
+      ssoDeadline.current = null;
+      setBusy(null);
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
+  }, []);
 
   const googleFailed = (why: unknown) => {
     clearDeadline();

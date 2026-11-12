@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
@@ -20,6 +20,8 @@ import { GuestSession } from "@/components/guest/GuestSession";
 
 export const MAX_TEAMS = 3;
 const NEW_PULSE_MS = 1500;
+// W10: a navigation that has not left Home after this long gives the button back, with an error
+const NAV_TIMEOUT_MS = 10_000;
 
 /** /home ("Command Deck"): everything on it comes from the backend -- GET /me/teams, GET /threads, GET /deadlines -- with
  *  the browser's Clerk token; the greeting and the account menu from Clerk. Every action opens the Chat page (/chat). */
@@ -51,12 +53,48 @@ export function HomeExperience() {
   const loading = teams.status === "loading" || threads.status === "loading";
   const isNew = teams.status === "ready" && threads.status === "ready" && teams.data.length === 0 && threads.data.length === 0;
 
+  // --- W10: pending states never outlive the page being shown ----------------------------------------------------------------
+  // Next keeps a left page mounted but hidden (React Activity) and shows the SAME instance on Back or a Home link, so a
+  // button still said "Opening chat…" (disabled) after the round trip. Effects re-run each time the page is shown, so this
+  // one clears every pending state on show and on hide; a page restored from the back-forward cache (pageshow persisted)
+  // clears too; and a navigation that has not left Home within NAV_TIMEOUT_MS gives the button back with an error.
+  const navTimer = useRef<number | null>(null);
+  const clearNav = useCallback(() => {
+    if (navTimer.current !== null) window.clearTimeout(navTimer.current);
+    navTimer.current = null;
+  }, []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the page was (re)shown: nothing is pending any more
+    setBusy(null);
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        clearNav();
+        setBusy(null);
+      }
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => {
+      window.removeEventListener("pageshow", onShow);
+      clearNav();
+      setBusy(null);
+    };
+  }, [clearNav]);
+  const navigate = (href: string, what: string) => {
+    clearNav();
+    navTimer.current = window.setTimeout(() => {
+      navTimer.current = null;
+      setBusy(null);
+      toast.error(`Couldn’t open ${what} — try again.`);
+    }, NAV_TIMEOUT_MS);
+    router.push(href);
+  };
+
   // --- actions: every one of them ends on the Chat page -------------------------------------------------------------------
   const ask = async (t: Card) => {
     setBusy({ kind: "ask", id: t.fpl_team_id });
     try {
       await api.activate(getToken, t.fpl_team_id); // the team becomes the active one; its default thread is the chat's
-      router.push(`/chat?team=${t.fpl_team_id}`);
+      navigate(`/chat?team=${t.fpl_team_id}`, `a chat about ${teamName(t)}`);
     } catch (err) {
       toast.error(`Couldn’t open a chat about ${teamName(t)}: ${err instanceof ApiError ? err.detail : "the API could not be reached"}`);
       setBusy(null);
@@ -67,7 +105,7 @@ export function HomeExperience() {
     setBusy({ kind: "general" });
     try {
       await api.deactivate(getToken); // "not against any team": no team active, a fresh default thread of the user's own
-      router.push("/chat");
+      navigate("/chat", "the chat");
     } catch (err) {
       toast.error(`Couldn’t start a general chat: ${err instanceof ApiError ? err.detail : "the API could not be reached"}`);
       setBusy(null);

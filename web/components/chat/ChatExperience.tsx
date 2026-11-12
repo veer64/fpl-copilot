@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { ApiError, api, type Feedback, type MessageRow, type TeamCardData, type ThreadRow } from "@/lib/api";
 import { nextEvent } from "@/lib/time";
-import { NARROW, useMediaQuery } from "@/lib/useMediaQuery";
+import { NARROW, REDUCED_MOTION, useMediaQuery } from "@/lib/useMediaQuery";
 import { ConfirmDelete } from "@/components/account/ConfirmDelete";
 import { ErrorBox } from "@/components/home/ErrorBox";
 import { useNow, useResource } from "@/components/home/useResource";
@@ -18,7 +18,7 @@ import { MessageList } from "./Messages";
 import { MobileDrawer, MobileTeam } from "./MobileTeam";
 import { Sidebar, readCollapsed, threadTag, writeCollapsed } from "./Sidebar";
 import { TeamCardPanel, type RefreshState } from "./TeamCardPanel";
-import { key, pendingPreview, type AssistantMsg, type Context, type Msg } from "./types";
+import { finishReveal, key, pendingPreview, type AssistantMsg, type Context, type Msg } from "./types";
 import { loginSignedOut, useSignedOutRedirect } from "@/lib/session";
 
 const RESUME_POLL_MS = 5000;        // W7b (F3): a reload during an answer re-reads the thread every ~5 s ...
@@ -42,9 +42,11 @@ function writeDraft(k: string, v: string) {
 }
 
 const RATE_WAIT_S = 60;
-// W8a (2026-11-12): the thread follows a new message only when the reader is already within this many px of the bottom (or
-// just sent); a reader who has scrolled up to read is never moved
-const NEAR_BOTTOM_PX = 80;
+// W10 (2026-11-12), replacing W8a's "follow the new answer at the bottom": on send (and when a saved chat opens) the latest
+// question goes to the top of the box, TURN_GAP_PX below its edge; the answer then grows downward and the view never moves.
+// The round down-arrow shows whenever the reader is more than AT_BOTTOM_PX from the bottom.
+const TURN_GAP_PX = 16;
+const AT_BOTTOM_PX = 24;
 const TEAM_BG = "/images/chat-team-bg.webp";
 const GENERAL_BG = "/images/chat-general-bg.webp";
 
@@ -115,6 +117,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
   const [openError, setOpenError] = useState<ApiError | null>(null);
   const textarea = useRef<HTMLTextAreaElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
+  const scrollIntent = useRef<"last-turn" | null>(null); // W10: set by a send or a chat opening, consumed by the layout effect
 
   const needFast = busy || limitUntil !== null || rateUntil !== null || msgs.some((m) => m.kind === "assistant" && m.preview);
   const now = useNow(needFast ? 1000 : 60_000);
@@ -172,6 +175,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
     const fallback = me.status === "ready" ? me.data.active_team?.fpl_team_id ?? null : null;
     const tid = row ? rowTeam : fallback;
     setCtx(tid ? { kind: "team", teamId: tid } : { kind: "general" });
+    scrollIntent.current = "last-turn"; // W10: a reopened chat lands with its last question at the top
     setMsgs(fromRows(stored.data));
     setOpening("ready");
   }, [chatId, stored, threads, me, router]);
@@ -217,23 +221,66 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the brief: the phone panel opens itself when a preview arrives
     if (pendingKey && narrow) setPanel(true);
   }, [pendingKey, narrow]);
-  // W8a: auto-scroll to the bottom ONLY when the thread changes at its end (a message added, the thinking row replaced by
-  // the answer) AND the reader is near the bottom -- or when the reader just sent, or when the chat first fills. The
-  // position is tracked on the scroll event, so a reader who scrolled up stays where they are; music, timers and card
-  // reloads never reach this effect (its inputs are the thread's length / last key / opening state only).
-  const atBottom = useRef(true);
-  const forceScroll = useRef(true);
-  const onThreadScroll = useCallback(() => {
-    const el = scroller.current;
-    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
-  }, []);
-  const lastKey = msgs.length ? msgs[msgs.length - 1].key : null;
-  useEffect(() => {
+  // W10: the scroll rule. The box only ever moves for (1) a send and (2) a saved chat opening: the latest question goes to the
+  // top of the box (the last turn's min-height, --ch-turn-min, guarantees the room). An answer arriving or writing itself
+  // out, a reader who scrolled away, the music, the page's ticks and a card reload never move it (overflow-anchor is off on
+  // the box, so nothing else does either). The down-arrow tracks the distance to the bottom on scroll and as content grows.
+  const [showDown, setShowDown] = useState(false);
+  const reducedMotion = useMediaQuery(REDUCED_MOTION);
+  const measureDown = useCallback(() => {
     const el = scroller.current;
     if (!el) return;
-    if (forceScroll.current || atBottom.current) el.scrollTop = el.scrollHeight;
-    if (opening === "ready" && msgs.length > 0) forceScroll.current = false;
-  }, [msgs.length, lastKey, opening]);
+    const away = el.scrollHeight - el.scrollTop - el.clientHeight > AT_BOTTOM_PX;
+    setShowDown((v) => (v === away ? v : away));
+  }, []);
+  const downFrame = useRef(0);
+  const onThreadScroll = useCallback(() => {
+    if (downFrame.current) return;
+    downFrame.current = window.requestAnimationFrame(() => {
+      downFrame.current = 0;
+      measureDown();
+    });
+  }, [measureDown]);
+  const setTurnMin = useCallback((el: HTMLElement) => el.style.setProperty("--ch-turn-min", `${Math.max(0, el.clientHeight - TURN_GAP_PX)}px`), []);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const setMin = () => setTurnMin(el);
+    setMin();
+    const thread = el.querySelector(".ch-thread");
+    const ro = new ResizeObserver(() => {
+      setMin();
+      measureDown();
+    });
+    ro.observe(el);
+    if (thread) ro.observe(thread);
+    return () => {
+      ro.disconnect();
+      if (downFrame.current) window.cancelAnimationFrame(downFrame.current);
+    };
+  }, [measureDown, setTurnMin]);
+  useLayoutEffect(() => {
+    if (scrollIntent.current !== "last-turn") return;
+    const el = scroller.current;
+    const turn = el?.querySelector<HTMLElement>('.ch-turn[data-last="true"]');
+    if (!el || !turn) return;
+    scrollIntent.current = null;
+    setTurnMin(el); // the box may have just changed height (the composer shrinks when the sent text is cleared)
+    el.scrollTop = Math.max(0, turn.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - TURN_GAP_PX);
+    measureDown();
+  }, [msgs, measureDown, setTurnMin]);
+  const toBottom = useCallback(() => {
+    const el = scroller.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: reducedMotion ? "auto" : "smooth" });
+  }, [reducedMotion]);
+  // W10: a hidden tab finishes every answer that is still writing itself out (no timer keeps running behind it)
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden) setMsgs(finishReveal);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   const cardData = card.status === "ready" ? card.data : null;
   const nextGw = deadlines.status === "ready" && now ? (nextEvent(deadlines.data.events, now)?.gw ?? null) : cardData?.next_gw ?? null;
@@ -266,8 +313,8 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
       setPrefilled(false);
       setPanel(false);
       const thinkKey = key("t");
-      forceScroll.current = true; // W8a: the sender always sees their question and the thinking row
-      setMsgs((m) => [...m, { kind: "user", key: key("u"), text: question, at: new Date().toISOString() }, { kind: "thinking", key: thinkKey, startedAt: Date.now() }]);
+      scrollIntent.current = "last-turn"; // W10: the question goes to the top of the box, the thinking row under it
+      setMsgs((m) => [...finishReveal(m), { kind: "user", key: key("u"), text: question, at: new Date().toISOString() }, { kind: "thinking", key: thinkKey, startedAt: Date.now() }]);
       setBusy(true);
       try {
         // C1: the chat's team becomes the active one on SEND, only when it is not already
@@ -308,6 +355,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
           preview: reply.squad_preview ?? null,
           applied: reply.squad_applied ?? null,
           feedback: null,
+          reveal: true, // W10: this reply writes itself out (once, in this tab)
         });
         reloadThreads();
         if (reply.squad_applied) reloadCard();
@@ -476,6 +524,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
           {narrow && ctx?.kind === "team" && (
             <MobileTeam card={card as Parameters<typeof MobileTeam>[0]["card"]} preview={pending?.preview ?? null} open={panel} onToggle={() => setPanel((p) => !p)} refresh={refresh} onRefresh={doRefresh} onRetry={reloadCard} teamName={teamName} />
           )}
+          <div className="ch-scroll-wrap">
           <div className="ch-scroll" ref={scroller} onScroll={onThreadScroll} data-testid="thread-scroll">
             <div className="ch-thread" data-testid="thread">
               {opening === "loading" && (
@@ -507,6 +556,14 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
                 <MessageList msgs={msgs} now={listNow} phone={narrow} onYes={onYes} onNo={onNo} onRetry={retry} onStartNew={newChat} onFeedback={feedback} />
               )}
             </div>
+          </div>
+          {showDown && msgs.length > 0 && (
+            <button type="button" className="ch-down" onClick={toBottom} aria-label="Scroll to the end of the chat" data-testid="scroll-down">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 5v14M6 13l6 6 6-6" />
+              </svg>
+            </button>
+          )}
           </div>
           <Composer
             value={draft}

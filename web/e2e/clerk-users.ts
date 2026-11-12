@@ -52,3 +52,23 @@ export async function deleteUser(id: string): Promise<boolean> {
   const r = await api("DELETE", `/users/${id}`);
   return r.status === 200 || r.status === 404;
 }
+
+/** Prompt W10: ONE Clerk test user for a whole run of specs (a run's cap on dev-instance test users). When E2E_SHARED_USER
+ *  names one, `userName()` returns it, `acquireUser` reuses it (creating it only the first time) and `releaseUser` never
+ *  deletes it -- the run deletes it at the end. Without the variable every spec keeps its own user, as before. */
+export const SHARED_USER = process.env.E2E_SHARED_USER ?? "";
+export const userName = (fallback: string) => SHARED_USER || fallback;
+
+export async function acquireUser(name: string): Promise<string> {
+  const found = await findTestUsers(name);
+  if (SHARED_USER) return found[0] ?? (await createTestUser(name)).id;
+  for (const id of found) await deleteUser(id);
+  return (await createTestUser(name)).id;
+}
+
+export async function releaseUser(name: string, id: string | null): Promise<void> {
+  if (SHARED_USER) return;
+  if (id) await deleteUser(id);
+  for (const x of await findTestUsers(name)) await deleteUser(x);
+}
+
