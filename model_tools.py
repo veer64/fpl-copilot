@@ -19,6 +19,7 @@
 import contextvars
 import functools
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -2815,32 +2816,65 @@ def _next_deadline():
     return val
 
 
-def _weekly_ingest_status(reasons):
+_WRITTEN_RE = re.compile(r"-- written (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})Z")
+
+
+def _written_at(text, path):
+    """When an ingest status file was written: its header line ("... -- written 2026-11-12 15:12:35Z -- ...",
+    eval/run_weekly_ingest.py::Runner._header), else the file's mtime (a copy or a restore keeps the header)."""
+    m = _WRITTEN_RE.search("\n".join(text.splitlines()[:3]))
+    if m:
+        try:
+            return datetime.strptime(f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+
+
+def _weekly_ingest_status(reasons, live=None, history=None, now=None):
     """First line + age of the weekly ingest's two status files (data/live on the
-    volume). Appends to `reasons` on FAILED, ACTION REQUIRED, or a dead cron."""
-    live = REPO / "data" / "live"
+    volume). Appends to `reasons` on FAILED, ACTION REQUIRED, or a dead cron.
+
+    ACTION REQUIRED (Prompt S1, 2026-11-12) follows the NEWER of the two files by the
+    time each was written: INGEST_STATUS.txt is rewritten only by a run with work,
+    while every 6-hourly tick recomputes the items from the files on disk, so an item
+    a human fixed (a crosswalk pin) drops out of the tick at once but stayed in the
+    status file -- and kept /health degraded -- until the next ingest. A run's own
+    tick ("RAN gameweek(s) [N] -> <the status first line>") is written after its
+    status file, so a fresh item is never missed. FAILED still reads the status file
+    alone, and the tick's age still decides a dead cron."""
+    live = Path(live) if live is not None else REPO / "data" / "live"
+    history = Path(history) if history is not None else REPO / "data" / "history"
     out = {}
-    now = datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)
     for key, name in (("last_run", "INGEST_STATUS.txt"), ("last_tick", "INGEST_TICK.txt")):
         p = live / name
         if not p.exists():
             out[key] = None
             continue
         try:
-            first = p.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+            text = p.read_text(encoding="utf-8", errors="replace")
+            first = text.splitlines()[0]
         except (OSError, IndexError):
-            first = "?"
+            text, first = "", "?"
         age_h = (now - datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)).total_seconds() / 3600
-        out[key] = {"first_line": first, "age_hours": round(age_h, 1)}
+        written = _written_at(text, p)
+        out[key] = {"first_line": first, "age_hours": round(age_h, 1),
+                    "written": written.strftime("%Y-%m-%dT%H:%M:%SZ"), "_written": written}
     lr, lt = out.get("last_run"), out.get("last_tick")
     if lr and lr["first_line"].startswith("FAILED"):
         reasons.append("weekly ingest FAILED -- the next deadline would build on stale history "
                        "(data/live/INGEST_STATUS.txt)")
+    # the newer file speaks for ACTION REQUIRED; a tie goes to the tick (written last in a run)
+    present = [(k, s) for k, s in (("last_run", lr), ("last_tick", lt)) if s]
+    source = max(present, key=lambda ks: (ks[1]["_written"], ks[0] == "last_tick"))[0] if present else None
+    out["action_source"] = source
+    if source and "ACTION REQUIRED" in out[source]["first_line"]:
+        fname = "INGEST_STATUS.txt" if source == "last_run" else "INGEST_TICK.txt"
+        reasons.append("weekly ingest needs a human: " + out[source]["first_line"] + f" (data/live/{fname})")
     for s in (lr, lt):
-        if s and "ACTION REQUIRED" in s["first_line"]:
-            reasons.append("weekly ingest needs a human: " + s["first_line"] +
-                           " (data/live/INGEST_STATUS.txt / INGEST_TICK.txt)")
-            break
+        if s:
+            s.pop("_written", None)
     if lt is None:
         reasons.append("weekly ingest has never ticked on this volume (cron not installed?)")
     elif lt["age_hours"] > 13.0:
@@ -2850,7 +2884,7 @@ def _weekly_ingest_status(reasons):
     # fallback is the designed behaviour; the understat-back check pings when the real rows are back.
     import json as _json
     fb = []
-    for sp in sorted((REPO / "data" / "history").glob("understat_matches_*.fallback.json")):
+    for sp in sorted(history.glob("understat_matches_*.fallback.json")):
         try:
             fb += [int(g) for g in (_json.loads(sp.read_text(encoding="utf-8")).get("gws") or [])]
         except (OSError, ValueError, TypeError):
