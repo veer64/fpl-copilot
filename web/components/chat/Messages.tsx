@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { Feedback } from "@/lib/api";
 import { stripSourcesBlock } from "@/lib/sources";
 import { Markdown } from "./Markdown";
@@ -87,8 +87,10 @@ function SavedBlock({ gw, plural }: { gw: number; plural: boolean }) {
 }
 
 /** The thread: user bubbles, assistant rows (markdown, the preview card, the saved block, sources, actions), the thinking
- *  row and the system messages. */
-export function MessageList({
+ *  row and the system messages. W8a (2026-11-12): memoised -- it re-renders only when the messages (or a countdown's clock)
+ *  change, never on the page's own ticks, the music or a card reload; data-renders counts its renders for the regression
+ *  test (the wrapper is display:contents, so the rows stay direct flex children of .ch-thread). */
+export const MessageList = memo(function MessageList({
   msgs,
   now,
   phone,
@@ -107,6 +109,12 @@ export function MessageList({
   onStartNew: () => void;
   onFeedback: (m: AssistantMsg, score: Feedback) => void;
 }) {
+  // the render counter lives on the DOM node and is bumped after each commit (an effect with no deps), never during render
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = wrap.current;
+    if (el) el.dataset.renders = String(Number(el.dataset.renders ?? "0") + 1);
+  });
   // the latest preview with no user message after it is the pending one; every earlier preview is answered
   let pendingKey: string | null = null;
   for (let i = msgs.length - 1; i >= 0; i--) {
@@ -118,7 +126,7 @@ export function MessageList({
     }
   }
   return (
-    <>
+    <div ref={wrap} style={{ display: "contents" }} data-testid="message-list" data-renders="0">
       {msgs.map((m, i) => {
         if (m.kind === "user") return <div className="ch-user" key={m.key} data-testid="user-message">{m.text}</div>;
         if (m.kind === "thinking")
@@ -154,6 +162,6 @@ export function MessageList({
           </div>
         );
       })}
-    </>
+    </div>
   );
-}
+});

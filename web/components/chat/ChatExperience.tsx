@@ -41,6 +41,9 @@ function writeDraft(k: string, v: string) {
 }
 
 const RATE_WAIT_S = 60;
+// W8a (2026-11-12): the thread follows a new message only when the reader is already within this many px of the bottom (or
+// just sent); a reader who has scrolled up to read is never moved
+const NEAR_BOTTOM_PX = 80;
 const TEAM_BG = "/images/chat-team-bg.webp";
 const GENERAL_BG = "/images/chat-general-bg.webp";
 
@@ -212,10 +215,23 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the brief: the phone panel opens itself when a preview arrives
     if (pendingKey && narrow) setPanel(true);
   }, [pendingKey, narrow]);
+  // W8a: auto-scroll to the bottom ONLY when the thread changes at its end (a message added, the thinking row replaced by
+  // the answer) AND the reader is near the bottom -- or when the reader just sent, or when the chat first fills. The
+  // position is tracked on the scroll event, so a reader who scrolled up stays where they are; music, timers and card
+  // reloads never reach this effect (its inputs are the thread's length / last key / opening state only).
+  const atBottom = useRef(true);
+  const forceScroll = useRef(true);
+  const onThreadScroll = useCallback(() => {
+    const el = scroller.current;
+    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+  }, []);
+  const lastKey = msgs.length ? msgs[msgs.length - 1].key : null;
   useEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [msgs.length, opening]);
+    if (!el) return;
+    if (forceScroll.current || atBottom.current) el.scrollTop = el.scrollHeight;
+    if (opening === "ready" && msgs.length > 0) forceScroll.current = false;
+  }, [msgs.length, lastKey, opening]);
 
   const cardData = card.status === "ready" ? card.data : null;
   const nextGw = deadlines.status === "ready" && now ? (nextEvent(deadlines.data.events, now)?.gw ?? null) : cardData?.next_gw ?? null;
@@ -248,6 +264,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
       setPrefilled(false);
       setPanel(false);
       const thinkKey = key("t");
+      forceScroll.current = true; // W8a: the sender always sees their question and the thinking row
       setMsgs((m) => [...m, { kind: "user", key: key("u"), text: question, at: new Date().toISOString() }, { kind: "thinking", key: thinkKey, startedAt: Date.now() }]);
       setBusy(true);
       try {
@@ -408,6 +425,12 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
     });
   };
   const onDeadlinesExpired = useCallback(() => reloadDeadlines(), [reloadDeadlines]);
+  // W8a: the message list is memoised -- stable callbacks, and the clock reaches it only while a message shows a countdown
+  // (a preview's expiry, a limit / rate notice), so the 1 s / 60 s ticks, the music and the card reloads never re-render it
+  const onYes = useCallback(() => send("Yes"), [send]);
+  const onNo = useCallback(() => send("No"), [send]);
+  const listNeedsClock = useMemo(() => msgs.some((m) => m.kind === "system" || (m.kind === "assistant" && !!m.preview)), [msgs]);
+  const listNow = listNeedsClock ? now : null;
 
   const general = ctx?.kind === "general";
   const newRow = isNew && tag ? tag : null;
@@ -444,7 +467,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
           {narrow && ctx?.kind === "team" && (
             <MobileTeam card={card as Parameters<typeof MobileTeam>[0]["card"]} preview={pending?.preview ?? null} open={panel} onToggle={() => setPanel((p) => !p)} refresh={refresh} onRefresh={doRefresh} onRetry={reloadCard} teamName={teamName} />
           )}
-          <div className="ch-scroll" ref={scroller}>
+          <div className="ch-scroll" ref={scroller} onScroll={onThreadScroll} data-testid="thread-scroll">
             <div className="ch-thread" data-testid="thread">
               {opening === "loading" && (
                 <div className="ch-sk-chat" aria-label="Loading chat" aria-busy="true" data-testid="chat-skeleton">
@@ -472,7 +495,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
               )}
               {isNew && ctx && <EmptyState mode={ctx.kind} teamName={teamName} nextGw={nextGw} card={cardData} firstName={firstName} onChip={chip} />}
               {msgs.length > 0 && (
-                <MessageList msgs={msgs} now={now} phone={narrow} onYes={() => send("Yes")} onNo={() => send("No")} onRetry={retry} onStartNew={newChat} onFeedback={feedback} />
+                <MessageList msgs={msgs} now={listNow} phone={narrow} onYes={onYes} onNo={onNo} onRetry={retry} onStartNew={newChat} onFeedback={feedback} />
               )}
             </div>
           </div>

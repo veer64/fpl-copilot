@@ -82,8 +82,12 @@
 .ch-title h1{margin:0;font-size:15px;font-weight:600;color:#F2FBFF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .ch-scroll{position:relative;flex-grow:1;overflow:auto;padding:28px 28px 12px}
 .ch-thread{max-width:760px;min-height:100%;margin:0 auto;display:flex;flex-direction:column;gap:24px}
-.ch-main.general .ch-scroll{display:flex;align-items:center;justify-content:center;padding:40px 28px 12px}
-.ch-main.general .ch-thread{min-height:0;width:100%}
+/* W8a (2026-11-12): never centre or bottom-align the thread with flex alignment inside the scroll container -- a thread taller
+   than the box then overflows ABOVE the scrollable range and the top of the conversation cannot be reached (the live bug:
+   general mode on a desktop lost half of a long answer). Auto margins on the thread give the same look when the thread is
+   short and collapse to 0 when it is long, so the whole thread scrolls; flex-shrink:0 keeps the thread its content height. */
+.ch-main.general .ch-scroll{display:flex;flex-direction:column;padding:40px 28px 12px}
+.ch-main.general .ch-thread{min-height:0;width:100%;flex-shrink:0;margin:auto}
 
 /* ---- messages -------------------------------------------------------------------------------------------------------------- */
 .ch-user{align-self:flex-end;max-width:78%;padding:12px 16px;border-radius:16px 16px 4px 16px;background:#123041;border:1px solid rgba(59,232,255,.25);color:#F2FBFF;font-size:15px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -377,9 +381,10 @@
 .ch-gen-photo{top:0;right:-46px;height:470px;opacity:.55;-webkit-mask-image:linear-gradient(to right,transparent 0%,#000 40%,#000 100%),linear-gradient(to bottom,#000 0%,#000 55%,transparent 92%);mask-image:linear-gradient(to right,transparent 0%,#000 40%,#000 100%),linear-gradient(to bottom,#000 0%,#000 55%,transparent 92%)}
 .ch-gen-grid{left:-20%;right:-20%;bottom:-120px;height:300px;background-size:48px 48px;transform:perspective(600px) rotateX(70deg)}
 .ch-title{display:none}
-.ch-scroll{padding:16px 16px 10px;display:flex;flex-direction:column;justify-content:flex-end}
-.ch-thread{gap:16px;min-height:0;width:100%}
-.ch-main.general .ch-scroll{align-items:stretch;justify-content:flex-end;padding:24px 20px 14px}
+.ch-scroll{padding:16px 16px 10px;display:flex;flex-direction:column}   /* W8a: no justify-content:flex-end (see the desktop note) */
+.ch-thread{gap:16px;min-height:0;width:100%;flex-shrink:0;margin-top:auto}
+.ch-main.general .ch-scroll{align-items:stretch;padding:24px 20px 14px}
+.ch-main.general .ch-thread{margin:auto 0 0}
 .ch-user{max-width:84%;padding:11px 14px;line-height:21px}
 .ch-ai{gap:10px}
 .ch-avatar{width:26px;height:26px;border-radius:8px}
