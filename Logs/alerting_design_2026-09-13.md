@@ -233,6 +233,12 @@ be a paid feature and should be checked at signup. **It is available on UptimeRo
 2026-09-18** — the caution was unfounded. Recorded so nobody re-litigates the choice of provider on
 that basis.
 
+**Update 2026-11-12 (Prompt S2): the monitor's URL must change.** The app's port 8000 is now published on the
+loopback only, so `http://68.183.131.154:8000/health` refuses connections from outside and this monitor reads it as
+"host gone". The monitor must poll `https://api.fplcopilot.app/health` instead, with the same keyword `"db_ok":true`
+(Caddy passes the JSON through unchanged; the literal was checked on 12 Nov). This is a change in the UptimeRobot
+dashboard, which only the owner can make.
+
 **What is still not covered.** This watches reachability and the database, not correctness. A build
 that succeeds with a wrong model is invisible to it — that is the §6 probe's job via the MODEL
 DEGRADED reasons, and the two layers remain complementary exactly as §1 describes.

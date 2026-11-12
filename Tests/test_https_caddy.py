@@ -54,7 +54,25 @@ def test_k1_postgres_is_defined_exactly_as_before():
     assert p["image"] == "fpl-postgres-pgvector:16.14-0.8.6" and p["container_name"] == "fpl-postgres"
     assert "ports" not in p and p["volumes"] == ["fpl_pgdata:/var/lib/postgresql/data"]
     app = _services()["fpl-copilot"]
-    assert app["ports"] == ["8000:8000"]                                                  # the old address keeps working
+    assert app["ports"] == ["127.0.0.1:8000:8000"]       # Prompt S2: loopback only; the old public address is closed
+
+
+def test_s2_only_caddy_publishes_a_public_port_and_the_app_is_loopback_only():
+    """Prompt S2 (2026-11-12): Docker publishes ports past ufw, so a service's `ports` decide what the internet can reach.
+    Only fpl-caddy may publish on all interfaces (80, 443); the app publishes 8000 on 127.0.0.1 only (the host's health
+    alert and scripts), the database and the scheduler publish nothing, and Caddy reaches the app by service name."""
+    services = _services()
+    public = {}
+    for name, svc in services.items():
+        for p in svc.get("ports") or []:
+            parts = str(p).split(":")
+            host_ip = parts[0] if len(parts) == 3 else "0.0.0.0"
+            if host_ip not in ("127.0.0.1", "::1", "localhost"):
+                public.setdefault(name, []).append(str(p))
+    assert public == {"fpl-caddy": ["80:80", "443:443"]}
+    assert services["fpl-copilot"]["ports"] == ["127.0.0.1:8000:8000"]
+    assert "ports" not in services["fpl-postgres"] and "ports" not in services["fpl-scheduler"]
+    assert "reverse_proxy fpl-copilot:8000" in _caddy_lines()
 
 
 # ---- K2 -----------------------------------------------------------------------------------------------------------------

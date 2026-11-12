@@ -58,8 +58,12 @@ services:
     container_name: fpl-copilot
     restart: unless-stopped
     env_file: .env
+    # Loopback only (Prompt S2, 2026-11-12). Docker publishes ports past ufw, so "8000:8000" left the app on
+    # http://<server IP>:8000 in plain HTTP, bypassing Caddy and TLS. The public path is https://api.fplcopilot.app
+    # (fpl-caddy -> fpl-copilot:8000 on the compose network, which never uses this host port); on-host checks such as
+    # the health alert keep http://127.0.0.1:8000.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       fpl-postgres:
         condition: service_healthy

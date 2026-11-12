@@ -31,13 +31,16 @@ changes what the container sees. It sets:
   `docker run --rm -v <dir>:/etc/caddy:ro caddy:2.11.7-alpine caddy validate --config /etc/caddy/Caddyfile`
 
 **Firewall.**
-- ufw allows 80/tcp and 443/tcp (added 2 Nov), next to 8000 and OpenSSH.
+- ufw allows 80/tcp, 443/tcp (added 2 Nov) and OpenSSH. The 8000 rules were deleted on 12 Nov (Prompt S2).
 - Docker-published ports bypass ufw, so the published ports themselves are what expose Caddy. A preflight on 2 Nov (a
   throwaway Caddy with `tls internal`, no ACME) answered on 80 and 443 from outside, so no cloud firewall blocks them.
 
-**Still open (decided at switch-on, F4).**
-- The plain-HTTP address `http://68.183.131.154:8000` keeps working.
-- Closing it is a separate decision: remove the `8000:8000` publish and the ufw rule.
+**Where the app listens (Prompt S2, 12 Nov 2026).** The app listens on `127.0.0.1:8000` only
+(`"127.0.0.1:8000:8000"` in docker-compose.yml). Public traffic reaches it only through Caddy on 80/443, and Caddy
+proxies to `fpl-copilot:8000` on the compose network, not the host port. On-server checks (the health alert, smoke and
+post-deploy scripts) use `http://127.0.0.1:8000`. Outside checks (the laptop, an uptime monitor) use
+`https://api.fplcopilot.app`. The old plain-HTTP address `http://68.183.131.154:8000` now refuses connections. In clerk
+mode `GET /` answers 308 to https://fplcopilot.app and `/static/*` answers 404, which retires the old key-gated chat page.
 
 **Client IP behind Caddy.**
 - The app sees requests from Caddy's container address. Through 8000 they already arrived from Docker's bridge gateway.
