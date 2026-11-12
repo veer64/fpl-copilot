@@ -83,9 +83,31 @@ def test_audit_ran_and_reported(cw_2026_27):
 
 
 def test_coverage_of_playing_elements(cw_2026_27):
-    """Every FPL element with GW1 minutes must carry an id after the manual block."""
+    """Every FPL element with minutes must carry an id after the manual block -- or hold an evidenced, dated
+    NOT_LISTED allowance (Prompt U1: Understat lists a player only after his first appearance, and while
+    understat.com is down the 2026 listing is frozen). The allowance expires on its date or when understat is
+    restored on this data dir, whichever comes first; after that the element must be matched like anyone else."""
     cw, _ = cw_2026_27
     api = pd.read_parquet(ROOT / "data" / "history" / "fpl_api_2026_27.parquet")
     played = set(api.loc[api["minutes"] > 0, "element"])
     missing = played - set(cw["element"])
-    assert not missing, f"playing elements without an Understat id: {sorted(missing)}"
+    allowed = bc.not_listed_allowance("2026-27", ROOT / "data")
+    assert not (missing - set(allowed)), \
+        f"playing elements without an Understat id and without an allowance: {sorted(missing - set(allowed))}"
+    for el in missing & set(allowed):
+        assert len(allowed[el]) > 80, f"allowance for element {el} carries no evidence"
+
+
+def test_gw9_gw10_debutants_pinned(cw_2026_27):
+    """Prompt U1 (12 Nov 2026): the eight GW9/GW10 debutants that understat's frozen 2026 listing never showed.
+    Six carry ids pinned by hand -- four from our own prior-season files (exact-name matches in the 2024-25 /
+    2025-26 crosswalks with agreeing minutes), two from the Internet Archive's copies of understat.com (Ligue 1
+    history, medium confidence) -- and the other two hold the NOT_LISTED allowance, not a guess."""
+    cw, _ = cw_2026_27
+    expected = {489: "11003", 630: "8495", 122: "12759", 344: "8000", 655: "6874", 170: "11817"}
+    for el, uid in expected.items():
+        row = cw[cw["element"] == el]
+        assert len(row) == 1, f"element {el} missing from the build"
+        assert str(row["understat_id"].iloc[0]) == uid, (el, row.to_dict("records"))
+        assert row["match_type"].iloc[0] == "manual"
+    assert set(bc.NOT_LISTED["2026-27"]) == {645, 601}

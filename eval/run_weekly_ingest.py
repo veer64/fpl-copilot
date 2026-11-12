@@ -291,11 +291,38 @@ def crosswalk_map(path):
     return {int(e): str(u).split(".")[0] for e, u in zip(cw["element"], cw["understat_id"])}
 
 
-def unmatched_with_minutes(data_dir, season, top=3):
+def _allowance(data_dir, season, now=None):
+    """{element: evidence} of the build_crosswalk.NOT_LISTED entries in force for this
+    data dir (Prompt U1): dated, and void once understat is restored on the volume."""
+    try:
+        from build_crosswalk import not_listed_allowance
+    except ImportError:            # rapidfuzz missing: no allowance rather than a hidden item
+        return {}
+    return not_listed_allowance(season, Path(data_dir), now=now)
+
+
+def format_allowance(allowed, season):
+    try:
+        from build_crosswalk import NOT_LISTED
+        expires = {el: v[1] for el, v in NOT_LISTED.get(season, {}).items()}
+    except ImportError:
+        expires = {}
+    lines = [f"  {len(allowed)} element(s) with real minutes and no Understat id are ALLOWED for now "
+             "(eval/build_crosswalk.py NOT_LISTED, evidenced, Prompt U1): Understat lists a player only",
+             "  after his first appearance, and understat.com is down so the 2026 listing is frozen. NOT an",
+             "  ACTION REQUIRED item while the allowance holds; it ends on the date below or as soon as understat",
+             "  is restored on this volume (fallback rows replaced), whichever comes first -- then the item returns."]
+    for el, why in allowed.items():
+        lines.append(f"  element {el:<4d} until {expires.get(el, '?')}: {why[:150]}")
+    return "\n".join(lines)
+
+
+def unmatched_with_minutes(data_dir, season, top=3, now=None):
     """Elements with real minutes this season and no Understat id -- the one thing
     a human must look at each week. Each with its nearest Understat candidates
     (name score over the season's aggregate listing) so the MANUAL entry can be
-    evidenced in one look."""
+    evidenced in one look. An element under a NOT_LISTED allowance (Prompt U1) is
+    left out while the allowance is in force."""
     tag = season.replace("-", "_")
     h = data_dir / "history"
     api_p = h / f"fpl_api_{tag}.parquet"
@@ -307,6 +334,9 @@ def unmatched_with_minutes(data_dir, season, top=3):
                    position=("position", "last"), minutes=("minutes", "sum")))
     cw = crosswalk_map(h / f"crosswalk_{tag}.csv")
     missing = played[~played.index.isin(cw)]
+    # Prompt U1: an element Understat has not listed yet may hold an evidenced, dated
+    # allowance (build_crosswalk.NOT_LISTED) -- not an item while it is in force.
+    missing = missing[~missing.index.isin(_allowance(data_dir, season, now))]
     if len(missing) == 0:
         return []
     claimed = {u: e for e, u in cw.items()}
@@ -538,6 +568,7 @@ class Runner:
     # -- the run ----------------------------------------------------------------
     def decide(self, now=None, force_gw=None):
         now = now or utc_now()
+        self.now = now
         events = self.fetch_json("/bootstrap-static/")["events"]
         fixtures = self.fetch_json("/fixtures/")
         self.events = events
@@ -547,11 +578,17 @@ class Runner:
 
     def outstanding_actions(self):
         """Recomputed on every tick from the files on disk, so a standing item
-        stays visible until a human closes it."""
-        items = unmatched_with_minutes(self.data_dir, self.season)
+        stays visible until a human closes it. An element under a NOT_LISTED
+        allowance (Prompt U1) is reported in a section, not as an item."""
+        now = getattr(self, "now", None)
+        items = unmatched_with_minutes(self.data_dir, self.season, now=now)
         if items:
             self.action("crosswalk -- elements with minutes and no Understat id",
                         format_unmatched(items))
+        allowed = _allowance(self.data_dir, self.season, now)
+        if allowed:
+            self.section("CROSSWALK -- not listed on Understat yet (allowance in force)",
+                         format_allowance(allowed, self.season))
         return items
 
     # ------------------------------------------------ squad scoring (tick-level)
@@ -899,15 +936,16 @@ def main(argv=None):
             f"ingested (season file): {d['have_gws']}; partial (chain broke mid-way): {d['partial_gws']}\n"
             f"next un-final: {d['next_unfinal']}\nnext deadline: {d['next_deadline']}\n")
     if decision != "RUN":
-        scores = ""
         if decision == "NOTHING-NEW":                # not DEFERRED: the deadline window stays quiet
             R.score_outstanding()
-            scores = "".join(f"\n== {t} ==\n{x}\n" for t, x in R.sections if t.startswith("SQUAD SCORES"))
         items = R.outstanding_actions()
+        # the tick carries the squad scores and the crosswalk allowance note (Prompt U1), nothing else
+        notes = "".join(f"\n== {t} ==\n{x}\n" for t, x in R.sections
+                        if t.startswith(("SQUAD SCORES", "CROSSWALK --")))
         first = decision + (f" -- ACTION REQUIRED ({len(R.actions)} item(s), see below)" if R.actions else "")
         extra = (f"\nDEFERRED: {d.get('reason')}\npending gameweek(s): {R.todo}\n" if decision == "DEFERRED" else "")
         act = "".join(f"\n== ACTION REQUIRED: {t} ==\n{x}\n" for t, x in R.actions)
-        R.write_tick(first, body + extra + act + scores)
+        R.write_tick(first, body + extra + act + notes)
         return 0
     R.write_tick(f"RUNNING gameweek(s) {R.todo} -- see {R.status_path.name}", body)
     first = R.execute()

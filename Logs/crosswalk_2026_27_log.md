@@ -115,3 +115,37 @@ both ways; audit reported (0 checked, 0 dropped — not a crash); every playing 
 4. **Steps 1–5 minutes substitution** (combined arm) still lives inside `walkforward_arms.main`.
 5. **Weekly operations**: the rebuild-after-each-gameweek sequence above, plus the DC source question
    (#21) before the DC term can run at all.
+
+## 2026-11-12 (Prompt U1) -- the GW9/GW10 debutants, the conflict alarm, the not-listed allowance
+
+understat.com has served a maintenance page ("We will come back soon", HTTP 200, 26,719 B, nginx) since 3 Nov 2026,
+so the 2026 listing on the volume is frozen at GW8 (80 matches, 451 players) and the weekly rebuild could not see
+anyone who debuted in GW9 or GW10. INGEST_STATUS/INGEST_TICK carried the ACTION REQUIRED item "8 element(s) with real
+minutes and NO Understat id" from 9 Nov; /health was degraded on it. Not a name problem: seven of the eight names
+match their Understat names exactly, Emegha scores 96.6.
+
+1. MANUAL["2026-27"] gains six pins, each with its evidence string: 489 Ryan Yates -> 11003, 630 Taylor
+   Harwood-Bellis -> 8495, 122 Yankuba Minteh -> 12759, 344 Ilia Gruev -> 8000 (HIGH: exact-name matches in the
+   2024-25 / 2025-26 crosswalks with minutes agreeing within a few dozen, our own files); 655 Yann Gboho -> 6874 and
+   170 Emmanuel Emegha -> 11817 (MEDIUM: Ligue 1 history only, ids read from the Internet Archive's copies of
+   understat.com team/league/player pages of 2025, the live site unreachable). Build: 451 -> 457 ids, 0 lost,
+   0 changed, 100.0% of played minutes covered, audit 208 pairs all within tolerance.
+2. `_apply_manual` (new) raises MANUAL CONFLICT -- and overwrites nothing -- when a pinned element was matched
+   automatically to a DIFFERENT id (Understat re-listing a player under a new id, or a stale pin). Measured over all
+   four seasons: the only pin that overrides an automatic match is Morato (2025-26 element 511, the club+token pass
+   hands him Jota Silva's 12766, KNOWN_ISSUES #3); it is declared in MANUAL_OVERRIDES and stays the one exception.
+3. NOT_LISTED (new): an evidenced, DATED allowance for an element with minutes that Understat has not listed yet --
+   645 Christos Mouzakitis (from Olympiacos; the Greek league is not covered) and 601 Luca Williams-Barnett (Spurs
+   academy), both absent from every stored listing 2016-2026, both expiring 2026-12-31. `not_listed_allowance`
+   returns an entry only while its date has not passed AND `understat_restored` is false for the data dir (the
+   understat-back check's markers, or no fallback rows left in the per-match file). The weekly runner's
+   ACTION REQUIRED check (`unmatched_with_minutes`) and Tests/test_crosswalk_2026_27.py::test_coverage_of_playing_elements
+   honour it; the runner prints a "CROSSWALK -- not listed on Understat yet" section instead of an item.
+   When understat returns, the back-check rebuilds the aggregates + crosswalk and all eight match automatically.
+4. Laptop replay (GW11 build, cutoff 11, horizon 6, fixed clock, only the crosswalk differing; control: 3,984 rows
+   of other players changed by 0.0000): Yates 10.01 -> 8.46 e_points over GW11-16 (own rates below the MID prior),
+   Minteh 6.34 -> 6.70 (above it), Gruev 3.32 -> 2.69, Harwood-Bellis 13.22 -> 14.07 (own DC rate), Gboho
+   11.18 -> 10.38 and Emegha 3.75 -> 3.68 (rates unchanged -- no EPL aggregate rows -- but p_dc_hit falls from the
+   position prior to the mapped-player floor until they have per-match rows); Mouzakitis / Williams-Barnett unchanged.
+Tests: Tests/test_crosswalk_not_listed.py (new, 17), test_crosswalk_2026_27 (+1, coverage honours the allowance),
+test_weekly_ingest (+1). Report: eval/reports/u1_understat.md.

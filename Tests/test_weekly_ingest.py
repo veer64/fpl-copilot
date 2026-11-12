@@ -448,3 +448,37 @@ def test_a_failure_after_the_fallback_is_still_a_failure(tmp_path):
     R.decide(now=NOW)
     assert R.execute() == "FAILED"
     assert (tmp_path / "live" / "ingest_gw4.partial.json").exists()
+
+
+# ---------------------------------------------------------------- Prompt U1: the not-listed allowance
+def test_not_listed_allowance_suppresses_the_action_until_it_expires(tmp_path, monkeypatch):
+    """An element Understat has not listed yet, evidenced in build_crosswalk.NOT_LISTED, is NOT an ACTION
+    REQUIRED item while understat is down (fallback rows on file) and the date has not passed; the status
+    carries a CROSSWALK note instead. The item returns when the date passes or understat is restored."""
+    import build_crosswalk as bc
+    h = _seed(tmp_path, gws=(1, 2, 3, 4), crosswalk_missing=(403,))
+    um = pd.read_parquet(h / f"understat_matches_{TAG}.parquet")
+    pd.concat([um, pd.DataFrame([dict(gw=4, match_id="fpl41")])]).to_parquet(
+        h / f"understat_matches_{TAG}.parquet", index=False)              # a fallback row: understat is down
+    later = (NOW + timedelta(days=30)).date().isoformat()
+    monkeypatch.setitem(bc.NOT_LISTED, SEASON,
+                        {403: ("Savio Moreira de Oliveira; Spurs MID; not listed yet (test evidence)", later)})
+    R = _runner(tmp_path, FakeSteps(h))
+    assert R.decide(now=NOW) == "NOTHING-NEW"
+    assert R.outstanding_actions() == []
+    assert R.actions == []
+    assert any(t.startswith("CROSSWALK -- not listed") and "element 403" in x and later in x
+               for t, x in R.sections)
+    # the date has passed -> the item is back
+    monkeypatch.setitem(bc.NOT_LISTED, SEASON,
+                        {403: ("Savio (test)", (NOW - timedelta(days=1)).date().isoformat())})
+    R2 = _runner(tmp_path, FakeSteps(h))
+    R2.decide(now=NOW)
+    assert [i["element"] for i in R2.outstanding_actions()] == [403]
+    assert len(R2.actions) == 1
+    # understat restored (no fallback rows left) -> the item is back
+    monkeypatch.setitem(bc.NOT_LISTED, SEASON, {403: ("Savio (test)", later)})
+    um.to_parquet(h / f"understat_matches_{TAG}.parquet", index=False)
+    R3 = _runner(tmp_path, FakeSteps(h))
+    R3.decide(now=NOW)
+    assert [i["element"] for i in R3.outstanding_actions()] == [403]

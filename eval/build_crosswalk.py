@@ -43,9 +43,11 @@ Usage:
 """
 
 import argparse
+import json
 import re
 import sys
 import unicodedata
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -203,6 +205,46 @@ MANUAL = {
                        "player in the GW1 Understat roster; 'Costinha' is the "
                        "diminutive of his surname 'da Costa'; single-token name, "
                        "guard refuses automatically (correctly)"),
+        # Prompt U1 (12 Nov 2026). understat.com has served a maintenance page since
+        # 3 Nov, so the 2026 listing on the volume is frozen at GW8 (80 matches) and
+        # the GW9/GW10 debutants below are absent from it -- not a name problem (the
+        # exact pass would take seven of the eight, Emegha scores 96.6). Four ids
+        # come from our own prior-season files (exact-name matches in the 2024-25 /
+        # 2025-26 crosswalks, minutes agreeing within a few dozen); two (Gboho,
+        # Emegha) have Ligue 1 history only and were read from the Internet
+        # Archive's copies of understat.com (MEDIUM confidence: the live site could
+        # not be opened). If Understat later lists any of them under a different
+        # id, _apply_manual raises MANUAL CONFLICT rather than overwrite.
+        489: ("11003", "Ryan Yates; Nott'm Forest MID; Understat 2025: 22 games 550 min "
+                       "0 G 2 A v FPL 2025-26 (element 522) 602 min 0 G 2 A; 2024: 1883 v "
+                       "1901 min; exact-name match in the 2024-25 (449) and 2025-26 (522) "
+                       "crosswalks; GW9 debutant (45+78 min) absent from the 2026 listing "
+                       "frozen at GW8 by understat.com's outage (U1, 12 Nov 2026)"),
+        630: ("8495", "Taylor Harwood-Bellis; Aston Villa DEF; Understat 2024 (Southampton): "
+                      "34 games 2832 min 1 G v FPL 2024-25 (element 461) 2824 min 1 G, "
+                      "exact-name match in the 2024-25 crosswalk; no 2025 season "
+                      "(Championship); GW10 debutant (90 min) absent from the frozen 2026 "
+                      "listing (U1, 12 Nov 2026)"),
+        122: ("12759", "Yankuba Minteh; Brighton MID; Understat 2025: 34 games 2410 min 3 G "
+                       "4 A v FPL 2025-26 (element 160) 2389 min 3 G; 2024: 1832 v 1831 min; "
+                       "exact-name match in the 2024-25 (135) and 2025-26 (160) crosswalks; "
+                       "GW10 debutant (8 min) absent from the frozen 2026 listing (U1)"),
+        344: ("8000", "Ilia Gruev; Leeds MID; Understat 2025: 23 games 1310 min 0 G 3 A v FPL "
+                      "2025-26 (element 356) 1318 min 0 G 4 A; exact-name match in the "
+                      "2025-26 crosswalk; GW10 debutant (1 min) absent from the frozen 2026 "
+                      "listing (U1, 12 Nov 2026)"),
+        655: ("6874", "Yann Gboho; Coventry City MID; Ligue 1 history only (Toulouse 2024-25: "
+                      "31 games 2363 min 5 G 4 A), so no EPL aggregate row; id read from the "
+                      "Internet Archive's copies of understat.com team/Toulouse/2024 "
+                      "(2025-05-27) and league/Ligue_1/2024 (2025-01-31) -- MEDIUM "
+                      "confidence, understat.com unreachable on 12 Nov 2026; GW9 debutant "
+                      "(71+72 min, 1 G) (U1)"),
+        170: ("11817", "Emmanuel Emegha = Understat 'Emanuel Emegha'; Chelsea FWD; Ligue 1 "
+                       "history only (Strasbourg 2024-25: 27 games 2331 min 14 G 3 A); id "
+                       "read from the Internet Archive's copies of understat.com "
+                       "player/11817 (2025-05-26), team/Strasbourg/2024 and "
+                       "league/Ligue_1/2024 -- MEDIUM confidence, understat.com unreachable "
+                       "on 12 Nov 2026; GW10 debutant (3 min) (U1)"),
     },
     "2024-25": {
         9: ("7752", "Gabriel Martinelli; Arsenal MID; 2284v2310 min, 8v8 G, 4v4 A"),
@@ -236,6 +278,127 @@ MANUAL["2025-26"][5] = ("5613", "Gabriel Magalhaes = Understat 'Gabriel'; Arsena
                                 "2750v2748 min; single-token name shared by three "
                                 "Arsenal players -- guard refuses it automatically; "
                                 "pinned, same id as the legacy file")
+
+# The ONE automatic match a MANUAL pin knowingly replaces: season -> {element: the
+# wrong automatic id}. Morato (2025-26 element 511) is handed Jota Silva's id by the
+# club+token pass (KNOWN_ISSUES #3) and the pin corrects it. Any OTHER disagreement
+# between a pin and the automatic passes raises MANUAL CONFLICT in _apply_manual
+# (Prompt U1): Understat re-listing a pinned player under a new id must stop the
+# build loudly, never be overwritten in silence. Measured 12 Nov 2026 over all four
+# seasons: this is the only pin that overrides an automatic match.
+MANUAL_OVERRIDES = {
+    "2025-26": {511: "12766"},
+}
+
+# Elements with real minutes that Understat has NOT listed yet (Prompt U1, 12 Nov
+# 2026) -- an evidenced, DATED allowance, never a guess. Understat lists a player
+# only after his first appearance in a league it covers; while understat.com is
+# down (maintenance page since 3 Nov 2026) the 2026 listing on the volume is
+# frozen at GW8, so a debutant with no earlier Understat history cannot be
+# matched by anyone. The weekly runner's ACTION REQUIRED check and
+# Tests/test_crosswalk_2026_27.py::test_coverage_of_playing_elements honour an
+# entry here ONLY while `not_listed_allowance` says it is in force: it expires on
+# its date (UTC) or as soon as `understat_restored` is true for the data dir --
+# whichever comes first. After that the element must be matched like anyone else
+# (the item and the test failure return by design).
+#   season -> {element: (evidence, expires "YYYY-MM-DD")}
+NOT_LISTED = {
+    "2026-27": {
+        645: ("Christos Mouzakitis; Hull City MID; 15 min (GW10); came from Olympiacos -- "
+              "the Greek league is not covered by Understat -- so he has no Understat id "
+              "anywhere; absent from every stored listing 2016-2026 (search 'mouzakitis': "
+              "none); the 2026 EPL listing is frozen at GW8 by understat.com's outage, so "
+              "he cannot be listed until it returns (U1, 12 Nov 2026)", "2026-12-31"),
+        601: ("Luca Williams-Barnett; Spurs MID; 9 min (GW9 2 + GW10 7); Tottenham academy, "
+              "never in a league Understat covers, so no Understat id anywhere; absent "
+              "from every stored listing 2016-2026 (search 'williams barnett' / 'barnett': "
+              "none); the 2026 EPL listing is frozen at GW8 by understat.com's outage "
+              "(U1, 12 Nov 2026)", "2026-12-31"),
+    },
+}
+
+
+def understat_restored(data_dir, season):
+    """True once Understat serves the season again on this data dir. Two kinds of
+    evidence, either suffices: the understat-back check's own markers (Prompt R2:
+    data/live/understat_back_pings.json with an entry -- written once per
+    re-ingested gameweek, never removed -- a REPLACED first line in
+    UNDERSTAT_BACK.txt, or `understat_restored_at` in the latest ingest manifest),
+    or the truth those markers follow: no fallback rows (match_id prefix 'fpl')
+    left in the season's per-match file. A bare data dir with none of these says
+    nothing, so False -- the dated allowance holds until its date."""
+    data_dir = Path(data_dir)
+    live = data_dir / "live"
+    try:
+        p = live / "understat_back_pings.json"
+        if p.exists() and json.loads(p.read_text(encoding="utf-8")):
+            return True
+        s = live / "UNDERSTAT_BACK.txt"
+        if s.exists() and s.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0] \
+                .startswith("REPLACED"):
+            return True
+        m = live / "ingest_manifest_latest.json"
+        if m.exists() and json.loads(m.read_text(encoding="utf-8")).get("understat_restored_at"):
+            return True
+    except (OSError, ValueError):
+        pass
+    pm = data_dir / "history" / f"understat_matches_{season.replace('-', '_')}.parquet"
+    try:
+        if pm.exists():
+            ids = pd.read_parquet(pm, columns=["match_id"])["match_id"].astype(str)
+            if not ids.str.startswith("fpl").any():       # understat_fallback.MATCH_PREFIX
+                return True
+    except (OSError, ValueError, KeyError):
+        pass
+    return False
+
+
+def not_listed_allowance(season, data_dir=None, now=None):
+    """{element: evidence} of the season's NOT_LISTED entries currently in force for
+    `data_dir` (default: the repo's data/): none once `understat_restored`, and each
+    entry only through its expiry date (UTC)."""
+    data_dir = Path(data_dir) if data_dir is not None else REPO / "data"
+    entries = NOT_LISTED.get(season, {})
+    if not entries or understat_restored(data_dir, season):
+        return {}
+    today = (now or datetime.now(timezone.utc)).date()
+    return {el: why for el, (why, expires) in entries.items()
+            if today <= date.fromisoformat(expires)}
+
+
+def _apply_manual(matched, season_manual, us, overrides=None):
+    """Pin the season's MANUAL entries into `matched` (in place); returns
+    {element: evidence}. It RAISES, and overwrites nothing, when (a) the pinned id
+    was awarded automatically to ANOTHER element, or (b) the pinned ELEMENT was
+    matched automatically to a DIFFERENT id -- Understat now lists the player under
+    another id, or the pin is stale (Prompt U1) -- unless `overrides` names that
+    exact automatic id as the known-wrong match the pin corrects (MANUAL_OVERRIDES).
+    A silent overwrite is how KNOWN_ISSUES #3 happened; the weekly ingest step then
+    exits non-zero and the status says why."""
+    overrides = overrides or {}
+    evidence = {}
+    for el, (uid, why) in season_manual.items():
+        prior = {e for e, (v0, _, _, _) in matched.items() if str(v0) == str(uid)}
+        if prior - {el}:
+            raise AssertionError(
+                f"manual mapping element {el} -> understat {uid} collides with an "
+                f"automatic match on element(s) {sorted(prior - {el})}. Resolve by "
+                "hand before proceeding; a silent overwrite is how KNOWN_ISSUES #3 "
+                "happened.")
+        if el in matched and str(matched[el][0]) != str(uid) \
+                and str(overrides.get(el)) != str(matched[el][0]):
+            v0, name, kind, _ = matched[el]
+            raise AssertionError(
+                f"MANUAL CONFLICT: element {el} is pinned to understat {uid} but the "
+                f"automatic '{kind}' pass matched it to {v0} ('{name}'). Understat may "
+                "now list this player under a different id, or the pin is stale. Check "
+                "both ids on understat.com and fix MANUAL by hand; the pin is NOT applied "
+                "and nothing is overwritten.")
+        row = us[us["id"].astype(str) == str(uid)]
+        name = row["player_name"].iloc[0] if len(row) else "?"
+        matched[el] = (row["id"].iloc[0] if len(row) else uid, name, "manual", 100.0)
+        evidence[el] = why
+    return evidence
 
 
 def _norm(s):
@@ -515,19 +678,9 @@ def build(season, verbose=True):
         for r in pr.itertuples():
             matched[r.element] = (r.id, r.player_name, r.kind, float(r.score))
 
-    evidence = {}
-    for el, (uid, why) in MANUAL.get(season, {}).items():
-        prior = {e for e, (v0, _, _, _) in matched.items() if str(v0) == str(uid)}
-        if prior - {el}:
-            raise AssertionError(
-                f"manual mapping element {el} -> understat {uid} collides with an "
-                f"automatic match on element(s) {sorted(prior - {el})}. Resolve by "
-                "hand before proceeding; a silent overwrite is how KNOWN_ISSUES #3 "
-                "happened.")
-        row = us[us["id"].astype(str) == str(uid)]
-        name = row["player_name"].iloc[0] if len(row) else "?"
-        matched[el] = (row["id"].iloc[0] if len(row) else uid, name, "manual", 100.0)
-        evidence[el] = why
+    # Hand pins last; a conflict with an automatic match RAISES (never overwrites).
+    evidence = _apply_manual(matched, MANUAL.get(season, {}), us,
+                             overrides=MANUAL_OVERRIDES.get(season, {}))
 
     cw = pd.DataFrame([
         {"season": season, "element": e, "understat_id": v0,
