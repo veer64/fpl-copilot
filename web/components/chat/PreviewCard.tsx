@@ -53,8 +53,33 @@ export function PreviewCard({
   if (im.bank_after !== null && im.bank_after !== undefined) boxes.push({ k: "BANK AFTER", v: price(im.bank_after) });
   if (im.ft_before !== null && im.ft_after !== null && im.ft_before !== undefined && im.ft_after !== undefined) boxes.push({ k: "FREE TRANSFERS", v: `${im.ft_before} → ${im.ft_after}` });
   if (im.hit_pts) boxes.push({ k: "HIT", v: `-${im.hit_pts} pts`, cls: "loss" });
-  const label = single ? "Squad change · preview" : `Squad change · ${n} change${n === 1 ? "" : "s"}`;
-  const meta = single ? `${TYPE_WORD[single.type]}${preview.gw ? ` · GW${preview.gw}` : ""}` : pending ? expiryLabel(preview.expires_at, now) : preview.gw ? `GW${preview.gw}` : "";
+  // Prompt W11: a draft change is free -- one value line instead of the bank / free-transfer / hit boxes
+  const draftLine = preview.draft
+    ? `Value ${price(im.value_before)} → ${price(im.value_after)} · ${(im.over_after ?? 0) > 0 ? `${price(im.over_after)} over` : `${price(im.left_after)} left`}`
+    : null;
+  if (draftLine) boxes.length = 0;
+  const label = preview.draft
+    ? preview.kind === "rebuild"
+      ? "Draft rebuild · preview"
+      : single
+        ? "Draft change · preview"
+        : `Draft change · ${n} change${n === 1 ? "" : "s"}`
+    : single
+      ? "Squad change · preview"
+      : `Squad change · ${n} change${n === 1 ? "" : "s"}`;
+  const meta = preview.draft
+    ? single
+      ? `${TYPE_WORD[single.type]} · FREE`
+      : pending
+        ? expiryLabel(preview.expires_at, now)
+        : "FREE"
+    : single
+      ? `${TYPE_WORD[single.type]}${preview.gw ? ` · GW${preview.gw}` : ""}`
+      : pending
+        ? expiryLabel(preview.expires_at, now)
+        : preview.gw
+          ? `GW${preview.gw}`
+          : "";
   return (
     <section className={`ch-preview${pending ? "" : " done"}`} aria-label={pending ? "Squad change preview" : "Squad change preview (answered)"} data-testid="preview-card" data-pending={pending} data-changes={n}>
       {pending && (
@@ -108,6 +133,11 @@ export function PreviewCard({
             </span>
           </div>
         ))
+      )}
+      {draftLine && (
+        <span className="ch-draft-impact" style={{ fontSize: 13.5, color: "#E9D6A6" }} data-testid="impact-line">
+          {draftLine}
+        </span>
       )}
       {boxes.length > 0 &&
         (phone ? (

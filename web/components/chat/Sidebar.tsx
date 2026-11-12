@@ -21,7 +21,8 @@ export function writeCollapsed(v: boolean) {
   }
 }
 
-export function threadTag(t: Pick<ThreadRow, "fpl_team_id" | "team_name" | "team_label">): { text: string; cls: string } {
+export function threadTag(t: Pick<ThreadRow, "fpl_team_id" | "team_name" | "team_label"> & { is_draft?: boolean }): { text: string; cls: string } {
+  if (t.is_draft) return { text: "DRAFT", cls: "ch-tag ch-tag-draft" }; // Prompt W11: the amber DRAFT tag
   if (t.fpl_team_id) return { text: shortTeamName(t.team_name ?? t.team_label), cls: "ch-tag ch-tag-team" };
   return { text: "GENERAL", cls: "ch-tag ch-tag-gen" };
 }

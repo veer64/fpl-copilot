@@ -4,7 +4,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
-import { ApiError, api, type Feedback, type MessageRow, type TeamCardData, type ThreadRow } from "@/lib/api";
+import { ApiError, api, type DraftResult, type Feedback, type MessageRow, type TeamCardData, type ThreadRow } from "@/lib/api";
+import { OPENING_CHIPS, draftChips, unusedChips, type DraftChip } from "@/lib/draft-chips";
+import { AddTeamDialog, ADD_COPY } from "@/components/home/AddTeamDialog";
+import { BuildFailedDialog, BuildingDialog, RebuildConfirm, useDraftBuild } from "@/components/draft/BuildFlow";
+import { EnterGuide } from "@/components/draft/EnterGuide";
+import { DraftPanel, MobileDraft } from "./DraftPanel";
 import { nextEvent } from "@/lib/time";
 import { NARROW, REDUCED_MOTION, useMediaQuery } from "@/lib/useMediaQuery";
 import { ConfirmDelete } from "@/components/account/ConfirmDelete";
@@ -58,15 +63,27 @@ function fromRows(rows: MessageRow[]): Msg[] {
       // W7b: the question whose answer is being written: shown with the thinking row, from the server's started_at
       out.push({ kind: "user", key: key("u"), text: r.text, at: r.started_at });
       out.push({ kind: "thinking", key: key("t"), startedAt: r.started_at ? Date.parse(r.started_at) : Date.now(), resumed: true, question: r.text });
-    } else out.push({ kind: "assistant", key: key("a"), messageId: r.message_id, text: r.text, at: r.at, sources: r.sources ?? [], preview: r.squad_preview ?? null, applied: r.squad_applied ?? null, feedback: r.feedback ?? null });
+    } else
+      out.push({
+        kind: "assistant",
+        key: key("a"),
+        messageId: r.message_id,
+        text: r.text,
+        at: r.at,
+        sources: r.sources ?? [],
+        preview: r.squad_preview ?? null,
+        applied: r.squad_applied ?? null,
+        feedback: r.feedback ?? null,
+        ...(r.kind === "draft_opening" ? { opening: true } : {}), // W11: the draft chat's fixed opening message
+      });
   }
   return out;
 }
 
-function titleOf(msgs: Msg[], row: ThreadRow | undefined): string {
+function titleOf(msgs: Msg[], row: ThreadRow | undefined, draft = false): string {
   if (row?.title) return row.title;
   const first = msgs.find((m) => m.kind === "user");
-  if (!first || first.kind !== "user") return "New chat";
+  if (!first || first.kind !== "user") return draft ? "Your draft team" : "New chat"; // W11: a draft chat before its first question
   const t = first.text.replace(/\s+/g, " ").trim();
   return t.length <= 60 ? t : `${t.slice(0, 59).trimEnd()}…`;
 }
@@ -74,14 +91,14 @@ function titleOf(msgs: Msg[], row: ThreadRow | undefined): string {
 /** /chat (General), /chat?team={id} (Team), /chat?q= (prefilled, General -- or Team with ?team=), /chat/{id} (a past chat in
  *  its own team). Everything on the page comes from the backend with the browser's Clerk token; the team is activated on
  *  SEND, never on open (checkpoint C1). */
-export function ChatExperience({ team, q, chatId }: { team?: string; q?: string; chatId?: string }) {
+export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: string; q?: string; chatId?: string; draft?: boolean }) {
   const router = useRouter();
   const { getToken } = useAuth();
   const { user, isLoaded: userLoaded } = useUser();
   const narrow = useMediaQuery(NARROW);
 
   const teamParam = team && /^\d+$/.test(team) ? Number(team) : null;
-  const [ctx, setCtx] = useState<Context | null>(chatId ? null : teamParam ? { kind: "team", teamId: teamParam } : { kind: "general" });
+  const [ctx, setCtx] = useState<Context | null>(chatId ? null : draftParam ? { kind: "draft" } : teamParam ? { kind: "team", teamId: teamParam } : { kind: "general" });
   const [threadId, setThreadId] = useState<string | null>(chatId ?? null);
   const threadRef = useRef<string | null>(chatId ?? null);
   const activeTeam = useRef<number | null | undefined>(undefined); // undefined until /me answers
@@ -100,7 +117,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
   const [refresh, setRefresh] = useState<RefreshState>("idle");
   const [opening, setOpening] = useState<"loading" | "ready" | "error">(chatId ? "loading" : "ready");
   // W7b (F2): the unsent question is kept per chat (sessionStorage) -- saved as you type, restored when you come back, cleared on send
-  const draftKey = threadId ?? (teamParam ? `new-team-${teamParam}` : "new-general");
+  const draftKey = threadId ?? (draftParam ? "new-draft" : teamParam ? `new-team-${teamParam}` : "new-general");
   const setDraft = useCallback(
     (v: string) => {
       setDraftState(v);
@@ -130,6 +147,11 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
   const cardLoad = useCallback((t: Parameters<typeof api.teamCard>[0]) => (teamId ? api.teamCard(t, teamId) : Promise.resolve(null)), [teamId]);
   const [card, reloadCard] = useResource<TeamCardData | null>(cardLoad);
   const messagesLoad = useCallback((t: Parameters<typeof api.messages>[0]) => (chatId ? api.messages(t, chatId) : Promise.resolve([] as MessageRow[])), [chatId]);
+  // Prompt W11: the draft -- read for a draft chat, and for any reopened chat (a draft chat with only its opening message is
+  // not in /threads yet, W4's rule: its id is in the draft's thread_ids)
+  const wantDraft = !!chatId || ctx?.kind === "draft";
+  const draftLoad = useCallback((t: Parameters<typeof api.draft>[0]) => (wantDraft ? api.draft(t) : Promise.resolve({ draft: null } as DraftResult)), [wantDraft]);
+  const [draftRes, reloadDraft] = useResource<DraftResult>(draftLoad);
   const [stored, reloadStored] = useResource<MessageRow[]>(messagesLoad);
 
   useEffect(() => {
@@ -169,16 +191,18 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
       return;
     }
     if (stored.status !== "ready" || threads.status === "loading") return;
-    hydrated.current = true;
     const row = threads.status === "ready" ? threads.data.find((t) => t.thread_id === chatId) : undefined;
+    if (!row?.is_draft && draftRes.status === "loading") return; // W11: an unlisted chat may be the draft's
+    hydrated.current = true;
+    const isDraft = !!row?.is_draft || (draftRes.status === "ready" && !!draftRes.data.draft?.thread_ids.includes(chatId));
     const rowTeam = row?.fpl_team_id ?? null;
     const fallback = me.status === "ready" ? me.data.active_team?.fpl_team_id ?? null : null;
     const tid = row ? rowTeam : fallback;
-    setCtx(tid ? { kind: "team", teamId: tid } : { kind: "general" });
+    setCtx(isDraft ? { kind: "draft" } : tid ? { kind: "team", teamId: tid } : { kind: "general" });
     scrollIntent.current = "last-turn"; // W10: a reopened chat lands with its last question at the top
     setMsgs(fromRows(stored.data));
     setOpening("ready");
-  }, [chatId, stored, threads, me, router]);
+  }, [chatId, stored, threads, me, router, draftRes]);
 
   const pending = useMemo(() => pendingPreview(msgs), [msgs]);
   const pendingKey = pending?.msg.key ?? null;
@@ -286,7 +310,16 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
   const nextGw = deadlines.status === "ready" && now ? (nextEvent(deadlines.data.events, now)?.gw ?? null) : cardData?.next_gw ?? null;
   const row = threads.status === "ready" && threadId ? threads.data.find((t) => t.thread_id === threadId) : undefined;
   const teamName = ctx?.kind === "team" ? (row?.team_name ?? cardData?.team.name ?? null) : null;
-  const tag = ctx ? (ctx.kind === "team" ? threadTag({ fpl_team_id: ctx.teamId, team_name: teamName, team_label: null }) : threadTag({ fpl_team_id: null, team_name: null, team_label: null })) : null;
+  const tag = ctx
+    ? ctx.kind === "draft"
+      ? threadTag({ fpl_team_id: null, team_name: null, team_label: null, is_draft: true })
+      : ctx.kind === "team"
+        ? threadTag({ fpl_team_id: ctx.teamId, team_name: teamName, team_label: null })
+        : threadTag({ fpl_team_id: null, team_name: null, team_label: null })
+    : null;
+  const isDraftChat = ctx?.kind === "draft";
+  const draftData = draftRes.status === "ready" ? draftRes.data.draft : null;
+  const draftGone = isDraftChat && draftRes.status === "ready" && !draftData;
   const firstName = userLoaded ? user?.firstName || user?.fullName?.split(/\s+/)[0] || null : null;
   const isNew = msgs.length === 0 && opening === "ready";
 
@@ -298,7 +331,17 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
     if (limitUntil !== null && !limited) setLimitUntil(null);
     if (rateUntil !== null && !rated) setRateUntil(null);
   }, [limited, rated, limitUntil, rateUntil]);
-  const disabledText = busy ? "Wait for the answer…" : guestBlocked ? guestBlocked : limited ? "Daily limit reached — back at 00:00 UTC" : rated ? "Wait a minute…" : null;
+  const disabledText = busy
+    ? "Wait for the answer…"
+    : guestBlocked
+      ? guestBlocked
+      : limited
+        ? "Daily limit reached — back at 00:00 UTC"
+        : rated
+          ? "Wait a minute…"
+          : draftGone
+            ? "Your draft was deleted — build a new one from Home"
+            : null;
 
   const replaceThinking = useCallback((thinkKey: string, next: Msg | null) => {
     setMsgs((m) => (next ? m.map((x) => (x.key === thinkKey ? next : x)) : m.filter((x) => x.key !== thinkKey)));
@@ -319,6 +362,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
       try {
         // C1: the chat's team becomes the active one on SEND, only when it is not already
         if (activeTeam.current === undefined && me.status === "ready") activeTeam.current = me.data.active_team?.fpl_team_id ?? null;
+        // W11: a draft chat never activates or deactivates a team (the server binds the turn to the draft by its thread)
         if (ctx.kind === "team" && activeTeam.current !== ctx.teamId) {
           await api.activate(getToken, ctx.teamId);
           activeTeam.current = ctx.teamId;
@@ -328,7 +372,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
         }
         let tid = threadRef.current;
         if (!tid) {
-          tid = (await api.newThread(getToken)).thread_id;
+          tid = (ctx.kind === "draft" ? await api.newDraftThread(getToken) : await api.newThread(getToken)).thread_id;
           threadRef.current = tid;
           setThreadId(tid);
           window.history.replaceState(null, "", `/chat/${tid}`);
@@ -358,7 +402,10 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
           reveal: true, // W10: this reply writes itself out (once, in this tab)
         });
         reloadThreads();
-        if (reply.squad_applied) reloadCard();
+        if (reply.squad_applied) {
+          if (ctx.kind === "draft") reloadDraft();
+          else reloadCard();
+        }
       } catch (e) {
         const err = e instanceof ApiError ? e : new ApiError(0, e instanceof Error ? e.message : String(e));
         if (err.status === 401) {
@@ -379,7 +426,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
         setBusy(false);
       }
     },
-    [busy, ctx, disabledText, draftKey, getToken, me, reloadCard, reloadThreads, replaceThinking, router, setDraft],
+    [busy, ctx, disabledText, draftKey, getToken, me, reloadCard, reloadDraft, reloadThreads, replaceThinking, router, setDraft],
   );
 
   /** d's Retry: re-read the thread first -- an answer that landed meanwhile is shown; else the question is sent once more. */
@@ -412,7 +459,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
 
   const newChat = useCallback(() => {
     setDrawer(false);
-    router.push(ctx?.kind === "team" ? `/chat?team=${ctx.teamId}` : "/chat");
+    router.push(ctx?.kind === "team" ? `/chat?team=${ctx.teamId}` : ctx?.kind === "draft" ? "/chat?draft=1" : "/chat");
   }, [ctx, router]);
   // Prompt W5: Delete chat -- the trash on a row opens the shared confirm; DELETE /threads/{id}; the row goes; the open
   // chat deleted -> a new empty chat in the same team / General
@@ -488,9 +535,48 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
   const listNeedsClock = useMemo(() => msgs.some((m) => m.kind === "system" || (m.kind === "assistant" && !!m.preview)), [msgs]);
   const listNow = listNeedsClock ? now : null;
 
+  // ---- Prompt W11: draft mode -- the chips (O2 / O3), the guide, Add my team ID, Rebuild ----------------------------------
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideFromChip, setGuideFromChip] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [rebuildOpen, setRebuildOpen] = useState(false);
+  const rebuildOpener = useRef<HTMLElement | null>(null);
+  const rebuilt = useCallback(() => {
+    reloadDraft();
+    setMsgs((m) => [...finishReveal(m), { kind: "system", key: key("s"), variant: "rebuilt" }]);
+  }, [reloadDraft]);
+  const builder = useDraftBuild(rebuilt);
+  const askRebuild = () => {
+    rebuildOpener.current = document.activeElement as HTMLElement | null;
+    setRebuildOpen(true);
+  };
+  const sentTexts = useMemo(() => msgs.filter((m) => m.kind === "user").map((m) => (m.kind === "user" ? m.text : "")), [msgs]);
+  const onDraftChip = useCallback(
+    (c: DraftChip) => {
+      if (c.action === "guide") {
+        setGuideFromChip(true);
+        setGuideOpen(true);
+      } else {
+        send(c.text);
+      }
+    },
+    [send, setGuideOpen, setGuideFromChip],
+  );
+  const draftFacts = useMemo(
+    () => ({ captain: draftData?.captain?.short_name ?? null, left: draftData?.left ?? null, over: draftData?.over ?? null }),
+    [draftData],
+  );
+  const listDraft = useMemo(
+    () =>
+      isDraftChat
+        ? { opening: OPENING_CHIPS, answer: unusedChips(draftChips(draftFacts), sentTexts, guideFromChip), onChip: onDraftChip }
+        : null,
+    [isDraftChat, draftFacts, sentTexts, guideFromChip, onDraftChip],
+  );
+
   const general = ctx?.kind === "general";
   const newRow = isNew && tag ? tag : null;
-  const placeholder = ctx?.kind === "team" ? `Ask about ${teamName ?? "your team"}…` : "Ask anything about FPL…";
+  const placeholder = ctx?.kind === "team" ? `Ask about ${teamName ?? "your team"}…` : isDraftChat ? "Ask about your draft…" : "Ask anything about FPL…";
 
   return (
     <div className="ch" data-testid="chat" data-context={ctx?.kind ?? "loading"} data-team-id={teamId ?? ""} data-thread-id={threadId ?? ""} data-ready={opening === "ready"} data-busy={busy}>
@@ -514,13 +600,24 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
             </>
           )}
           <div className="ch-title">
-            <h1 data-testid="chat-title">{titleOf(msgs, row)}</h1>
+            <h1 data-testid="chat-title">{titleOf(msgs, row, isDraftChat)}</h1>
             {tag && (
               <span className={tag.cls} data-testid="chat-tag">
                 {tag.text}
               </span>
             )}
           </div>
+          {isDraftChat && (
+            <div className="dr-banner" data-testid="draft-banner">
+              <span>Not in FPL yet ·</span>
+              <button type="button" onClick={() => setGuideOpen(true)} data-testid="draft-banner-guide">
+                How to enter it
+              </button>
+            </div>
+          )}
+          {narrow && isDraftChat && (
+            <MobileDraft draft={draftRes} preview={pending?.preview ?? null} open={panel} onToggle={() => setPanel((p) => !p)} onRebuild={askRebuild} onRetry={reloadDraft} rebuilding={builder.state === "building"} />
+          )}
           {narrow && ctx?.kind === "team" && (
             <MobileTeam card={card as Parameters<typeof MobileTeam>[0]["card"]} preview={pending?.preview ?? null} open={panel} onToggle={() => setPanel((p) => !p)} refresh={refresh} onRefresh={doRefresh} onRetry={reloadCard} teamName={teamName} />
           )}
@@ -551,9 +648,9 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
                   }}
                 />
               )}
-              {isNew && ctx && <EmptyState mode={ctx.kind} teamName={teamName} nextGw={nextGw} card={cardData} firstName={firstName} onChip={chip} />}
+              {isNew && ctx && <EmptyState mode={ctx.kind} teamName={teamName} nextGw={nextGw} card={cardData} firstName={firstName} onChip={chip} draft={draftData} onGuide={() => setGuideOpen(true)} />}
               {msgs.length > 0 && (
-                <MessageList msgs={msgs} now={listNow} phone={narrow} onYes={onYes} onNo={onNo} onRetry={retry} onStartNew={newChat} onFeedback={feedback} />
+                <MessageList msgs={msgs} now={listNow} phone={narrow} onYes={onYes} onNo={onNo} onRetry={retry} onStartNew={newChat} onFeedback={feedback} draft={listDraft} />
               )}
             </div>
           </div>
@@ -581,6 +678,11 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
             ariaLabel={placeholder.replace(/…$/, "")}
           />
         </main>
+        {!narrow && isDraftChat && (
+          <div className="ch-right">
+            <DraftPanel draft={draftRes} preview={pending?.preview ?? null} open={cardOpen} onToggle={() => setCardOpen((o) => !o)} onRebuild={askRebuild} onRetry={reloadDraft} rebuilding={builder.state === "building"} />
+          </div>
+        )}
         {!narrow && ctx?.kind === "team" && (
           <div className="ch-right">
             <TeamCardPanel card={card as Parameters<typeof TeamCardPanel>[0]["card"]} preview={pending?.preview ?? null} refresh={refresh} onRefresh={doRefresh} onRetry={reloadCard} open={cardOpen} onToggle={() => setCardOpen((o) => !o)} teamName={teamName} />
@@ -588,6 +690,27 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
         )}
       </div>
       {narrow && drawer && <MobileDrawer onClose={() => setDrawer(false)} onNew={newChat} threads={threads} currentId={threadId} newRow={newRow} now={now} onOpen={openThread} onDelete={askDelete} />}
+      {isDraftChat && (
+        <>
+          <EnterGuide
+            d={draftData}
+            open={guideOpen}
+            onClose={() => setGuideOpen(false)}
+            onAddTeam={() => {
+              setGuideOpen(false);
+              setAddOpen(true);
+            }}
+          />
+          <AddTeamDialog
+            open={addOpen}
+            onOpenChange={setAddOpen}
+            onAdded={(c) => toast.success(`${c.label ?? c.entry_name ?? "Your team"} added`, { description: ADD_COPY.success, duration: 8000 })}
+          />
+          <RebuildConfirm open={rebuildOpen} onClose={() => setRebuildOpen(false)} onConfirm={builder.rebuild} returnTo={rebuildOpener} />
+          <BuildingDialog open={builder.state === "building"} rebuild />
+          <BuildFailedDialog open={builder.state === "failed"} onCancel={builder.cancel} onRetry={builder.retry} />
+        </>
+      )}
       <ConfirmDelete
         open={deleting !== null}
         onClose={() => setDeleting(null)}

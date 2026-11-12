@@ -1,7 +1,8 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Feedback } from "@/lib/api";
+import type { Feedback, SquadApplied } from "@/lib/api";
+import type { DraftChip } from "@/lib/draft-chips";
 import { REDUCED_MOTION, useMediaQuery } from "@/lib/useMediaQuery";
 import { stripSourcesBlock } from "@/lib/sources";
 import { Markdown } from "./Markdown";
@@ -72,18 +73,41 @@ function Actions({ msg, onFeedback }: { msg: AssistantMsg; onFeedback: (m: Assis
   );
 }
 
-function SavedBlock({ gw, plural }: { gw: number; plural: boolean }) {
+function SavedBlock({ applied, plural }: { applied: SquadApplied; plural: boolean }) {
   return (
-    <div className="ch-saved" data-testid="saved-block">
+    <div className="ch-saved" data-testid="saved-block" data-draft={applied.draft ? "true" : undefined}>
       <span className="ch-saved-ic" aria-hidden="true">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
           <path d="M5 12l5 5L20 7" />
         </svg>
       </span>
-      <div>
-        <b>Saved in FPL Copilot.</b>
-        <span>Make {plural ? "these changes" : "this change"} in the FPL app before the GW{gw} deadline.</span>
-      </div>
+      {applied.draft ? (
+        // Prompt W11: a draft change is free and lives only here -- nothing to do in the FPL app
+        <div>
+          <b>{applied.kind === "rebuild" ? "Draft rebuilt from the best picks." : "Saved to your draft."}</b>
+        </div>
+      ) : (
+        <div>
+          <b>Saved in FPL Copilot.</b>
+          <span>
+            Make {plural ? "these changes" : "this change"} in the FPL app before the GW{applied.gw} deadline.
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Prompt W11: a draft chat's chips under an answer -- in the user's voice; the guide chip opens the guide, the others send. */
+function DraftChips({ chips, onChip, testId }: { chips: DraftChip[]; onChip: (c: DraftChip) => void; testId: string }) {
+  if (!chips.length) return null;
+  return (
+    <div className="dr-chips" role="list" aria-label="Suggested questions" data-testid={testId}>
+      {chips.map((c) => (
+        <button type="button" role="listitem" className={`dr-chip${c.action === "guide" ? " guide" : ""}`} key={c.text} onClick={() => onChip(c)} data-testid="draft-chip" data-action={c.action ?? "send"}>
+          {c.text}
+        </button>
+      ))}
     </div>
   );
 }
@@ -102,6 +126,8 @@ function AnswerRow({
   onYes,
   onNo,
   onFeedback,
+  chips,
+  onChip,
 }: {
   m: AssistantMsg;
   msgs: Msg[];
@@ -112,6 +138,9 @@ function AnswerRow({
   onYes: () => void;
   onNo: () => void;
   onFeedback: (m: AssistantMsg, score: Feedback) => void;
+  /** Prompt W11: the draft chips under THIS answer (shown once it has finished writing itself out, like Copy and the thumbs) */
+  chips?: DraftChip[] | null;
+  onChip?: (c: DraftChip) => void;
 }) {
   const reduced = useMediaQuery(REDUCED_MOTION);
   const { text: full } = stripSourcesBlock(m.text, m.sources.length > 0);
@@ -124,7 +153,7 @@ function AnswerRow({
     <div className="ch-ai" data-testid="assistant-message" data-message-id={m.messageId ?? ""} data-revealing={!done}>
       <Avatar />
       <div className="ch-md">
-        {m.applied && <SavedBlock gw={m.applied.gw} plural={plural} />}
+        {m.applied && <SavedBlock applied={m.applied} plural={plural} />}
         {done ? (
           full.trim() && srCopy
         ) : (
@@ -138,12 +167,13 @@ function AnswerRow({
           </>
         )}
         {done && m.preview && <PreviewCard preview={m.preview} pending={pending} choice={pending ? null : choiceAfter(msgs, i)} now={now} phone={phone} onYes={onYes} onNo={onNo} />}
-        {done && (
+        {done && !m.opening && (
           <div className="ch-ans-foot">
             {m.sources.length > 0 && <SourcesRow sources={m.sources} id={`src-${m.key}`} />}
             <Actions msg={m} onFeedback={onFeedback} />
           </div>
         )}
+        {done && chips && onChip && <DraftChips chips={chips} onChip={onChip} testId={m.opening ? "opening-chips" : "answer-chips"} />}
       </div>
     </div>
   );
@@ -165,6 +195,7 @@ export const MessageList = memo(function MessageList({
   onRetry,
   onStartNew,
   onFeedback,
+  draft = null,
 }: {
   msgs: Msg[];
   now: Date | null;
@@ -174,6 +205,9 @@ export const MessageList = memo(function MessageList({
   onRetry: (question: string) => void;
   onStartNew: () => void;
   onFeedback: (m: AssistantMsg, score: Feedback) => void;
+  /** Prompt W11: a draft chat's chips -- O2's under the opening message while no question has been asked, else the unused O3
+   *  chips under the LATEST answer (never under a pending preview, whose next step is Yes / No) */
+  draft?: { opening: DraftChip[]; answer: DraftChip[]; onChip: (c: DraftChip) => void } | null;
 }) {
   // the render counter lives on the DOM node and is bumped after each commit (an effect with no deps), never during render
   const wrap = useRef<HTMLDivElement>(null);
@@ -207,8 +241,37 @@ export const MessageList = memo(function MessageList({
           <SystemMessage msg={m} now={now} onRetry={onRetry} onStartNew={onStartNew} />
         </div>
       );
-    return <AnswerRow key={m.key} m={m} msgs={msgs} i={i} pending={m.key === pendingKey} now={now} phone={phone} onYes={onYes} onNo={onNo} onFeedback={onFeedback} />;
+    return (
+      <AnswerRow
+        key={m.key}
+        m={m}
+        msgs={msgs}
+        i={i}
+        pending={m.key === pendingKey}
+        now={now}
+        phone={phone}
+        onYes={onYes}
+        onNo={onNo}
+        onFeedback={onFeedback}
+        chips={m.key === chipsKey ? chipsFor : null}
+        onChip={draft?.onChip}
+      />
+    );
   };
+  // Prompt W11: which answer carries the draft chips (one row at most)
+  let chipsKey: string | null = null;
+  let chipsFor: DraftChip[] | null = null;
+  if (draft) {
+    const asked = msgs.some((m) => m.kind === "user");
+    const lastMsg = msgs[msgs.length - 1];
+    if (!asked && msgs[0]?.kind === "assistant" && msgs[0].opening) {
+      chipsKey = msgs[0].key;
+      chipsFor = draft.opening;
+    } else if (lastMsg?.kind === "assistant" && !lastMsg.opening && lastMsg.key !== pendingKey) {
+      chipsKey = lastMsg.key;
+      chipsFor = draft.answer;
+    }
+  }
   // turns: a user message starts one; anything before the first user message is a leading group of its own
   const turns: { key: string; rows: ReactNode[] }[] = [];
   msgs.forEach((m, i) => {

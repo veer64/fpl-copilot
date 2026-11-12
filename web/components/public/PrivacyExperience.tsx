@@ -10,7 +10,7 @@ import { Arrow, Backdrop, PublicFooter, PublicHeader } from "./PublicChrome";
  *  highlights the section in view (IntersectionObserver, aria-current); the phone shows the sections as a row of chips.
  *  "Last updated" comes from the one constant below. No delete button here: the account menu has it. */
 
-export const PRIVACY_UPDATED = "12 Nov 2026"; // W9: the guest section
+export const PRIVACY_UPDATED = "12 Nov 2026"; // W9: the guest section; W11: the draft team line
 const CONTACT = "veersanghavi8@gmail.com";
 
 export const SECTIONS: { id: string; n: string; title: string }[] = [
@@ -167,6 +167,18 @@ export function PrivacyExperience() {
                 <div>
                   <b>Your FPL teams</b>
                   <span className="d">The FPL team IDs you add, the names you give them, their public FPL data, and our saved copy of each squad with the changes you apply.</span>
+                </div>
+              </div>
+              <div className="pp-row" data-testid="privacy-draft">
+                <Ic>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                    <path d="M3 12h18" />
+                  </svg>
+                </Ic>
+                <div>
+                  <b>Your draft team</b>
+                  <span className="d">If you build a draft team, we keep its 15 players until you delete it or your account.</span>
                 </div>
               </div>
               <div className="pp-row">

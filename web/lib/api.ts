@@ -33,6 +33,7 @@ export type ThreadRow = {
   fpl_team_id: number | null;
   team_name: string | null;
   updated_at: string;
+  is_draft?: boolean; // Prompt W11: the user's draft chat (the amber DRAFT tag)
 };
 
 // ---- the Chat page (Prompt W4, 2026-11-06) ---------------------------------------------------------------------------------
@@ -62,9 +63,23 @@ export type SquadPreview = {
   gw: number | null;
   expires_at: string | null;
   changes: SquadChange[];
-  impact: { pts_delta: number | null; pts_horizon_gws: number | null; bank_after: number | null; ft_before: number | null; ft_after: number | null; hit_pts: number | null };
+  impact: {
+    pts_delta: number | null;
+    pts_horizon_gws: number | null;
+    bank_after: number | null;
+    ft_before: number | null;
+    ft_after: number | null;
+    hit_pts: number | null;
+    // Prompt W11: a draft change is free -- its value before / after and the money left (or over) at current prices
+    value_before?: number | null;
+    value_after?: number | null;
+    left_after?: number | null;
+    over_after?: number | null;
+  };
+  draft?: boolean;
+  kind?: "change" | "rebuild";
 };
-export type SquadApplied = { gw: number; version_id: number };
+export type SquadApplied = { gw: number; version_id: number; draft?: boolean; kind?: "change" | "rebuild" };
 
 /** POST /chat */
 export type ChatReply = {
@@ -91,6 +106,7 @@ export type MessageRow =
       squad_preview: SquadPreview | null;
       squad_applied: SquadApplied | null;
       feedback: "up" | "down" | null;
+      kind?: "draft_opening"; // Prompt W11: the draft chat's fixed opening message (stored before any question)
     };
 
 export type TeamCardData = {
@@ -111,6 +127,36 @@ export type TeamCardData = {
   fpl_live: boolean;
   fetched_at: string;
 };
+
+/** Prompt W11: GET /me/draft (and the build / rebuild answers) -- the draft card: the team card's player objects plus the Home
+ *  summary. Value and money left are at CURRENT prices; predicted points come from the LATEST predictions. */
+export type DraftCard = {
+  version_id: number;
+  formation: string;
+  captain: { id: number; short_name: string; full_name: string } | null;
+  vice: { id: number; short_name: string; full_name: string } | null;
+  predicted_xi_points: number | null;
+  predictions_gw: number | null;
+  predictions_updated_at: string | null;
+  value: number | null;
+  budget: number;
+  left: number | null;
+  over: number | null;
+  built_at: string;
+  built_from_predictions_at: string | null;
+  built_from_run_id: number | null;
+  newer_predictions: boolean;
+  n_changes: number;
+  updated_at: string;
+  thread_id: string | null;
+  thread_ids: string[];
+  next_gw: number | null;
+  next_deadline: string | null;
+  fpl_live: boolean;
+  players: Player[];
+};
+export type DraftResult = { draft: DraftCard | null; existing?: boolean; thread_id?: string | null };
+export type DeleteDraftResult = { deleted: true; removed_chats: number; removed_previews: number };
 
 export type Feedback = "up" | "down" | null;
 export type FeedbackResult = { message_id: string; feedback: Feedback; feedback_at: string; langfuse: "sent" | "skipped" | "failed" };
@@ -319,6 +365,12 @@ export const api = {
   teamCard: (t: TokenGetter, fplTeamId: number) => apiFetch<TeamCardData>(t, `/me/teams/${fplTeamId}/card`),
   messages: (t: TokenGetter, threadId: string) => apiFetch<MessageRow[]>(t, `/threads/${encodeURIComponent(threadId)}/messages`),
   newThread: (t: TokenGetter) => apiFetch<{ thread_id: string }>(t, "/threads", { method: "POST" }),
+  // Prompt W11: the draft team (one per account; never a team slot)
+  draft: (t: TokenGetter) => apiFetch<DraftResult>(t, "/me/draft"),
+  buildDraft: (t: TokenGetter) => apiFetch<DraftResult>(t, "/me/draft", { method: "POST", timeoutMs: 45_000 }),
+  rebuildDraft: (t: TokenGetter) => apiFetch<DraftResult>(t, "/me/draft/rebuild", { method: "POST", timeoutMs: 45_000 }),
+  deleteDraft: (t: TokenGetter) => apiFetch<DeleteDraftResult>(t, "/me/draft", { method: "DELETE", timeoutMs: 60_000 }),
+  newDraftThread: (t: TokenGetter) => apiFetch<{ thread_id: string; draft: true }>(t, "/threads", { method: "POST", json: { draft: true } }),
   chat: (t: TokenGetter, message: string, threadId: string | null, timeoutMs = CHAT_TIMEOUT_MS) =>
     apiFetch<ChatReply>(t, "/chat", { method: "POST", json: threadId ? { message, thread_id: threadId } : { message }, timeoutMs }),
   feedback: (t: TokenGetter, messageId: string, score: Feedback) =>

@@ -14,19 +14,22 @@ export type AssistantMsg = {
   feedback: Feedback;
   /** W10: the reply that just arrived in this tab -- it writes itself out once (never set on stored rows) */
   reveal?: boolean;
+  /** Prompt W11: the draft chat's fixed opening message (stored before any question; its chips show under it) */
+  opening?: boolean;
 };
 export type SystemMsg =
   | { kind: "system"; key: string; variant: "limit"; resetAt: string }
   | { kind: "system"; key: string; variant: "rate"; untilMs: number }
   | { kind: "system"; key: string; variant: "team"; threadId: string | null }
   | { kind: "system"; key: string; variant: "error"; question: string; why: string }
-  | { kind: "system"; key: string; variant: "guest"; code: "guest" | "guest_budget" | "guest_off"; text: string }; // W9
+  | { kind: "system"; key: string; variant: "guest"; code: "guest" | "guest_budget" | "guest_off"; text: string } // W9
+  | { kind: "system"; key: string; variant: "rebuilt" }; // W11: "Draft rebuilt from the best picks." (the card's Rebuild)
 /** `resumed` (W7b): the answer was in flight when the page loaded (a pending row from the server) -- "Still working on this
  *  answer…" and the page re-reads the thread until it lands. */
 export type ThinkingMsg = { kind: "thinking"; key: string; startedAt: number; resumed?: boolean; question?: string };
 export type Msg = UserMsg | AssistantMsg | SystemMsg | ThinkingMsg;
 
-export type Context = { kind: "team"; teamId: number } | { kind: "general" };
+export type Context = { kind: "team"; teamId: number } | { kind: "general" } | { kind: "draft" }; // W11: the user's draft
 
 /** A preview is pending when it is the thread's LATEST preview and no user message follows it (C3: expiry changes nothing). */
 export function pendingPreview(msgs: Msg[]): { msg: AssistantMsg; preview: SquadPreview } | null {

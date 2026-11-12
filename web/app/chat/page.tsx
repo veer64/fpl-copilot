@@ -6,6 +6,7 @@ import { ChatExperience } from "@/components/chat/ChatExperience";
 import { loginUrlFor } from "@/lib/redirects";
 import "../home/home.css";
 import "./chat.css";
+import "../home/draft.css";
 
 export const metadata: Metadata = { title: "Chat" };
 
@@ -25,12 +26,14 @@ async function Protected({ searchParams }: { searchParams: PageProps<"/chat">["s
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const team = one(sp.team);
   const q = one(sp.q);
+  const draft = one(sp.draft) === "1"; // Prompt W11: a new chat about the user's draft
   if (!userId) {
     const qs = new URLSearchParams();
     if (team) qs.set("team", team);
+    if (draft) qs.set("draft", "1");
     if (q) qs.set("q", q);
     redirect(loginUrlFor(`/chat${qs.size ? `?${qs}` : ""}`));
   }
   // a new context is a new page (its reads start again), even when only the search params changed
-  return <ChatExperience key={`${team ?? ""}|${q ?? ""}`} team={team} q={q} />;
+  return <ChatExperience key={`${team ?? ""}|${q ?? ""}|${draft ? "draft" : ""}`} team={team} q={q} draft={draft} />;
 }

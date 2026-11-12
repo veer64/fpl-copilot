@@ -113,7 +113,13 @@ export function RecentChats({ threads, now }: { threads: ThreadRow[]; now: Date 
           <span className="hm-row-body">
             <span className="hm-row-title">{t.title ?? "New chat"}</span>
             <span className="hm-row-meta">
-              <span className={`hm-tag ${t.fpl_team_id ? "hm-tag-team" : "hm-tag-gen"}`}>{t.fpl_team_id ? shortTeamName(t.team_label) : "GENERAL"}</span>
+              {t.is_draft ? (
+                <span className="hm-tag dr-tag" data-testid="recent-tag-draft">
+                  DRAFT
+                </span>
+              ) : (
+                <span className={`hm-tag ${t.fpl_team_id ? "hm-tag-team" : "hm-tag-gen"}`}>{t.fpl_team_id ? shortTeamName(t.team_label) : "GENERAL"}</span>
+              )}
               <span className="hm-row-ago">{now ? timeAgo(t.last_active, now) : ""}</span>
             </span>
           </span>

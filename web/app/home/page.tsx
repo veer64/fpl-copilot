@@ -5,6 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 import { HomeExperience } from "@/components/home/HomeExperience";
 import { loginUrlFor } from "@/lib/redirects";
 import "./home.css";
+import "./draft.css";
 
 export const metadata: Metadata = { title: "Home" };
 

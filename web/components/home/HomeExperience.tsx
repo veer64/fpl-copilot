@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
-import { ApiError, api, type TeamCard as Card } from "@/lib/api";
+import { ApiError, api, type DraftResult, type TeamCard as Card } from "@/lib/api";
 import { greetingWord, nextEvent } from "@/lib/time";
 import { ConfirmDelete } from "@/components/account/ConfirmDelete";
 import { AddTeamDialog, ADD_COPY } from "./AddTeamDialog";
@@ -17,6 +17,9 @@ import { AddTeamCard, Spinner, TeamCard, TeamsFull, teamName } from "./TeamCard"
 import { loginSignedOut, useSignedOutRedirect } from "@/lib/session";
 import { useNow, useResource } from "./useResource";
 import { GuestSession } from "@/components/guest/GuestSession";
+import { BuildChoice, BuildPill, DraftHomeCard, SlimAddRow } from "@/components/draft/DraftParts";
+import { BuildFailedDialog, BuildingDialog, RebuildConfirm, useDraftBuild } from "@/components/draft/BuildFlow";
+import { EnterGuide } from "@/components/draft/EnterGuide";
 
 export const MAX_TEAMS = 3;
 const NEW_PULSE_MS = 1500;
@@ -35,9 +38,10 @@ export function HomeExperience() {
   const [teams, reloadTeams] = useResource(api.teams);
   const [threads, reloadThreads] = useResource(api.threads);
   const [deadlines, reloadDeadlines] = useResource(api.deadlines);
+  const [draftRes, reloadDraft] = useResource(api.draft); // Prompt W11: the draft team (one per account; never a slot)
 
   const [addOpen, setAddOpen] = useState(false);
-  const [busy, setBusy] = useState<{ kind: "ask" | "refresh"; id: number } | { kind: "general" } | null>(null);
+  const [busy, setBusy] = useState<{ kind: "ask" | "refresh"; id: number } | { kind: "general" } | { kind: "draft" } | null>(null);
   const [refreshFailed, setRefreshFailed] = useState<Record<number, boolean>>({});
   const [newId, setNewId] = useState<number | null>(null);
 
@@ -50,8 +54,9 @@ export function HomeExperience() {
     return used[0]?.fpl_team_id ?? cards.find((t) => t.is_active)?.fpl_team_id ?? cards[0]?.fpl_team_id ?? null;
   }, [cards]);
 
-  const loading = teams.status === "loading" || threads.status === "loading";
+  const loading = teams.status === "loading" || threads.status === "loading" || draftRes.status === "loading";
   const isNew = teams.status === "ready" && threads.status === "ready" && teams.data.length === 0 && threads.data.length === 0;
+  const draft = draftRes.status === "ready" ? draftRes.data.draft : null;
 
   // --- W10: pending states never outlive the page being shown ----------------------------------------------------------------
   // Next keeps a left page mounted but hidden (React Activity) and shows the SAME instance on Back or a Home link, so a
@@ -114,6 +119,63 @@ export function HomeExperience() {
 
   const chip = (q: string) => router.push(`/chat?q=${encodeURIComponent(q)}`);
 
+  // --- Prompt W11: the draft team -- Build (the building card, then straight into the chat), Open, Rebuild, Delete, the guide
+  const drafted = (r: DraftResult, kind: "build" | "rebuild") => {
+    reloadDraft();
+    if (kind === "rebuild") {
+      toast.success("Draft rebuilt from the best picks.");
+      return;
+    }
+    const tid = r.thread_id ?? r.draft?.thread_id ?? null;
+    setBusy({ kind: "draft" });
+    navigate(tid ? `/chat/${tid}` : "/chat?draft=1", "your draft");
+  };
+  const builder = useDraftBuild(drafted);
+  const openDraft = () => {
+    if (!draft) return;
+    setBusy({ kind: "draft" });
+    navigate(draft.thread_id ? `/chat/${draft.thread_id}` : "/chat?draft=1", "your draft");
+  };
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [rebuildOpen, setRebuildOpen] = useState(false);
+  const [deletingDraft, setDeletingDraft] = useState(false);
+  const draftOpener = useRef<HTMLElement | null>(null);
+  const draftChats = threads.status === "ready" ? threads.data.filter((r) => r.is_draft).length : 0;
+  const draftIntro =
+    draftChats === 0
+      ? "Your 15 players and every change you made will be removed."
+      : `Your 15 players, every change you made and its ${draftChats === 1 ? "1 chat" : `${draftChats} chats`} will be removed.`;
+  const confirmDeleteDraft = async () => {
+    try {
+      await api.deleteDraft(getToken);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) loginSignedOut(router);
+      throw err;
+    }
+    setDeletingDraft(false);
+    reloadDraft();
+    reloadThreads();
+  };
+  const remember = () => {
+    draftOpener.current = document.activeElement as HTMLElement | null;
+  };
+  const draftActions = {
+    onChat: openDraft,
+    onGuide: () => {
+      remember();
+      setGuideOpen(true);
+    },
+    onRebuild: () => {
+      remember();
+      setRebuildOpen(true);
+    },
+    onDelete: () => {
+      remember();
+      setDeletingDraft(true);
+    },
+    busy: busy !== null || builder.state === "building",
+  };
+
   const refresh = async (t: Card) => {
     setBusy({ kind: "refresh", id: t.fpl_team_id });
     try {
@@ -167,7 +229,7 @@ export function HomeExperience() {
       <div>
         <span className="hm-lbl">Welcome</span>
         <h1>Welcome, manager.</h1>
-        <p>Add your FPL team for answers about your squad — or just ask a question.</p>
+        <p>Add your FPL team, build one from our predictions — or just ask a question.</p>
       </div>
     </div>
   ) : (
@@ -205,7 +267,7 @@ export function HomeExperience() {
           <TeamsSkeleton />
         ) : isNew ? (
           <>
-            <div className="hm-choices" data-testid="new-user-choices">
+            <div className="hm-choices three" data-testid="new-user-choices">
               <section className="hm-glass hm-choice primary" aria-labelledby="choice-team">
                 <span className="hm-br hm-tl" aria-hidden="true" />
                 <span className="hm-br hm-brr" aria-hidden="true" />
@@ -222,6 +284,7 @@ export function HomeExperience() {
                   </button>
                 </div>
               </section>
+              <BuildChoice d={draft} busy={busy !== null || builder.state === "building"} onBuild={builder.build} onOpen={openDraft} />
               <section className="hm-glass hm-choice" aria-labelledby="choice-ask">
                 <span className="hm-br hm-tl" aria-hidden="true" />
                 <span className="hm-br hm-brr" aria-hidden="true" />
@@ -237,7 +300,7 @@ export function HomeExperience() {
                         <Spinner /> Opening chat…
                       </>
                     ) : (
-                      "Just ask a question"
+                      "Start a general chat"
                     )}
                   </button>
                 </div>
@@ -255,8 +318,11 @@ export function HomeExperience() {
               <h2 id="teams-title" className="hm-lbl">
                 Your teams
               </h2>
-              <span className="hm-count" data-testid="teams-count">
-                {cards.length} of {MAX_TEAMS} teams
+              <span className="dr-head-r">
+                {!draft && draftRes.status === "ready" && <BuildPill onBuild={builder.build} busy={busy !== null || builder.state === "building"} />}
+                <span className="hm-count" data-testid="teams-count">
+                  {cards.length} of {MAX_TEAMS} teams{draft ? " · 1 draft" : ""}
+                </span>
               </span>
             </div>
             <div className="hm-teams">
@@ -277,8 +343,17 @@ export function HomeExperience() {
                   }}
                 />
               ))}
-              {cards.length < MAX_TEAMS ? <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} /> : <TeamsFull max={MAX_TEAMS} />}
+              {draft && cards.length < MAX_TEAMS && <DraftHomeCard d={draft} layout="card" {...draftActions} />}
+              {draft ? (
+                cards.length < MAX_TEAMS - 1 && <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} />
+              ) : cards.length < MAX_TEAMS ? (
+                <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} />
+              ) : (
+                <TeamsFull max={MAX_TEAMS} />
+              )}
             </div>
+            {draft && cards.length === MAX_TEAMS - 1 && <SlimAddRow slotsLeft={1} onOpen={() => setAddOpen(true)} />}
+            {draft && cards.length >= MAX_TEAMS && <DraftHomeCard d={draft} layout="row" {...draftActions} />}
           </section>
         )}
 
@@ -300,7 +375,38 @@ export function HomeExperience() {
         </footer>
       </div>
 
-      <AddTeamDialog open={addOpen} onOpenChange={setAddOpen} onAdded={added} />
+      <AddTeamDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        onAdded={added}
+        draftLink={draftRes.status !== "ready" ? null : draft ? { kind: "open", onClick: openDraft } : { kind: "build", onClick: builder.build }}
+      />
+      <BuildingDialog open={builder.state === "building"} />
+      <BuildFailedDialog open={builder.state === "failed"} onCancel={builder.cancel} onRetry={builder.retry} />
+      <RebuildConfirm open={rebuildOpen} onClose={() => setRebuildOpen(false)} onConfirm={builder.rebuild} returnTo={draftOpener} />
+      <EnterGuide
+        d={draft}
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        onAddTeam={() => {
+          setGuideOpen(false);
+          setAddOpen(true);
+        }}
+      />
+      <ConfirmDelete
+        open={deletingDraft}
+        onClose={() => setDeletingDraft(false)}
+        title="Delete your draft?"
+        intro={draftIntro}
+        warning="This can’t be undone."
+        confirmLabel="Delete draft"
+        busyLabel="Deleting…"
+        errorFor={() => "Couldn’t delete your draft — try again."}
+        onConfirm={confirmDeleteDraft}
+        returnTo={draftOpener}
+        role="alertdialog"
+        testId="delete-draft"
+      />
       <ConfirmDelete
         open={removing !== null}
         onClose={() => setRemoving(null)}

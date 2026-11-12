@@ -6,6 +6,7 @@ import { ChatExperience } from "@/components/chat/ChatExperience";
 import { loginUrlFor } from "@/lib/redirects";
 import "../../home/home.css";
 import "../chat.css";
+import "../../home/draft.css";
 
 export const metadata: Metadata = { title: "Chat" };
 

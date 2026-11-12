@@ -7,6 +7,18 @@ import type { SystemMsg } from "./types";
  *  countdown), c 409 (cyan, "Start a new chat"), d anything else (coral, role="alert", Retry). */
 export function SystemMessage({ msg, now, onRetry, onStartNew }: { msg: SystemMsg; now: Date | null; onRetry: (question: string) => void; onStartNew: () => void }) {
   const nowMs = now ? now.getTime() : null;
+  if (msg.variant === "rebuilt") {
+    // Prompt W11: the short line after a Rebuild from the team card (a rebuild Yes'd in chat says it in its saved block)
+    return (
+      <div className="dr-sysline" role="status" data-testid="system-rebuilt">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M21 12a9 9 0 1 1-3-6.7" />
+          <path d="M21 4v5h-5" />
+        </svg>
+        Draft rebuilt from the best picks.
+      </div>
+    );
+  }
   if (msg.variant === "limit") {
     return (
       <div className="ch-sys limit" role="status" data-testid="system-limit">

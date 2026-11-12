@@ -44,6 +44,8 @@ export type ConfirmDeleteProps = {
   /** where focus goes when the dialog closes (the account button); else the opener */
   returnTo?: React.RefObject<HTMLElement | null>;
   testId: string;
+  /** Prompt W11: "alertdialog" for the Delete draft confirm (the brief); default: the dialog's own role */
+  role?: "alertdialog";
 };
 
 function Body({ title, intro, items, warning, confirmLabel, cancelLabel, busyLabel, busy, error, onCancel, onConfirm, cancelRef, phone }: {
@@ -132,7 +134,7 @@ function Body({ title, intro, items, warning, confirmLabel, cancelLabel, busyLab
 }
 
 export function ConfirmDelete(props: ConfirmDeleteProps) {
-  const { open, onClose, onConfirm, errorFor, returnTo, testId } = props;
+  const { open, onClose, onConfirm, errorFor, returnTo, testId, role } = props;
   const narrow = useMediaQuery(NARROW);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ReactNode | null>(null);
@@ -166,7 +168,7 @@ export function ConfirmDelete(props: ConfirmDeleteProps) {
   if (narrow) {
     return (
       <Drawer open={open} onOpenChange={change} swipeDirection="down">
-        <DrawerContent className="hm-del-sheet" initialFocus={cancelRef} finalFocus={returnTo} data-testid={`${testId}-sheet`} aria-busy={busy || undefined}>
+        <DrawerContent className="hm-del-sheet" initialFocus={cancelRef} finalFocus={returnTo} data-testid={`${testId}-sheet`} aria-busy={busy || undefined} {...(role ? { role } : {})}>
           {body}
         </DrawerContent>
       </Drawer>
@@ -174,7 +176,7 @@ export function ConfirmDelete(props: ConfirmDeleteProps) {
   }
   return (
     <Dialog open={open} onOpenChange={change}>
-      <DialogContent className="hm-del-dialog hm-pop" showCloseButton={false} initialFocus={cancelRef} finalFocus={returnTo} data-testid={`${testId}-dialog`} aria-busy={busy || undefined}>
+      <DialogContent className="hm-del-dialog hm-pop" showCloseButton={false} initialFocus={cancelRef} finalFocus={returnTo} data-testid={`${testId}-dialog`} aria-busy={busy || undefined} {...(role ? { role } : {})}>
         {body}
       </DialogContent>
     </Dialog>

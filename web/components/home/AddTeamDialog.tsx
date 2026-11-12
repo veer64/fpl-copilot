@@ -192,20 +192,50 @@ function AddTeamForm({
   );
 }
 
+/** Prompt W11 (brief 3c): at the bottom of the dialog, after a divider, the amber link "Don't have an FPL team? Build one ->"
+ *  (it closes the dialog and starts the build) -- or "Open your draft ->" once a draft exists. null: no link. */
+export type DraftLink = { kind: "build" | "open"; onClick: () => void } | null;
+
+function DraftLinkRow({ link, close }: { link: DraftLink; close: () => void }) {
+  if (!link) return null;
+  return (
+    <div className="hm-add-link">
+      <button
+        type="button"
+        className="dr-link"
+        onClick={() => {
+          close();
+          link.onClick();
+        }}
+        data-testid="add-team-draft-link"
+        data-kind={link.kind}
+      >
+        {link.kind === "build" ? "Don’t have an FPL team? Build one" : "Open your draft"}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 export function AddTeamDialog({
   open,
   onOpenChange,
   onAdded,
+  draftLink = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAdded: (card: TeamCard) => void;
+  draftLink?: DraftLink;
 }) {
   const narrow = useMediaQuery(NARROW);
   const done = (card: TeamCard) => {
     onOpenChange(false);
     onAdded(card);
   };
+  const close = () => onOpenChange(false);
   if (narrow) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange} swipeDirection="down" showSwipeHandle>
@@ -214,6 +244,7 @@ export function AddTeamDialog({
             <span className="hm-br hm-tl" aria-hidden="true" />
             <DrawerTitle className="sr-only">Add an FPL team</DrawerTitle>
             <AddTeamForm titleId="add-team-title" onDone={done} onCancel={() => onOpenChange(false)} />
+            <DraftLinkRow link={draftLink} close={close} />
           </div>
         </DrawerContent>
       </Drawer>
@@ -225,6 +256,7 @@ export function AddTeamDialog({
         <span className="hm-br hm-tl" aria-hidden="true" />
         <span className="hm-br hm-brr" aria-hidden="true" />
         <AddTeamForm titleId="add-team-title" onDone={done} onCancel={() => onOpenChange(false)} />
+        <DraftLinkRow link={draftLink} close={close} />
       </DialogContent>
     </Dialog>
   );

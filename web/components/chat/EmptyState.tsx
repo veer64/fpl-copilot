@@ -1,6 +1,7 @@
 "use client";
 
-import type { Player, TeamCardData } from "@/lib/api";
+import type { DraftCard, Player, TeamCardData } from "@/lib/api";
+import { draftChips } from "@/lib/draft-chips";
 
 const Arrow = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -47,14 +48,20 @@ export function EmptyState({
   card,
   firstName,
   onChip,
+  draft,
+  onGuide,
 }: {
-  mode: "team" | "general";
+  mode: "team" | "general" | "draft";
   teamName: string | null;
   nextGw: number | null;
   card: TeamCardData | null;
   firstName: string | null;
   onChip: (q: string) => void;
+  /** Prompt W11: a new draft chat's empty state -- the draft's own chips (O3), never the Team / General ones */
+  draft?: DraftCard | null;
+  onGuide?: () => void;
 }) {
+  if (mode === "draft") return <DraftEmpty d={draft ?? null} onChip={onChip} onGuide={onGuide} />;
   const chips = mode === "team" ? teamChips(card, nextGw) : generalChips(nextGw);
   const name = teamName ?? "your team";
   return (
@@ -81,6 +88,34 @@ export function EmptyState({
         {chips.map((q) => (
           <button type="button" role="listitem" className="ch-chip" key={q} onClick={() => onChip(q)} data-testid="empty-chip">
             <span>{q}</span>
+            <Arrow />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Prompt W11: a new draft chat (sidebar "New chat" in draft mode): the draft's chips (O3); the guide chip opens the guide,
+ *  the others fill the chat box as every empty state's chips do. */
+function DraftEmpty({ d, onChip, onGuide }: { d: DraftCard | null; onChip: (q: string) => void; onGuide?: () => void }) {
+  const chips = draftChips({ captain: d?.captain?.short_name ?? null, left: d?.left ?? null, over: d?.over ?? null }).slice(0, 4);
+  return (
+    <div className="ch-empty draft" data-testid="empty-draft" data-ready={d !== null}>
+      <div className="ch-empty-head">
+        <span className="ch-empty-icon" aria-hidden="true" style={{ color: "#FFC23D" }}>
+          <LogoMark size={24} />
+        </span>
+        <span className="ch-lbl" data-testid="empty-label">
+          New chat · your draft team
+        </span>
+        <h2 data-testid="empty-title">Ask anything about your draft.</h2>
+        <p data-testid="empty-sub">Changes are free — the only limits are £100.0m and FPL’s squad rules.</p>
+      </div>
+      <div role="list" aria-label="Suggested questions" className="ch-chips">
+        {chips.map((c) => (
+          <button type="button" role="listitem" className="ch-chip" key={c.text} onClick={() => (c.action === "guide" ? onGuide?.() : onChip(c.text))} data-testid="empty-chip">
+            <span>{c.text}</span>
             <Arrow />
           </button>
         ))}
