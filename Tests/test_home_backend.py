@@ -391,7 +391,8 @@ def test_h9_the_summary_columns_are_added_once_guarded_and_legacy_rows_are_null(
 
 def test_h10_zero_team_users_are_unchanged(api):
     assert api.client.get("/me", headers=bearer(mint("user_a9001"))).json() == {
-        "user_id": 9001, "is_admin": False, "is_owner": False, "daily_cap_usd": 1.0, "spent_today_usd": 0.0, "active_team": None}
+        "user_id": 9001, "is_admin": False, "is_owner": False, "daily_cap_usd": 1.0, "spent_today_usd": 0.0, "active_team": None,
+        "is_guest": False, "guest": None}                                        # is_guest / guest: Prompt W9 (additive)
     assert _get(api, "/me/teams", sub=T2).json() == []
 
 
