@@ -4,6 +4,8 @@ import { forwardRef, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { safeRedirect } from "@/lib/redirects";
 import { useClerk, useSignIn, useSignUp } from "@clerk/nextjs";
+import { guestStart, guestStatus, type GuestStartError } from "@/lib/api";
+import { setGuestCookie } from "@/lib/guest";
 import { isClerkAPIResponseError } from "@clerk/nextjs/errors";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { toast } from "sonner";
@@ -18,7 +20,13 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
  *  error. Errors are announced (role="alert") and linked to their field (aria-describedby). */
 
 type Step = "email" | "code";
-type Busy = null | "sending" | "verifying" | "google" | "resending";
+type Busy = null | "sending" | "verifying" | "google" | "resending" | "guest";
+
+// Prompt W9: the guest option's wording (checkpoint 4; the chat-side texts come from the server)
+const GUEST_UNAVAILABLE = "Guest mode is unavailable";
+const GUEST_IP_LIMIT = "Guest limit reached for today on this network — sign in with Google or email to keep going";
+const GUEST_BUDGET_FULL = "Guest mode is full for today — sign in to continue";
+const GUEST_FAILED = "Couldn’t start a guest session — try again, or sign in.";
 type Flow = "signin" | "signup";
 type CodeError = { kind: "wrong" | "expired" | "too_many" | "generic"; text: string };
 
@@ -77,6 +85,23 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
   const [codeError, setCodeError] = useState<CodeError | null>(null);
   const [fatal, setFatal] = useState<boolean>(() => params.get("sso") === "incomplete");
   const [cooldown, setCooldown] = useState(0);
+  // Prompt W9: the kill switch read once (GET /guest/status); unreachable -> the button stays and the click reports the error
+  const [guestMode, setGuestMode] = useState<"loading" | "on" | "off">("loading");
+  const [guestIdle, setGuestIdle] = useState(30);
+  const [guestError, setGuestError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    guestStatus()
+      .then((s) => {
+        if (!alive) return;
+        setGuestMode(s.enabled ? "on" : "off");
+        setGuestIdle(s.idle_minutes);
+      })
+      .catch(() => alive && setGuestMode("on"));
+    return () => {
+      alive = false;
+    };
+  }, []);
   const emailRef = useRef<HTMLInputElement | null>(null);
   const otpRef = useRef<HTMLInputElement | null>(null);
 
@@ -254,6 +279,27 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
     setBusy(null);
     if (step === "code") setCodeError(null);
     window.requestAnimationFrame(() => (step === "code" ? otpRef.current : emailRef.current)?.focus());
+  };
+
+  // --- Prompt W9: Continue as guest -- POST /guest/start -> a one-time Clerk sign-in token -> signIn.ticket -> the app -----
+  const guest = async () => {
+    setGuestError(null);
+    setBusy("guest");
+    try {
+      const { ticket } = await guestStart();
+      const { error } = await signIn.ticket({ ticket });
+      if (error) throw error;
+      if (signIn.status !== "complete") throw new Error(`guest sign-in needs a step this page does not handle: ${signIn.status}`);
+      setGuestCookie();
+      return void (await signIn.finalize({ navigate: goToApp }));
+    } catch (err) {
+      const code = (err as Partial<GuestStartError>)?.code;
+      if (code === "guest_off") setGuestMode("off");
+      setGuestError(code === "guest_off" ? GUEST_UNAVAILABLE : code === "guest_ip_limit" ? GUEST_IP_LIMIT : code === "guest_budget" ? GUEST_BUDGET_FULL : GUEST_FAILED);
+      console.error("[guest] start failed", err);
+    } finally {
+      setBusy(null);
+    }
   };
 
   // --- Google -----------------------------------------------------------------------------------------------------------
@@ -469,6 +515,37 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
             </fieldset>
           </form>
           <p className="fine is-default">We’ll email you a code to confirm it’s you.</p>
+          <div className="divider" aria-hidden="true">
+            <i />
+            <span className="mono">OR</span>
+            <i />
+          </div>
+          <button type="button" className="gbtn guest" onClick={guest} disabled={disabled || guestMode === "off"} data-testid="continue-as-guest" data-guest-mode={guestMode}>
+            {busy === "guest" ? (
+              <>
+                <Spinner /> Starting a guest session…
+              </>
+            ) : guestMode === "off" ? (
+              GUEST_UNAVAILABLE
+            ) : (
+              <>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
+                </svg>
+                Continue as guest
+              </>
+            )}
+          </button>
+          {guestError ? (
+            <p className="err" role="alert" data-testid="guest-error">
+              {guestError}
+            </p>
+          ) : (
+            <p className="fine is-default" data-testid="guest-note">
+              No sign-up. Deleted when you leave or after {guestIdle} minutes idle.
+            </p>
+          )}
         </>
       )}
     </section>

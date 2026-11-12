@@ -10,7 +10,7 @@ import { Arrow, Backdrop, PublicFooter, PublicHeader } from "./PublicChrome";
  *  highlights the section in view (IntersectionObserver, aria-current); the phone shows the sections as a row of chips.
  *  "Last updated" comes from the one constant below. No delete button here: the account menu has it. */
 
-export const PRIVACY_UPDATED = "10 Nov 2026";
+export const PRIVACY_UPDATED = "12 Nov 2026"; // W9: the guest section
 const CONTACT = "veersanghavi8@gmail.com";
 
 export const SECTIONS: { id: string; n: string; title: string }[] = [
@@ -20,7 +20,8 @@ export const SECTIONS: { id: string; n: string; title: string }[] = [
   { id: "cookies", n: "04", title: "Cookies" },
   { id: "how-long", n: "05", title: "How long we keep it" },
   { id: "delete", n: "06", title: "Delete your data" },
-  { id: "contact", n: "07", title: "Contact" },
+  { id: "guest", n: "07", title: "Guest mode" }, // W9
+  { id: "contact", n: "08", title: "Contact" },
 ];
 
 const PROVIDERS: [string, string][] = [
@@ -284,6 +285,18 @@ export function PrivacyExperience() {
                   <span className="d">Your browser remembers little things, like whether the chat sidebar is collapsed or the music is muted.</span>
                 </div>
               </div>
+              <div className="pp-row">
+                <Ic>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
+                  </svg>
+                </Ic>
+                <div>
+                  <b>Guest mode</b>
+                  <span className="d">One extra cookie, fpl_guest, marks this browser as a guest and disappears when the browser closes.</span>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -360,8 +373,97 @@ export function PrivacyExperience() {
             </div>
           </section>
 
-          <section id="contact" className="pp-psec" aria-labelledby="contact-title">
+
+          <section id="guest" className="pp-psec" aria-labelledby="guest-title">
             <span className="pp-sec-n">07</span>
+            <h2 id="guest-title">Guest mode</h2>
+            <div className="hm-glass pp-rows" data-testid="guest-section">
+              <div className="pp-row">
+                <Ic>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
+                  </svg>
+                </Ic>
+                <div>
+                  <b>What it is</b>
+                  <span className="d">Continue as guest creates a temporary account with no email address of yours.</span>
+                </div>
+              </div>
+              <div className="pp-row">
+                <Ic>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="4" y="4" width="16" height="16" rx="3" />
+                    <path d="M8 10h8M8 14h5" />
+                  </svg>
+                </Ic>
+                <div>
+                  <b>What we keep</b>
+                  <span className="d">The same as for a signed-in user while the session lasts: your chats, the teams you add and the usage ledger.</span>
+                </div>
+              </div>
+              <div className="pp-row">
+                <Ic>
+                  <Clock />
+                </Ic>
+                <div>
+                  <b>When it is deleted</b>
+                  <span className="d">
+                    Everything is deleted about two minutes after you close the last FPL Copilot tab on a computer, or after 30 minutes without a click, key, scroll or touch — whichever comes first. On a phone, switching to another app doesn’t end it; 30 minutes without activity does. You can also end it yourself from the account menu.
+                  </span>
+                </div>
+              </div>
+              <div className="pp-row">
+                <Ic>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                  </svg>
+                </Ic>
+                <div>
+                  <b>What remains</b>
+                  <span className="d">Only the anonymous cost line of each answer (model and amount — no text, no link to you), the monitoring copy in Langfuse under a number that no longer exists, and our backups for up to 30 days.</span>
+                </div>
+              </div>
+              <div className="pp-row">
+                <Ic>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" />
+                  </svg>
+                </Ic>
+                <div>
+                  <b>Abuse limit</b>
+                  <span className="d">To limit abuse we keep a salted hash of your IP address for 24 hours (three guest sessions a day per address).</span>
+                </div>
+              </div>
+              <div className="pp-row">
+                <Ic>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 3a9 9 0 1 0 9 9 3 3 0 0 1-3-3 3 3 0 0 1-3-3 3 3 0 0 1-3-3z" />
+                    <path d="M8.5 11.5h.01M12 16h.01M15.5 13.5h.01M8 16h.01" />
+                  </svg>
+                </Ic>
+                <div>
+                  <b>Cookies</b>
+                  <span className="d">One extra cookie, fpl_guest, marks this browser as a guest and disappears when the browser closes.</span>
+                </div>
+              </div>
+              <div className="pp-row">
+                <Ic>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v10M9.5 9.5h3.5a1.75 1.75 0 0 1 0 3.5H11a1.75 1.75 0 0 0 0 3.5h3.5" />
+                  </svg>
+                </Ic>
+                <div>
+                  <b>Spending</b>
+                  <span className="d">A guest session can use at most $0.25 of model time (about five answers); guest mode closes for the day when all guests together reach $3.00.</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="contact" className="pp-psec" aria-labelledby="contact-title">
+            <span className="pp-sec-n">08</span>
             <h2 id="contact-title">Contact</h2>
             <a href={`mailto:${CONTACT}`} className="hm-glass pp-card" data-testid="contact-email">
               <Ic>

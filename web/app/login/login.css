@@ -150,6 +150,10 @@
 .cta{height:48px;border:0;border-radius:12px;background:#3BE8FF;color:#021016;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px}
 .cta:hover{background:#7CF3FF}
 .cta:disabled,.gbtn:disabled{opacity:.6;cursor:default}
+/* W9: the third option, Continue as guest -- the Google button's shape, the card's dark palette */
+.gbtn.guest{background:rgba(255,255,255,.05);color:#E8F6FF;border:1px solid #2C4052}
+.gbtn.guest:hover{background:rgba(255,255,255,.09)}
+.gbtn.guest svg{flex-shrink:0}
 .fine{margin:0;font-size:12px;line-height:18px;color:#8A9BB0}
 .err{margin:0;font-size:13px;line-height:18px;color:#FF8A7A}
 .linkish{background:none;border:0;padding:0;color:#C9D6E3;font-size:13px;text-decoration:underline;text-underline-offset:3px}

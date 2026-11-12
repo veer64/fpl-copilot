@@ -35,6 +35,7 @@ export type ConfirmDeleteProps = {
   items?: string[];
   warning?: string;
   confirmLabel: string;
+  cancelLabel?: string; // W9: "Stay" on the guest confirm
   busyLabel: string;
   /** the inline alert for a failed attempt; `err` is what onConfirm rejected with */
   errorFor: (err: unknown) => ReactNode;
@@ -45,12 +46,13 @@ export type ConfirmDeleteProps = {
   testId: string;
 };
 
-function Body({ title, intro, items, warning, confirmLabel, busyLabel, busy, error, onCancel, onConfirm, cancelRef, phone }: {
+function Body({ title, intro, items, warning, confirmLabel, cancelLabel, busyLabel, busy, error, onCancel, onConfirm, cancelRef, phone }: {
   title: string;
   intro: ReactNode;
   items?: string[];
   warning?: string;
   confirmLabel: string;
+  cancelLabel?: string;
   busyLabel: string;
   busy: boolean;
   error: ReactNode | null;
@@ -109,7 +111,7 @@ function Body({ title, intro, items, warning, confirmLabel, busyLabel, busy, err
       )}
       <div className="hm-del-acts">
         <button type="button" className="hm-del-cancel" ref={cancelRef} onClick={onCancel} disabled={busy} data-testid="confirm-cancel">
-          Cancel
+          {cancelLabel ?? "Cancel"}
         </button>
         <button type="button" className="hm-btn-d" onClick={onConfirm} disabled={busy} aria-busy={busy || undefined} data-testid="confirm-delete">
           {busy ? (

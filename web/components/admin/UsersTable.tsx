@@ -32,7 +32,7 @@ type Line = { answers: number; usd: number };
 
 /** W7b: real people only in the rows; the deleted accounts' spend is in the totals, the owner's own use and the pre-launch
  *  testing are shown as two grey lines that are NOT in the totals. */
-export function UsersTable({ users, deleted, owner, testing, onDownload, downloading }: { users: AdminUser[]; deleted: Line; owner?: Line; testing?: Line; onDownload: () => void; downloading: boolean }) {
+export function UsersTable({ users, deleted, deletedGuests, owner, testing, onDownload, downloading }: { users: AdminUser[]; deleted: Line; deletedGuests?: Line; owner?: Line; testing?: Line; onDownload: () => void; downloading: boolean }) {
   const [sort, setSort] = useState<{ col: Col; dir: 1 | -1 }>({ col: "last_active", dir: -1 });
   const rows = useMemo(() => [...users].sort((a, b) => compare(a, b, sort.col, sort.dir) || a.user_id - b.user_id), [users, sort]);
   const click = (col: Col) => setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: col === "name" || col === "email" || col === "sign_in_method" ? 1 : -1 }));
@@ -83,6 +83,16 @@ export function UsersTable({ users, deleted, owner, testing, onDownload, downloa
               </td>
               <td className="n ad-muted">—</td>
               <td className="n">{fmtUsd(deleted.usd)}</td>
+            </tr>
+          )}
+          {deletedGuests && (deletedGuests.answers > 0 || deletedGuests.usd > 0) && (
+            <tr className="ad-deleted" data-testid="deleted-guests-row" data-usd={deletedGuests.usd} data-answers={deletedGuests.answers}>
+              <td className="ad-name">Deleted guests</td>
+              <td colSpan={4} className="ad-muted">
+                anonymous cost rows of ended guest sessions — in the totals, spend only
+              </td>
+              <td className="n ad-muted">{deletedGuests.answers}</td>
+              <td className="n">{fmtUsd(deletedGuests.usd)}</td>
             </tr>
           )}
           {owner && (owner.answers > 0 || owner.usd > 0) && (

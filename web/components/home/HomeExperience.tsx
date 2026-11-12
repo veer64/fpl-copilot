@@ -16,6 +16,7 @@ import { LowerSkeleton, TeamsSkeleton } from "./Skeletons";
 import { AddTeamCard, Spinner, TeamCard, TeamsFull, teamName } from "./TeamCard";
 import { loginSignedOut, useSignedOutRedirect } from "@/lib/session";
 import { useNow, useResource } from "./useResource";
+import { GuestSession } from "@/components/guest/GuestSession";
 
 export const MAX_TEAMS = 3;
 const NEW_PULSE_MS = 1500;
@@ -154,6 +155,7 @@ export function HomeExperience() {
 
       <div className="hm-col">
         <HomeHeader deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} />
+        <GuestSession banner />
         <div aria-hidden="true" className="hm-band" />
         <DeadlinePill deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} band />
 

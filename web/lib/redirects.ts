@@ -7,6 +7,7 @@
  *    Sign out carries no reason, so no note. */
 
 export const SIGNED_OUT = "signed_out";
+export const GUEST_ENDED = "guest_ended"; // Prompt W9: the guest session ended (left, idle, ended by hand, the switch)
 
 export function safeRedirect(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -31,4 +32,9 @@ export function loginUrlFor(path: string): string {
 export function loginSignedOutUrl(path: string): string {
   const safe = safeRedirect(path);
   return `/login?reason=${SIGNED_OUT}${safe ? `&redirect_url=${encodeURIComponent(safe)}` : ""}`;
+}
+
+/** Prompt W9: the /login URL after a guest session ended -- its data is gone, so there is no way back. */
+export function loginGuestEndedUrl(): string {
+  return `/login?reason=${GUEST_ENDED}`;
 }

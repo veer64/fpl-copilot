@@ -1,8 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { loginGuestEndedUrl } from "@/lib/redirects";
+import { clearGuestCookie } from "@/lib/guest";
+import { ConfirmDelete } from "@/components/account/ConfirmDelete";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { useClerk, useUser } from "@clerk/nextjs";
+import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -113,17 +117,37 @@ const noMe = () => Promise.resolve<Me | null>(null);
  *  owner note for user 1. The confirm dialog is the shared ConfirmDelete; focus returns to the account button.
  *  `isAdmin` (Prompt W6): the "Admin" item (above Sign out) shows only when /me says is_admin -- passed by a page that read
  *  /me, else from the menu's own read; the backend's 403 on /admin/summary is the real guard. */
-export function AccountMenu({ isOwner, isAdmin }: { isOwner?: boolean | null; isAdmin?: boolean | null }) {
+export function AccountMenu({ isOwner, isAdmin, isGuest }: { isOwner?: boolean | null; isAdmin?: boolean | null; isGuest?: boolean | null }) {
   const { user, isLoaded } = useUser();
-  const { signOut } = useClerk();
-  const [me] = useResource<Me | null>(isOwner === undefined || isAdmin === undefined ? api.me : noMe);
+  const { signOut, session } = useClerk();
+  const { getToken } = useAuth();
+  const router = useRouter();
+  const [me] = useResource<Me | null>(isOwner === undefined || isAdmin === undefined || isGuest === undefined ? api.me : noMe);
   const [del, setDel] = useState(false);
+  const [endGuest, setEndGuest] = useState(false); // W9
   const trigger = useRef<HTMLButtonElement | null>(null);
   const name = user?.fullName || user?.firstName || null;
   const email = user?.primaryEmailAddress?.emailAddress ?? null;
   const ini = isLoaded ? initials(name, email) : "";
   const owner: boolean | null = isOwner !== undefined ? isOwner : me.status === "ready" && me.data ? me.data.is_owner : null;
   const admin: boolean | null = isAdmin !== undefined ? isAdmin : me.status === "ready" && me.data ? me.data.is_admin : null;
+  // W9: a guest sees "Guest · Temporary session" and one item, End guest session (deletes now); never Admin, Sign out or Delete account
+  const guest: boolean | null = isGuest !== undefined ? isGuest : me.status === "ready" && me.data ? me.data.is_guest : null;
+  const endGuestSession = async () => {
+    try {
+      await api.deleteAccount(getToken);
+    } catch {
+      /* the reaper may have got there first: the sign-out below still ends it here */
+    }
+    clearGuestCookie();
+    try {
+      await signOut({ redirectUrl: loginGuestEndedUrl() });
+    } catch {
+      router.replace(loginGuestEndedUrl());
+    }
+    await new Promise(() => undefined); // the page is leaving
+  };
+  void session;
   return (
     <>
       <DropdownMenu>
@@ -144,15 +168,24 @@ export function AccountMenu({ isOwner, isAdmin }: { isOwner?: boolean | null; is
             </span>
             <div>
               <span className="hm-menu-name" data-testid="account-name">
-                {name ?? "FPL manager"}
+                {guest ? "Guest" : name ?? "FPL manager"}
               </span>
               <span className="hm-menu-email" data-testid="account-email">
-                {email ?? ""}
+                {guest ? "Temporary session" : email ?? ""}
               </span>
             </div>
           </div>
           <DropdownMenuSeparator className="hm-menu-hr" />
-          {admin && (
+          {guest && (
+            <DropdownMenuItem className="hm-mi hm-mi-del" onClick={() => setEndGuest(true)} data-testid="end-guest-session">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <path d="M16 17l5-5-5-5M21 12H9" />
+              </svg>
+              <span>End guest session</span>
+            </DropdownMenuItem>
+          )}
+          {!guest && admin && (
             <DropdownMenuItem className="hm-mi hm-mi-admin" render={<Link href="/admin" prefetch={false} />} data-testid="menu-admin">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
@@ -160,6 +193,7 @@ export function AccountMenu({ isOwner, isAdmin }: { isOwner?: boolean | null; is
               <span>Admin</span>
             </DropdownMenuItem>
           )}
+          {!guest && (
           <DropdownMenuItem className="hm-mi" onClick={() => void signOut({ redirectUrl: "/login" })} data-testid="sign-out">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -167,7 +201,9 @@ export function AccountMenu({ isOwner, isAdmin }: { isOwner?: boolean | null; is
             </svg>
             <span>Sign out</span>
           </DropdownMenuItem>
-          <DropdownMenuSeparator className="hm-menu-hr hm-menu-hr-2" data-testid="menu-divider" />
+          )}
+          {!guest && <DropdownMenuSeparator className="hm-menu-hr hm-menu-hr-2" data-testid="menu-divider" />}
+          {!guest && (
           <DropdownMenuItem
             className="hm-mi hm-mi-del"
             disabled={owner !== false}
@@ -181,7 +217,8 @@ export function AccountMenu({ isOwner, isAdmin }: { isOwner?: boolean | null; is
             </svg>
             <span>Delete account</span>
           </DropdownMenuItem>
-          {owner && (
+          )}
+          {!guest && owner && (
             <span id="owner-note" className="hm-owner-note" data-testid="owner-note">
               The owner account can’t be deleted here.
             </span>
@@ -189,6 +226,18 @@ export function AccountMenu({ isOwner, isAdmin }: { isOwner?: boolean | null; is
         </DropdownMenuContent>
       </DropdownMenu>
       <DeleteAccountDialog open={del} onClose={() => setDel(false)} returnTo={trigger as React.RefObject<HTMLElement | null>} />
+      <ConfirmDelete
+        open={endGuest}
+        onClose={() => setEndGuest(false)}
+        title="End your guest session?"
+        intro="Your chats and the teams you added in this session are deleted straight away."
+        confirmLabel="End guest session"
+        busyLabel="Ending…"
+        errorFor={() => "Couldn’t end the guest session — try again."}
+        onConfirm={endGuestSession}
+        returnTo={trigger as React.RefObject<HTMLElement | null>}
+        testId="end-guest"
+      />
     </>
   );
 }

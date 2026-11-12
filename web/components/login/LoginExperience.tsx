@@ -64,6 +64,7 @@ export function LoginExperience() {
   // Prompt W7b (F2): arriving because the session ended (?reason=signed_out) -- one line above the card, the intro and its
   // music skipped (a normal Sign out carries no reason and shows nothing)
   const [signedOutNote, setSignedOutNote] = useState(false);
+  const [guestEndedNote, setGuestEndedNote] = useState(false); // Prompt W9: ?reason=guest_ended
   useEffect(() => {
     let reason: string | null = null;
     try {
@@ -71,10 +72,11 @@ export function LoginExperience() {
     } catch {
       reason = null;
     }
-    if (reason !== "signed_out") return;
+    if (reason !== "signed_out" && reason !== "guest_ended") return;
     music?.holdThisVisit();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the one-time note, decided by the URL
-    setSignedOutNote(true);
+    if (reason === "guest_ended") setGuestEndedNote(true);
+    else setSignedOutNote(true);
     setRawPhase("login");
   }, [music]);
 
@@ -187,6 +189,14 @@ export function LoginExperience() {
                     <path d="M12 8v5M12 16h.01" />
                   </svg>
                   You were signed out — sign in to continue.
+                </div>
+              )}
+              {guestEndedNote && !deletedNote && (
+                <div role="status" className="deleted-note" data-testid="guest-ended-note">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M5 12l5 5L20 7" />
+                  </svg>
+                  Your guest session ended and its data was deleted.
                 </div>
               )}
               {deletedNote && (

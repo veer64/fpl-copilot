@@ -17,7 +17,8 @@ export type SystemMsg =
   | { kind: "system"; key: string; variant: "limit"; resetAt: string }
   | { kind: "system"; key: string; variant: "rate"; untilMs: number }
   | { kind: "system"; key: string; variant: "team"; threadId: string | null }
-  | { kind: "system"; key: string; variant: "error"; question: string; why: string };
+  | { kind: "system"; key: string; variant: "error"; question: string; why: string }
+  | { kind: "system"; key: string; variant: "guest"; code: "guest" | "guest_budget" | "guest_off"; text: string }; // W9
 /** `resumed` (W7b): the answer was in flight when the page loaded (a pending row from the server) -- "Still working on this
  *  answer…" and the page re-reads the thread until it lands. */
 export type ThinkingMsg = { kind: "thinking"; key: string; startedAt: number; resumed?: boolean; question?: string };

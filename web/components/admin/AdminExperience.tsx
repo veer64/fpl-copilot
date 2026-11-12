@@ -118,12 +118,36 @@ function Dashboard({ s, onDownload, downloading }: { s: AdminSummary; onDownload
         </div>
       </section>
 
+      <Card title="Guests (not counted as people)" sub={s.guests.enabled ? "Guest mode is on · a guest is deleted when it leaves or after 30 minutes idle" : "Guest mode is off"} id="h-guests" testid="card-guests">
+        <div className="ad-tiles" data-testid="guest-tiles" data-enabled={s.guests.enabled}>
+          <Tile label="Guest sessions · today / 7 days" testid="tile-guest-sessions">
+            <V k="guest_sessions_today" v={s.guests.sessions_today} />
+            <i>/</i>
+            <V k="guest_sessions_7_days" v={s.guests.sessions_7_days} />
+          </Tile>
+          <Tile label="Guests online now" testid="tile-guest-live">
+            <V k="guest_live_now" v={s.guests.live_now} />
+          </Tile>
+          <Tile label="Guest answers · today" testid="tile-guest-answers">
+            <V k="guest_answers_today" v={s.guests.answers_today} />
+          </Tile>
+          <Tile label="Guest spend · today / daily budget" testid="tile-guest-spend" small>
+            <V k="guest_usd_today" v={s.guests.usd_today} usd />
+            <i>/</i>
+            <V k="guest_budget_usd" v={s.guests.budget_usd} usd />
+          </Tile>
+          <Tile label="Guest limit hits · today" testid="tile-guest-hits">
+            <V k="guest_limit_hits_today" v={s.guests.limit_hits_today} />
+          </Tile>
+        </div>
+      </Card>
+
       <Card title="Sign-ups per day" sub="Last 30 days, UTC" id="h-signups" testid="card-signups">
         <SignupsChart days={s.sign_ups_per_day} />
       </Card>
 
       <Card title="Users" sub="Click a column to sort" id="h-users" testid="card-users">
-        <UsersTable users={s.users} deleted={s.deleted_accounts} owner={s.owner_use} testing={s.testing_use} onDownload={onDownload} downloading={downloading} />
+        <UsersTable users={s.users} deleted={s.deleted_accounts} deletedGuests={s.guests.deleted} owner={s.owner_use} testing={s.testing_use} onDownload={onDownload} downloading={downloading} />
       </Card>
 
       <div className="ad-grid2">

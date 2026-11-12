@@ -27,6 +27,24 @@ export function SystemMessage({ msg, now, onRetry, onStartNew }: { msg: SystemMs
       </div>
     );
   }
+  if (msg.variant === "guest") {
+    // W9: a guest's turn refused -- the cap, the shared budget or the switch; the wording is the server's (checkpoint 4)
+    return (
+      <div className="ch-sys limit" role="status" data-testid="system-guest" data-code={msg.code}>
+        <span className="ch-sys-ic">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
+          </svg>
+        </span>
+        <div className="ch-sys-body">
+          <div>
+            <b>{msg.text}</b>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (msg.variant === "rate") {
     return (
       <div className="ch-sys rate" role="status" data-testid="system-rate">

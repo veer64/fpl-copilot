@@ -75,7 +75,7 @@ export type ChatReply = {
   squad_preview?: SquadPreview | null;
   squad_applied?: SquadApplied | null;
   capped?: boolean;
-  limit?: { kind: "daily"; reset_at: string };
+  limit?: { kind: GuestLimitKind; reset_at: string | null }; // W9: guest / guest_budget / guest_off beside daily
 };
 
 /** GET /threads/{id}/messages */
@@ -125,7 +125,14 @@ export type Me = {
   daily_cap_usd: number;
   spent_today_usd: number;
   active_team: ActiveTeam | null;
+  is_guest: boolean; // Prompt W9
+  guest: GuestInfo | null;
 };
+
+/** Prompt W9: a guest's own numbers (null for a signed-in person). */
+export type GuestInfo = { idle_minutes: number; leave_grace_seconds: number; cap_usd: number; spent_usd: number; budget_open: boolean };
+export type GuestStatus = { enabled: boolean; idle_minutes: number; cap_usd: number; leave_grace_seconds: number };
+export type GuestLimitKind = "daily" | "guest" | "guest_budget" | "guest_off";
 
 // ---- Prompt W5 (2026-11-10): delete account / remove team / delete chat ------------------------------------------------------
 export type DeleteAccountResult = {
@@ -161,6 +168,19 @@ export type AdminUser = {
   usd_7_days: number;
   cap_hits: number;
   is_admin: boolean;
+};
+export type AdminGuests = {
+  enabled: boolean;
+  sessions_today: number;
+  sessions_7_days: number;
+  live_now: number;
+  answers_today: number;
+  usd_today: number;
+  limit_hits_today: number;
+  budget_usd: number;
+  budget_used_today_usd: number;
+  cap_usd: number;
+  deleted: { answers: number; usd: number };
 };
 export type AdminCapHit = { user_id: number; name: string | null; email: string | null; at: string; spent_usd: number; cap_usd: number };
 export type AdminDown = {
@@ -198,6 +218,7 @@ export type AdminSummary = {
   cap_hits_total: number;
   sign_in_methods: Record<string, number>;
   feedback: { up_total: number; down_total: number; up_7_days: number; down_7_days: number; recent_down: AdminDown[] };
+  guests: AdminGuests; // W9: never people; their spend is in the totals and broken out here
   langfuse: { host: string | null; project_id: string | null };
 };
 
@@ -310,7 +331,33 @@ export const api = {
   // Prompt W6: the admin page; the CSV is the P7 file (text/csv, formula-prefixed cells) read with the token and saved by the page
   adminSummary: (t: TokenGetter) => apiFetch<AdminSummary>(t, "/admin/summary"),
   adminUsersCsv: (t: TokenGetter) => apiFetch<string>(t, "/admin/users.csv"),
+  // Prompt W9: the guest session's signals (204; a signed-in person: a no-op)
+  ping: (t: TokenGetter) => apiFetch<null>(t, "/me/ping", { method: "POST", timeoutMs: 15_000 }),
+  leave: (t: TokenGetter) => apiFetch<null>(t, "/me/leave", { method: "POST", timeoutMs: 15_000 }),
+  base: API_BASE,
 };
+
+/** Prompt W9, public (no token): the login card's switch and the start of a guest session. */
+export async function guestStatus(): Promise<GuestStatus> {
+  const res = await fetch(`${API_BASE}/guest/status`, { cache: "no-store" });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return (await res.json()) as GuestStatus;
+}
+
+export type GuestStartError = { status: number; code: string; detail: string };
+
+/** POST /guest/start -> {ticket}; throws a GuestStartError ({status, code: guest_off | guest_ip_limit | guest_budget | ...}). */
+export async function guestStart(): Promise<{ ticket: string; expires_in_seconds: number }> {
+  const res = await fetch(`${API_BASE}/guest/start`, { method: "POST", cache: "no-store" });
+  let data: { ticket?: string; expires_in_seconds?: number; code?: string; detail?: string } = {};
+  try {
+    data = (await res.json()) as typeof data;
+  } catch {
+    data = {};
+  }
+  if (!res.ok || !data.ticket) throw { status: res.status, code: data.code ?? "guest_unknown", detail: data.detail ?? res.statusText } as GuestStartError;
+  return { ticket: data.ticket, expires_in_seconds: data.expires_in_seconds ?? 600 };
+}
 
 /** GET /deadlines without a token (Prompt W5: open in clerk mode -- public FPL data, cached a minute), for the About page's
  *  chips whoever is looking; the same shape as api.deadlines. */

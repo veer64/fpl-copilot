@@ -1,5 +1,6 @@
 "use client";
 
+import { GuestSession } from "@/components/guest/GuestSession";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { AccountMenu, Logo } from "@/components/home/HomeHeader";
@@ -25,6 +26,7 @@ export function PublicHeader() {
         </Link>
       )}
       <MusicButton />
+      {isLoaded && isSignedIn && <GuestSession />}
       {!isLoaded ? (
         <span className="pp-hdr-slot" aria-hidden="true" />
       ) : isSignedIn ? (

@@ -10,6 +10,7 @@ import { NARROW, useMediaQuery } from "@/lib/useMediaQuery";
 import { ConfirmDelete } from "@/components/account/ConfirmDelete";
 import { ErrorBox } from "@/components/home/ErrorBox";
 import { useNow, useResource } from "@/components/home/useResource";
+import { GuestSession } from "@/components/guest/GuestSession";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
@@ -88,6 +89,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
   const [prefilled, setPrefilled] = useState(!!q);
   const [busy, setBusy] = useState(false);
   const [limitUntil, setLimitUntil] = useState<string | null>(null);
+  const [guestBlocked, setGuestBlocked] = useState<string | null>(null); // W9: a guest refusal disables the box with its own text
   const [rateUntil, setRateUntil] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -249,7 +251,7 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
     if (limitUntil !== null && !limited) setLimitUntil(null);
     if (rateUntil !== null && !rated) setRateUntil(null);
   }, [limited, rated, limitUntil, rateUntil]);
-  const disabledText = busy ? "Wait for the answer…" : limited ? "Daily limit reached — back at 00:00 UTC" : rated ? "Wait a minute…" : null;
+  const disabledText = busy ? "Wait for the answer…" : guestBlocked ? guestBlocked : limited ? "Daily limit reached — back at 00:00 UTC" : rated ? "Wait a minute…" : null;
 
   const replaceThinking = useCallback((thinkKey: string, next: Msg | null) => {
     setMsgs((m) => (next ? m.map((x) => (x.key === thinkKey ? next : x)) : m.filter((x) => x.key !== thinkKey)));
@@ -286,8 +288,14 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
         }
         const reply = await api.chat(getToken, question, tid);
         if (reply.capped && reply.limit) {
-          replaceThinking(thinkKey, { kind: "system", key: key("s"), variant: "limit", resetAt: reply.limit.reset_at });
-          setLimitUntil(reply.limit.reset_at);
+          if (reply.limit.kind === "daily" && reply.limit.reset_at) {
+            replaceThinking(thinkKey, { kind: "system", key: key("s"), variant: "limit", resetAt: reply.limit.reset_at });
+            setLimitUntil(reply.limit.reset_at);
+          } else {
+            // W9: a guest refusal (the cap, the shared budget, the switch) -- the server's wording, the box disabled with it
+            replaceThinking(thinkKey, { kind: "system", key: key("s"), variant: "guest", code: reply.limit.kind === "daily" ? "guest" : reply.limit.kind, text: reply.answer });
+            setGuestBlocked(reply.answer);
+          }
           return;
         }
         replaceThinking(thinkKey, {
@@ -438,7 +446,8 @@ export function ChatExperience({ team, q, chatId }: { team?: string; q?: string;
 
   return (
     <div className="ch" data-testid="chat" data-context={ctx?.kind ?? "loading"} data-team-id={teamId ?? ""} data-thread-id={threadId ?? ""} data-ready={opening === "ready"} data-busy={busy}>
-      <ChatHeader deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} onMenu={() => setDrawer(true)} isOwner={me.status === "ready" ? me.data.is_owner : null} isAdmin={me.status === "ready" ? me.data.is_admin : null} />
+      <ChatHeader deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} onMenu={() => setDrawer(true)} isOwner={me.status === "ready" ? me.data.is_owner : null} isAdmin={me.status === "ready" ? me.data.is_admin : null} isGuest={me.status === "ready" ? me.data.is_guest : null} />
+      <GuestSession me={me.status === "ready" ? me.data : null} banner />
       <div className="ch-body">
         {!general && (
           <div aria-hidden="true" className={`ch-bg${collapsed ? " collapsed" : ""}`}>
