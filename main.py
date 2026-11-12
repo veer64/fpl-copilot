@@ -228,10 +228,28 @@ def _rate_limited(ip):
     return False
 
 
+WEBSITE_URL = "https://fplcopilot.app"
+
+
+def _retired_in_clerk_mode(method, path):
+    """Prompt S2 (2026-11-12): the old key-gated chat page (static/index.html at /) is retired in clerk mode -- the website
+    is WEBSITE_URL. GET / and HEAD / answer 308 there (key or no key; the ?key= handshake sets no cookie) and every
+    /static/* path answers 404 (key or no key). Off mode never calls this, so the laptop's old page is byte-identical."""
+    if path == "/" and method in ("GET", "HEAD"):
+        return RedirectResponse(url=WEBSITE_URL, status_code=308)
+    if path == "/static" or path.startswith("/static/"):
+        return JSONResponse(NOT_FOUND, status_code=404)
+    return None
+
+
 @app.middleware("http")
 async def require_api_key(request: Request, call_next):
     if (request.method, request.url.path) in OPEN_ENDPOINTS:
         return await call_next(request)
+    if auth.mode() == "clerk":
+        retired = _retired_in_clerk_mode(request.method, request.url.path)
+        if retired is not None:
+            return retired
     if auth.mode() == "clerk" and _clerk_route(request.method, request.url.path):
         return await call_next(request)                 # Prompt P7: the handler verifies the session token
 
