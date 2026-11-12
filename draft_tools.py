@@ -322,10 +322,10 @@ def get_my_xi(d, gw=None):
 def not_applicable(what):
     """propose_transfers / get_my_points / get_wildcard_gap in a draft chat: a plain explanation, not an error."""
     words = {
-        "propose_transfers": NOT_A_TRANSFER_PLAN,
-        "get_my_points": ("This is a DRAFT team, not entered in FPL, so it has scored no points. Its predicted points for the "
+        "transfer plan": NOT_A_TRANSFER_PLAN,
+        "points": ("This is a DRAFT team, not entered in FPL, so it has scored no points. Its predicted points for the "
                           "next deadline are in get_my_squad (predicted_xi_points)."),
-        "get_wildcard_gap": ("This is a DRAFT team: no wildcard is needed, because draft changes are free and unlimited within "
+        "wildcard": ("This is a DRAFT team: no wildcard is needed, because draft changes are free and unlimited within "
                              "£100.0m and FPL's squad rules. To compare it with the best squad from scratch, use "
                              "best_squad_from_scratch."),
     }[what]

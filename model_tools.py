@@ -2255,7 +2255,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
     if _d is not None:
         import draft_tools
-        return draft_tools.not_applicable("propose_transfers")
+        return draft_tools.not_applicable("transfer plan")
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     if source not in ("chat", "proof", "deadline_run"):
         return {"error": f"source must be chat | proof | deadline_run, got {source!r}"}
@@ -3311,7 +3311,7 @@ def get_my_points(gw: int = None, user_id: int = None):
     _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
     if _d is not None:
         import draft_tools
-        return draft_tools.not_applicable("get_my_points")
+        return draft_tools.not_applicable("points")
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
         x = int(gw) if gw is not None else None
@@ -4655,7 +4655,7 @@ def get_wildcard_gap(user_id: int = None):
     _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
     if _d is not None:
         import draft_tools
-        return draft_tools.not_applicable("get_wildcard_gap")
+        return draft_tools.not_applicable("wildcard")
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     import simulator as sim
     from transfer_mip import DEFAULT_DECAY, plan_to_team
