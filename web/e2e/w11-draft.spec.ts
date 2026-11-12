@@ -4,7 +4,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { acquireUser, releaseUser, userName } from "./clerk-users";
 import { API, signIn } from "./w4";
-// @ts-expect-error -- a plain .mjs module shared with scripts/contrast_public.mjs (W5b)
 import { sweepPage } from "../scripts/lib/sweep.mjs";
 
 /** Prompt W11 (2026-11-12): the draft team on the website, desktop 1440x900 + phone 390x844, against the brief's acceptance
