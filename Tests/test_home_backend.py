@@ -331,7 +331,7 @@ def test_h7_threads_carry_the_teams_fpl_id(api):
     _chat(api, "About banana", own)                                          # W4: an empty thread is not listed
     rows = {x["thread_id"]: x for x in _get(api, "/threads").json()}
     assert set(rows[team_thread]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id",
-                                      "team_name", "updated_at"}
+                                      "team_name", "updated_at", "is_draft"}      # W11: + is_draft
     assert (rows[team_thread]["fpl_team_id"], rows[team_thread]["team_label"], rows[team_thread]["team_name"]) == (TID, "Main", "Main")
     assert (rows[own]["fpl_team_id"], rows[own]["team_label"], rows[own]["team_name"]) == (None, None, None)
 

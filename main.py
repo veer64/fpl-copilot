@@ -872,11 +872,85 @@ def list_threads(http: Request):
 
 
 @app.post("/threads")
-def new_thread(http: Request):
+def new_thread(http: Request, payload: Any = Body(default=None)):
     user, refusal = _account(http)
     if refusal is not None:
         return refusal
+    if isinstance(payload, dict) and payload.get("draft") is True:    # Prompt W11: a new chat bound to the user's draft
+        import drafts
+        try:
+            return {"thread_id": drafts.new_chat(int(user["user_id"])), "draft": True}
+        except drafts.NoDraft:
+            return JSONResponse({"detail": DRAFT_NOT_FOUND}, status_code=404)
     return {"thread_id": threads.create_thread(int(user["user_id"]))}
+
+
+# ---- Prompt W11 (2026-11-12): the draft team -- build / get / rebuild / delete (clerk mode only; 404 in off mode) -----------
+
+DRAFT_NOT_FOUND = "no draft team for this user"
+DRAFT_FAILED = "Couldn't build your draft. Nothing was saved -- please try again."
+DRAFT_BUSY = "Lots of drafts are being built right now -- please try again in a moment."
+DRAFT_LIMITED = (f"You've built or rebuilt your draft {users.DRAFT_BUILDS_PER_HOUR} times in the last hour -- please try again "
+                 "in a little while.")
+
+
+def _draft_call(http, fn):
+    """The signed-in user (404 off mode / 401 / 503 / 429 as _account), then fn(user) with the draft refusals answered:
+    404 no draft, 429 the O9 window, 503 a failed or busy build (nothing saved)."""
+    import drafts
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    try:
+        return fn(user)
+    except drafts.NoDraft:
+        return JSONResponse({"detail": DRAFT_NOT_FOUND}, status_code=404)
+    except drafts.Limited:
+        return JSONResponse({"detail": DRAFT_LIMITED, "error_kind": "draft_limited"}, status_code=429)
+    except drafts.Busy:
+        return JSONResponse({"detail": DRAFT_BUSY, "error_kind": "draft_busy"}, status_code=503)
+    except drafts.BuildFailed as e:
+        print(f"  [draft build failed for user {user['user_id']}: {str(e)[:300]}]")
+        return JSONResponse({"detail": DRAFT_FAILED, "error_kind": "draft_failed"}, status_code=503)
+
+
+@app.post("/me/draft")
+def build_draft(http: Request):
+    """O1/O2: the user's draft -- the existing one ("existing": true, nothing built), else a new one from the best picks with
+    its first chat and the opening message; the card + thread_id. 503 when the build fails (nothing saved)."""
+    import drafts
+
+    def work(user):
+        got = drafts.build(int(user["user_id"]), limited=lambda: users.draft_builds_limited(user))
+        out = drafts.card(int(user["user_id"]), row=got["row"])
+        out.update(existing=got["existing"], thread_id=got["thread_id"] or (out["draft"] or {}).get("thread_id"))
+        return drafts.as_json(out)
+    return _draft_call(http, work)
+
+
+@app.get("/me/draft")
+def get_draft(http: Request):
+    """{"draft": null} or the draft card (Home's summary and the chat's team card)."""
+    import drafts
+    return _draft_call(http, lambda user: drafts.as_json(drafts.card(int(user["user_id"]))))
+
+
+@app.post("/me/draft/rebuild")
+def rebuild_draft(http: Request):
+    """A fresh fifteen from the best picks replaces the draft (its chats continue); 404 without one."""
+    import drafts
+
+    def work(user):
+        row = drafts.rebuild(int(user["user_id"]), limited=lambda: users.draft_builds_limited(user))
+        return drafts.as_json(drafts.card(int(user["user_id"]), row=row))
+    return _draft_call(http, work)
+
+
+@app.delete("/me/draft")
+def delete_draft(http: Request):
+    """The draft and its chats (deletion.delete_draft); real teams untouched; 404 without one."""
+    import deletion
+    return _draft_call(http, lambda user: deletion.delete_draft(int(user["user_id"])))
 
 
 @app.get("/threads/{thread_id}/messages")

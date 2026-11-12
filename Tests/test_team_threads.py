@@ -145,7 +145,7 @@ def test_w4_threads_name_their_team(tc):
     assert rows[old]["team_label"] == "Team 111" and rows[new]["team_label"] == "Team 222"
     assert legacy not in rows                                                   # empty: hidden (W4)
     assert set(rows[old]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id",
-                              "team_name", "updated_at"}                        # W4: + team_name, updated_at
+                              "team_name", "updated_at", "is_draft"}            # W4: + team_name, updated_at; W11: + is_draft
     assert (rows[old]["fpl_team_id"], rows[new]["fpl_team_id"]) == (111, 222)   # W3
     assert (rows[old]["team_name"], rows[new]["team_name"]) == ("Team 111", "Team 222")   # W4: the label (else the FPL name)
 

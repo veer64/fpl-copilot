@@ -147,6 +147,14 @@ def _squad_owner(user_id):
         _end_read(holder, conn)
 
 
+def _draft_turn():
+    """Prompt W11 (2026-11-12): {"user_id", "draft_key"} when the OPEN turn is the user's draft chat (the loop's turn
+    channel -- set by agent_graph.run_thread_turn from the thread, never by the model), else None. Outside a draft chat
+    every squad tool runs exactly as before."""
+    turn = turn_context.current()
+    return None if turn is None else turn.get("draft")
+
+
 def _as_user(record, owner, user_id):
     """A team's record shown as the user's own: its user_id is the user's, never the team's internal key. A user's own
     record (owner is user_id) is returned as it is."""
@@ -1551,6 +1559,10 @@ def get_my_squad(user_id: int = None):
     convention the other tools use so the model reports it -- and never a
     substitute squad. squad_store.read_active is the raising form for code
     paths (the transfer MIP) that must not proceed without state."""
+    _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
+    if _d is not None:
+        import draft_tools
+        return draft_tools.get_my_squad(_d)
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     owner = _squad_owner(user_id)               # Prompt F1a: the active FPL team's record, else the user's own
     try:
@@ -1600,6 +1612,10 @@ def get_my_xi(user_id: int = None, gw: int = None):
     gw selects which gameweek of the run's horizon to solve the XI for. Omitted,
     it is the next deadline's gameweek, which is what this tool has always done;
     another gameweek inside the horizon is a planning view and says so."""
+    _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
+    if _d is not None:
+        import draft_tools
+        return draft_tools.get_my_xi(_d, gw=gw)
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
         record = squad_store.read_active(_squad_owner(user_id))   # Prompt F1a: the active FPL team's record
@@ -1711,6 +1727,10 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
     turn channel, turn_context -- never the model's input) for the SAME change
     against the SAME active version, unused, uncancelled, unexpired. Any other
     confirm writes NOTHING and answers the fixed refusal naming the reason."""
+    _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
+    if _d is not None:
+        import draft_tools
+        return draft_tools.set_my_squad(_d, player_ids=player_ids, captain_id=captain_id, vice_id=vice_id, bench_order_ids=bench_order_ids, gw=gw, note=note, confirm=confirm, proposal_id=proposal_id, preview_ticket=preview_ticket)
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     if confirm and not preview_ticket:                       # refused before any read: a write needs its ticket
         return {"error": squad_previews.refusal("missing"), "refused": True, "reason": "missing"}
@@ -2232,6 +2252,10 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     user request is always 'chat') or 'proof' for a maintainer's verification
     run -- proof rows are marked so the track record never starts with
     synthetic entries."""
+    _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
+    if _d is not None:
+        import draft_tools
+        return draft_tools.not_applicable("propose_transfers")
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     if source not in ("chat", "proof", "deadline_run"):
         return {"error": f"source must be chat | proof | deadline_run, got {source!r}"}
@@ -3284,6 +3308,10 @@ def get_my_points(gw: int = None, user_id: int = None):
 
     gw omitted: every finished gameweek the squad existed for, plus the total.
     """
+    _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
+    if _d is not None:
+        import draft_tools
+        return draft_tools.not_applicable("get_my_points")
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
         x = int(gw) if gw is not None else None
@@ -3765,6 +3793,10 @@ def get_price_movements(window_days: int = 7, user_id: int = None, include_squad
     unit is net change between two observations, and both timestamps travel with the answer.
     It does not forecast and must not be read as forecasting.
     """
+    _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
+    if _d is not None:
+        import draft_tools
+        return draft_tools.price_movements(window_days)
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     import prices_tool as pt
     squad = None
@@ -4620,6 +4652,10 @@ def get_wildcard_gap(user_id: int = None):
     seconds. Nothing is written and no proposal is saved. When the model is degraded (a runaway
     strength inside the horizon) the gap is withheld for the reason propose_transfers withholds
     its hold gap: the free-pick plan can spend on exactly the fixtures the model has mispriced."""
+    _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
+    if _d is not None:
+        import draft_tools
+        return draft_tools.not_applicable("get_wildcard_gap")
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     import simulator as sim
     from transfer_mip import DEFAULT_DECAY, plan_to_team

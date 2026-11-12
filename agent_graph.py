@@ -281,6 +281,10 @@ def thread_messages(thread_id):
             plain, _ = agent.plain_words(plain)
             out.append({"role": "assistant", "text": plain, "at": None, "message_id": None})
     out = _with_message_rows(thread_id, out)
+    first = (values.get("messages") or [None])[0]       # Prompt W11: a draft chat's opening message (stored before any question)
+    if isinstance(first, dict) and first.get("role") == "assistant" and isinstance(first.get("content"), str):
+        out.insert(0, {"role": "assistant", "text": first["content"], "at": None, "message_id": None, "sources": [],
+                       "squad_preview": None, "squad_applied": None, "feedback": None, "kind": "draft_opening"})
     import chat_messages                                 # Prompt W7b: the turn being written, after the stored rows
     for p in chat_messages.pending_of_thread(thread_id):
         out.append({"role": "pending", "text": p.get("question"), "started_at": threads.iso(p.get("started_at")),
@@ -318,6 +322,10 @@ def run_thread_turn(user_id, thread_id, user_message):
     import chat_messages
     turn_id = uuid.uuid4().hex                           # Prompt W7b: the turn's id, known before the turn runs
     thread = {"thread_id": str(thread_id), "user_id": int(user_id), "max_turns": threads.MAX_TURNS, "turn_id": turn_id}
+    import drafts
+    draft = drafts.turn_draft(user_id, thread_id)        # Prompt W11: the user's draft chat (clerk mode only), else None
+    if draft is not None:
+        thread["draft"] = draft
     with threads.turn_lock(thread_id):
         g = thread_graph()
         cfg = _thread_config(thread_id)

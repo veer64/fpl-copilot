@@ -216,7 +216,12 @@ SELECT t.thread_id, t.created_at, t.is_default, lc.ts AS last_ts,
        {team_id} AS fpl_team_id,
        {team_name} AS team_name,
        {pending_q} AS pending_question,
-       {pending_at} AS pending_at
+       {pending_at} AS pending_at,
+       {is_draft} AS is_draft,
+       (SELECT convert_from(b.blob, 'UTF8')::jsonb -> 1
+          FROM checkpoint_blobs b
+         WHERE b.thread_id = t.thread_id AND b.checkpoint_ns = '' AND b.channel = 'messages'
+           AND b.version = lc.mv AND b.type = %s) AS second_message
   FROM chat_threads t
   LEFT JOIN LATERAL (SELECT c.checkpoint ->> 'ts' AS ts, c.checkpoint -> 'channel_versions' ->> 'messages' AS mv
                        FROM checkpoints c
@@ -260,6 +265,8 @@ def thread_title(text):
 # Prompt W4 (2026-11-06): the Chat page's tag -- the label, else the FPL team's own name (entry_name, a W3 summary column that
 # the guarded DDL adds on first use; absent on a database that never built a team card: then the label alone).
 _TEAM_NAME = "(SELECT COALESCE(f.label, f.entry_name) FROM user_fpl_teams f WHERE f.user_id = t.user_id AND f.squad_key = t.owner_key LIMIT 1)"
+# Prompt W11: the thread is the user's draft chat (owner_key = the draft's draft_key)
+_IS_DRAFT = "EXISTS (SELECT 1 FROM user_drafts d WHERE d.user_id = t.user_id AND d.draft_key = t.owner_key)"
 
 
 def list_threads(user_id):
@@ -282,25 +289,30 @@ def list_threads(user_id):
             cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
                         "AND table_name = 'chat_messages' AND column_name = 'status'")
             pending = cur.fetchone() is not None
+            cur.execute("SELECT to_regclass('public.user_drafts') IS NOT NULL")
+            has_drafts = cur.fetchone()[0]
             cur.execute(_LIST_SQL.format(team_label=_TEAM_LABEL if teams else "NULL::text",
                                          team_id=_TEAM_ID if teams else "NULL::int",
                                          team_name=_TEAM_NAME if named else (_TEAM_LABEL if teams else "NULL::text"),
                                          pending_q=_PENDING_Q if pending else "NULL::text",
-                                         pending_at=_PENDING_AT if pending else "NULL::timestamptz"),
-                        (TAG, int(user_id)))
+                                         pending_at=_PENDING_AT if pending else "NULL::timestamptz",
+                                         is_draft=_IS_DRAFT if has_drafts else "FALSE"),
+                        (TAG, TAG, int(user_id)))
             rows = cur.fetchall()
     finally:
         conn.close()
     out = []
-    for tid, created, is_default, last_ts, first, team_label, fpl_team_id, team_name, pending_q, pending_at in rows:
+    for tid, created, is_default, last_ts, first, team_label, fpl_team_id, team_name, pending_q, pending_at, is_draft, second in rows:
         title = None
+        if is_draft and _opening(first):                 # W11: the opening message is not a question; the next one is
+            first = second
         if first is None and pending_q is None:
             continue                                     # W4: no message yet -> not listed
         if first is None:                                # W7b: the first turn is being written: listed under its question
             out.append({"thread_id": tid, "created_at": iso(created), "last_active": iso(pending_at or created),
                         "is_default": bool(is_default), "title": thread_title(pending_q), "team_label": team_label,
                         "fpl_team_id": None if fpl_team_id is None else int(fpl_team_id),
-                        "team_name": team_name, "updated_at": iso(pending_at or created)})
+                        "team_name": team_name, "updated_at": iso(pending_at or created), "is_draft": bool(is_draft)})
             continue
         if pending_at is not None and (last_ts is None or iso(pending_at) > iso(last_ts)):
             last_ts = pending_at
@@ -313,9 +325,20 @@ def list_threads(user_id):
         out.append({"thread_id": tid, "created_at": iso(created), "last_active": iso(last_ts or created),
                     "is_default": bool(is_default), "title": title, "team_label": team_label,
                     "fpl_team_id": None if fpl_team_id is None else int(fpl_team_id),
-                    "team_name": team_name, "updated_at": iso(last_ts or created)})
+                    "team_name": team_name, "updated_at": iso(last_ts or created), "is_draft": bool(is_draft)})
     out.sort(key=lambda r: r["last_active"], reverse=True)
     return out
+
+
+def _opening(first):
+    """Prompt W11: the stored first element is an assistant message (a draft chat's opening message)."""
+    if first is None:
+        return False
+    try:
+        m = _dec(first)
+    except (ValueError, KeyError, TypeError):
+        return False
+    return isinstance(m, dict) and m.get("role") == "assistant"
 
 
 def resolve(user_id, thread_id=None):
@@ -337,8 +360,20 @@ def resolve(user_id, thread_id=None):
     if row is None or row[0] != int(user_id):
         raise ThreadRefused(str(thread_id))
     if _effective_owner(row[0], row[1]) != current:
+        if row[1] is not None and _is_draft_key(user_id, row[1]):
+            return str(thread_id)                        # Prompt W11: the draft's chat, whatever team is active
         raise TeamChanged(default_thread(user_id, current))
     return str(thread_id)
+
+
+def _is_draft_key(user_id, owner_key):
+    """Prompt W11: owner_key is the user's draft's draft_key. Clerk mode only -- off mode never reads user_drafts."""
+    import auth
+    if auth.mode() != "clerk":
+        return False
+    import drafts
+    key = drafts.draft_key_of(user_id)
+    return key is not None and int(key) == int(owner_key)
 
 
 def turn_user():

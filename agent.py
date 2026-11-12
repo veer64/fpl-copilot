@@ -424,6 +424,10 @@ tracing.init()
 from pathlib import Path
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_prompt.md"
 SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
+# Prompt W11 (2026-11-12): the draft chat's wording -- appended to the turn's first text block (beside the Now line) in a draft
+# chat ONLY; never in the system prompt, the tools or the stored history, so every other turn sends the same bytes (payload v5).
+DRAFT_MODE_PATH = Path(__file__).resolve().parent / "prompts" / "draft_mode.md"
+DRAFT_MODE_TEXT = DRAFT_MODE_PATH.read_text(encoding="utf-8").strip()
 
 # The model every turn is sent to; one name, so the usage log (below) and the call agree.
 AGENT_MODEL = "claude-sonnet-4-6"
@@ -806,7 +810,8 @@ def _begin_turn(user_message, messages=None, engine="loop", thread=None):
     question_index = len(messages) - 1               # the turn's question: the clock line rides on it at send time
     turn_id = thread.get("turn_id") or uuid.uuid4().hex   # Piece 7: one id per reply, for citation_checks (W7b: a stored
                                                      # thread's turn brings the id its pending chat_messages row was written under)
-    turn_context.begin(turn_id, thread_id=thread.get("thread_id"))   # Prompt E: the loop's channel; tools read it, the model cannot set it
+    turn_context.begin(turn_id, thread_id=thread.get("thread_id"),    # Prompt E: the loop's channel; tools read it, the model cannot set it
+                       draft=thread.get("draft"))                      # Prompt W11: the draft chat's turn (None otherwise)
     trace = tracing.start_turn(turn_id, user_message, engine=engine,  # Prompt L: one Langfuse trace per turn (no-op when off)
                                session_id=thread.get("thread_id"), user_id=thread.get("user_id"))
     now = now_context.clock()                        # ONE instant per turn: the block's lines and the Now line agree
@@ -815,6 +820,8 @@ def _begin_turn(user_message, messages=None, engine="loop", thread=None):
     countdown = now_context.countdown_line(now)      # "Next deadline: GW9, Sat 31 Oct 2026 11:00 UTC — in 5 d 20 h 30 m" (2026-10-26)
     if countdown:
         now_text = f"{now_text}\n{countdown}"        # computed by code, beside the Now line, never in the block or the history
+    if thread.get("draft") is not None:              # Prompt W11: a draft chat's turn -- the reviewed draft wording, request-time only
+        now_text = f"{now_text}\n{DRAFT_MODE_TEXT}"
     return {"messages": messages, "question_index": question_index, "turn_id": turn_id, "trace": trace, "now": now,
             "system": system, "now_text": now_text,
             "returned_ids": [],                      # every result id search_news returned in THIS turn

@@ -477,8 +477,9 @@ def test_d6_threads_carry_team_name_and_updated_at_and_hide_empty_threads(c):
     rows = c.client.get("/threads", headers=_h()).json()
     assert [x["thread_id"] for x in rows] == [tid]                                      # the empty thread is not listed
     row = rows[0]
-    assert set(row) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id", "team_name", "updated_at"}
-    assert row["team_name"] is None and row["updated_at"] == row["last_active"]
+    assert set(row) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id", "team_name", "updated_at",
+                        "is_draft"}                                     # W11 (2026-11-12): the draft chat's DRAFT tag
+    assert row["team_name"] is None and row["updated_at"] == row["last_active"] and row["is_draft"] is False
     _chat(c, "About banana", empty)
     assert [x["thread_id"] for x in c.client.get("/threads", headers=_h()).json()] == [empty, tid]
 

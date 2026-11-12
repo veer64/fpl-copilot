@@ -241,7 +241,7 @@ def test_b2_delete_account_removes_everything_but_anonymous_cost_rows_and_leaves
     body = r.json()
     assert body["deleted"] is True and body["clerk"] == "deleted" and body["cost_rows_anonymised"] == 1
     assert body["removed"] == {"teams": 2, "chats": 3, "messages": 3, "squad_versions": 3, "scores": 1, "previews": 1,
-                               "plans": 1, "check_rows": 3, "cap_hits": 1}
+                               "plans": 1, "check_rows": 3, "cap_hits": 1, "drafts": 0}       # W11: + drafts
     assert d.clerk_calls == [T1]
     # A: nothing left but the anonymous cost row
     assert _owner_rows(d.conn, [U1] + keys_a) == {t: (0 if v is not None else None) for t, v in others_before.items()}

@@ -20,6 +20,10 @@ THE DELETION MAP (as approved at the W5 checkpoint, corrections C1-C3):
   team     the team row, its squad versions + scores ONLY under that team's squad key (C1: never the user's own record),
            the user's preview tickets issued against those versions, the user's transfer plans solved from them, and its
            chats (as below). The active team removed -> no team active (General mode).
+  draft    (Prompt W11, 2026-11-12) the user's user_drafts row, its chats (every thread whose owner_key is the draft's
+           draft_key, as below) and their tickets -- the same treatment Delete team gives a team's chats. Real teams, their
+           squads and their chats are untouched. Delete account removes the draft too (guests included: every guest exit is
+           delete_account).
   chat     the chat_threads row, its checkpoint rows, its chat_messages (+ feedback), the check rows of its turns (the
            message ids; answers from before W4 have none and keep theirs until the account goes), its preview tickets.
            chat_usage has no thread column: nothing changes there (the daily limit is unchanged).
@@ -227,6 +231,43 @@ def delete_team(user_id, fpl_team_id):
         conn.close()
 
 
+# ---- W11: the draft ---------------------------------------------------------------------------------------------------------
+
+def delete_draft(user_id):
+    """The user's draft (else drafts.NoDraft): its row, its chats (owner_key = its draft_key, selected under user_id = u) with
+    their checkpoints, messages, check rows and tickets. One transaction under the user's lock; real teams untouched.
+    Returns {deleted, removed_chats, removed_previews}."""
+    import drafts
+    uid = int(user_id)
+    conn = db_write.connect()
+    try:
+        _ensure(conn)
+        drafts.ensure_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (fpl_teams.LOCK_SPACE, uid))
+            cur.execute("SELECT draft_key, version_id FROM user_drafts WHERE user_id = %s FOR UPDATE", (uid,))
+            row = cur.fetchone()
+            if row is None:
+                conn.rollback()
+                raise drafts.NoDraft(str(uid))
+            key, version = int(row[0]), int(row[1])
+            cur.execute("SELECT thread_id FROM chat_threads WHERE user_id = %s AND owner_key = %s", (uid, key))
+            tids = [r[0] for r in cur.fetchall()]
+            with _Locks(tids):
+                chats = _delete_thread_rows(cur, uid, tids)
+                cur.execute("DELETE FROM squad_previews WHERE user_id = %s AND base_version_id = %s", (uid, version))
+                previews = chats["previews"] + cur.rowcount
+                cur.execute("DELETE FROM user_drafts WHERE user_id = %s", (uid,))
+                assert cur.rowcount == 1
+                _commit(conn)
+        return {"deleted": True, "removed_chats": chats["chats"], "removed_previews": previews}
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # ---- B2: the account --------------------------------------------------------------------------------------------------------
 
 def delete_account(user, clerk_delete=None, guest=False, guest_reason=None):
@@ -263,7 +304,7 @@ def delete_account(user, clerk_delete=None, guest=False, guest_reason=None):
             turns |= {r[0] for r in cur.fetchall()}
             with _Locks(tids):
                 removed = {"teams": 0, "chats": 0, "messages": 0, "squad_versions": 0, "scores": 0, "previews": 0, "plans": 0,
-                           "check_rows": 0, "cap_hits": 0}
+                           "check_rows": 0, "cap_hits": 0, "drafts": 0}
                 removed["check_rows"] = _delete_turn_checks(cur, turns)
                 chats = _delete_thread_rows(cur, uid, tids)
                 removed.update(chats=chats["chats"], messages=chats["messages"])
@@ -273,6 +314,9 @@ def delete_account(user, clerk_delete=None, guest=False, guest_reason=None):
                 removed["squad_versions"], removed["scores"] = _delete_squads(cur, keys + [uid])
                 cur.execute("DELETE FROM user_fpl_teams WHERE user_id = %s", (uid,))
                 removed["teams"] = cur.rowcount
+                if _exists(cur, "user_drafts"):          # Prompt W11: the draft (its chats went with the user's threads above)
+                    cur.execute("DELETE FROM user_drafts WHERE user_id = %s", (uid,))
+                    removed["drafts"] = cur.rowcount
                 if _exists(cur, "cap_hits"):
                     cur.execute("DELETE FROM cap_hits WHERE user_id = %s", (uid,))
                     removed["cap_hits"] = cur.rowcount

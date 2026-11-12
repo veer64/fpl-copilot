@@ -86,7 +86,7 @@ def test_e3_threads_lists_only_this_users_threads_with_a_masked_title(c):
     by = {x["thread_id"]: x for x in rows}
     assert set(by) == {t1} and tb not in by and t2 not in by                # W4: a thread with no message is not listed
     assert set(by[t1]) == {"thread_id", "created_at", "last_active", "is_default", "title", "team_label", "fpl_team_id",
-                           "team_name", "updated_at"}                       # F1b / W3 / W4
+                           "team_name", "updated_at", "is_draft"}           # F1b / W3 / W4 / W11
     assert by[t1]["team_label"] is None and by[t1]["fpl_team_id"] is None   # 9001 has no imported team
     assert by[t1]["team_name"] is None and by[t1]["updated_at"] == by[t1]["last_active"]
     assert by[t1]["is_default"] is True

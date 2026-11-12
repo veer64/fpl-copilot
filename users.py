@@ -113,6 +113,9 @@ def delete_clerk_user(clerk_user_id):
 _WINDOWS = {}                                            # user_id -> deque of monotonic request times (the last minute)
 _READ_WINDOWS = {}                                       # the same, for reads_limited (Prompt F1a): its own window
 _IMPORT_WINDOWS = {}                                     # the same, for imports_limited (Prompt F1a)
+_DRAFT_WINDOWS = {}                                      # Prompt W11 (O9): draft builds + rebuilds, the last hour
+DRAFT_BUILDS_PER_HOUR = 10
+DRAFT_WINDOW_S = 3600
 _WINDOWS_LOCK = threading.Lock()
 
 
@@ -130,6 +133,7 @@ def _reset():
         _WINDOWS.clear()
         _READ_WINDOWS.clear()
         _IMPORT_WINDOWS.clear()
+        _DRAFT_WINDOWS.clear()
 
 
 def ensure_schema(conn=None):
@@ -318,13 +322,14 @@ def capped(user):
     return False, None
 
 
-def _limited(windows, user, limit):
+def _limited(windows, user, limit, window_s=None):
     if user.get("is_exempt"):
         return False
     now = monotonic()
+    window_s = RATE_WINDOW_S if window_s is None else window_s
     with _WINDOWS_LOCK:
         dq = windows.setdefault(int(user["user_id"]), deque())
-        while dq and now - dq[0] >= RATE_WINDOW_S:
+        while dq and now - dq[0] >= window_s:
             dq.popleft()
         if len(dq) >= limit:
             return True
@@ -341,6 +346,12 @@ def reads_limited(user):
     """Prompt F1a: the same rule for the website's other endpoints (/me, /threads, ...), READS_PER_MINUTE in their own
     window -- /chat's ten a minute are counted apart."""
     return _limited(_READ_WINDOWS, user, READS_PER_MINUTE)
+
+
+def draft_builds_limited(user):
+    """Prompt W11 (O9): a draft build or rebuild beyond DRAFT_BUILDS_PER_HOUR in a rolling hour, for EVERY user (the admin
+    included: each one may run the optimiser)."""
+    return _limited(_DRAFT_WINDOWS, {**user, "is_exempt": False}, DRAFT_BUILDS_PER_HOUR, window_s=DRAFT_WINDOW_S)
 
 
 def imports_limited(user):

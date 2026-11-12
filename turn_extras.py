@@ -113,6 +113,9 @@ def applied(turn_calls):
     """{gw, version_id} of a committed write in this turn, else None."""
     for _inp, res in reversed(_set_my_squad_calls(turn_calls)):
         if res.get("committed") is True and res.get("version_id") is not None:
+            if res.get("draft"):                        # Prompt W11: "Saved to your draft." / "Draft rebuilt from the best picks."
+                return {"gw": int(res["gw"]), "version_id": int(res["version_id"]), "draft": True,
+                        "kind": res.get("kind") or "change"}
             return {"gw": int(res["gw"]), "version_id": int(res["version_id"])}
     return None
 
@@ -190,8 +193,13 @@ def preview(turn_calls, active_doc, player):
     impact = {"pts_delta": pts, "pts_horizon_gws": horizon,
               "bank_after": ch.get("bank_after"), "ft_before": ch.get("free_transfers_before"),
               "ft_after": ch.get("free_transfers_after"), "hit_pts": ch.get("hit_cost_points")}
-    return {"gw": int(res["gw"]) if res.get("gw") is not None else None, "expires_at": _iso(res.get("preview_expires_at")),
-            "changes": changes(active_doc, inp, res, player), "impact": impact}
+    out = {"gw": int(res["gw"]) if res.get("gw") is not None else None, "expires_at": _iso(res.get("preview_expires_at")),
+           "changes": changes(active_doc, inp, res, player), "impact": impact}
+    if res.get("draft"):                                # Prompt W11: a draft change is free -- value, not bank / FT / hits
+        impact.update(value_before=ch.get("value_before"), value_after=ch.get("value_after"),
+                      left_after=ch.get("left_after"), over_after=ch.get("over_after"))
+        out.update(draft=True, kind=res.get("kind") or "change")
+    return out
 
 
 # ---- the turn's record ---------------------------------------------------------------------------------------------------
@@ -224,9 +232,15 @@ def _preview_for_turn(st):
     if not any(res.get("preview") is True for _inp, res in _set_my_squad_calls(calls)):
         return None
     user_id = config_roles.DEFAULT_USER_ID()
-    owner = fpl_teams.squad_owner_id(user_id)
-    active = squad_store.read_active(owner)             # the preview rolled back: the active version is the card's
-    doc = active["squad_json"]
+    import turn_context
+    draft = (turn_context.current() or {}).get("draft")
+    if draft is not None:                               # Prompt W11: the draft chat's preview draws on the draft
+        import drafts
+        doc = drafts.read(int(draft["user_id"]))["squad_json"]
+    else:
+        owner = fpl_teams.squad_owner_id(user_id)
+        active = squad_store.read_active(owner)         # the preview rolled back: the active version is the card's
+        doc = active["squad_json"]
     ctx = team_card.gather(allow_fetch=False).load_predictions()
     involved = {int(p["element"]) for p in doc.get("players") or []}
     for _inp, res in _set_my_squad_calls(calls):

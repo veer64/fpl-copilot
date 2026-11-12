@@ -27,12 +27,15 @@ def clock():
     return datetime.now(timezone.utc)
 
 
-def begin(turn_id=None, started_at=None, thread_id=None):
+def begin(turn_id=None, started_at=None, thread_id=None, draft=None):
     """Open a turn (closing any earlier one in this context). Returns {"turn_id", "started_at"} (+ "thread_id" when the
-    turn belongs to a stored thread)."""
+    turn belongs to a stored thread; + "draft" -- {"user_id", "draft_key"} -- when it is the user's draft chat, Prompt W11:
+    the squad tools then read and write the draft)."""
     turn = {"turn_id": turn_id or uuid.uuid4().hex, "started_at": started_at or clock()}
     if thread_id is not None:
         turn["thread_id"] = str(thread_id)
+    if draft is not None:
+        turn["draft"] = dict(draft)
     _CURRENT.set(turn)
     _RECORD.set({})
     _LAST.set(None)
