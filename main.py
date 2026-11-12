@@ -177,7 +177,9 @@ CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET"
                 ("DELETE", "/me"),                                              # Prompt W5: delete account
                 ("GET", "/admin/summary"),                                      # Prompt W6: the admin page's JSON
                 ("GET", "/guest/status"), ("POST", "/guest/start"),             # Prompt W9: guest mode (public; 404 in off mode)
-                ("POST", "/me/ping"), ("POST", "/me/leave")}                    # Prompt W9: the guest session's signals
+                ("POST", "/me/ping"), ("POST", "/me/leave"),                    # Prompt W9: the guest session's signals
+                ("GET", "/me/draft"), ("POST", "/me/draft"), ("DELETE", "/me/draft"),   # Prompt W11: the draft team
+                ("POST", "/me/draft/rebuild")}
 CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$")),
                         ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$")),
                         ("GET", re.compile(r"^/me/teams/[^/]+/card$")),                 # Prompt W4: the Chat page

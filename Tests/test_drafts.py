@@ -368,6 +368,21 @@ def test_r6_the_build_window_is_ten_an_hour(dapi):
     assert _post(dapi, "/me/draft", sub=T2).status_code == 200         # another user's window is their own
 
 
+def test_r9_in_clerk_mode_the_draft_routes_need_only_the_session_token_like_every_website_route(dapi):
+    """Found on the laptop backend (W11 Part 4): the website calls with the Clerk token and NO x-api-key; the draft routes
+    must be clerk routes (main.CLERK_ROUTES), else the key middleware refuses them before the handler runs."""
+    from fastapi.testclient import TestClient
+    bare = TestClient(dapi.main.app)                                   # no x-api-key header, as the browser calls
+    h = bearer(mint(T1))
+    assert bare.get("/me/draft", headers=h).json() == {"draft": None}
+    built = bare.post("/me/draft", headers=h)
+    assert built.status_code == 200, built.text
+    assert bare.post("/me/draft/rebuild", headers=h).status_code == 200
+    assert bare.post("/threads", headers=h, json={"draft": True}).status_code == 200
+    assert bare.delete("/me/draft", headers=h).status_code == 200
+    assert bare.get("/me/draft").status_code == 401                    # no token: refused before the handler
+
+
 def test_r7_off_mode_every_draft_route_is_404_and_nothing_reads_user_drafts(dapi, monkeypatch):
     monkeypatch.setenv("AUTH_MODE", "off")
     dapi.auth._reset()

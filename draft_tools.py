@@ -56,11 +56,12 @@ def _next_gw():
         return None
 
 
-def _rows(doc, prices, points):
+def _rows(doc, prices, points, shorts=None):
     out = []
     for p in doc["players"]:
         e = int(p["element"])
-        out.append({"player_id": e, "name": p["name"], "position": p["position"], "team": p["team"], "role": p["role"],
+        out.append({"player_id": e, "name": p["name"], "short_name": (shorts or {}).get(e) or p["name"],   # FPL's web_name
+                    "position": p["position"], "team": p["team"], "role": p["role"],
                     "bench_order": p.get("bench_order"), "price": drafts.money(prices.get(e)),
                     "e_points": points.get(e)})
     return out
@@ -101,10 +102,12 @@ def get_my_squad(d):
     mt = _mt()
     doc = row["squad_json"]
     ids = [int(p["element"]) for p in doc["players"]]
-    prices = drafts.current_prices(ids, allow_fetch=False)
+    ctx = drafts.context(allow_fetch=False)
+    prices = drafts.current_prices(ids, ctx=ctx)
+    shorts = {e: (ctx.elements.get(e) or {}).get("web_name") for e in ids}
     gw = _next_gw()
     points, built = _pool_points(gw) if gw is not None else ({}, None)
-    rows = _rows(doc, prices, points)
+    rows = _rows(doc, prices, points, shorts)
     xi = [r for r in rows if r["role"] != "bench"]
     bench = sorted((r for r in rows if r["role"] == "bench"), key=lambda r: r["bench_order"] or 0)
     import team_card

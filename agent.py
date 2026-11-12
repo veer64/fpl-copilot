@@ -1094,7 +1094,10 @@ def _finish(st, raw):
     """The reply path: the checks (log only), the plain-words locks, the citations, the usage row."""
     turn_id, usage = st["turn_id"], st["usage"]
     _citation_check(turn_id, raw, st["returned_ids"])
-    _numeric_check(turn_id, raw, st["messages"])                   # log only; never alters the reply
+    seen = st["messages"]
+    if (turn_context.current() or {}).get("draft") is not None:   # Prompt W11: the draft wording rides on the request (the
+        seen = seen + [{"role": "user", "content": DRAFT_MODE_TEXT}]   # first text block); the check sees what the model saw
+    _numeric_check(turn_id, raw, seen)                             # log only; never alters the reply
     plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
     plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
     rendered = render_citations(plain, st["returned_results"])     # Part C: [1], [2] + Sources

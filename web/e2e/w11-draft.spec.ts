@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { acquireUser, releaseUser, userName } from "./clerk-users";
 import { API, signIn } from "./w4";
+// @ts-expect-error -- a plain .mjs module shared with scripts/contrast_public.mjs (W5b)
+import { sweepPage } from "../scripts/lib/sweep.mjs";
 
 /** Prompt W11 (2026-11-12): the draft team on the website, desktop 1440x900 + phone 390x844, against the brief's acceptance
  *  checklist. SEEDED: every API call the pages make is a route mock (me, deadlines, teams, threads, the draft and its routes,
@@ -254,4 +256,351 @@ test("cp2: chat in draft mode -- the opening message + chips, a pending change, 
   await shot(page, phone() ? "cp2_guide_sheet_steps" : "cp2_guide_dialog_steps");
   await page.keyboard.press("Escape");
   await expect(guide).toHaveCount(0);
+});
+
+// ---- home: the entry points (brief section 3) ----------------------------------------------------------------------------
+const plainRow = (i: number) => ({ thread_id: `w11-plain-${i}`, created_at: "2026-11-12T10:00:00Z", last_active: `2026-11-12T1${i}:00:00Z`, is_default: false, title: `Who should I captain, question ${i}?`, team_label: null, fpl_team_id: null, team_name: null, updated_at: "2026-11-12T12:00:00Z", is_draft: false });
+async function home(p: Page) {
+  await p.goto("/home");
+  await expect(p.locator('[data-testid="home"]:visible')).not.toHaveAttribute("data-state", "loading", { timeout: 30_000 });
+  await p.waitForTimeout(300);
+}
+
+test("home new user: three ways in, Build -> the building card -> the chat; then Open your draft", async () => {
+  reset();
+  await home(page);
+  await expect(vis(page, "new-user-choices").locator("section")).toHaveCount(3);
+  await expect(vis(page, "greeting")).toContainText("Add your FPL team, build one from our predictions — or just ask a question.");
+  const build = vis(page, "choice-draft");
+  await expect(build).toHaveAttribute("data-state", "build");
+  await expect(build.locator('[data-testid="draft-rules"] .dr-rule')).toHaveText(["£100.0m", "2 GK · 5 DEF · 5 MID · 3 FWD", "Max 3 per club"]);
+  await expect(vis(page, "choice-general")).toHaveText("Start a general chat");
+  await shot(page, "home_new_user");
+  await vis(page, "build-draft").click();
+  const bld = vis(page, "draft-building");
+  await expect(bld).toBeVisible();
+  await expect(bld.locator('[role="status"]')).toContainText("Building your draft…");
+  await expect(bld.locator('[data-testid="build-dot"]')).toHaveCount(15);
+  await page.waitForTimeout(700);
+  await shot(page, "home_building");
+  await page.waitForURL(`**/chat/${DRAFT_TID}`, { timeout: 15_000 });
+  await expect(vis(page, "opening-chips")).toBeVisible({ timeout: 15_000 });
+  note(`build -> chat: builds ${S.builds}`);
+  await home(page); // a new user who now has a draft: "Open your draft" replaces Build
+  await expect(vis(page, "choice-draft")).toHaveAttribute("data-state", "exists");
+  await expect(vis(page, "draft-mini")).toHaveText("4-4-2 · C Haaland · £99.6m of £100.0m · not in FPL yet.");
+  await shot(page, "home_new_user_with_draft");
+  await vis(page, "open-draft").click();
+  await page.waitForURL(`**/chat/${DRAFT_TID}`, { timeout: 15_000 });
+});
+
+test("home returning: the Build pill at 2 and at 3 of 3 teams; the Add team dialog's Build link starts the build", async () => {
+  reset({ teams: 2, threads: [plainRow(1)] });
+  await home(page);
+  await expect(vis(page, "build-pill")).toBeVisible();
+  await expect(vis(page, "teams-count")).toHaveText("2 of 3 teams");
+  await shot(page, "home_pill_2teams");
+  S.teams = 3;
+  await home(page);
+  await expect(vis(page, "build-pill")).toBeVisible(); // a draft never uses a slot
+  await expect(vis(page, "teams-count")).toHaveText("3 of 3 teams");
+  await shot(page, "home_pill_3teams");
+  S.teams = 2;
+  await home(page);
+  await vis(page, "add-team-card").click();
+  const link = vis(page, "add-team-draft-link");
+  await expect(link).toHaveAttribute("data-kind", "build");
+  await expect(link).toHaveText("Don’t have an FPL team? Build one");
+  await shot(page, "home_add_dialog_build_link");
+  await link.click();
+  await expect(vis(page, "draft-building")).toBeVisible();
+  await page.waitForURL(`**/chat/${DRAFT_TID}`, { timeout: 15_000 });
+});
+
+test("home with a draft: 3rd column / slim Add row / full-width row, '· 1 draft', no pill, the dialog says Open your draft", async () => {
+  reset({ teams: 1, threads: [plainRow(1)] });
+  withDraft();
+  await home(page);
+  const card = vis(page, "draft-card");
+  await expect(card).toHaveAttribute("data-layout", "card");
+  await expect(card).toHaveAttribute("aria-label", "Your draft team — not in FPL yet");
+  await expect(card.locator('[data-testid="draft-summary"]')).toHaveText("4-4-2 · C Haaland · built from our predictions");
+  await expect(card.locator('[data-testid="draft-pred"]')).toHaveText("64.2");
+  await expect(card.locator('[data-testid="draft-value"]')).toHaveText("£99.6m");
+  await expect(card.locator('[data-testid="draft-left"]')).toHaveText("£0.4m");
+  await expect(vis(page, "add-team-card")).toBeVisible();
+  await expect(vis(page, "build-pill")).toHaveCount(0);
+  await expect(vis(page, "teams-count")).toHaveText("1 of 3 teams · 1 draft");
+  await shot(page, "home_draft_1team");
+  S.teams = 2;
+  await home(page);
+  await expect(vis(page, "draft-card")).toHaveAttribute("data-layout", "card");
+  await expect(vis(page, "add-team-slim")).toBeVisible();
+  await expect(vis(page, "add-team-card")).toHaveCount(0);
+  await shot(page, "home_draft_2teams");
+  await vis(page, "add-team-slim").click();
+  await expect(vis(page, "add-team-draft-link")).toHaveAttribute("data-kind", "open");
+  await page.keyboard.press("Escape");
+  S.teams = 3;
+  await home(page);
+  await expect(vis(page, "draft-card")).toHaveAttribute("data-layout", "row");
+  await expect(vis(page, "teams-count")).toHaveText("3 of 3 teams · 1 draft");
+  await expect(vis(page, "teams-full")).toHaveCount(0);
+  await shot(page, "home_draft_3teams");
+  if (!phone()) {
+    const cards = await page.locator('[data-testid="team-card"]:visible').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().bottom));
+    const row = await vis(page, "draft-card").boundingBox();
+    expect(row!.y).toBeGreaterThan(Math.max(...cards)); // the row sits under the three team cards
+    expect(row!.width).toBeGreaterThan(1000); // full width
+  }
+});
+
+test("home card actions: the guide (Copy list, Add my team ID), Rebuild confirm, Delete confirm; building failed -> Try again", async () => {
+  reset({ teams: 2, threads: [plainRow(1), draftRow("Why these players?")] });
+  withDraft("Why these players?");
+  await home(page);
+  await expect(vis(page, "recent-tag-draft")).toHaveText("DRAFT"); // Recent chats: the amber DRAFT tag
+  await shot(page, "home_recent_draft_tag");
+  // the guide from the card
+  await vis(page, "draft-guide").click();
+  const guide = phone() ? vis(page, "guide-sheet") : vis(page, "guide-dialog");
+  await expect(guide).toBeVisible();
+  await vis(page, "guide-copy").click();
+  await expect(page.getByText("List copied")).toBeVisible();
+  const clip = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n");
+  expect(clip.split("\n")).toHaveLength(16);
+  expect(clip).toContain("FWD Haaland (Erling Haaland) · MCI · £14.0m · C");
+  expect(clip).toContain("GK  Sels (Matz Sels) · NFO · £4.0m · BENCH");
+  await vis(page, "guide-add-team").click();
+  await expect(phone() ? vis(page, "add-team-sheet") : vis(page, "add-team-dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  // Rebuild: the amber confirm; Keep my draft closes; Rebuild builds and stays on Home
+  await vis(page, "draft-rebuild").click();
+  const rb = phone() ? vis(page, "rebuild-confirm-sheet") : vis(page, "rebuild-confirm-dialog");
+  await expect(rb).toHaveAttribute("role", "alertdialog");
+  await expect(rb).toContainText("Rebuild from the best picks?");
+  await page.waitForTimeout(400);
+  await shot(page, "home_rebuild_confirm");
+  await vis(page, "rebuild-keep").click();
+  await expect(rb).toHaveCount(0);
+  await expect(vis(page, "draft-rebuild")).toBeFocused();
+  await vis(page, "draft-rebuild").click();
+  await vis(page, "rebuild-confirm").click();
+  await expect(vis(page, "draft-building")).toBeVisible();
+  await expect(page.getByText("Draft rebuilt from the best picks.")).toBeVisible({ timeout: 10_000 });
+  expect(S.rebuilds).toBe(1);
+  // Delete: the red confirm names the chats; the card goes and the pill comes back
+  await vis(page, "draft-delete").click();
+  const del = phone() ? vis(page, "delete-draft-sheet") : vis(page, "delete-draft-dialog");
+  await expect(del).toHaveAttribute("role", "alertdialog");
+  await expect(del.locator('[data-testid="confirm-title"]')).toHaveText("Delete your draft?");
+  await expect(del.locator('[data-testid="confirm-intro"]')).toHaveText("Your 15 players, every change you made and its 1 chat will be removed.");
+  await page.waitForTimeout(400);
+  await shot(page, "home_delete_confirm");
+  await del.locator('[data-testid="confirm-delete"]').click();
+  await expect(vis(page, "draft-card")).toHaveCount(0, { timeout: 10_000 });
+  await expect(vis(page, "build-pill")).toBeVisible();
+  expect(S.deletes).toBe(1);
+  // building failed -> Try again
+  S.buildFails = 1;
+  await vis(page, "build-pill").click();
+  const failed = vis(page, "draft-failed");
+  await expect(failed).toBeVisible({ timeout: 10_000 });
+  await expect(failed).toHaveAttribute("role", "alertdialog");
+  await expect(failed).toContainText("Couldn’t build your draft");
+  await page.waitForTimeout(400);
+  await shot(page, "home_build_failed");
+  await vis(page, "draft-failed-retry").click();
+  await page.waitForURL(`**/chat/${DRAFT_TID}`, { timeout: 15_000 });
+  expect(S.builds).toBe(2);
+});
+
+// ---- chat in draft mode: the rest of section 6 ----------------------------------------------------------------------------
+test("chat: the guide chip sends nothing; chips send; used chips never return; the spend chip only from £0.5m left", async () => {
+  reset();
+  withDraft();
+  await openChat(page, `/chat/${DRAFT_TID}`);
+  const opening = vis(page, "opening-chips");
+  await opening.getByText("How do I enter this in FPL?").click();
+  await expect(phone() ? vis(page, "guide-sheet") : vis(page, "guide-dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  expect(S.chatBodies).toEqual([]); // the guide chip sent nothing
+  S.answers.push({ text: "Each of the 15 is there for his predicted points: **Haaland** 7.9, **Salah** 7.4. Does that sound good?" });
+  await opening.getByText("Why these players?").click();
+  await expect(vis(page, "answer-chips")).toBeVisible({ timeout: 15_000 });
+  expect(S.chatBodies).toEqual(["Why these players?"]);
+  const chips = await vis(page, "answer-chips").locator('[data-testid="draft-chip"]').allInnerTexts();
+  expect(chips).not.toContain("How would you spend the £0.4m left?"); // £0.4m < £0.5m
+  expect(chips).not.toContain("How do I enter this in FPL?"); // the guide was opened from a chip
+  expect(chips).toContain("Why Haaland as captain?");
+  await vis(page, "answer-chips").getByText("Why Haaland as captain?").click();
+  await waitTyped(page);
+  const again = await vis(page, "answer-chips").locator('[data-testid="draft-chip"]').allInnerTexts();
+  expect(again).not.toContain("Why Haaland as captain?"); // used: never shown again
+  // a draft with £1.2m left shows the spend chip
+  reset();
+  withDraft();
+  S.draft = draftCard({ value: 98.8, left: 1.2 });
+  await openChat(page, `/chat/${DRAFT_TID}`);
+  S.answers.push({ text: "A reply." });
+  await vis(page, "opening-chips").getByText("Suggest some changes").click();
+  await expect(vis(page, "answer-chips")).toContainText("How would you spend the £1.2m left?", { timeout: 15_000 });
+});
+
+test("chat: over £100.0m after price rises (coral), Newer predictions -> the Rebuild confirm -> the system line", async () => {
+  reset();
+  withDraft();
+  S.draft = draftCard({ value: 100.2, left: 0, over: 0.2, newer_predictions: true });
+  await openChat(page, `/chat/${DRAFT_TID}`);
+  if (phone()) {
+    await vis(page, "team-bar").click();
+    await expect(vis(page, "panel-line")).toHaveText("4-4-2 · £100.2m / £100.0m · £0.2m OVER");
+  } else await expect(vis(page, "card-line")).toHaveText("4-4-2 · £100.2m / £100.0m · £0.2m OVER");
+  await expect(page.locator(".ch-card-line b.over:visible, .line b.over:visible").first()).toHaveCSS("color", "rgb(255, 138, 122)");
+  await expect(vis(page, "draft-newer")).toBeVisible();
+  await shot(page, "chat_over_budget_newer");
+  await vis(page, "draft-newer-rebuild").click();
+  await vis(page, "rebuild-confirm").click();
+  await expect(vis(page, "system-rebuilt")).toHaveText("Draft rebuilt from the best picks.", { timeout: 10_000 });
+  expect(S.rebuilds).toBe(1);
+  await shot(page, "chat_rebuilt_line");
+  // Home shows the same over state on the card
+  S.draft = draftCard({ value: 100.2, left: 0, over: 0.2 });
+  S.teams = 1;
+  await home(page);
+  await expect(vis(page, "draft-left")).toHaveText("£0.2m over");
+  await expect(vis(page, "draft-left")).toHaveCSS("color", "rgb(255, 138, 122)");
+});
+
+test("chat: a new draft chat (sidebar New chat) shows the draft's own chips; never the Team / General ones", async () => {
+  reset();
+  withDraft();
+  await openChat(page, "/chat?draft=1");
+  const empty = vis(page, "empty-draft");
+  await expect(empty).toBeVisible();
+  const chips = await empty.locator('[data-testid="empty-chip"]').allInnerTexts();
+  expect(chips.length).toBe(4);
+  for (const t of chips) expect(t).not.toMatch(/captain for GW|best transfer|in form right now|injured this week/i);
+  S.answers.push({ text: "A reply." });
+  await vis(page, "chat-input").fill("Is my bench good enough?");
+  await page.keyboard.press("Enter");
+  await expect(vis(page, "assistant-message")).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => page.url()).toContain(`/chat/${NEW_DRAFT_TID}`);
+});
+
+// ---- accessibility, reduced motion, keyboard -------------------------------------------------------------------------------
+test("axe: 0 serious / critical on /home with a draft and on /chat in draft mode", async () => {
+  test.skip(phone(), "axe runs once, on desktop");
+  reset({ teams: 2, threads: [draftRow("Why these players?")] });
+  withDraft("Why these players?");
+  for (const url of ["/home", `/chat/${DRAFT_TID}`]) {
+    await page.goto(url);
+    await page.waitForTimeout(1500);
+    const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+    const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+    note(`axe ${url}: ${r.violations.length} violations, serious/critical ${bad.length}${bad.length ? ` -- ${bad.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 3).join(" | ")}`).join("; ")}` : ""}`);
+    expect(bad, url).toEqual([]);
+  }
+});
+
+test("reduced motion: the building card shows all 15 dots at once and nothing spins", async () => {
+  reset({ teams: 2 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  try {
+    await home(page);
+    await vis(page, "build-pill").click();
+    const bld = vis(page, "draft-building");
+    await expect(bld).toBeVisible();
+    const st = await bld.evaluate((el) => {
+      const dots = Array.from(el.querySelectorAll<HTMLElement>('[data-testid="build-dot"]'));
+      const spin = el.querySelector<HTMLElement>(".dr-spin");
+      return { n: dots.length, opaque: dots.filter((d) => getComputedStyle(d).opacity === "1").length, anim: dots.filter((d) => getComputedStyle(d).animationName !== "none").length, spin: spin ? getComputedStyle(spin).animationName : "?" };
+    });
+    note(`reduced motion: ${JSON.stringify(st)}`);
+    expect(st).toEqual({ n: 15, opaque: 15, anim: 0, spin: "none" });
+    await page.waitForURL(`**/chat/${DRAFT_TID}`, { timeout: 15_000 });
+  } finally {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+  }
+});
+
+test("keyboard only: Build from Home, the guide opens / traps / closes back to its opener, the Rebuild confirm", async () => {
+  test.skip(phone(), "keyboard run on desktop");
+  reset({ teams: 1 });
+  withDraft();
+  await home(page);
+  const tabTo = async (id: string, max = 60) => {
+    for (let i = 0; i < max; i++) {
+      await page.keyboard.press("Tab");
+      if (await page.evaluate((t) => document.activeElement?.getAttribute("data-testid") === t, id)) return;
+    }
+    throw new Error(`Tab never reached ${id}`);
+  };
+  await page.locator("body").click({ position: { x: 5, y: 5 } });
+  await tabTo("draft-guide");
+  const ring = await page.evaluate(() => getComputedStyle(document.activeElement as HTMLElement).outlineColor);
+  note(`focus ring on the amber link: ${ring}`);
+  expect(ring).toBe("rgb(59, 232, 255)");
+  await page.keyboard.press("Enter");
+  await expect(vis(page, "guide-dialog")).toBeVisible();
+  for (let i = 0; i < 6; i++) await page.keyboard.press("Tab");
+  expect(await page.evaluate(() => !!document.activeElement?.closest('[data-slot="dialog-content"]') || !!document.activeElement?.hasAttribute("data-base-ui-focus-guard"))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(vis(page, "guide-dialog")).toHaveCount(0);
+  await expect(vis(page, "draft-guide")).toBeFocused();
+  await tabTo("draft-rebuild");
+  await page.keyboard.press("Enter");
+  await expect(vis(page, "rebuild-keep")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(vis(page, "draft-rebuild")).toBeFocused();
+  await tabTo("draft-chat");
+  await page.keyboard.press("Enter");
+  await page.waitForURL(`**/chat/${DRAFT_TID}`, { timeout: 15_000 });
+});
+
+// ---- contrast: every draft surface as the browser painted it (the W5b sweep: buttons, links, text controls) ------------------
+test("contrast: the computed sweep over every draft surface (Home card + new-user card, guide, confirms, chat, over state)", async () => {
+  const lows: { ratio: number; label: string; where: string }[] = [];
+  const sweep = async (where: string) => {
+    await page.waitForTimeout(500);
+    const r = await sweepPage(page);
+    if (r.lowest) lows.push({ ratio: r.lowest.ratio, label: r.lowest.label, where });
+    note(`sweep ${where}: ${r.text.length} text controls, lowest ${r.lowest ? `${r.lowest.ratio.toFixed(2)}:1 ${r.lowest.label}` : "n/a"}, ${r.fails.length} below the bar`);
+    expect(r.fails.map((f: { ratio: number; fg: string; bg: string; label: string }) => `${f.ratio}:1 ${f.fg} on ${f.bg} ${f.label}`), where).toEqual([]);
+  };
+  reset();
+  await home(page);
+  await sweep("home new user (Build card)");
+  reset({ teams: 2, threads: [draftRow("Why these players?")] });
+  withDraft("Why these players?");
+  S.draft = draftCard({ newer_predictions: true });
+  await home(page);
+  await sweep("home draft card + pill-less header + Recent DRAFT tag");
+  await vis(page, "draft-guide").click();
+  await sweep("the guide");
+  await page.keyboard.press("Escape");
+  await vis(page, "draft-rebuild").click();
+  await sweep("the Rebuild confirm");
+  await page.keyboard.press("Escape");
+  await vis(page, "draft-delete").click();
+  await sweep("the Delete confirm");
+  await page.keyboard.press("Escape");
+  S.teams = 3;
+  await home(page);
+  await sweep("home full-width draft row");
+  await openChat(page, `/chat/${DRAFT_TID}`);
+  if (phone()) await vis(page, "team-bar").click();
+  await sweep("chat: banner, opening chips, the draft card / panel, Newer predictions");
+  S.answers.push({ text: "A reply.", preview: PREVIEW });
+  await vis(page, "chat-input").fill("Swap Lewis for Mykolenko");
+  await page.keyboard.press("Enter");
+  await expect(vis(page, "preview-card")).toBeVisible({ timeout: 15_000 });
+  await waitTyped(page);
+  await sweep("chat: the draft preview card + value line");
+  S.draft = draftCard({ value: 100.2, left: 0, over: 0.2 });
+  await openChat(page, `/chat/${DRAFT_TID}`);
+  if (phone()) await vis(page, "team-bar").click();
+  await sweep("chat: over budget (coral)");
+  const low = lows.sort((x, y) => x.ratio - y.ratio)[0];
+  note(`SUMMARY lowest contrast over the draft surfaces: ${low ? `${low.ratio.toFixed(2)}:1 ${low.label} on ${low.where}` : "n/a"}`);
 });

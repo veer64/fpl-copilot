@@ -91,8 +91,11 @@ function Stats({ d }: { d: DraftCard }) {
       </div>
       <div className="hm-stat">
         <dt>VALUE</dt>
-        <dd data-testid="draft-value">{money(d.value)}</dd>
-        <span className="dr-of">of {money(d.budget)}</span>
+        {/* "of £100.0m" lives INSIDE the dd: a dl's groups may hold only dt / dd (axe definition-list) */}
+        <dd>
+          <span data-testid="draft-value">{money(d.value)}</span>
+          <span className="dr-of">of {money(d.budget)}</span>
+        </dd>
       </div>
       <div className="hm-stat">
         <dt>{over ? "OVER" : "LEFT"}</dt>
