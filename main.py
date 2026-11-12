@@ -526,8 +526,9 @@ def guest_status():
 @app.post("/guest/start")
 def guest_start(http: Request):
     """Public: a one-time Clerk sign-in token for a brand-new guest -- after the switch, the per-IP limit (X-Forwarded-For
-    only behind Caddy, stored hashed) and the daily guest budget. {ticket, expires_in_seconds}; 403 guest_off; 429
-    guest_ip_limit / guest_budget; 502 when Clerk failed (nothing half-made is left)."""
+    only behind Caddy, stored hashed), the daily guest budget and the global limit (GUEST_STARTS_PER_10_MIN, Prompt S1).
+    {ticket, expires_in_seconds}; 403 guest_off; 429 guest_ip_limit / guest_budget / guest_busy; 502 when Clerk failed
+    (nothing half-made is left)."""
     if auth.mode() != "clerk":
         return JSONResponse(NOT_FOUND, status_code=404)
     try:

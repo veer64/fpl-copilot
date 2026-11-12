@@ -46,6 +46,7 @@ def g(api, monkeypatch):
     monkeypatch.delenv("GUEST_CAP_USD", raising=False)
     monkeypatch.delenv("GUEST_DAILY_BUDGET_USD", raising=False)
     monkeypatch.delenv("GUEST_STARTS_PER_IP_PER_DAY", raising=False)
+    monkeypatch.delenv("GUEST_STARTS_PER_10_MIN", raising=False)
     guest.ensure_schema(api.conn)
     with api.conn.cursor() as cur:
         cur.execute("TRUNCATE cap_hits")
@@ -507,3 +508,52 @@ def test_g10_admin_counts_guests_apart_from_people_and_includes_their_spend_in_t
     assert "guest" not in s["sign_in_methods"]
     csv = admin.users_csv(admin.stats(g.conn))
     assert "guest-" not in csv
+
+
+# ---- Prompt S1: the global start limit (GUEST_STARTS_PER_10_MIN across all addresses) ---------------------------------------
+
+def test_s1_the_global_limit_refuses_the_next_start_with_guest_busy_and_0_clerk_calls(g, monkeypatch):
+    monkeypatch.setenv("GUEST_STARTS_PER_10_MIN", "3")
+    for i in range(3):
+        assert _start(g, f"198.51.100.{i}").status_code == 200, i      # three different addresses, each under its own limit
+    r = _start(g, "198.51.100.50")                                      # a fourth, fresh address: the limit is global
+    assert r.status_code == 429
+    assert r.json() == {"detail": guest.BUSY, "code": "guest_busy"}
+    assert guest.BUSY == "Guest mode is busy — try again in a few minutes, or sign in."
+    assert len(g.clerk["created"]) == 3 and len(g.clerk["tokens"]) == 3  # the refused start made no Clerk call at all
+    assert _q(g.conn, "SELECT count(*) FROM guest_starts")[0][0] == 3
+
+
+def test_s1_the_window_is_ten_minutes_and_slides(g, monkeypatch):
+    monkeypatch.setenv("GUEST_STARTS_PER_10_MIN", "2")
+    assert _start(g, "198.51.100.1").status_code == 200
+    assert _start(g, "198.51.100.2").status_code == 200
+    assert _start(g, "198.51.100.3").json()["code"] == "guest_busy"
+    with g.conn.cursor() as cur:                                         # the first start leaves the window
+        cur.execute("UPDATE guest_starts SET started_at = started_at - interval '10 minutes 1 second' "
+                    "WHERE id = (SELECT min(id) FROM guest_starts)")
+    g.conn.commit()
+    assert _start(g, "198.51.100.3").status_code == 200
+    assert _start(g, "198.51.100.4").json()["code"] == "guest_busy"
+
+
+def test_s1_the_default_is_20_and_a_bad_value_falls_back(monkeypatch):
+    monkeypatch.delenv("GUEST_STARTS_PER_10_MIN", raising=False)
+    assert guest.starts_per_10_min() == 20
+    monkeypatch.setenv("GUEST_STARTS_PER_10_MIN", "lots")
+    assert guest.starts_per_10_min() == 20
+    monkeypatch.setenv("GUEST_STARTS_PER_10_MIN", "5")
+    assert guest.starts_per_10_min() == 5
+
+
+def test_s1_the_more_lasting_refusals_come_first(g, monkeypatch):
+    """An address over its own daily limit hears that (it lasts all day), not 'busy'; the switch still beats everything."""
+    monkeypatch.setenv("GUEST_STARTS_PER_10_MIN", "3")
+    for i in range(3):
+        assert _start(g, "203.0.113.70").status_code == 200, i
+    assert _start(g, "203.0.113.70").json()["code"] == "guest_ip_limit"
+    assert _start(g, "203.0.113.71").json()["code"] == "guest_busy"
+    monkeypatch.setenv("GUEST_MODE", "off")
+    r = _start(g, "203.0.113.72")
+    assert r.status_code == 403 and r.json()["code"] == "guest_off"
+

@@ -45,11 +45,14 @@ import users
 
 MODE_ENV = "GUEST_MODE"
 IDLE_ENV, CAP_ENV, BUDGET_ENV, PER_IP_ENV = "GUEST_IDLE_MINUTES", "GUEST_CAP_USD", "GUEST_DAILY_BUDGET_USD", "GUEST_STARTS_PER_IP_PER_DAY"
+PER_10_MIN_ENV = "GUEST_STARTS_PER_10_MIN"   # Prompt S1: the global start limit, across all addresses
 TRUSTED_PROXY_ENV = "TRUSTED_PROXY_HOSTS"
 DEFAULT_IDLE_MINUTES = 30
 DEFAULT_CAP_USD = 0.25
 DEFAULT_BUDGET_USD = 3.00
 DEFAULT_STARTS_PER_IP = 3
+DEFAULT_STARTS_PER_10_MIN = 20
+BUSY_WINDOW = timedelta(minutes=10)
 DEFAULT_TRUSTED_PROXIES = "fpl-caddy"
 LEAVE_GRACE_S = 120                        # a refresh or a closed last tab: the ping after a leave within this cancels it
 TICKET_TTL_S = 600                         # the sign-in token's life
@@ -65,6 +68,7 @@ USER_AGENT = "fpl-copilot/guest (+https://fplcopilot.app)"    # Clerk's edge ans
 UNAVAILABLE = "Guest mode is unavailable"
 IP_LIMIT = "Guest limit reached for today on this network — sign in with Google or email to keep going"
 BUDGET_FULL = "Guest mode is full for today — sign in to continue"
+BUSY = "Guest mode is busy — try again in a few minutes, or sign in."
 CAP_REACHED = "Guest limit reached — sign in with Google or email to keep going"
 
 DDL = """
@@ -132,6 +136,10 @@ def daily_budget_usd():
 
 def starts_per_ip():
     return _number(PER_IP_ENV, DEFAULT_STARTS_PER_IP, int)
+
+
+def starts_per_10_min():
+    return _number(PER_10_MIN_ENV, DEFAULT_STARTS_PER_10_MIN, int)
 
 
 def status():
@@ -261,6 +269,14 @@ def starts_today(hashed, conn):
         return int(cur.fetchone()[0])
 
 
+def starts_recent(conn):
+    """Guest starts from every address in the last BUSY_WINDOW (Prompt S1): the flood guard. Only starts that made a
+    Clerk user are rows, so a refused start never counts; claimed or not, ended or not, every start counts."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM guest_starts WHERE started_at >= %s", (clock() - BUSY_WINDOW,))
+        return int(cur.fetchone()[0])
+
+
 def budget_used_today(conn=None):
     """Today's guest spend in USD: the live guests' rows + today's anonymised deleted-guest rows (never a real user's)."""
     own = conn is None
@@ -282,9 +298,12 @@ def budget_open(conn=None):
 
 
 def start(ip, conn=None):
-    """POST /guest/start: the switch, the per-IP limit, the daily budget, then the Clerk user + the sign-in token + the
-    start row. Returns {ticket, expires_in_seconds}; GuestRefused (403 / 429) before anything is made; ClerkFailed after
-    the half-made Clerk user was deleted again."""
+    """POST /guest/start: the switch, the per-IP limit, the daily budget, the global limit (GUEST_STARTS_PER_10_MIN across
+    all addresses, Prompt S1), then the Clerk user + the sign-in token + the start row. Returns {ticket,
+    expires_in_seconds}; GuestRefused (403 / 429) before anything is made -- 0 Clerk calls; ClerkFailed after the half-made
+    Clerk user was deleted again. The refusals run from the most lasting to the most passing, so a visitor hears the one
+    that matters longest. The global count is read before the Clerk calls and the row written after them, so concurrent
+    starts can overshoot it by the number in flight -- a flood guard, not an exact quota."""
     if not enabled():
         raise GuestRefused(403, "guest_off", UNAVAILABLE)
     own = conn is None
@@ -296,6 +315,8 @@ def start(ip, conn=None):
             raise GuestRefused(429, "guest_ip_limit", IP_LIMIT)
         if not budget_open(conn):
             raise GuestRefused(429, "guest_budget", BUDGET_FULL)
+        if starts_recent(conn) >= starts_per_10_min():
+            raise GuestRefused(429, "guest_busy", BUSY)
         address = f"guest-{secrets.token_hex(6)}@{GUEST_DOMAIN}"
         started = clock()
         cid = clerk_create_user(address, {"guest": True, "started_at": started.isoformat()})

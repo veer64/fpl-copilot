@@ -26,6 +26,7 @@ type Busy = null | "sending" | "verifying" | "google" | "resending" | "guest";
 const GUEST_UNAVAILABLE = "Guest mode is unavailable";
 const GUEST_IP_LIMIT = "Guest limit reached for today on this network — sign in with Google or email to keep going";
 const GUEST_BUDGET_FULL = "Guest mode is full for today — sign in to continue";
+const GUEST_BUSY = "Guest mode is busy — try again in a few minutes, or sign in."; // Prompt S1: the global start limit
 const GUEST_FAILED = "Couldn’t start a guest session — try again, or sign in.";
 type Flow = "signin" | "signup";
 type CodeError = { kind: "wrong" | "expired" | "too_many" | "generic"; text: string };
@@ -295,7 +296,17 @@ export const SignInCard = forwardRef<HTMLElement, object>(function SignInCard(_p
     } catch (err) {
       const code = (err as Partial<GuestStartError>)?.code;
       if (code === "guest_off") setGuestMode("off");
-      setGuestError(code === "guest_off" ? GUEST_UNAVAILABLE : code === "guest_ip_limit" ? GUEST_IP_LIMIT : code === "guest_budget" ? GUEST_BUDGET_FULL : GUEST_FAILED);
+      setGuestError(
+        code === "guest_off"
+          ? GUEST_UNAVAILABLE
+          : code === "guest_ip_limit"
+            ? GUEST_IP_LIMIT
+            : code === "guest_budget"
+              ? GUEST_BUDGET_FULL
+              : code === "guest_busy"
+                ? GUEST_BUSY
+                : GUEST_FAILED,
+      );
       console.error("[guest] start failed", err);
     } finally {
       setBusy(null);
