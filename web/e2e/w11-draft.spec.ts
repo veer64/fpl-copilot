@@ -35,8 +35,14 @@ const note = (s: string) => {
 
 // ---- seed data ------------------------------------------------------------------------------------------------------------
 type P = ReturnType<typeof pl>;
+// each club's GW11 fixture from the project's fixture calendar (data/history/forward_skeleton_2026_27.parquet, read 12 Nov):
+// the seeded tokens show what the real card shows for these clubs (the real card reads FPL's fixtures for the same week)
+const GW11: Record<string, { opp: string; home: boolean }> = {
+  ARS: { opp: "NEW", home: false }, LIV: { opp: "MUN", home: true }, CRY: { opp: "COV", home: false }, MCI: { opp: "FUL", home: true },
+  CHE: { opp: "LEE", home: true }, AVL: { opp: "SUN", home: true }, NFO: { opp: "BOU", home: false }, EVE: { opp: "BRE", home: false }, BHA: { opp: "HUL", home: false },
+};
 const pl = (slot: number, id: number, short: string, full: string, club: string, position: string, price: number, pts: number, role: "C" | "VC" | null = null) => ({
-  slot, id, short_name: short, full_name: full, club, position, price, form: 5.2, role, next: { opp: "FUL", home: true, n: 1 }, flag: null, pred: { points: pts, source: "ours" }, in_squad: true,
+  slot, id, short_name: short, full_name: full, club, position, price, form: 5.2, role, next: { ...GW11[club], n: 1 }, flag: null, pred: { points: pts, source: "ours" }, in_squad: true,
 });
 const BASE_PLAYERS: P[] = [
   pl(1, 1, "Raya", "David Raya", "ARS", "GK", 5.0, 4.8),
@@ -127,6 +133,8 @@ async function seed(p: Page) {
   await p.route(`${API}/chat`, async (r) => {
     const body = r.request().postDataJSON() as { message: string; thread_id?: string };
     S.chatBodies.push(body.message);
+    // the backend lists a draft chat once its first question is sent (W4's rule), titled by that question, is_draft true
+    if (body.thread_id === DRAFT_TID && !(S.threads as { thread_id: string }[]).some((t) => t.thread_id === DRAFT_TID)) S.threads = [draftRow(body.message), ...S.threads];
     const a = S.answers.shift() ?? { text: "A reply. Does that sound good? Any other changes?" };
     await new Promise((res) => setTimeout(res, 600));
     a.after?.();
@@ -184,8 +192,15 @@ test("cp2: chat in draft mode -- the opening message + chips, a pending change, 
   else await expect(vis(page, "chat-tag")).toHaveText("DRAFT");
   await expect(vis(page, "draft-banner")).toContainText("Not in FPL yet");
   await expect(vis(page, "opening-chips").locator('[data-testid="draft-chip"]')).toHaveCount(4);
-  if (phone()) await expect(vis(page, "team-bar-line")).toHaveText("DRAFT · 4-4-2 · C HAALAND");
-  else await expect(vis(page, "card-line")).toHaveText("4-4-2 · £99.6m OF £100.0M · £0.4m LEFT");
+  if (phone()) await expect(vis(page, "team-bar-line")).toHaveText("4-4-2 · C HAALAND");
+  else await expect(vis(page, "card-line")).toHaveText("4-4-2 · £99.6m / £100.0m · £0.4m LEFT");
+  // every token shows its own club's next fixture (Haaland: Man City at home to Fulham; Salah: Liverpool v Man Utd at home)
+  if (!phone()) {
+    const strips = await page.locator('[data-testid="fixture-strip"]:visible').evaluateAll((els) => els.map((e) => `${e.getAttribute("data-opp")}:${e.getAttribute("data-home")}`));
+    const want = BASE_PLAYERS.map((p) => `${GW11[p.club].opp}:${GW11[p.club].home}`);
+    expect(strips.sort()).toEqual(want.sort()); // the 15 tokens, each with its own club's GW11 fixture
+    note(`fixture strips: ${new Set(strips).size} distinct over ${strips.length} tokens`);
+  }
   await page.waitForTimeout(400);
   await shot(page, "cp2_chat_opening");
   // a pending change
@@ -211,10 +226,17 @@ test("cp2: chat in draft mode -- the opening message + chips, a pending change, 
   await vis(page, "preview-yes").click();
   await expect(vis(page, "saved-block")).toHaveText("Saved to your draft.", { timeout: 15_000 });
   await waitTyped(page);
-  if (!phone()) await expect(vis(page, "card-line")).toHaveText("4-4-2 · £99.9m OF £100.0M · £0.1m LEFT", { timeout: 10_000 });
+  if (!phone()) await expect(vis(page, "card-line")).toHaveText("4-4-2 · £99.9m / £100.0m · £0.1m LEFT", { timeout: 10_000 });
   else {
     await vis(page, "team-bar").click();
     await expect(vis(page, "panel-line")).toContainText("£0.1m LEFT", { timeout: 10_000 });
+  }
+  // the chat is listed in Past chats with the DRAFT tag once its first question was sent (fix 2)
+  if (!phone()) {
+    const row = page.locator(`[data-testid="thread-row"][data-thread-id="${DRAFT_TID}"]:visible`);
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    await expect(row).toContainText("DRAFT");
+    await expect(row).toContainText("Swap Lewis for Mykolenko");
   }
   await page.waitForTimeout(400);
   await shot(page, "cp2_chat_saved");

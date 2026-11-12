@@ -84,6 +84,7 @@
 .dr-banner{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 28px;height:32px;font-size:12.5px;color:#D9C08A;border-bottom:1px solid #1A1A12}
 .dr-banner button{background:none;border:0;padding:4px 2px;color:#FFD37A;font-size:12.5px;font-weight:500;border-radius:4px}
 .dr-banner button:hover{color:#FFE7AD;text-decoration:underline;text-underline-offset:3px}
+.ch-card.dr-card .ch-card-line{font-size:9px;letter-spacing:-.045em;white-space:nowrap}
 .ch-card.dr-card .ch-card-line b{color:#FFE2A0;font-weight:500}
 .ch-card.dr-card .ch-card-line b.over{color:#FF8A7A}
 .dr-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}

@@ -18,6 +18,9 @@ export const OPENING_MESSAGE =
 
 export type DraftChipFacts = { captain: string | null; left: number | null; over: number | null };
 
+/** The owner (checkpoint 2): the "spend the money left" chip only when at least this much is left (£m). */
+export const SPEND_CHIP_MIN = 0.5;
+
 /** O3: the draft's own suggestions -- a new draft chat's empty state, and the row under the latest answer. */
 export function draftChips(f: DraftChipFacts): DraftChip[] {
   const out: DraftChip[] = [];
@@ -25,7 +28,7 @@ export function draftChips(f: DraftChipFacts): DraftChip[] {
   out.push({ text: "Who's the weakest pick?" });
   out.push({ text: "Is my bench good enough?" });
   if (f.over !== null && f.over > 0) out.push({ text: "How do I get my draft back under £100.0m?" });
-  else if (f.left !== null && f.left > 0) out.push({ text: `How would you spend the £${f.left.toFixed(1)}m left?` });
+  else if (f.left !== null && f.left >= SPEND_CHIP_MIN) out.push({ text: `How would you spend the £${f.left.toFixed(1)}m left?` });
   out.push({ text: "Suggest some changes" });
   out.push({ text: "How do I enter this in FPL?", action: "guide" });
   return out;

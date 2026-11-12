@@ -84,8 +84,8 @@ export function PreviewCard({
     <section className={`ch-preview${pending ? "" : " done"}`} aria-label={pending ? "Squad change preview" : "Squad change preview (answered)"} data-testid="preview-card" data-pending={pending} data-changes={n}>
       {pending && (
         <>
-          <span className="hm-br hm-tl" aria-hidden="true" />
-          <span className="hm-br hm-brr" aria-hidden="true" />
+          <span className={`hm-br hm-tl${preview.draft ? " dr-amb" : ""}`} aria-hidden="true" />
+          <span className={`hm-br hm-brr${preview.draft ? " dr-amb" : ""}`} aria-hidden="true" />
         </>
       )}
       <div className="ch-preview-head">

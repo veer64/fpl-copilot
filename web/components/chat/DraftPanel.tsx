@@ -27,7 +27,7 @@ export function DraftMeta({ d }: { d: DraftCard }) {
   const over = (d.over ?? 0) > 0;
   return (
     <>
-      {d.formation} · {money(d.value)} OF {money(d.budget).toUpperCase()} ·{" "}
+      {d.formation} · {money(d.value)} / {money(d.budget)} ·{" "}
       {over ? <b className="over">{money(d.over)} OVER</b> : <b>{money(d.left)} LEFT</b>}
     </>
   );
@@ -161,7 +161,7 @@ export function MobileDraft({
             Your draft team
           </span>
           <span className="ch-teambar-line" data-testid="team-bar-line">
-            {draft.status === "loading" ? "Loading your draft…" : err || !d ? "Couldn’t load your draft" : `DRAFT · ${d.formation} · C ${(captain?.short_name ?? "—").toUpperCase()}`}
+            {draft.status === "loading" ? "Loading your draft…" : err || !d ? "Couldn’t load your draft" : `${d.formation} · C ${(captain?.short_name ?? "—").toUpperCase()}`}
           </span>
         </span>
         {preview && (

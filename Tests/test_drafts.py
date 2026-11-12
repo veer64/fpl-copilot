@@ -96,6 +96,9 @@ class League:
         import team_card
         self.mp, self.seed, self.run_id = mp, seed, run_id
         self.boot = make_league(seed)
+        # GW10's fixtures (the card's next gameweek at NOW): club 2k-1 at home to club 2k, kick-offs spread over the weekend
+        self.fixtures = [{"id": k, "event": 10, "team_h": 2 * k - 1, "team_a": 2 * k, "kickoff_time": f"2026-11-0{7 + k % 3}T15:00:00Z"}
+                         for k in range(1, 11)]
         self.run_prices = {e["id"]: e["now_cost"] for e in self.boot["elements"]}     # what the "pipeline" priced at
         self.calls = {"stored": 0, "load_pool": 0}
         mp.setattr(mt, "_current_gw", lambda: 10)
@@ -120,7 +123,7 @@ class League:
     def ctx(self):
         import team_card
         boot = {k: v for k, v in self.boot.items()}
-        c = team_card.Context(boot, True, [], True, now=NOW)
+        c = team_card.Context(boot, True, list(self.fixtures), True, now=NOW)
         c.pool = {e["id"]: round(e["_pts"], 2) for e in self.boot["elements"]}
         c.built = datetime(2026, 11, 2, 11, 0, tzinfo=UTC)
         return c
@@ -318,6 +321,27 @@ def test_r4_delete_removes_the_draft_and_its_chats_and_nothing_else(dapi):
     assert _get(dapi, "/me/draft").json() == {"draft": None}
     assert _delete(dapi, "/me/draft").status_code == 404
     assert _post(dapi, "/threads", json={"draft": True}).status_code == 404
+
+
+def test_r8_the_draft_players_are_the_team_cards_own_objects_with_each_clubs_next_fixture(dapi):
+    """Checkpoint 2, fix 1: each of the draft's 15 shows HIS club's next fixture from the fixtures list, built by the real
+    team card's own function (team_card.players_of) -- the same source and the same player object."""
+    import team_card
+    d = _post(dapi, "/me/draft").json()["draft"]
+    lg = dapi.league
+    team_of = {e["id"]: e["team"] for e in lg.boot["elements"]}
+    short = {t["id"]: t["short_name"] for t in lg.boot["teams"]}
+    opps = set()
+    for p in d["players"]:
+        club = team_of[p["id"]]
+        f = next(f for f in lg.fixtures if f["event"] == 10 and club in (f["team_h"], f["team_a"]))
+        home = f["team_h"] == club
+        want = {"opp": short[f["team_a"] if home else f["team_h"]], "home": home, "n": 1}
+        assert p["next"] == want, (p["short_name"], p["next"], want)
+        assert p["club"] == short[club]
+        opps.add(want["opp"])
+    assert len(opps) > 1                                               # not one fixture for everyone
+    assert drafts.as_json(team_card.players_of(lg.ctx(), drafts.read(U1)["squad_json"])) == d["players"]
 
 
 def test_r5_users_are_isolated(dapi):
