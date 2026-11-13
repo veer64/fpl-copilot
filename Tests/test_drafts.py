@@ -995,6 +995,8 @@ def test_w3_get_my_squad_says_how_the_fifteen_were_picked_and_only_facts_per_pla
     for must in ("most predicted points for GW10", "captain counted twice", "0.2", "bench", "£100.0m", "squad rules"):
         assert must in hp, must
     assert "only" in sq["reasons_rule"] and "predicted points, price, club and next fixture" in sq["reasons_rule"]
+    for judgement in ("easy", "tough", "value for money", "upside", "ceiling", "form"):   # the smoke's invented reasons
+        assert judgement in sq["reasons_rule"], judgement
     ctx = built.api.league.ctx()
     team_of = {e["id"]: e["team"] for e in built.boot["elements"]}
     for r in sq["xi"] + sq["bench_in_order"]:

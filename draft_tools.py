@@ -22,9 +22,10 @@ WHAT_THIS_IS = ("This is the user's DRAFT team: 15 players built from our predic
 TO_CHANGE = ("To change the draft, call set_my_squad with confirm=false (a preview the user must say yes to); apply it with "
              "confirm=true and the preview_ticket only after the user says yes in their next message. To suggest changes, "
              "call propose_transfers: in a draft it returns the best free swaps with their numbers.")
-REASONS_RULE = ("These are the only reasons available: how_picked, and for each player only his predicted points, price, club "
-                "and next fixture on his row. Give only these; never add others (form, value for money, cheapness, minutes, "
-                "fixture runs, playing style).")
+REASONS_RULE = ("The only reason any player is in the draft is how_picked (the build's predicted points). For each player the "
+                "only facts are his predicted points, price, club and next fixture on his row: state them as facts, never as "
+                "judgements. Never call a fixture easy, good, tough or hard, and never judge value for money, cheapness, "
+                "upside, ceiling, form, minutes, risk or playing style; never add a reason of your own.")
 # W11c R4: every money figure also as it is said ("£0.1m over"), so a reply quotes it instead of restating or rounding it
 MONEY_PLAIN = ("price", "out_price", "in_price", "value", "value_before", "value_after", "budget", "instead_of_price",
                "replaces_price")
