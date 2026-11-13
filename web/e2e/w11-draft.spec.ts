@@ -346,6 +346,13 @@ test("home with a draft: 3rd column / slim Add row / full-width row, '· 1 draft
   await expect(vis(page, "teams-count")).toHaveText("3 of 3 teams · 1 draft");
   await expect(vis(page, "teams-full")).toHaveCount(0);
   await shot(page, "home_draft_3teams");
+  // Prompt W11c R5: the team cards' Refresh at the reference size (12px desktop, 13px phone); `.hm button{font:inherit}` had
+  // left it at 16px
+  const card0 = page.locator('[data-testid="team-card"]:visible').first();
+  const refreshSize = await card0.locator('[data-testid="refresh"]').evaluate((e) => getComputedStyle(e).fontSize);
+  note(`team card Refresh: ${refreshSize}`);
+  await card0.screenshot({ path: path.join(SHOTS, `home_team_refresh_${vp(page).width}x${vp(page).height}.png`) });
+  expect(refreshSize).toBe(phone() ? "13px" : "12px");
   if (!phone()) {
     const cards = await page.locator('[data-testid="team-card"]:visible').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().bottom));
     const row = await vis(page, "draft-card").boundingBox();
