@@ -383,9 +383,11 @@ tools_schema = [
 ]
 
 import os
+import sys
 from dotenv import load_dotenv
 import llm
 import turn_context                                     # Prompt E (2026-10-27): the loop's turn channel (the write lock reads it)
+from model_tools import explain_my_draft                       # Prompt W11g G1: draft turns only (DRAFT_FUNCTIONS)
 from model_tools import (list_players, resolve_player, get_player_card,
                          get_prediction, compare_players, get_picks,
                          get_best_squad, optimise, get_my_squad, set_my_squad,
@@ -432,6 +434,49 @@ DRAFT_MODE_TEXT = DRAFT_MODE_PATH.read_text(encoding="utf-8").strip()
 # The model every turn is sent to; one name, so the usage log (below) and the call agree.
 AGENT_MODEL = "claude-sonnet-4-6"
 
+# Prompt W11g G1 (2026-11-13): ONE extra tool on a draft chat's turns only -- every other request keeps the 24 tools of v5.
+# explain_my_draft's text is written by code and IS the reply (DIRECT_TOOLS): the model routes to it and writes nothing.
+DRAFT_TOOLS = [
+    {
+        "name": "explain_my_draft",
+        "description": "The draft's explanation, written by code from the build's own facts: how the 15 were picked, the "
+                       "budget split, and for each player his club, price, predicted points, biggest breakdown parts, what "
+                       "the best legal alternative would cost the build's score, his value facts and his pick rank. Call it "
+                       "for ANY request to explain, talk through or justify the draft or a player in it. Its text is shown "
+                       "to the user as the reply: write no explanation of your own.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "detail": {"type": "string", "enum": ["summary", "each_player"],
+                           "description": "'each_player' when the user asks about every / each player or player by player; "
+                                          "otherwise 'summary'."},
+                "player": {"type": "string", "description": "Optional: one draft player's name, for a question about him only."}
+            },
+            "required": ["detail"]
+        }
+    },
+]
+DIRECT_TOOLS = frozenset({"explain_my_draft"})
+
+
+def _draft_turn_now():
+    return (turn_context.current() or {}).get("draft") is not None
+
+
+def _turn_tools():
+    """The turn's tool list: tools_schema, plus DRAFT_TOOLS on a draft chat's turn (W11g G1)."""
+    return tools_schema + DRAFT_TOOLS if _draft_turn_now() else tools_schema
+
+
+def _say(text):
+    """Prompt W11g G6: a log line that can never crash a turn -- a console that cannot encode a character (Windows cp1252 and
+    "Vušković": the W11f eval's case 7) gets it replaced, never an exception."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(str(text).encode(enc, errors="replace").decode(enc, errors="replace"))
+
 # Prompt W11f V2 (2026-11-13): the reply cap. A draft chat's fifteen-player walkthrough needs ~1,000-1,200 tokens and was cut
 # off at 1,024, so a draft turn's requests (the call and the send-back) get 2,048. Every other turn keeps 1,024 and sends
 # exactly the same bytes (payload v5, Tests/test_draft_payload.py).
@@ -476,6 +521,7 @@ TOOL_PLAIN_PHRASES = {
     "get_prediction_history": "the prediction history",
     "get_wildcard_gap": "the wildcard comparison",
     "search_news": "the news search",
+    "explain_my_draft": "the draft explanation",
 }
 _TOOL_NAME_RE = re.compile(r"`?\b(" + "|".join(sorted(TOOL_PLAIN_PHRASES, key=len, reverse=True))
                            + r")\b(\(\))?`?")
@@ -583,7 +629,7 @@ def _system_for_turn(now=None):
     try:
         block = context_block(now)
     except Exception as e:                           # noqa: BLE001 -- the block is help, not a dependency
-        print(f"  [context block not built: {type(e).__name__}: {str(e)[:200]}]")
+        _say(f"  [context block not built: {type(e).__name__}: {str(e)[:200]}]")
         return SYSTEM_PROMPT
     return f"{block}\n\n{SYSTEM_PROMPT}" if block else SYSTEM_PROMPT
 
@@ -650,11 +696,13 @@ def call_tool(tool_name, tool_input):
     instead of the chat request dying with a 500. Tools' own {"error": ...}
     dicts pass through untouched."""
     fn = available_functions.get(tool_name)
+    if fn is None and _draft_turn_now():                    # Prompt W11g G1: the draft tool exists on draft turns only
+        fn = DRAFT_FUNCTIONS.get(tool_name)
     if fn is None:
         return {"error": f"tool {tool_name} is not available"}
     acting = config_roles.acting_user_id()               # Prompt P7: a signed-in user's turn (clerk mode only)
     if acting is not None and isinstance(tool_input, dict) and "user_id" in tool_input and tool_input["user_id"] != acting:
-        print(f"  [{tool_name}: user_id {tool_input['user_id']!r} from the model replaced by the signed-in user]")
+        _say(f"  [{tool_name}: user_id {tool_input['user_id']!r} from the model replaced by the signed-in user]")
         tool_input = {**tool_input, "user_id": acting}  # the user is the token's, never the model's
     try:
         return fn(**(tool_input or {}))
@@ -689,9 +737,9 @@ def _citation_check(turn_id, text, returned_ids):
     try:
         record_citation_check(turn_id, cited, returned_ids, violations)
     except Exception as e:  # noqa: BLE001 -- the check must never take the reply down
-        print(f"  [citation check not logged: {type(e).__name__}: {str(e)[:200]}]")
+        _say(f"  [citation check not logged: {type(e).__name__}: {str(e)[:200]}]")
     if violations:
-        print(f"  [citation check: {len(violations)} cited id(s) not returned this turn: {violations}]")
+        _say(f"  [citation check: {len(violations)} cited id(s) not returned this turn: {violations}]")
 
 
 def _numeric_check(turn_id, text, messages):
@@ -707,11 +755,11 @@ def _numeric_check(turn_id, text, messages):
     try:
         record_numeric_check(turn_id, result, error)
     except Exception as e:  # noqa: BLE001
-        print(f"  [numeric check not logged: {type(e).__name__}: {str(e)[:200]}]")
+        _say(f"  [numeric check not logged: {type(e).__name__}: {str(e)[:200]}]")
     if error:
-        print(f"  [numeric check failed: {error}]")
+        _say(f"  [numeric check failed: {error}]")
     elif result and result["ungrounded"]:
-        print(f"  [numeric check: {len(result['ungrounded'])} of {result['numbers_found']} numbers ungrounded: "
+        _say(f"  [numeric check: {len(result['ungrounded'])} of {result['numbers_found']} numbers ungrounded: "
               f"{[u['text'] for u in result['ungrounded']]}]")
 
 
@@ -721,7 +769,7 @@ def _fact_check_log(turn_id, info):
     try:
         fact_check.record(turn_id, info)
     except Exception as e:  # noqa: BLE001 -- the log must never take the reply down
-        print(f"  [fact check not logged: {type(e).__name__}: {str(e)[:200]}]")
+        _say(f"  [fact check not logged: {type(e).__name__}: {str(e)[:200]}]")
 
 
 def _tally_usage(acc, response):
@@ -758,7 +806,7 @@ def _usage_log(turn_id, usage, tool_names_replaced):
                           toks["cache_read"], toks["cache_write"], cost, tool_names_replaced,
                           **({} if acting is None else {"user_id": acting}))
     except Exception as e:  # noqa: BLE001 -- the log must never take the reply down
-        print(f"  [usage not logged: {type(e).__name__}: {str(e)[:200]}]")
+        _say(f"  [usage not logged: {type(e).__name__}: {str(e)[:200]}]")
 
 
 available_functions = {
@@ -787,6 +835,7 @@ available_functions = {
     "get_wildcard_gap": get_wildcard_gap,
     "search_news": search_news,
 }
+DRAFT_FUNCTIONS = {"explain_my_draft": explain_my_draft}       # Prompt W11g G1: callable on a draft chat's turn only
 
 def run_agent(user_message: str, messages: list = None, *, thread=None):
     """One turn: the user's message in, the rendered reply and the updated history out. The turn is open on
@@ -841,7 +890,7 @@ def _begin_turn(user_message, messages=None, engine="loop", thread=None):
                       "model": None, "seen_usage": False},   # Part 7c: this turn's API usage, logged with the reply
             "turn_calls": [],                        # M1: (tool, input, result) of THIS turn, what the fact check reads
             "rounds": 0,                             # Prompt P6: the tool loop's model calls so far (the round cap)
-            "response": None, "tool_results": None,
+            "response": None, "tool_results": None, "direct_text": None,
             "raw": None, "info": None, "res": None, "fc_span": None, "delivered": None, "sb": None, "t0": None,
             "text2": None, "reply": None, "rendered": None,
             "thread_id": thread.get("thread_id"), "max_turns": thread.get("max_turns")}
@@ -865,7 +914,7 @@ def _call_model(st):
     """One model call with the agent's parameters, unchanged: traced, tallied, the assistant's content appended."""
     request = {"model": AGENT_MODEL, "max_tokens": _max_tokens(),            # the agent's parameters (W11f V2: a draft turn 2,048)
                "system": _system_for_request(st["system"]),
-               "tools": _tools_for_request(tools_schema),
+               "tools": _tools_for_request(_turn_tools()),
                "messages": _messages_for_request(*_request_view(st, st["now_text"]))}
     trace = st["trace"]
     gen = trace.generation(request)
@@ -902,13 +951,14 @@ def _run_tools(st):
     search results kept for the citations. Returns the tool_result blocks (empty: no tool call in this response)."""
     trace = st["trace"]
     tool_results = []
+    direct = None
     for block in st["response"].content:
         if block.type == "tool_use":
             tool_name = block.name
             tool_input = block.input
             tool_id = block.id
 
-            print(f"  [calling tool: {tool_name}({tool_input})]")
+            _say(f"  [calling tool: {tool_name}({tool_input})]")
 
             span = trace.tool(tool_name, tool_input)
             result = call_tool(tool_name, tool_input)
@@ -919,14 +969,34 @@ def _run_tools(st):
                 st["returned_ids"].extend(str(r.get("id")) for r in hits)
                 st["returned_results"].extend(hits)
             if isinstance(result, dict) and "error" in result:
-                print(f"  [tool error: {tool_name}: {str(result['error'])[:200]}]")
+                _say(f"  [tool error: {tool_name}: {str(result['error'])[:200]}]")
+            if tool_name in DIRECT_TOOLS and isinstance(result, dict) and isinstance(result.get("direct_reply"), str):
+                direct = result["direct_reply"]                         # W11g G1: this text IS the reply
 
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tool_id,
                 "content": str(result)
             })
-    return {"tool_results": tool_results}
+    return {"tool_results": tool_results, "direct_text": direct}
+
+
+def _direct(st):
+    """Prompt W11g G1: a DIRECT_TOOLS result ends the turn with its code-built text as the reply -- no further model call
+    and no fact check (the model wrote none of it). The text is stored as the assistant's message after the tool results,
+    so the next turn's history is valid; the logs (citations, numbers, usage) and the trace run as for any reply."""
+    text, turn_id, usage = st["direct_text"], st["turn_id"], st["usage"]
+    st["messages"].append({"role": "assistant", "content": [{"type": "text", "text": text}]})
+    _citation_check(turn_id, text, st["returned_ids"])
+    _numeric_check(turn_id, text, st["messages"])
+    LAST_FACT_CHECK.clear()
+    LAST_FACT_CHECK.update(outcome="direct", facts_checked=0, mismatches=[], sent_back=False, original=text, delivered=text)
+    LAST_TURN.clear()
+    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0, direct=True, **usage)
+    _usage_log(turn_id, usage, 0)
+    st["trace"].end(text)
+    _note_turn(st, text)
+    return {"rendered": text}
 
 
 def _round_capped(st):
@@ -939,7 +1009,7 @@ def _round_cap(st):
     an unanswered tool call in the history); its tool calls are not run; usage row, trace metadata, no fact check."""
     response, turn_id, usage = st["response"], st["turn_id"], st["usage"]
     pending = [str(getattr(b, "name", "?")) for b in response.content if getattr(b, "type", None) == "tool_use"]
-    print(f"  [round cap: {st['rounds']} model calls (MAX_TOOL_ROUNDS {MAX_TOOL_ROUNDS}); turn {turn_id} ends with the "
+    _say(f"  [round cap: {st['rounds']} model calls (MAX_TOOL_ROUNDS {MAX_TOOL_ROUNDS}); turn {turn_id} ends with the "
           f"fixed reply; tool calls not run: {pending}]")
     st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": ROUND_CAP_REPLY}]}
     cap = {"rounds": st["rounds"], "pending_tools": pending}
@@ -968,7 +1038,7 @@ def _loop_guard(st):
     message in the history)."""
     response, turn_id, usage = st["response"], st["turn_id"], st["usage"]
     block_types = [str(getattr(b, "type", "?")) for b in (response.content or [])]
-    print(f"  [loop guard: no text and no tool_use (stop_reason={response.stop_reason}); turn {turn_id} "
+    _say(f"  [loop guard: no text and no tool_use (stop_reason={response.stop_reason}); turn {turn_id} "
           f"ends with the fixed reply; blocks {block_types}]")
     st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": GUARD_REPLY}]}   # never an empty message
     LAST_TURN.clear()
@@ -1020,7 +1090,7 @@ def _send_back(st):
     try:
         request = {"model": AGENT_MODEL, "max_tokens": _max_tokens(),
                    "system": _system_for_request(st["system"]),
-                   "tools": _tools_for_request(tools_schema),
+                   "tools": _tools_for_request(_turn_tools()),
                    "tool_choice": dict(FACT_CHECK_TOOL_CHOICE),
                    "messages": _messages_for_request(*_request_view(st, st["now_text"], note))}
         gen = trace.generation(request, send_back=True, parent=st["fc_span"])
@@ -1075,7 +1145,7 @@ def _send_back_done(st):
                                            cache_read=sb["cache_read"], cache_write=sb["cache_write"])
         except Exception:  # noqa: BLE001
             info["extra_usd"] = None
-    print(f"  [fact check: {len(res['mismatches'])} mismatch(es), sent back once -> {info['outcome']}]")
+    _say(f"  [fact check: {len(res['mismatches'])} mismatch(es), sent back once -> {info['outcome']}]")
     return {}
 
 
@@ -1113,7 +1183,7 @@ def _finish(st, raw):
     plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
     rendered = render_citations(plain, st["returned_results"])     # Part C: [1], [2] + Sources
     if rendered != raw:
-        print(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
+        _say(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
     LAST_TURN.clear()
     LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
     _usage_log(turn_id, usage, n_names)
@@ -1131,7 +1201,7 @@ def _note_turn(st, raw=None):
         extras = turn_extras.record_for({**st, "raw": raw}) if raw is not None else {}
         turn_context.note(message_id=st["turn_id"], **extras)
     except Exception as e:  # noqa: BLE001 -- the reply never depends on this
-        print(f"  [turn record not noted: {type(e).__name__}: {str(e)[:200]}]")
+        _say(f"  [turn record not noted: {type(e).__name__}: {str(e)[:200]}]")
         turn_context.note(message_id=st["turn_id"])
 
 
@@ -1159,6 +1229,11 @@ def _run_turn(user_message: str, messages: list = None, *, thread=None):
             return st["rendered"], st["messages"]
 
         st.update(_run_tools(st))
+
+        if st.get("direct_text") is not None:                         # Prompt W11g G1: the tool's text is the reply
+            st.update(_append_tool_results(st))
+            st.update(_direct(st))
+            return st["rendered"], st["messages"]
 
         if not st["tool_results"]:                                      # Prompt E loop guard: no tool call this response
             text_block = _guard_text_block(st)

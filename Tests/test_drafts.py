@@ -1114,8 +1114,9 @@ def test_d1_each_pick_has_a_reason_computed_from_the_builds_objective_and_checke
             assert _solver_score(boot, [i if e == o else e for e in have])[0] <= best_obj + 1e-6
     xi_cost = sum(price[r["player_id"]] for r in rows if r["in_xi"])
     bench_cost = sum(price[r["player_id"]] for r in rows if not r["in_xi"])
-    assert sq["budget_line"] == (f"XI £{xi_cost / 10:.1f}m, bench £{bench_cost / 10:.1f}m; bench points count 0.2×, so most of "
-                                 "the budget goes on the XI.")
+    share = _half_up_int(xi_cost, xi_cost + bench_cost)                # W11g: the XI's share, computed
+    assert sq["budget_line"] == (f"XI £{xi_cost / 10:.1f}m, bench £{bench_cost / 10:.1f}m; the XI takes {share}% of the "
+                                 f"£{(xi_cost + bench_cost) / 10:.1f}m spent; bench points count 0.2×, so most of the budget goes on the XI.")
     assert "The build's score is the XI's predicted points with the captain counted twice, plus 0.2 × the bench's" in sq["how_picked"]
 
 
@@ -1161,10 +1162,10 @@ def test_d2_the_rows_are_grouped_by_position_with_the_position_spelled_out(built
 def test_d3_the_wording_allows_only_the_tools_reasons(built):
     import model_tools as mt
     rule = built.turns.run(mt.get_my_squad)["reasons_rule"]
-    for must in ("pick_reason", "how_picked", "squad_explanation", "budget_line", "breakdown", "counts as invented"):
+    for must in ("pick_reason", "how_picked", "explain_my_draft", "budget_line", "breakdown", "counts as invented"):
         assert must in rule, must
     wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
-    for must in ("pick_reason", "how_picked", "squad_explanation", "breakdown", "counts as invented"):
+    for must in ("pick_reason", "how_picked", "explain_my_draft", "breakdown", "counts as invented"):
         assert must in wording, must
     # W11e E4: D3's "never give a range" is withdrawn -- it contradicts the system prompt's P10 / P50 / P90 ranges
     assert "give a range" not in wording.lower() and "give a range" not in rule.lower()
@@ -1219,22 +1220,25 @@ def _fake_prediction(q):
     return get_prediction
 
 
-def test_e1_get_my_squad_carries_a_short_squad_explanation_built_by_code(built):
+def test_e1_the_summary_is_built_by_code_and_get_my_squad_no_longer_carries_its_own_explanation(built):
+    """W11e E1's short explanation is now explain_my_draft's summary (W11g G4: one source of truth)."""
+    import draft_tools
     import model_tools as mt
     sq = built.turns.run(mt.get_my_squad)
-    ex = sq["squad_explanation"]
-    assert 0 < len(ex) <= 700, len(ex)
+    assert "squad_explanation" not in sq
+    ex = built.turns.run(mt.explain_my_draft, detail="summary")["direct_reply"]
     for must in ("most predicted points for GW10", "captain counted twice", "0.2 × the bench's", "£100.0m"):
         assert must in ex, must
     cap = sq["captain_points"]
-    assert f"Captain: {cap['short_name']}, {cap['e_points']:.2f} predicted points, {cap['with_armband']:.2f} with the armband." in ex
+    assert f"Captain: {cap['short_name']}, {cap['e_points']:.2f} predicted points, {cap['with_armband']:.2f} with the armband" in ex
     rows = sorted((r for r in _sq_rows(sq) if r["build_score_loss"] and r["build_score_loss"] > 0),
-                  key=lambda r: (-r["build_score_loss"], r["player_id"]))
-    named = [r for r in rows if f"{r['short_name']} {r['build_score_loss']:.2f} ({r['best_alternative']['short_name']}, "
-                                f"£{r['best_alternative']['price']:.1f}m)" in ex]
-    assert 3 <= len(named) <= 4 and named == rows[:len(named)], ex
-    assert sq["budget_line"] in ex
-    assert ex.count("\n") <= 4                                       # four short lines, never the fifteen
+                  key=lambda r: (-r["build_score_loss"], r["player_id"]))[:4]
+    want = ", ".join(f"{r['short_name']} {r['build_score_loss']:.2f} ({r['best_alternative']['short_name']}, "
+                     f"£{r['best_alternative']['price']:.1f}m, {_relation(r['price'], r['best_alternative']['price'])})"
+                     for r in rows)
+    assert f"by what the best legal alternative would cost the build's score: {want}." in ex
+    assert ex.rstrip().endswith(draft_tools.EXPLAIN_CLOSING)
+    assert "- **" not in ex                                             # never the fifteen
 
 
 def test_e2_the_why_chip_is_answered_from_code_stored_as_a_turn_and_no_model_is_called(dapi):
@@ -1249,8 +1253,8 @@ def test_e2_the_why_chip_is_answered_from_code_stored_as_a_turn_and_no_model_is_
     out = r.json()
     assert called == [] and out["thread_id"] == tid and out["message_id"] and out["sources"] == []
     row = drafts.read(U1)
-    sq = Turns(U1, tid, row["draft_key"]).run(mt.get_my_squad)
-    assert out["answer"].startswith(sq["squad_explanation"]) and out["answer"].rstrip().endswith("?")
+    summary = Turns(U1, tid, row["draft_key"]).run(mt.explain_my_draft, detail="summary")["direct_reply"]
+    assert out["answer"] == summary                                    # W11g G4: one builder for the chip and the tool
     msgs = _get(dapi, f"/threads/{tid}/messages").json()
     assert [m["role"] for m in msgs] == ["assistant", "user", "assistant"]
     assert msgs[1]["text"] == "Why these players?" and msgs[2]["text"] == out["answer"] and msgs[2]["message_id"] == out["message_id"]
@@ -1301,18 +1305,16 @@ def test_e3c_the_captaincy_edge_is_the_margin_itself_and_the_top_options_are_lis
                                        "with_armband": round(2 * r["e_points"], 2)} for r in xi]
 
 
-def test_e1b_get_my_squad_says_the_explain_answer_starts_from_the_explanation_and_a_walkthrough_is_fine_when_asked(built):
+def test_e1b_get_my_squad_routes_every_explanation_to_explain_my_draft(built):
     import model_tools as mt
     rule = built.turns.run(mt.get_my_squad)["explain_answer_rule"]
-    for must in ("squad_explanation", "offer to go into any player", "player by player", "all fifteen", "pick_reason",
-                 "value_facts", "pick_rank"):
+    for must in ("explain_my_draft", "each_player", "player by player", "player=", "never write your own explanation"):
         assert must in rule, must
-    assert "do not list the other players" not in rule                  # W11f V2: withdrawn
 
 
 def test_e3b_the_wording_says_quote_numbers_exactly_with_no_hedges():
     wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
-    assert "squad_explanation" in wording and "never list all fifteen" not in wording.lower()     # W11f V2: withdrawn
+    assert "explain_my_draft" in wording and "never list all fifteen" not in wording.lower()      # W11f V2: withdrawn
     assert "player by player" in wording
     for w in ("nearly", "over", "about", "around"):
         assert f'"{w}"' in wording, w
@@ -1397,6 +1399,220 @@ def test_f3_the_wording_allows_value_remarks_only_as_value_facts_state_them_and_
                      "budget_line"):
             assert must in text, must
     assert "value for money, fixtures" not in wording                   # value is no longer on the invented list
+
+
+# ---- G (Prompt W11g): long explanations are written by CODE (explain_my_draft) -------------------------------------------
+# W11f: a fifteen-player walkthrough holds ~70 facts; at ~99% per fact about half of all walkthroughs carry one slip ("almost all"
+# for 77%, "cheaper" for the same price, "the most" for 2nd-most). These tests make such slips impossible by construction: every
+# rank or value phrase is the player's own value_facts / pick_rank, every price relation matches the two prices, every
+# percentage is computed from the data -- over the synthetic league, random perturbations of it and the real run-73 draft.
+
+RUN73 = REPO / "Tests" / "fixtures" / "w11g_run73_get_my_squad.json"
+MOST_RE = re.compile(r"the (?:joint )?(?:\d+(?:st|nd|rd|th)-)?most predicted points of any (?:GK|DEF|MID|FWD) at £\d+\.\dm or less "
+                     r"\(\d+ players\)")
+BIG_RE = re.compile(r"the (?:joint )?(?:\d+(?:st|nd|rd|th)-)?biggest of the \d+ picks")
+REL_RE = re.compile(r"£(\d+\.\d)m, (the same price|£\d+\.\dm (?:cheaper|dearer))\)")
+PCT_RE = re.compile(r"(\d+)%")
+NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+BANNED = ("almost all", "nearly all", "entirely", "mostly", "good value", "bargain", "best value", "for his price", "at his price",
+          "cheap ", "cheap.", "pick_reason", "value_facts", "pick_rank", "how_picked", "budget_line")
+
+
+def _relation(price, alt):
+    d = round(alt * 10) - round(price * 10)
+    return "the same price" if d == 0 else f"£{abs(d) / 10:.1f}m {'cheaper' if d < 0 else 'dearer'}"
+
+
+def _half_up_int(num, den):
+    from decimal import ROUND_HALF_UP, Decimal
+    return int((Decimal(num) * 100 / Decimal(den)).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def _player_numbers(r):
+    """Every number a player's line may show, as written: his own fields only."""
+    out = {"1", "15", "100.0", str(r.get("bench_order") or "")}       # 100.0: "within £100.0m" when no alternative fits
+    if r.get("price") is not None:
+        out.add(f"{r['price']:.1f}")
+    if r.get("e_points") is not None:
+        out.add(f"{r['e_points']:.2f}")
+    for prt in ((r.get("breakdown") or {}).get("parts") or []):
+        out.add(f"{abs(prt['points']):.2f}")
+    if r.get("build_score_loss") is not None:
+        out.add(f"{abs(r['build_score_loss']):.2f}")
+    alt = r.get("best_alternative")
+    if alt:
+        out.add(f"{alt['price']:.1f}")
+        d = abs(round(alt["price"] * 10) - round(r["price"] * 10)) / 10
+        out.add(f"{d:.1f}")
+    v = r.get("value_facts")
+    if v:
+        out |= set(NUM_RE.findall(v["words"]))
+    pr = r.get("pick_rank")
+    if pr:
+        out |= {str(pr["rank"]), str(pr["of"])}
+    return out
+
+
+def _check_explain(sq, text, detail):
+    """The by-construction rules over one explanation (summary / each_player / one player)."""
+    rows = {r["short_name"]: r for r in _sq_rows(sq)}
+    low = text.lower()
+    for b in BANNED:
+        assert b not in low, b
+    lines = [ln for ln in text.split("\n") if ln.startswith("- **")]
+    if detail == "each_player":
+        names = [ln[4:ln.index("**", 4)] for ln in lines]
+        assert names == [r["short_name"] for r in _sq_rows(sq)]        # all fifteen, by position, once each
+    for ln in lines:
+        r = rows[ln[4:ln.index("**", 4)]]
+        v, pr = r.get("value_facts"), r.get("pick_rank")
+        assert [m.group(0) for m in MOST_RE.finditer(ln)] == ([] if v is None else [v["words"].split("; ", 1)[1]]), ln
+        assert v is None or v["words"] in ln
+        assert [m.group(0) for m in BIG_RE.finditer(ln)] == ([] if pr is None else [f"{_biggest(pr['rank'], pr['joint'])} of the {pr['of']} picks"]), ln
+        for m in REL_RE.finditer(ln):
+            assert r["best_alternative"] and float(m.group(1)) == r["best_alternative"]["price"], ln
+            assert m.group(2) == _relation(r["price"], r["best_alternative"]["price"]), ln
+        allowed = _player_numbers(r)
+        body = ln[ln.index("**", 4) + 2:].replace(str(r["team"]), "")      # a synthetic club is "Club 03"
+        if r.get("best_alternative"):
+            body = body.replace(str(r["best_alternative"]["short_name"]), "")   # a synthetic name is "P045"
+        for n in NUM_RE.findall(body):
+            assert n in allowed, (r["short_name"], n, ln)
+    # the summary's biggest picks: each loss, alternative and relation is that player's own
+    for m in re.finditer(r"([^\s,:(]+(?: [^\s,:(]+)?) (\d+\.\d\d) \(([^,]+), £(\d+\.\d)m, (the same price|£\d+\.\dm (?:cheaper|dearer))\)",
+                         text):
+        r = rows.get(m.group(1))
+        if r is None:
+            continue
+        assert f"{r['build_score_loss']:.2f}" == m.group(2) and r["best_alternative"]["short_name"] == m.group(3)
+        assert float(m.group(4)) == r["best_alternative"]["price"] and m.group(5) == _relation(r["price"], r["best_alternative"]["price"])
+    # every percentage is computed from the data: the XI's share of the money spent, the captain's points share
+    xi = sum(round(r["price"] * 10) for r in rows.values() if r["in_xi"] and r["price"] is not None)
+    total = sum(round(r["price"] * 10) for r in rows.values() if r["price"] is not None)
+    want = {_half_up_int(xi, total)}
+    share = (sq.get("captain_points") or {}).get("points_share")
+    if share:
+        want.add(_half_up_int(f"{share['points']:.2f}", f"{share['of']:.2f}"))
+    for m in PCT_RE.finditer(text):
+        assert int(m.group(1)) in want, (m.group(0), want)
+    if "the XI takes" in text:
+        assert f"the XI takes {_half_up_int(xi, total)}% of the £{total / 10:.1f}m spent" in text
+
+
+def _fake_frame_sq(built, monkeypatch):
+    import model_tools as mt
+    df = _fake_frame(built.boot)
+    monkeypatch.setattr(mt, "_frame_raw", lambda: (df, 10, datetime(2026, 11, 2, 11, 0, tzinfo=UTC)))
+    return built.turns.run(mt.get_my_squad)
+
+
+def test_g1_explain_my_draft_is_code_built_and_its_text_is_the_direct_reply(built, monkeypatch):
+    import draft_tools
+    import model_tools as mt
+    sq = _fake_frame_sq(built, monkeypatch)
+    for detail in ("summary", "each_player"):
+        out = built.turns.run(mt.explain_my_draft, detail=detail)
+        text = out["direct_reply"]
+        assert text == draft_tools.explain_text(sq, detail)
+        _check_explain(sq, text, detail)
+        assert text.rstrip().endswith(draft_tools.EXPLAIN_CLOSING) and draft_tools.BONUS_NOTE in text
+    rows = _sq_rows(sq)
+    each = built.turns.run(mt.explain_my_draft, detail="each_player")["direct_reply"]
+    for pos, head in (("GK", "Goalkeepers"), ("DEF", "Defenders"), ("MID", "Midfielders"), ("FWD", "Forwards")):
+        assert f"**{head}**" in each
+    for r in rows:                                                     # every player's facts, as his row has them
+        ln = next(x for x in each.split("\n") if x.startswith(f"- **{r['short_name']}**"))
+        assert f"£{r['price']:.1f}m" in ln and f"{r['e_points']:.2f} predicted points" in ln
+        for prt in r["breakdown"]["parts"]:
+            assert f"{prt['part']} {prt['points']:+.2f}" in ln
+    one = rows[3]
+    asked = one["short_name"].lower()
+    out = built.turns.run(mt.explain_my_draft, detail="summary", player=asked)
+    assert f"- **{one['short_name']}**" in out["direct_reply"] and out["direct_reply"].count("- **") == 1
+    _check_explain(sq, out["direct_reply"], "player")
+    bad = built.turns.run(mt.explain_my_draft, detail="summary", player="Nobody Atall")
+    assert "direct_reply" not in bad and "not one of" in bad["error"]
+    assert "error" in mt.explain_my_draft(detail="summary")            # outside a draft chat: never the draft
+
+
+def test_g1b_the_captains_own_explanation_carries_his_captain_words(built, monkeypatch):
+    import model_tools as mt
+    sq = _fake_frame_sq(built, monkeypatch)
+    cap = sq["captain_points"]
+    out = built.turns.run(mt.explain_my_draft, detail="summary", player=cap["short_name"])["direct_reply"]
+    assert cap["captain_words"] in out
+
+
+def test_g2_false_claims_are_impossible_by_construction_over_random_drafts(built, monkeypatch):
+    """A property test: the builder transcribes whatever facts it gets -- 60 random perturbations of the synthetic draft
+    (prices, alternatives' prices, losses, value ranks, pick ranks), every rule checked on every text."""
+    import copy
+    import draft_tools
+    base = _fake_frame_sq(built, monkeypatch)
+    for seed in range(60):
+        rng = random.Random(seed)
+        sq = copy.deepcopy(base)
+        for r in _sq_rows(sq):
+            r["price"] = rng.randint(40, 150) / 10
+            if r.get("best_alternative"):
+                r["best_alternative"]["price"] = round(rng.choice([r["price"], max(3.9, r["price"] - rng.randint(1, 60) / 10),
+                                                                   r["price"] + rng.randint(1, 30) / 10]), 1)
+                r["build_score_loss"] = round(rng.uniform(-0.6, 5.0), 2)
+            rank, joint = rng.randint(1, 30), rng.random() < 0.2
+            of = rank + rng.randint(0, 250)
+            ppm = round(r["e_points"] / r["price"], 2)
+            r["value_facts"] = {"points_per_million": ppm, "position": r["position"], "rank": rank, "joint": joint, "of": of,
+                                "words": f"{ppm:.2f} predicted points per £1m; {_most(rank, joint)} predicted points of any "
+                                         f"{r['position']} at £{r['price']:.1f}m or less ({of} players)"}
+        ranked = [r for r in _sq_rows(sq) if r.get("build_score_loss") is not None and r["build_score_loss"] >= 0]
+        for r in _sq_rows(sq):
+            if r in ranked:
+                k = 1 + sum(1 for x in ranked if x["build_score_loss"] > r["build_score_loss"])
+                r["pick_rank"] = {"rank": k, "joint": any(x["build_score_loss"] == r["build_score_loss"] for x in ranked if x is not r),
+                                  "of": len(ranked)}
+            else:
+                r["pick_rank"] = None
+        for detail in ("summary", "each_player"):
+            _check_explain(sq, draft_tools.explain_text(sq, detail), detail)
+        for r in rng.sample(_sq_rows(sq), 3):
+            _check_explain(sq, draft_tools.explain_text(sq, "summary", r["short_name"]), "player")
+
+
+def test_g2b_the_real_run73_draft_explains_with_no_false_claim():
+    """The real draft of W11f's diag and eval (production run 73, GW11): every explanation passes the same rules. The six
+    after-diag slips of W11f could not be written: Kelleher is 'the same price', Suzuki is 'the 2nd-most', the XI's share is 77%."""
+    import json
+    import draft_tools
+    sq = json.loads(RUN73.read_text(encoding="utf-8"))
+    each = draft_tools.explain_text(sq, "each_player")
+    _check_explain(sq, each, "each_player")
+    _check_explain(sq, draft_tools.explain_text(sq, "summary"), "summary")
+    for r in _sq_rows(sq):
+        _check_explain(sq, draft_tools.explain_text(sq, "summary", r["short_name"]), "player")
+    suzuki = next(x for x in each.split("\n") if x.startswith("- **Suzuki**"))
+    assert "Kelleher (£5.0m, the same price)" in suzuki and "the 2nd-most predicted points of any GK at £5.0m or less" in suzuki
+    assert "the XI takes 77% of the £99.9m spent" in each
+
+
+def test_g3_the_wording_routes_every_explanation_to_the_tool():
+    import draft_tools
+    wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
+    for text in (wording, draft_tools.EXPLAIN_ANSWER_RULE):
+        for must in ("explain_my_draft", "each_player", "player by player", "never write your own explanation"):
+            assert must in text, must
+    for text in (wording, draft_tools.REASONS_RULE):                   # G5: give the share, never a vague one
+        assert "almost all" in text and "give the share" in text
+
+
+def test_g5_captain_words_give_the_share_of_his_points(built, monkeypatch):
+    sq = _fake_frame_sq(built, monkeypatch)
+    cap = sq["captain_points"]
+    row = next(r for r in _sq_rows(sq) if r["role"] == "CAPTAIN")
+    parts = row["breakdown"]["parts"]
+    part = next((x for x in parts if x["part"] == "goals"), None) or max(parts, key=lambda x: x["points"])
+    pct = _half_up_int(f"{part['points']:.2f}", f"{row['e_points']:.2f}")
+    assert cap["points_share"] == {"part": part["part"], "points": part["points"], "of": row["e_points"], "percent": pct}
+    assert f"{part['part']} {part['points']:.2f} of his {row['e_points']:.2f} predicted points ({pct}%)" in cap["captain_words"]
 
 
 # ---- S: real squads are never touched ----------------------------------------------------------------------------------------

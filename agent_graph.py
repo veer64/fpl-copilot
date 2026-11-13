@@ -91,6 +91,8 @@ class TurnState(TypedDict, total=False):
     rendered: _T
     # Prompt P6: the tool loop's model calls so far (the round cap)
     rounds: _T
+    # Prompt W11g G1: a DIRECT_TOOLS result's text, the reply (None on every other path)
+    direct_text: _T
     # the loop's block / text_block: the text the fact check reads, read by the edges
     text_block: _T
 
@@ -122,6 +124,9 @@ def call_model(st):
 def run_tools(st):
     out = agent._run_tools(st)
     st.update(out)
+    if out.get("direct_text") is not None:            # W11g G1: the turn ends with the tool's text
+        out.update(agent._append_tool_results(st))
+        return {**out, "text_block": None}
     if st["tool_results"]:
         out.update(agent._append_tool_results(st))
         return {**out, "text_block": None}
@@ -151,6 +156,10 @@ def round_cap(st):
     return agent._round_cap(st)
 
 
+def direct(st):
+    return agent._direct(st)
+
+
 def finalize(st):
     if st.get("info") is None:                       # no fact check ran: the loop guard's fixed reply
         return agent._loop_guard(st)
@@ -167,6 +176,8 @@ def after_model(state):
 
 
 def after_tools(state):
+    if state.get("direct_text") is not None:
+        return "direct"
     if state["tool_results"]:
         return "call_model"
     return "fact_check" if state.get("text_block") is not None else "finalize"
@@ -183,16 +194,18 @@ def after_send_back(state):
 def build(checkpointer=None):
     g = StateGraph(TurnState)
     for name, fn in (("call_model", call_model), ("run_tools", run_tools), ("fact_check", fact_check),
-                     ("send_back", send_back), ("recheck", recheck), ("finalize", finalize), ("round_cap", round_cap)):
+                     ("send_back", send_back), ("recheck", recheck), ("finalize", finalize), ("round_cap", round_cap),
+                     ("direct", direct)):
         g.add_node(name, _timed(name, fn))
     g.add_edge(START, "call_model")
     g.add_conditional_edges("call_model", after_model, ["fact_check", "run_tools", "round_cap"])
-    g.add_conditional_edges("run_tools", after_tools, ["call_model", "fact_check", "finalize"])
+    g.add_conditional_edges("run_tools", after_tools, ["call_model", "fact_check", "finalize", "direct"])
     g.add_conditional_edges("fact_check", after_fact_check, ["send_back", "finalize"])
     g.add_conditional_edges("send_back", after_send_back, ["recheck", "finalize"])
     g.add_edge("recheck", "finalize")
     g.add_edge("finalize", END)
     g.add_edge("round_cap", END)
+    g.add_edge("direct", END)
     return g.compile(checkpointer=checkpointer)
 
 

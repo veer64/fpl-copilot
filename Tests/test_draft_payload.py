@@ -4,8 +4,8 @@ differs ONLY by the reviewed draft wording appended to the turn's first text blo
 1. The system prompt, the tool schema and the model parameters hash to their values at 984a62a (the commit W11 branched from).
 2. A turn with no thread, an ordinary stored-thread turn and a team-bound thread's turn send requests equal to fixture v5's.
 3. A draft chat's turn: the same request once "\\n" + prompts/draft_mode.md is removed from the first text block and its
-   max_tokens (2,048, Prompt W11f V2) is put back to v5's 1,024 -- on the first call and on every call of a three-call tool
-   turn; the stored history never carries it.
+   max_tokens (2,048, Prompt W11f V2) is put back to v5's 1,024 and its one extra tool (explain_my_draft, the last, Prompt
+   W11g G1) is removed -- on the first call and on every call of a three-call tool turn; the stored history never carries it.
 5. (W11f V2) the reply cap: 2,048 on a draft turn, 1,024 on every other, at both request sites (the call and the send-back).
 Offline: a fake client, the v5 context block and clock (eval/payload_fixture.py)."""
 import hashlib
@@ -52,6 +52,8 @@ def _strip_draft(req, block):
     out = json.loads(json.dumps(req))
     assert out["max_tokens"] == 2048, out["max_tokens"]
     out["max_tokens"] = 1024
+    assert out["tools"][-1]["name"] == "explain_my_draft", out["tools"][-1]["name"]       # W11g G1: offered on draft turns only
+    out["tools"] = out["tools"][:-1]
     for m in out["messages"]:
         c = m.get("content")
         if m.get("role") == "user" and isinstance(c, list) and c and c[0].get("type") == "text" and c[0]["text"].endswith(block):
@@ -129,3 +131,4 @@ def test_5_the_reply_cap_is_2048_on_a_draft_turn_and_1024_on_every_other_at_both
     for fn in (ag._call_model, ag._send_back):
         src = inspect.getsource(fn)
         assert '"max_tokens": _max_tokens()' in src and '"max_tokens": 1024' not in src, fn.__name__
+        assert '"tools": _tools_for_request(_turn_tools())' in src, fn.__name__              # W11g G1

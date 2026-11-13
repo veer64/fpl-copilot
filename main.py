@@ -955,7 +955,7 @@ class DraftExplainRequest(BaseModel):
 
 @app.post("/me/draft/explain")
 def explain_draft(request: DraftExplainRequest, http: Request):
-    """Prompt W11e E2: the "Why these players?" chip, answered from code with the draft's squad_explanation -- no model call,
+    """Prompt W11e E2: the "Why these players?" chip, answered from code with explain_my_draft's summary (W11g G4) -- no model call,
     $0 -- and stored as that chat's next turn (the agent sees it later). 404 unless the thread is the user's draft chat."""
     import drafts
     import draft_tools

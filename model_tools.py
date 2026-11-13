@@ -1600,6 +1600,16 @@ LINEUP_NEXT_STEP = ("give the gain from rearranging, then end the answer by aski
                     "asks for that, and then it is previewed first.")
 
 
+def explain_my_draft(detail: str = "summary", player: str = None):
+    """Prompt W11g G1: the draft's explanation, written by code (draft_tools.explain_text) -- offered on draft turns only;
+    its "direct_reply" is the turn's reply. Outside the user's draft chat there is no draft to explain."""
+    _d = _draft_turn()
+    if _d is None:
+        return {"error": "explain_my_draft works only in the user's draft chat"}
+    import draft_tools
+    return draft_tools.explain_my_draft(_d, detail=detail, player=player)
+
+
 def get_my_xi(user_id: int = None, gw: int = None):
     """THIS WEEK's best XI, captain, vice and bench order over the fifteen the
     user owns, solved from the current production frame on the model volume

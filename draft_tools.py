@@ -25,21 +25,27 @@ TO_CHANGE = ("To change the draft, call set_my_squad with confirm=false (a previ
              "call propose_transfers: in a draft it returns the best free swaps with their numbers.")
 # Prompt W11f V3 (2026-11-13): "for his price" IS the human explanation, so value_facts states it (V1) and a value remark is
 # allowed when it matches; the baseline's false claims were ranks the model worked out, so pick_rank states those.
-REASONS_RULE = ("Explain the picks only with squad_explanation, how_picked, budget_line, and each player's pick_reason, "
+# Prompt W11g (2026-11-13): an explanation of the picks is written by CODE (explain_my_draft, below) and shown as the reply;
+# the model never writes one. Other answers that touch a pick (a swap, the captain) keep the W11f rule.
+REASONS_RULE = ("To explain, talk through or justify the picks, call explain_my_draft; never write your own explanation. In "
+                "any other answer that touches a pick, use only how_picked, budget_line, and each player's pick_reason, "
                 "pick_rank, value_facts and breakdown parts; his predicted points, price, club and next fixture are facts on "
                 "his row. A value remark (\"for his price\", \"cheap\", \"good value\") is allowed only as his value_facts "
                 "state it: his predicted points per £1m, or his rank at his position among the players at his price or less. "
-                "A rank (biggest, second, third, lowest, strongest) only as pick_rank or value_facts states it. Any other "
-                "causal reason counts as invented: fixtures (easy, good, tough or hard), form, minutes, risk, upside, ceiling, "
-                "playing style, formation, or budget strategy (one player's price explaining another's); so does any other "
-                "claim about how the build works. Quote each number exactly as it is here.")
-EXPLAIN_MAX = 700                                       # W11e E1: the squad explanation's length cap (characters)
-EXPLAIN_OFFER = "Want me to go into any player?"
-EXPLAIN_ANSWER_RULE = ("For a 'why these players?' or 'explain the squad' question, start from squad_explanation (shortened "
-                       "if you like) and offer to go into any player. When the user asks for each player (player by player, "
-                       "every pick, all fifteen, talk me through them), go through all fifteen by position, one short line "
-                       "each, from his row only: pick_reason, breakdown parts and, if you like, pick_rank and value_facts. "
-                       "Add no other reason.")
+                "A rank (biggest, second, third, lowest, strongest) only as pick_rank or value_facts states it. Never say "
+                "\"almost all\", \"entirely\" or \"mostly\" about a share: give the share (captain_points.points_share, "
+                "budget_line). Any other causal reason counts as invented: fixtures (easy, good, tough or hard), form, minutes, "
+                "risk, upside, ceiling, playing style, formation, or budget strategy (one player's price explaining another's); "
+                "so does any other claim about how the build works. Quote each number exactly as it is here.")
+EXPLAIN_ANSWER_RULE = ("To explain, talk through or justify the squad or any player in it, call explain_my_draft: detail "
+                       "'each_player' when the user asks about every / each player or player by player, detail 'summary' "
+                       "otherwise, and player=<his name> for one player. Its text is shown to the user as your reply; never "
+                       "write your own explanation of the picks.")
+EXPLAIN_CLOSING = "Want me to go into any player, or make a change?"
+EXPLAIN_CLOSING_ONE = "Want me to go into another player, or make a change?"
+BONUS_NOTE = "Our model doesn't account for bonus points; top-ranked players tend to pick up a few extra points from bonus."
+ROLE_WORDS = {"CAPTAIN": "captain", "VICE": "vice-captain", "start": "starting"}
+SECTIONS = (("GK", "Goalkeepers"), ("DEF", "Defenders"), ("MID", "Midfielders"), ("FWD", "Forwards"))
 POSITION_NAMES = {"GK": "Goalkeeper", "DEF": "Defender", "MID": "Midfielder", "FWD": "Forward"}
 # W11c R4: every money figure also as it is said ("£0.1m over"), so a reply quotes it instead of restating or rounding it
 MONEY_PLAIN = ("price", "out_price", "in_price", "value", "value_before", "value_after", "budget", "instead_of_price",
@@ -228,46 +234,205 @@ def _captain_points(xi, gw=None):
         words += (f"; {abs(m):.2f} {'more' if m >= 0 else 'fewer'} than the next-best option, {nbs} "
                   f"({nb['e_points']:.2f}); captaining {short} rather than {nbs} adds {m:.2f} to the XI's predicted total "
                   "(the armband counts one player twice, so the edge is the margin itself, not double it)")
+    share = _points_share(cap)                                         # W11g G5: a share, never "almost all"
+    out["points_share"] = share
+    if share is not None:
+        words += (f"; {share['part']} {share['points']:.2f} of his {share['of']:.2f} predicted points "
+                  f"({share['percent']}%)")
     out["captain_words"] = words + "."
     return out
 
 
-def _squad_explanation(gw, cap, rows, budget_line, n_changes):
-    """W11e E1: the squad explained in at most EXPLAIN_MAX characters, built by code from the tools' own facts: how the 15
-    were picked, the captain with his points and armband points, the 3-4 biggest pick_reasons (what the best legal
-    alternative would cost the build's score), and the bench / budget line. Never the fifteen."""
-    w = _bench_weight()
-    head = (f"How the 15 were picked: the most predicted points for GW{gw}, the XI's (captain counted twice) plus {w:g} × the "
-            "bench's, within £100.0m and FPL's squad rules.")
-    if n_changes:
-        head += f" You have changed it {n_changes} time{'s' if n_changes != 1 else ''} since."
-    lines = [head]
-    if cap:
-        lines.append(f"Captain: {cap['short_name']}, {cap['e_points']:.2f} predicted points, {cap['with_armband']:.2f} with "
-                     "the armband.")
-    picks = sorted((r for r in rows if r.get("build_score_loss") and r["build_score_loss"] > 0 and r.get("best_alternative")),
-                   key=lambda r: (-r["build_score_loss"], r["player_id"]))
-    tail = f"Bench and budget: {budget_line}"
-    for n in (4, 3):
-        if len(picks) < 3:
-            body = lines + [tail]
-            break
-        part = ("Biggest picks, by what the best legal alternative would cost the build's score: "
-                + ", ".join(f"{r['short_name']} {r['build_score_loss']:.2f} ({r['best_alternative']['short_name']}, "
-                            f"£{r['best_alternative']['price']:.1f}m)" for r in picks[:n]) + ".")
-        body = lines + [part, tail]
-        if len("\n".join(body)) <= EXPLAIN_MAX:
-            break
-    return "\n".join(body)[:EXPLAIN_MAX]
+def _half_up_int(num, den):
+    return int((Decimal(str(num)) * 100 / Decimal(str(den))).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def _points_share(row):
+    """W11g G5: the share of his predicted points that his goals part (else his biggest part) makes -- {"part", "points",
+    "of", "percent"}, from his own breakdown; None without one."""
+    parts = (row.get("breakdown") or {}).get("parts") or []
+    if not parts or not row.get("e_points"):
+        return None
+    part = next((x for x in parts if x["part"] == "goals"), None) or max(parts, key=lambda x: x["points"])
+    return {"part": part["part"], "points": part["points"], "of": row["e_points"],
+            "percent": _half_up_int(f"{part['points']:.2f}", f"{row['e_points']:.2f}")}
 
 
 def squad_explanation_reply(user_id):
-    """W11e E2: the "Why these players?" chip's answer, from code ($0, no model call): get_my_squad's squad_explanation and
-    the offer to go into any player. NoDraft without a draft."""
+    """W11e E2 / W11g G4: the "Why these players?" chip's answer, from code ($0, no model call): explain_my_draft's summary --
+    the same builder the model's tool uses. NoDraft without a draft."""
     sq = get_my_squad({"user_id": int(user_id)})
     if sq.get("error"):
         raise drafts.NoDraft(str(user_id))
-    return f"{sq['squad_explanation']}\n\n{EXPLAIN_OFFER}"
+    return explain_text(sq, "summary")
+
+
+# ---- W11g G1: the explanation, written by code ------------------------------------------------------------------------
+# W11f measured the free-form walkthrough: ~70 facts per reply, and about half the replies carried one slip. Here every
+# sentence is assembled from the row's own fields: the price relation from the two prices, the shares computed, the rank and
+# value phrases copied from pick_rank / value_facts. Tests/test_drafts.py G2 checks each rule over random drafts.
+
+class NotInDraft(ValueError):
+    pass
+
+
+def _tenths(m):
+    return int(round(float(m) * 10))
+
+
+def _price_relation(price, alt_price):
+    """'the same price' / '£3.6m cheaper' / '£0.8m dearer': the alternative's price against his."""
+    d = _tenths(alt_price) - _tenths(price)
+    return "the same price" if d == 0 else f"£{abs(d) / 10:.1f}m {'cheaper' if d < 0 else 'dearer'}"
+
+
+def _sq_rows(sq):
+    return [r for pos, _ in SECTIONS for r in sq["squad_by_position"].get(pos) or []]
+
+
+def _parts_words(r):
+    parts = (r.get("breakdown") or {}).get("parts") or []
+    return ", ".join(f"{x['part']} {x['points']:+.2f}" for x in parts)
+
+
+def _pick_sentence(r):
+    alt, loss = r.get("best_alternative"), r.get("build_score_loss")
+    if alt is None or loss is None:
+        return "No legal alternative fits his place within £100.0m and FPL's squad rules." if r.get("pick_reason") else None
+    rel = f", {_price_relation(r['price'], alt['price'])}" if r.get("price") is not None else ""
+    where = f"{alt['short_name']} (£{alt['price']:.1f}m{rel})"
+    if loss < 0:
+        return f"Not the build's pick now: {where} would raise the build's score by {-loss:.2f}."
+    out = f"The best legal alternative, {where}, would lower the build's score by {loss:.2f}"
+    pr = r.get("pick_rank")
+    if pr:
+        out += f": {_nth(pr['rank'], pr['joint'], 'biggest')} of the {pr['of']} picks"
+    return out + "."
+
+
+def _player_line(r):
+    role = ROLE_WORDS.get(r["role"]) or f"bench {r.get('bench_order')}"
+    price = f"£{r['price']:.1f}m, " if r.get("price") is not None else ""
+    bits = []
+    if r.get("e_points") is not None:
+        parts = _parts_words(r)
+        bits.append(f"{r['e_points']:.2f} predicted points" + (f": {parts}." if parts else "."))
+    pick = _pick_sentence(r)
+    if pick:
+        bits.append(pick)
+    v = r.get("value_facts")
+    if v:
+        bits.append(v["words"] + ".")
+    return f"- **{r['short_name']}** ({r['team']}, {price}{role}): " + " ".join(bits)
+
+
+def _head(sq):
+    w = _bench_weight()
+    head = (f"How the 15 were picked: the most predicted points for GW{sq.get('gw')}, the XI's (captain counted twice) plus "
+            f"{w:g} × the bench's, within £100.0m and FPL's squad rules. Each player's reason is what the best legal "
+            "alternative would cost the build's score.")
+    n = int(sq.get("changes_since_build") or 0)
+    if n:
+        head += f" You have changed it {n} time{'s' if n != 1 else ''} since."
+    return head
+
+
+def _captain_line(sq):
+    cap = sq.get("captain_points")
+    if not cap:
+        return None
+    out = f"Captain: {cap['short_name']}, {cap['e_points']:.2f} predicted points, {cap['with_armband']:.2f} with the armband"
+    share = cap.get("points_share")
+    if share:
+        out += f"; {share['part']} {share['points']:.2f} of his {share['of']:.2f} predicted points ({share['percent']}%)"
+    return out + "."
+
+
+def _money_line(sq, rows):
+    left = sq.get("left_text") or (f"£{sq['left']:.1f}m left" if sq.get("left") is not None else None)
+    over = sq.get("over_text") or (f"£{sq['over']:.1f}m over" if sq.get("over") is not None else None)
+    tail = f" {over} £100.0m." if over else (f" {left[0].upper()}{left[1:]}." if left else "")
+    return f"Budget: {_budget_line(rows)}{tail}"
+
+
+def _biggest_picks(rows, n=4):
+    picks = sorted((r for r in rows if r.get("build_score_loss") is not None and r["build_score_loss"] > 0
+                    and r.get("best_alternative") and r.get("price") is not None),
+                   key=lambda r: (-r["build_score_loss"], r["player_id"]))[:n]
+    if not picks:
+        return None
+    return ("Biggest picks, by what the best legal alternative would cost the build's score: "
+            + ", ".join(f"{r['short_name']} {r['build_score_loss']:.2f} ({r['best_alternative']['short_name']}, "
+                        f"£{r['best_alternative']['price']:.1f}m, {_price_relation(r['price'], r['best_alternative']['price'])})"
+                        for r in picks) + ".")
+
+
+def _norm(t):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", str(t)) if not unicodedata.combining(c)).lower().strip()
+
+
+def _find_player(rows, name):
+    """The draft player a name means: exactly his short or full name, else every word of the name in his, else a prefix."""
+    q = _norm(name)
+    exact = [r for r in rows if q in (_norm(r["short_name"]), _norm(r["name"]))]
+    if len(exact) == 1:
+        return exact[0]
+    words = q.split()
+    def has_words(r):
+        mine = set(_norm(r["name"]).split()) | set(_norm(r["short_name"]).split())
+        return all(w in mine for w in words)
+    hits = exact or [r for r in rows if has_words(r)] or \
+        [r for r in rows if any(x.startswith(q) for x in _norm(r["name"]).split() + _norm(r["short_name"]).split())]
+    if len(hits) != 1:
+        names = ", ".join(r["short_name"] for r in rows)
+        what = "matches several of" if hits else "is not one of"
+        raise NotInDraft(f"{name} {what} the draft's 15 players: {names}.")
+    return hits[0]
+
+
+def explain_text(sq, detail="summary", player=None):
+    """W11g G1: the explanation as it is shown (get_my_squad's draft answer in, text out): 'summary' (how the 15 were
+    picked, the captain, the biggest picks, the budget), 'each_player' (all fifteen by position, one line each) or one
+    player. Every fact is a field of the answer; nothing is judged. NotInDraft for a name that is not one of the 15."""
+    rows = _sq_rows(sq)
+    if player:
+        r = _find_player(rows, player)
+        lines = [f"**{POSITION_NAMES.get(r['position'], r['position'])}**", _player_line(r)]
+        cap = sq.get("captain_points")
+        if r["role"] == "CAPTAIN" and cap and cap.get("captain_words"):
+            lines.append(f"As captain: {cap['captain_words']}")
+        return "\n".join(lines + ["", BONUS_NOTE, "", EXPLAIN_CLOSING_ONE])
+    out = [_head(sq)]
+    cap = _captain_line(sq)
+    if cap:
+        out.append(cap)
+    if detail == "each_player":
+        out.append(_money_line(sq, rows))
+        for pos, title in SECTIONS:
+            group = sq["squad_by_position"].get(pos) or []
+            if group:
+                out += ["", f"**{title}**"] + [_player_line(r) for r in group]
+    else:
+        big = _biggest_picks(rows)
+        if big:
+            out.append(big)
+        out.append(_money_line(sq, rows))
+    return "\n".join(out + ["", BONUS_NOTE, "", EXPLAIN_CLOSING])
+
+
+def explain_my_draft(d, detail="summary", player=None):
+    """W11g G1: the tool. Its "direct_reply" IS the turn's reply (agent.DIRECT_TOOLS): the model writes no explanation."""
+    sq = get_my_squad(d)
+    if sq.get("error"):
+        return sq
+    detail = detail if detail in ("summary", "each_player") else "summary"
+    try:
+        text = explain_text(sq, detail, player)
+    except NotInDraft as e:
+        return {"error": str(e)}
+    return {"direct_reply": text, "detail": detail, "player": player,
+            "shown": "This text is shown to the user as the reply; write nothing more."}
 
 
 def _xi_total(xi):
@@ -368,8 +533,7 @@ def get_my_squad(d):
         "changes_since_build": int(row["n_changes"]),
         "version_id": int(row["version_id"]),
         "how_picked": _how_picked(gw, int(row["n_changes"])),
-        "squad_explanation": _squad_explanation(gw, cap_pts, rows, _budget_line(rows), int(row["n_changes"])),
-        "explain_answer_rule": EXPLAIN_ANSWER_RULE,
+        "explain_answer_rule": EXPLAIN_ANSWER_RULE,                   # W11g: explanations come from explain_my_draft
         "budget_line": _budget_line(rows),
         "reasons_rule": REASONS_RULE,
         "rebuild_with": rebuild_with,
@@ -827,10 +991,12 @@ def _breakdowns(ids, gw):
 
 
 def _budget_line(rows):
+    """The money split, with the XI's share computed (W11g G1: "the XI takes 77% of the £99.9m spent", never "almost all")."""
     w = _bench_weight()
-    xi = sum(r["price"] for r in rows if r["in_xi"] and r["price"] is not None)
-    bench = sum(r["price"] for r in rows if not r["in_xi"] and r["price"] is not None)
-    return f"XI £{xi:.1f}m, bench £{bench:.1f}m; bench points count {w:g}×, so most of the budget goes on the XI."
+    xi = sum(_tenths(r["price"]) for r in rows if r["in_xi"] and r["price"] is not None)
+    bench = sum(_tenths(r["price"]) for r in rows if not r["in_xi"] and r["price"] is not None)
+    share = f"; the XI takes {_half_up_int(xi, xi + bench)}% of the £{(xi + bench) / 10:.1f}m spent" if xi + bench else ""
+    return f"XI £{xi / 10:.1f}m, bench £{bench / 10:.1f}m{share}; bench points count {w:g}×, so most of the budget goes on the XI."
 
 
 def free_swaps(d, limit=3):

@@ -1,0 +1,953 @@
+{
+ "draft": true,
+ "gw": 11,
+ "captain": "Erling Haaland",
+ "vice": "Gabriel dos Santos Magalhães",
+ "captain_points": {
+  "player_id": 411,
+  "name": "Erling Haaland",
+  "short_name": "Haaland",
+  "e_points": 7.19,
+  "with_armband": 14.38,
+  "range": {
+   "p10": 2.0,
+   "p50": 6.0,
+   "p90": 14.0,
+   "p10_unusable": false
+  },
+  "range_with_armband": {
+   "p10": 4.0,
+   "p50": 12.0,
+   "p90": 28.0
+  },
+  "next_best": {
+   "player_id": 4,
+   "name": "Gabriel dos Santos Magalhães",
+   "short_name": "Gabriel",
+   "e_points": 5.96,
+   "margin": 1.23
+  },
+  "captaincy_edge": {
+   "over": "Gabriel",
+   "points": 1.23
+  },
+  "captain_options": [
+   {
+    "player_id": 411,
+    "short_name": "Haaland",
+    "e_points": 7.19,
+    "with_armband": 14.38
+   },
+   {
+    "player_id": 4,
+    "short_name": "Gabriel",
+    "e_points": 5.96,
+    "with_armband": 11.92
+   },
+   {
+    "player_id": 112,
+    "short_name": "Van Hecke",
+    "e_points": 5.21,
+    "with_armband": 10.42
+   }
+  ],
+  "captain_words": "Haaland: 7.19 predicted points, 14.38 with the armband; likely range 2.0 / 6.0 / 14.0 (P10 / P50 / P90), 4.0 / 12.0 / 28.0 with the armband; 1.23 more than the next-best option, Gabriel (5.96); captaining Haaland rather than Gabriel adds 1.23 to the XI's predicted total (the armband counts one player twice, so the edge is the margin itself, not double it)."
+ },
+ "squad_by_position": {
+  "GK": [
+   {
+    "player_id": 597,
+    "name": "Zion Suzuki",
+    "short_name": "Suzuki",
+    "position": "GK",
+    "team": "Aston Villa",
+    "role": "start",
+    "bench_order": null,
+    "price": 5.0,
+    "e_points": 4.57,
+    "next_fixture": "SUN (H)",
+    "position_name": "Goalkeeper",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Kelleher (£5.0m), would lower the build's score by 0.53.",
+    "best_alternative": {
+     "player_id": 82,
+     "short_name": "Kelleher",
+     "name": "Caoimhín Kelleher",
+     "team": "Brentford",
+     "price": 5.0,
+     "price_text": "£5.0m"
+    },
+    "build_score_loss": 0.53,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.91
+      },
+      {
+       "part": "clean sheet",
+       "points": 1.48
+      },
+      {
+       "part": "saves",
+       "points": 0.86
+      }
+     ],
+     "chance_of_60_plus": 0.94,
+     "chance_of_playing": 0.97,
+     "breakdown_words": "appearance +1.91, clean sheet +1.48, saves +0.86; a 94% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.91,
+     "position": "GK",
+     "rank": 2,
+     "joint": false,
+     "of": 71,
+     "words": "0.91 predicted points per £1m; the 2nd-most predicted points of any GK at £5.0m or less (71 players)"
+    },
+    "pick_rank": {
+     "rank": 5,
+     "joint": false,
+     "of": 15,
+     "words": "the 5th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.53)"
+    },
+    "price_text": "£5.0m"
+   },
+   {
+    "player_id": 496,
+    "name": "Antonín Kinský",
+    "short_name": "Kinsky",
+    "position": "GK",
+    "team": "Spurs",
+    "role": "bench",
+    "bench_order": 1,
+    "price": 4.4,
+    "e_points": 4.05,
+    "next_fixture": "IPS (H)",
+    "position_name": "Goalkeeper",
+    "in_xi": false,
+    "pick_reason": "Picked: the best legal alternative, Penders (£4.4m), would lower the build's score by 0.07.",
+    "best_alternative": {
+     "player_id": 560,
+     "short_name": "Penders",
+     "name": "Mike Penders",
+     "team": "Chelsea",
+     "price": 4.4,
+     "price_text": "£4.4m"
+    },
+    "build_score_loss": 0.07,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.9
+      },
+      {
+       "part": "clean sheet",
+       "points": 1.41
+      },
+      {
+       "part": "goals",
+       "points": 0.49
+      }
+     ],
+     "chance_of_60_plus": 0.94,
+     "chance_of_playing": 0.96,
+     "breakdown_words": "appearance +1.90, clean sheet +1.41, goals +0.49; a 94% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.92,
+     "position": "GK",
+     "rank": 1,
+     "joint": false,
+     "of": 38,
+     "words": "0.92 predicted points per £1m; the most predicted points of any GK at £4.4m or less (38 players)"
+    },
+    "pick_rank": {
+     "rank": 14,
+     "joint": true,
+     "of": 15,
+     "words": "the joint 14th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.07)"
+    },
+    "price_text": "£4.4m"
+   }
+  ],
+  "DEF": [
+   {
+    "player_id": 4,
+    "name": "Gabriel dos Santos Magalhães",
+    "short_name": "Gabriel",
+    "position": "DEF",
+    "team": "Arsenal",
+    "role": "VICE",
+    "bench_order": null,
+    "price": 8.1,
+    "e_points": 5.96,
+    "next_fixture": "NEW (A)",
+    "position_name": "Defender",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Lindelöf (£4.5m), would lower the build's score by 1.39.",
+    "best_alternative": {
+     "player_id": 37,
+     "short_name": "Lindelöf",
+     "name": "Victor Lindelöf",
+     "team": "Aston Villa",
+     "price": 4.5,
+     "price_text": "£4.5m"
+    },
+    "build_score_loss": 1.39,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.93
+      },
+      {
+       "part": "clean sheet",
+       "points": 1.55
+      },
+      {
+       "part": "defensive contribution",
+       "points": 1.38
+      }
+     ],
+     "chance_of_60_plus": 0.95,
+     "chance_of_playing": 0.98,
+     "breakdown_words": "appearance +1.93, clean sheet +1.55, defensive contribution +1.38; a 95% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.74,
+     "position": "DEF",
+     "rank": 1,
+     "joint": false,
+     "of": 219,
+     "words": "0.74 predicted points per £1m; the most predicted points of any DEF at £8.1m or less (219 players)"
+    },
+    "pick_rank": {
+     "rank": 2,
+     "joint": false,
+     "of": 15,
+     "words": "the 2nd-biggest of the 15 picks by what the best legal alternative would cost the build's score (1.39)"
+    },
+    "price_text": "£8.1m"
+   },
+   {
+    "player_id": 112,
+    "name": "Jan Paul van Hecke",
+    "short_name": "Van Hecke",
+    "position": "DEF",
+    "team": "Spurs",
+    "role": "start",
+    "bench_order": null,
+    "price": 5.1,
+    "e_points": 5.21,
+    "next_fixture": "IPS (H)",
+    "position_name": "Defender",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Lindelöf (£4.5m), would lower the build's score by 0.64.",
+    "best_alternative": {
+     "player_id": 37,
+     "short_name": "Lindelöf",
+     "name": "Victor Lindelöf",
+     "team": "Aston Villa",
+     "price": 4.5,
+     "price_text": "£4.5m"
+    },
+    "build_score_loss": 0.64,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.93
+      },
+      {
+       "part": "clean sheet",
+       "points": 1.42
+      },
+      {
+       "part": "goals",
+       "points": 1.23
+      }
+     ],
+     "chance_of_60_plus": 0.95,
+     "chance_of_playing": 0.98,
+     "breakdown_words": "appearance +1.93, clean sheet +1.42, goals +1.23; a 95% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 1.02,
+     "position": "DEF",
+     "rank": 1,
+     "joint": false,
+     "of": 184,
+     "words": "1.02 predicted points per £1m; the most predicted points of any DEF at £5.1m or less (184 players)"
+    },
+    "pick_rank": {
+     "rank": 4,
+     "joint": false,
+     "of": 15,
+     "words": "the 4th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.64)"
+    },
+    "price_text": "£5.1m"
+   },
+   {
+    "player_id": 115,
+    "name": "Maxim De Cuyper",
+    "short_name": "De Cuyper",
+    "position": "DEF",
+    "team": "Brighton",
+    "role": "start",
+    "bench_order": null,
+    "price": 5.5,
+    "e_points": 5.02,
+    "next_fixture": "HUL (A)",
+    "position_name": "Defender",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Lindelöf (£4.5m), would lower the build's score by 0.44.",
+    "best_alternative": {
+     "player_id": 37,
+     "short_name": "Lindelöf",
+     "name": "Victor Lindelöf",
+     "team": "Aston Villa",
+     "price": 4.5,
+     "price_text": "£4.5m"
+    },
+    "build_score_loss": 0.44,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.72
+      },
+      {
+       "part": "clean sheet",
+       "points": 1.37
+      },
+      {
+       "part": "goals",
+       "points": 1.29
+      }
+     ],
+     "chance_of_60_plus": 0.81,
+     "chance_of_playing": 0.91,
+     "breakdown_words": "appearance +1.72, clean sheet +1.37, goals +1.29; a 81% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.91,
+     "position": "DEF",
+     "rank": 2,
+     "joint": false,
+     "of": 206,
+     "words": "0.91 predicted points per £1m; the 2nd-most predicted points of any DEF at £5.5m or less (206 players)"
+    },
+    "pick_rank": {
+     "rank": 8,
+     "joint": false,
+     "of": 15,
+     "words": "the 8th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.44)"
+    },
+    "price_text": "£5.5m"
+   },
+   {
+    "player_id": 504,
+    "name": "Luka Vušković",
+    "short_name": "Vuskovic",
+    "position": "DEF",
+    "team": "Brighton",
+    "role": "start",
+    "bench_order": null,
+    "price": 5.3,
+    "e_points": 4.97,
+    "next_fixture": "HUL (A)",
+    "position_name": "Defender",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Lindelöf (£4.5m), would lower the build's score by 0.39.",
+    "best_alternative": {
+     "player_id": 37,
+     "short_name": "Lindelöf",
+     "name": "Victor Lindelöf",
+     "team": "Aston Villa",
+     "price": 4.5,
+     "price_text": "£4.5m"
+    },
+    "build_score_loss": 0.39,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.88
+      },
+      {
+       "part": "clean sheet",
+       "points": 1.55
+      },
+      {
+       "part": "goals",
+       "points": 1.01
+      }
+     ],
+     "chance_of_60_plus": 0.91,
+     "chance_of_playing": 0.96,
+     "breakdown_words": "appearance +1.88, clean sheet +1.55, goals +1.01; a 91% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.94,
+     "position": "DEF",
+     "rank": 2,
+     "joint": false,
+     "of": 196,
+     "words": "0.94 predicted points per £1m; the 2nd-most predicted points of any DEF at £5.3m or less (196 players)"
+    },
+    "pick_rank": {
+     "rank": 9,
+     "joint": false,
+     "of": 15,
+     "words": "the 9th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.39)"
+    },
+    "price_text": "£5.3m"
+   },
+   {
+    "player_id": 566,
+    "name": "António João Pereira de Albuquerque Tavares da Silva",
+    "short_name": "Silva",
+    "position": "DEF",
+    "team": "Bournemouth",
+    "role": "start",
+    "bench_order": null,
+    "price": 5.1,
+    "e_points": 4.89,
+    "next_fixture": "NFO (H)",
+    "position_name": "Defender",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Lindelöf (£4.5m), would lower the build's score by 0.32.",
+    "best_alternative": {
+     "player_id": 37,
+     "short_name": "Lindelöf",
+     "name": "Victor Lindelöf",
+     "team": "Aston Villa",
+     "price": 4.5,
+     "price_text": "£4.5m"
+    },
+    "build_score_loss": 0.32,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.89
+      },
+      {
+       "part": "defensive contribution",
+       "points": 1.36
+      },
+      {
+       "part": "clean sheet",
+       "points": 1.32
+      }
+     ],
+     "chance_of_60_plus": 0.93,
+     "chance_of_playing": 0.96,
+     "breakdown_words": "appearance +1.89, defensive contribution +1.36, clean sheet +1.32; a 93% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.96,
+     "position": "DEF",
+     "rank": 2,
+     "joint": false,
+     "of": 184,
+     "words": "0.96 predicted points per £1m; the 2nd-most predicted points of any DEF at £5.1m or less (184 players)"
+    },
+    "pick_rank": {
+     "rank": 10,
+     "joint": false,
+     "of": 15,
+     "words": "the 10th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.32)"
+    },
+    "price_text": "£5.1m"
+   }
+  ],
+  "MID": [
+   {
+    "player_id": 400,
+    "name": "Jérémy Doku",
+    "short_name": "Doku",
+    "position": "MID",
+    "team": "Man City",
+    "role": "start",
+    "bench_order": null,
+    "price": 7.5,
+    "e_points": 5.21,
+    "next_fixture": "FUL (H)",
+    "position_name": "Midfielder",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Enzo (£6.9m), would lower the build's score by 1.14.",
+    "best_alternative": {
+     "player_id": 155,
+     "short_name": "Enzo",
+     "name": "Enzo Fernández",
+     "team": "Man City",
+     "price": 6.9,
+     "price_text": "£6.9m"
+    },
+    "build_score_loss": 1.14,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.84
+      },
+      {
+       "part": "assists",
+       "points": 1.83
+      },
+      {
+       "part": "goals",
+       "points": 1.33
+      }
+     ],
+     "chance_of_60_plus": 0.89,
+     "chance_of_playing": 0.95,
+     "breakdown_words": "appearance +1.84, assists +1.83, goals +1.33; a 89% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.69,
+     "position": "MID",
+     "rank": 1,
+     "joint": false,
+     "of": 289,
+     "words": "0.69 predicted points per £1m; the most predicted points of any MID at £7.5m or less (289 players)"
+    },
+    "pick_rank": {
+     "rank": 3,
+     "joint": false,
+     "of": 15,
+     "words": "the 3rd-biggest of the 15 picks by what the best legal alternative would cost the build's score (1.14)"
+    },
+    "price_text": "£7.5m"
+   },
+   {
+    "player_id": 399,
+    "name": "Rayan Cherki",
+    "short_name": "Cherki",
+    "position": "MID",
+    "team": "Man City",
+    "role": "start",
+    "bench_order": null,
+    "price": 7.9,
+    "e_points": 4.59,
+    "next_fixture": "FUL (H)",
+    "position_name": "Midfielder",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Enzo (£6.9m), would lower the build's score by 0.52.",
+    "best_alternative": {
+     "player_id": 155,
+     "short_name": "Enzo",
+     "name": "Enzo Fernández",
+     "team": "Man City",
+     "price": 6.9,
+     "price_text": "£6.9m"
+    },
+    "build_score_loss": 0.52,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "goals",
+       "points": 1.58
+      },
+      {
+       "part": "appearance",
+       "points": 1.49
+      },
+      {
+       "part": "assists",
+       "points": 1.36
+      }
+     ],
+     "chance_of_60_plus": 0.67,
+     "chance_of_playing": 0.81,
+     "breakdown_words": "goals +1.58, appearance +1.49, assists +1.36; a 67% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.58,
+     "position": "MID",
+     "rank": 2,
+     "joint": false,
+     "of": 293,
+     "words": "0.58 predicted points per £1m; the 2nd-most predicted points of any MID at £7.9m or less (293 players)"
+    },
+    "pick_rank": {
+     "rank": 6,
+     "joint": false,
+     "of": 15,
+     "words": "the 6th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.52)"
+    },
+    "price_text": "£7.9m"
+   },
+   {
+    "player_id": 127,
+    "name": "Diego Gómez Amarilla",
+    "short_name": "Gomez",
+    "position": "MID",
+    "team": "Brighton",
+    "role": "start",
+    "bench_order": null,
+    "price": 5.0,
+    "e_points": 4.4,
+    "next_fixture": "HUL (A)",
+    "position_name": "Midfielder",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Janelt (£5.0m), would lower the build's score by 0.45.",
+    "best_alternative": {
+     "player_id": 98,
+     "short_name": "Janelt",
+     "name": "Vitaly Janelt",
+     "team": "Brentford",
+     "price": 5.0,
+     "price_text": "£5.0m"
+    },
+    "build_score_loss": 0.45,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.86
+      },
+      {
+       "part": "goals",
+       "points": 1.33
+      },
+      {
+       "part": "defensive contribution",
+       "points": 0.53
+      }
+     ],
+     "chance_of_60_plus": 0.9,
+     "chance_of_playing": 0.96,
+     "breakdown_words": "appearance +1.86, goals +1.33, defensive contribution +0.53; a 90% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.88,
+     "position": "MID",
+     "rank": 1,
+     "joint": false,
+     "of": 149,
+     "words": "0.88 predicted points per £1m; the most predicted points of any MID at £5.0m or less (149 players)"
+    },
+    "pick_rank": {
+     "rank": 7,
+     "joint": false,
+     "of": 15,
+     "words": "the 7th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.45)"
+    },
+    "price_text": "£5.0m"
+   },
+   {
+    "player_id": 15,
+    "name": "Martin Ødegaard",
+    "short_name": "Ødegaard",
+    "position": "MID",
+    "team": "Arsenal",
+    "role": "start",
+    "bench_order": null,
+    "price": 6.7,
+    "e_points": 4.16,
+    "next_fixture": "NEW (A)",
+    "position_name": "Midfielder",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Madueke (£6.2m), would lower the build's score by 0.15.",
+    "best_alternative": {
+     "player_id": 16,
+     "short_name": "Madueke",
+     "name": "Noni Madueke",
+     "team": "Arsenal",
+     "price": 6.2,
+     "price_text": "£6.2m"
+    },
+    "build_score_loss": 0.15,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.86
+      },
+      {
+       "part": "assists",
+       "points": 1.05
+      },
+      {
+       "part": "goals",
+       "points": 1.02
+      }
+     ],
+     "chance_of_60_plus": 0.9,
+     "chance_of_playing": 0.96,
+     "breakdown_words": "appearance +1.86, assists +1.05, goals +1.02; a 90% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.62,
+     "position": "MID",
+     "rank": 3,
+     "joint": false,
+     "of": 281,
+     "words": "0.62 predicted points per £1m; the 3rd-most predicted points of any MID at £6.7m or less (281 players)"
+    },
+    "pick_rank": {
+     "rank": 12,
+     "joint": false,
+     "of": 15,
+     "words": "the 12th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.15)"
+    },
+    "price_text": "£6.7m"
+   },
+   {
+    "player_id": 67,
+    "name": "Rayan Vitor Simplício Rocha",
+    "short_name": "Rayan",
+    "position": "MID",
+    "team": "Bournemouth",
+    "role": "bench",
+    "bench_order": 2,
+    "price": 6.3,
+    "e_points": 4.08,
+    "next_fixture": "NFO (H)",
+    "position_name": "Midfielder",
+    "in_xi": false,
+    "pick_reason": "Picked: the best legal alternative, Madueke (£6.2m), would lower the build's score by 0.07.",
+    "best_alternative": {
+     "player_id": 16,
+     "short_name": "Madueke",
+     "name": "Noni Madueke",
+     "team": "Arsenal",
+     "price": 6.2,
+     "price_text": "£6.2m"
+    },
+    "build_score_loss": 0.07,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.88
+      },
+      {
+       "part": "goals",
+       "points": 1.54
+      },
+      {
+       "part": "assists",
+       "points": 0.42
+      }
+     ],
+     "chance_of_60_plus": 0.91,
+     "chance_of_playing": 0.97,
+     "breakdown_words": "appearance +1.88, goals +1.54, assists +0.42; a 91% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.65,
+     "position": "MID",
+     "rank": 3,
+     "joint": false,
+     "of": 269,
+     "words": "0.65 predicted points per £1m; the 3rd-most predicted points of any MID at £6.3m or less (269 players)"
+    },
+    "pick_rank": {
+     "rank": 14,
+     "joint": true,
+     "of": 15,
+     "words": "the joint 14th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.07)"
+    },
+    "price_text": "£6.3m"
+   }
+  ],
+  "FWD": [
+   {
+    "player_id": 411,
+    "name": "Erling Haaland",
+    "short_name": "Haaland",
+    "position": "FWD",
+    "team": "Man City",
+    "role": "CAPTAIN",
+    "bench_order": null,
+    "price": 15.8,
+    "e_points": 7.19,
+    "next_fixture": "FUL (H)",
+    "e_points_with_armband": 14.38,
+    "position_name": "Forward",
+    "in_xi": true,
+    "pick_reason": "Picked: the best legal alternative, Isak (£9.3m), would lower the build's score by 4.36.",
+    "best_alternative": {
+     "player_id": 379,
+     "short_name": "Isak",
+     "name": "Alexander Isak",
+     "team": "Liverpool",
+     "price": 9.3,
+     "price_text": "£9.3m"
+    },
+    "build_score_loss": 4.36,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "goals",
+       "points": 4.64
+      },
+      {
+       "part": "appearance",
+       "points": 1.92
+      },
+      {
+       "part": "assists",
+       "points": 0.78
+      }
+     ],
+     "chance_of_60_plus": 0.94,
+     "chance_of_playing": 0.98,
+     "breakdown_words": "goals +4.64, appearance +1.92, assists +0.78; a 94% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.46,
+     "position": "FWD",
+     "rank": 1,
+     "joint": false,
+     "of": 79,
+     "words": "0.46 predicted points per £1m; the most predicted points of any FWD at £15.8m or less (79 players)"
+    },
+    "pick_rank": {
+     "rank": 1,
+     "joint": false,
+     "of": 15,
+     "words": "the biggest of the 15 picks by what the best legal alternative would cost the build's score (4.36)"
+    },
+    "price_text": "£15.8m"
+   },
+   {
+    "player_id": 249,
+    "name": "Thierno Barry",
+    "short_name": "Barry",
+    "position": "FWD",
+    "team": "Everton",
+    "role": "bench",
+    "bench_order": 3,
+    "price": 5.7,
+    "e_points": 3.68,
+    "next_fixture": "BRE (A)",
+    "position_name": "Forward",
+    "in_xi": false,
+    "pick_reason": "Picked: the best legal alternative, Awoniyi (£5.4m), would lower the build's score by 0.19.",
+    "best_alternative": {
+     "player_id": 492,
+     "short_name": "Awoniyi",
+     "name": "Taiwo Awoniyi",
+     "team": "Coventry City",
+     "price": 5.4,
+     "price_text": "£5.4m"
+    },
+    "build_score_loss": 0.19,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "goals",
+       "points": 1.85
+      },
+      {
+       "part": "appearance",
+       "points": 1.84
+      },
+      {
+       "part": "cards",
+       "points": -0.14
+      }
+     ],
+     "chance_of_60_plus": 0.89,
+     "chance_of_playing": 0.95,
+     "breakdown_words": "goals +1.85, appearance +1.84, cards -0.14; a 89% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.65,
+     "position": "FWD",
+     "rank": 1,
+     "joint": false,
+     "of": 52,
+     "words": "0.65 predicted points per £1m; the most predicted points of any FWD at £5.7m or less (52 players)"
+    },
+    "pick_rank": {
+     "rank": 11,
+     "joint": false,
+     "of": 15,
+     "words": "the 11th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.19)"
+    },
+    "price_text": "£5.7m"
+   },
+   {
+    "player_id": 79,
+    "name": "Francisco Evanilson de Lima Barbosa",
+    "short_name": "Evanilson",
+    "position": "FWD",
+    "team": "Bournemouth",
+    "role": "bench",
+    "bench_order": 4,
+    "price": 6.5,
+    "e_points": 3.64,
+    "next_fixture": "NFO (H)",
+    "position_name": "Forward",
+    "in_xi": false,
+    "pick_reason": "Picked: the best legal alternative, Calvert-Lewin (£6.0m), would lower the build's score by 0.11.",
+    "best_alternative": {
+     "player_id": 346,
+     "short_name": "Calvert-Lewin",
+     "name": "Dominic Calvert-Lewin",
+     "team": "Leeds",
+     "price": 6.0,
+     "price_text": "£6.0m"
+    },
+    "build_score_loss": 0.11,
+    "breakdown": {
+     "parts": [
+      {
+       "part": "appearance",
+       "points": 1.79
+      },
+      {
+       "part": "goals",
+       "points": 1.57
+      },
+      {
+       "part": "assists",
+       "points": 0.39
+      }
+     ],
+     "chance_of_60_plus": 0.85,
+     "chance_of_playing": 0.94,
+     "breakdown_words": "appearance +1.79, goals +1.57, assists +0.39; a 85% chance of playing 60+ minutes"
+    },
+    "value_facts": {
+     "points_per_million": 0.56,
+     "position": "FWD",
+     "rank": 2,
+     "joint": false,
+     "of": 68,
+     "words": "0.56 predicted points per £1m; the 2nd-most predicted points of any FWD at £6.5m or less (68 players)"
+    },
+    "pick_rank": {
+     "rank": 13,
+     "joint": false,
+     "of": 15,
+     "words": "the 13th-biggest of the 15 picks by what the best legal alternative would cost the build's score (0.11)"
+    },
+    "price_text": "£6.5m"
+   }
+  ]
+ },
+ "bench_in_order": [
+  "Kinsky",
+  "Rayan",
+  "Barry",
+  "Evanilson"
+ ],
+ "predicted_xi_points": 63.4,
+ "value": 99.9,
+ "left": 0.1,
+ "budget": 100.0,
+ "how_picked": "The 15 were picked by our build as the squad with the most predicted points for GW11: the XI's predicted points with the captain counted twice, plus 0.2 × the bench's, within £100.0m at current prices and FPL's squad rules (2 GK, 5 DEF, 5 MID, 3 FWD; at most 3 per club). The build's score is the XI's predicted points with the captain counted twice, plus 0.2 × the bench's; each pick_reason says how much of it the best legal alternative would lose.",
+ "budget_line": "XI £77.0m, bench £22.9m; bench points count 0.2×, so most of the budget goes on the XI.",
+ "changes_since_build": 0,
+ "value_text": "£99.9m",
+ "left_text": "£0.1m left",
+ "_source": "W11f eval case 1 run 1 (13 Nov 2026, 728ba79): get_my_squad on the real draft from production run 73 (GW11)"
+}
