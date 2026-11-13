@@ -28,7 +28,7 @@ TO_CHANGE = ("To change the draft, call set_my_squad with confirm=false (a previ
 # Prompt W11g (2026-11-13): an explanation of the picks is written by CODE (explain_my_draft, below) and shown as the reply;
 # the model never writes one. Other answers that touch a pick (a swap, the captain) keep the W11f rule.
 REASONS_RULE = ("To explain, talk through or justify the picks, call explain_my_draft; never write your own explanation. For "
-                "any claim about what a swap can cost or whether a player is affordable, use swap_budget_words exactly. In "
+                "any named swap, always preview it with set_my_squad first; never judge affordability yourself. In "
                 "any other answer that touches a pick, use only how_picked, budget_line, and each player's pick_reason, "
                 "pick_rank, value_facts and breakdown parts; his predicted points, price, club and next fixture are facts on "
                 "his row. A value remark (\"for his price\", \"cheap\", \"good value\") is allowed only as his value_facts "
@@ -603,7 +603,6 @@ def get_my_squad(d):
         "version_id": int(row["version_id"]),
         "how_picked": _how_picked(gw, int(row["n_changes"])),
         "explain_answer_rule": EXPLAIN_ANSWER_RULE,                   # W11g: explanations come from explain_my_draft
-        "swap_budget_words": None,                                    # W11h H4: set below from the money block
         "budget_line": _budget_line(rows),
         "reasons_rule": REASONS_RULE,
         "rebuild_with": rebuild_with,
@@ -613,7 +612,6 @@ def get_my_squad(d):
         "enter_in_fpl": ENTER_IN_FPL,
         "latest_run_id": run["run_id"] if run else None,
     }
-    out["swap_budget_words"] = _swap_budget_words(out.get("left"), out.get("over"))
     return _said(mt._with_flags(out))
 
 
@@ -1059,18 +1057,6 @@ def _breakdowns(ids, gw):
         out[e] = {"parts": parts, "chance_of_60_plus": round(p60, 2) if p60 == p60 else None,
                   "chance_of_playing": round(ppa, 2) if ppa == ppa else None, "breakdown_words": words}
     return out
-
-
-def _swap_budget_words(left, over):
-    """W11h H4: what a swap may cost, as a sentence from the money left (or over) -- the rule set_my_squad applies."""
-    if over is not None:
-        return (f"The draft is £{over:.1f}m over £100.0m: a new player can cost at most the same as the one going out until "
-                "it is back within £100.0m.")
-    if left is None:
-        return None
-    if left <= 0:
-        return "With £0.0m left, a new player can cost at most the same as the one going out."
-    return f"With £{left:.1f}m left, a new player can cost up to £{left:.1f}m more than the one going out."
 
 
 def _budget_line(rows):

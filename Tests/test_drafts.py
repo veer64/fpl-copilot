@@ -1770,29 +1770,28 @@ def test_h3_the_code_built_answers_end_with_the_owners_follow_up_and_the_website
     assert '{ text: "Explain one player" }' in ts and '{ text: "Bring someone in" }' in ts
 
 
-def test_h4_the_swap_budget_words_match_the_money_left(built):
+def test_i1_the_swap_budget_words_are_gone_and_a_named_swap_is_always_previewed(built):
+    """W11i I1: W11h's swap_budget_words let the model judge a named over-budget swap itself -- no set_my_squad call, so no
+    refusal and none of the tool's alternatives (W11h case 6, 0 of 3). Reverted: the field is gone, and the wording sends
+    every named swap to set_my_squad first."""
     import draft_tools
     import model_tools as mt
     sq = built.turns.run(mt.get_my_squad)
-    left = sq["left"]
-    want = (f"With £{left:.1f}m left, a new player can cost up to £{left:.1f}m more than the one going out." if left > 0 else
-            "With £0.0m left, a new player can cost at most the same as the one going out.")
-    assert sq["swap_budget_words"] == want
-    assert draft_tools._swap_budget_words(0.1, None) == "With £0.1m left, a new player can cost up to £0.1m more than the one going out."
-    assert draft_tools._swap_budget_words(0.0, None) == "With £0.0m left, a new player can cost at most the same as the one going out."
-    assert draft_tools._swap_budget_words(0.0, 0.7) == ("The draft is £0.7m over £100.0m: a new player can cost at most the same as "
-                                                        "the one going out until it is back within £100.0m.")
-    assert draft_tools._swap_budget_words(None, None) is None
+    assert "swap_budget_words" not in sq and not hasattr(draft_tools, "_swap_budget_words")
+    wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
+    for text in (wording, draft_tools.REASONS_RULE):
+        assert "swap_budget_words" not in text
+        assert "For any named swap, always preview it with set_my_squad first" in text
+        assert "never judge affordability yourself" in text
 
 
-def test_h5_the_wording_routes_captain_questions_and_affordability_to_code():
+def test_h5_the_wording_routes_captain_questions_to_code():
     import draft_tools
     wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
     for text in (wording, draft_tools.EXPLAIN_ANSWER_RULE):
         assert "captain" in text and "explain_my_draft" in text
-    assert 'detail="captain"' in wording and "outside the top 3" in wording and "swap_budget_words" in wording
+    assert 'detail="captain"' in wording and "outside the top 3" in wording
     assert "with and without the armband" not in wording                  # H2: one range per phrase
-    assert "swap_budget_words" in draft_tools.REASONS_RULE
 
 
 # ---- S: real squads are never touched ----------------------------------------------------------------------------------------
