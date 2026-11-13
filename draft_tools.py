@@ -93,7 +93,10 @@ def _said(x):
 
 
 def _next_words(ctx, element, gw):
-    """W11c R3: a player's next fixture as the card shows it ("FUL (H)"), or that he has none in the gameweek."""
+    """W11c R3: a player's next fixture as the card shows it ("FUL (H)"), or that he has none in the gameweek; None when the
+    fixtures are not loaded (a cold cache inside a turn never fetches), so unknown never reads as a blank."""
+    if getattr(ctx, "fixtures", None) is None:
+        return None
     team = (ctx.elements.get(int(element)) or {}).get("team")
     nf = ctx.next_fixture(team) if team is not None else None
     if not nf:

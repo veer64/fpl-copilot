@@ -1005,6 +1005,17 @@ def test_w3_get_my_squad_says_how_the_fifteen_were_picked_and_only_facts_per_pla
         assert must in wording, must
 
 
+def test_w3b_unknown_fixtures_never_read_as_a_blank(built):
+    import draft_tools
+    ctx = built.api.league.ctx()
+    e = built.boot["elements"][0]["id"]
+    assert draft_tools._next_words(ctx, e, 10) is not None
+    ctx.fixtures = None                                                # not loaded (a cold cache inside a turn): unknown
+    assert draft_tools._next_words(ctx, e, 10) is None
+    ctx.fixtures = []                                                  # loaded, and the club has none: a real blank
+    assert draft_tools._next_words(ctx, e, 10) == "no fixture in GW10"
+
+
 MONEY_PLAIN = ("price", "out_price", "in_price", "value", "value_before", "value_after", "budget", "instead_of_price", "replaces_price")
 MONEY_LEFT = ("left", "left_before", "left_after")
 MONEY_OVER = ("over", "over_after", "over_by")
