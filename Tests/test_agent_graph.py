@@ -323,7 +323,8 @@ def _squad_rows(c):
     return out
 
 
-def _flow(h, db, engine, second_question, second_steps, tickets=None, at=FROZEN):
+def _flow(h, db, engine, second_question, second_steps, tickets=None, at=FROZEN, first_reply="Here is the preview. Shall I apply it?",
+          first_change=CHANGE_A):
     """One engine's confirm flow on a fresh seed: turn 1 previews CHANGE_A (a ticket is issued), turn 2 answers it. The
     tickets come from `tickets`, else from one fixed sequence restarted here, so both engines draw the same ones; the
     ticket table's clock (issue, expiry, use) reads `at`, one instant for every flow (the turns keep their own clock)."""
@@ -332,7 +333,7 @@ def _flow(h, db, engine, second_question, second_steps, tickets=None, at=FROZEN)
     h.mp.setattr(sp, "new_id", lambda: next(draws))
     h.mp.setattr(sp, "clock", lambda: at)
     hist = []
-    t1, p1, tags1 = _run(h, engine, [lambda kw: _write(CHANGE_A, False), lambda kw: _text("Here is the preview. Shall I apply it?")],
+    t1, p1, tags1 = _run(h, engine, [lambda kw: _write(first_change, False), lambda kw: _text(first_reply)],
                          question="Swap P15 for P16.", history=hist)
     t2, p2, tags2 = _run(h, engine, second_steps, question=second_question, history=hist)
     return {"turn1": t1, "turn2": t2, "rows": _squad_rows(db)}, [p1, p2], tags1 + tags2
@@ -346,7 +347,8 @@ def _confirm_both(h, db, second_question, second_steps_factory, paths):
     loop = _flow(h, db, "loop", second_question, second_steps_factory())
     graph = _flow(h, db, "graph", second_question, second_steps_factory())
     assert loop[1] == [[], []] and graph[1] == paths
-    assert loop[2] == ["loop", "loop"] and graph[2] == ["graph", "graph"]
+    turns = 1 if paths[1] == [] else 2              # Prompt X1: a preview answer is decided by code -- no model, no trace
+    assert loop[2] == ["loop"] * turns and graph[2] == ["graph"] * turns
     for key in ("turn1", "turn2"):
         for k in loop[0][key]:
             assert _norm_ids(graph[0][key][k]) == _norm_ids(loop[0][key][k]), f"{key}.{k} differs between the engines"
@@ -378,15 +380,17 @@ def test_g12_misfire_validation_drawn_ids_never_differ_between_the_engines_a_rea
     c, _, _ = _flow(h, db, "loop", "Yes, apply it.", _yes()())
     d, _, _ = _flow(h, db, "loop", "Yes, apply it.", _yes()())
     assert _norm_ids(c) == _norm_ids(d)                                   # the shared sequence: the same flow, equal
-    e, _, _ = _flow(h, db, "loop", "Yes, apply it.", _yes("Written!")())
+    # Prompt X1: the yes is decided by code (the reply and the change confirmed are the preview's), so the real differences
+    # are made in the preview turn
+    e, _, _ = _flow(h, db, "loop", "Yes, apply it.", _yes()(), first_reply="Here is the preview!")
     assert _norm_ids(e) != _norm_ids(c)                                   # a different reply still fails
-    f, _, _ = _flow(h, db, "loop", "Yes, apply it.", _yes(change=CHANGE_B)())
+    f, _, _ = _flow(h, db, "loop", "Yes, apply it.", _yes()(), first_change=CHANGE_B)
     assert _norm_ids(f) != _norm_ids(c) and f["rows"] != c["rows"]        # a different change confirmed still fails
 
 
 def test_g12_confirm_flow_preview_then_yes_writes_once(h, tool, db):
-    s = _confirm_both(h, db, "Yes, apply it.", _yes(), [ROUND + ANSWER, ROUND + ANSWER])
-    assert s["turn2"]["answer"] == "Written."
+    s = _confirm_both(h, db, "Yes, apply it.", _yes(), [ROUND + ANSWER, []])    # X1: the yes is answered by code
+    assert s["turn2"]["answer"].startswith("Done — saved to your squad.") and s["turn2"]["requests"] == []
     users = [v["user_id"] for v in s["rows"]["versions"]]
     assert users.count(9001) == 2 and users.count(9002) == 1                              # one write, user 9001
     assert len(s["rows"]["previews"]) == 1 and s["rows"]["previews"][0]["used_at"] == "<ts>"
@@ -395,7 +399,8 @@ def test_g12_confirm_flow_preview_then_yes_writes_once(h, tool, db):
 def test_g13_confirm_flow_preview_then_no_writes_nothing(h, tool, db):
     s = _confirm_both(h, db, "No, leave it as it is.",
                       lambda: [lambda kw: _text("Understood, no change made.")],
-                      [ROUND + ANSWER, ANSWER])
+                      [ROUND + ANSWER, []])                                      # X1: the no is answered by code
+    assert s["turn2"]["answer"] == "No change made." and s["turn2"]["requests"] == []
     users = [v["user_id"] for v in s["rows"]["versions"]]
     assert users.count(9001) == 1 and users.count(9002) == 1                              # nothing written
     assert len(s["rows"]["previews"]) == 1 and s["rows"]["previews"][0]["used_at"] is None

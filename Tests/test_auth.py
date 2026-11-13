@@ -374,7 +374,8 @@ def test_a5_a_ticket_is_spent_only_by_its_user_in_its_thread(c):
     assert _tchat(c, "user_a9001", tf.YES_Q, thread_id=thread_b).json()["answer"] == "Not written."  # another thread
     assert (_versions(c.conn, 9001), _versions(c.conn, 9002)) == (n1, n2)
     c.brain.forced_ticket = None
-    assert _tchat(c, "user_a9001", tf.YES_Q, thread_id=thread_a).json()["answer"] == "Written."
+    # Prompt X1: the yes in its own thread is decided by code (confirm_gate), not by the model
+    assert _tchat(c, "user_a9001", tf.YES_Q, thread_id=thread_a).json()["answer"].startswith("Done — saved to your squad.")
     assert (_versions(c.conn, 9001), _versions(c.conn, 9002)) == (n1 + 1, n2)
 
 

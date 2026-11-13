@@ -226,7 +226,7 @@ def test_h4_the_active_teams_preview_ticket_survives_a_re_activation(api, monkey
     tid = _chat(api, tf.PREVIEW_Q).json()["thread_id"]
     a = _post(api, f"/me/teams/{TID}/activate").json()
     assert a["preview_tickets_cancelled"] == 0 and a["thread_id"] == tid
-    assert _chat(api, tf.YES_Q, tid).json()["answer"] == "Written."
+    assert _chat(api, tf.YES_Q, tid).json()["answer"].startswith("Done — saved to your squad.")   # X1: decided by code
 
 
 # ---- H5 ----------------------------------------------------------------------------------------------------------------
