@@ -25,6 +25,7 @@ Offline: test_fpl_import's `api` fixture (clerk mode on the test database, users
 latest run and the FPL bootstrap replaced by a synthetic league (`league` fixture)."""
 import hashlib
 import random
+import re
 import sys
 import types
 from datetime import datetime, timedelta, timezone
@@ -119,6 +120,10 @@ class League:
             self.calls["load_pool"] += 1
             return pool_of(self.boot, self.run_prices), 10, datetime(2026, 11, 2, 11, 0, tzinfo=UTC)
         mp.setattr(mt, "_load_pool", load_pool)
+
+        def no_frame():
+            raise FileNotFoundError("no production frame in the synthetic league")
+        mp.setattr(mt, "_frame_raw", no_frame)                     # W11d D4: hermetic unless a test installs one
         mp.setattr(mt, "_season_label", lambda: "2026-27")
         mp.setattr(mt, "_with_flags", lambda out: out)
         mp.setattr(team_card, "_live_rows", lambda elements, conn=None: {})
@@ -592,10 +597,10 @@ def test_c6_a_draft_fingerprint_never_matches_a_real_squad_write():
 def test_c7_the_seven_squad_tools_answer_for_the_draft_in_a_draft_turn_only(built):
     import model_tools as mt
     sq = built.turns.run(mt.get_my_squad)
-    assert sq["draft"] is True and sq["not_in_fpl"] is True and len(sq["xi"]) == 11 and len(sq["bench_in_order"]) == 4
+    assert sq["draft"] is True and sq["not_in_fpl"] is True and len(_xi(sq)) == 11 and len(sq["bench_in_order"]) == 4
     assert sq["value"] <= 100.0 and sq["rules"]["max_per_club"] == 3 and sq["rebuild_with"]["player_ids"]
     assert sq["rebuild_would_change_players"] == 0 and sq["changes_since_build"] == 0
-    assert all(r["e_points"] is not None for r in sq["xi"])            # the LATEST predictions, per player
+    assert all(r["e_points"] is not None for r in _xi(sq))            # the LATEST predictions, per player
     assert "free_transfers_now" not in sq and "bank" not in sq
     xi = built.turns.run(mt.get_my_xi)
     assert xi["draft"] is True and len(xi["xi"]) == 11 and xi["adopt_with"]["player_ids"] == sorted(sq["rebuild_with"]["player_ids"])
@@ -653,6 +658,15 @@ def test_c10_over_budget_after_price_rises_allows_a_cheaper_change_and_refuses_a
 # The W11 eval failed on three numbers the agent derived (a captain's points doubled, two prices added, an example team ID).
 # On draft turns the tools now give each of them; outside a draft turn nothing changes.
 
+def _sq_rows(sq):
+    """W11d D2: get_my_squad (draft) groups its fifteen rows by position."""
+    return [r for pos in ("GK", "DEF", "MID", "FWD") for r in sq["squad_by_position"][pos]]
+
+
+def _xi(sq):
+    return [r for r in _sq_rows(sq) if r["in_xi"]]
+
+
 def _pts(boot):
     return {e["id"]: round(e["_pts"], 2) for e in boot["elements"]}
 
@@ -665,14 +679,14 @@ def test_n1_get_my_squad_gives_each_starters_points_the_captain_doubled_the_xi_t
     import model_tools as mt
     sq = built.turns.run(mt.get_my_squad)
     pts, price = _pts(built.boot), _price(built.boot)
-    assert all(r["e_points"] == pts[r["player_id"]] for r in sq["xi"])
-    cap = next(r for r in sq["xi"] if r["role"] == "CAPTAIN")
+    assert all(r["e_points"] == pts[r["player_id"]] for r in _xi(sq))
+    cap = next(r for r in _xi(sq) if r["role"] == "CAPTAIN")
     assert sq["captain_points"] == {"player_id": cap["player_id"], "name": cap["name"], "short_name": cap["short_name"],
                                     "e_points": cap["e_points"], "with_armband": round(2 * cap["e_points"], 2)}
     assert cap["e_points_with_armband"] == round(2 * cap["e_points"], 2)
-    assert all("e_points_with_armband" not in r for r in sq["xi"] + sq["bench_in_order"] if r["role"] != "CAPTAIN")
-    assert sq["predicted_xi_points"] == round(sum(r["e_points"] for r in sq["xi"]) + cap["e_points"], 1)
-    value = sum(price[r["player_id"]] for r in sq["xi"] + sq["bench_in_order"])
+    assert all("e_points_with_armband" not in r for r in _sq_rows(sq) if r["role"] != "CAPTAIN")
+    assert sq["predicted_xi_points"] == round(sum(r["e_points"] for r in _xi(sq)) + cap["e_points"], 1)
+    value = sum(price[r["player_id"]] for r in _sq_rows(sq))
     assert (sq["value"], sq["budget"], sq["left"]) == (round(value / 10, 1), 100.0, round((1000 - value) / 10, 1))
     assert "over" not in sq and "do not add" in sq["numbers_note"]
 
@@ -999,7 +1013,7 @@ def test_w3_get_my_squad_says_how_the_fifteen_were_picked_and_only_facts_per_pla
         assert judgement in sq["reasons_rule"], judgement
     ctx = built.api.league.ctx()
     team_of = {e["id"]: e["team"] for e in built.boot["elements"]}
-    for r in sq["xi"] + sq["bench_in_order"]:
+    for r in _sq_rows(sq):
         nf = ctx.next_fixture(team_of[r["player_id"]])
         assert r["next_fixture"] == f"{nf['opp']} ({'H' if nf['home'] else 'A'})", r
     wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
@@ -1056,6 +1070,133 @@ def test_w4_every_money_figure_is_in_the_output_as_it_would_be_said(built):
     assert {"price", "price_difference", "value_after", "left_after"} <= seen["swaps"]
     built.api.league.raise_prices(2, {int(p["element"]) for p in built.doc["players"]})
     assert "over" in _money_texts_ok(built.turns.run(mt.get_my_squad), "squad_over")
+
+
+# ---- D: real reasons for each pick (Prompt W11d, 2026-11-13) ----------------------------------------------------------------------
+# W11c's case 1 ("why these players?") invented causal reasons 3 of 3. The draft's get_my_squad now carries reasons computed by
+# code from the build's own objective (D1), its rows grouped by position (D2), each player's main breakdown parts from the same
+# source as explain_prediction (D4); the wording allows no other reason and no range (D3).
+
+PICK_RE = re.compile(r"^Picked: the best legal alternative, (.+) \(£(\d+\.\d)m\), would lower the build's score by (\d+\.\d\d)\.$")
+
+
+def test_d1_each_pick_has_a_reason_computed_from_the_builds_objective_and_checked_against_the_optimiser(built):
+    import model_tools as mt
+    doc, boot = built.doc, built.boot
+    sq = built.turns.run(mt.get_my_squad)
+    rows = _sq_rows(sq)
+    have = [int(p["element"]) for p in doc["players"]]
+    base_obj, _ = _solver_score(boot, have)
+    price = _price(boot)
+    with_alt = [r for r in rows if r["best_alternative"] is not None]
+    assert len(with_alt) >= 10
+    for r in rows:
+        if r["best_alternative"] is None:                              # e.g. the cheapest keeper with no money left: a true reason
+            assert r["pick_reason"] == "Picked: no legal alternative fits his place within £100.0m and FPL's squad rules."
+            continue
+        m = PICK_RE.match(r["pick_reason"])
+        assert m, r["pick_reason"]
+        alt = r["best_alternative"]
+        assert (m.group(1), float(m.group(2)), float(m.group(3))) == (alt["short_name"], alt["price"], r["build_score_loss"])
+        assert alt["price"] == price[alt["player_id"]] / 10 and r["build_score_loss"] >= 0      # the synthetic draft IS the build
+    swaps = _legal_single_swaps(doc, boot)
+    rng = random.Random(5)
+    for r in rng.sample(with_alt, 3):                                   # the reported loss and "best" by the REAL optimiser
+        o, best = r["player_id"], r["best_alternative"]["player_id"]
+        best_obj, _ = _solver_score(boot, [best if e == o else e for e in have])
+        assert abs((base_obj - best_obj) - r["build_score_loss"]) <= 0.02, r
+        mine = [i for oo, i in swaps if oo == o and i != best]
+        for i in rng.sample(mine, min(8, len(mine))):
+            assert _solver_score(boot, [i if e == o else e for e in have])[0] <= best_obj + 1e-6
+    xi_cost = sum(price[r["player_id"]] for r in rows if r["in_xi"])
+    bench_cost = sum(price[r["player_id"]] for r in rows if not r["in_xi"])
+    assert sq["budget_line"] == (f"XI £{xi_cost / 10:.1f}m, bench £{bench_cost / 10:.1f}m; bench points count 0.2×, so most of "
+                                 "the budget goes on the XI.")
+    assert "The build's score is the XI's predicted points with the captain counted twice, plus 0.2 × the bench's" in sq["how_picked"]
+
+
+def test_d1b_a_player_the_build_would_not_pick_says_so(built):
+    import db_write
+    import model_tools as mt
+    doc, boot = built.doc, built.boot
+    have = {int(p["element"]) for p in doc["players"]}
+    price = _price(boot)
+    start_def = max((p for p in doc["players"] if p["position"] == "DEF" and p["role"] == "start"), key=lambda p: _pts(boot)[p["element"]])
+    clubs, names = _club_counts(doc), {t["id"]: t["name"] for t in boot["teams"]}
+    worse = min((e for e in _by_pos(boot, "DEF") if e["id"] not in have and e["now_cost"] <= price[start_def["element"]]
+                 and clubs.get(names[e["team"]], 0) < 3), key=lambda e: e["_pts"])
+    a = _args(doc, swap=(start_def["element"], worse["id"]))
+    new_doc, _ = drafts.plan_change(doc, a["player_ids"], a["captain_id"], a["vice_id"], a["bench_order_ids"],
+                                    drafts.player_meta(a["player_ids"] + list(have), ctx=built.api.league.ctx()), price)
+    conn = db_write.connect()
+    try:
+        drafts.write_change(conn, U1, built.row["version_id"], new_doc)
+        conn.commit()
+    finally:
+        conn.close()
+    row = next(r for r in _sq_rows(built.turns.run(mt.get_my_squad)) if r["player_id"] == worse["id"])
+    assert row["pick_reason"].startswith("Not the build's pick now: ") and "would raise the build's score by" in row["pick_reason"]
+    assert row["build_score_loss"] < 0
+
+
+def test_d2_the_rows_are_grouped_by_position_with_the_position_spelled_out(built):
+    import model_tools as mt
+    sq = built.turns.run(mt.get_my_squad)
+    groups = sq["squad_by_position"]
+    assert list(groups) == ["GK", "DEF", "MID", "FWD"] and [len(groups[p]) for p in groups] == [2, 5, 5, 3]
+    words = {"GK": "Goalkeeper", "DEF": "Defender", "MID": "Midfielder", "FWD": "Forward"}
+    for pos, rows in groups.items():
+        assert all(r["position"] == pos and r["position_name"] == words[pos] for r in rows)
+        assert [r["in_xi"] for r in rows] == sorted((r["in_xi"] for r in rows), reverse=True)     # starters first
+    assert "xi" not in sq and sum(r["in_xi"] for r in _sq_rows(sq)) == 11
+    bench = sorted((p for p in built.doc["players"] if p["role"] == "bench"), key=lambda p: p["bench_order"])
+    short = {e["id"]: e["web_name"] for e in built.boot["elements"]}
+    assert sq["bench_in_order"] == [short[p["element"]] for p in bench]
+
+
+def test_d3_the_wording_allows_only_the_tools_reasons_and_no_range(built):
+    import model_tools as mt
+    rule = built.turns.run(mt.get_my_squad)["reasons_rule"]
+    for must in ("pick_reason", "how_picked", "budget_line", "breakdown", "counts as invented", "range"):
+        assert must in rule, must
+    wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
+    for must in ("pick_reason", "how_picked", "breakdown", "counts as invented", "Never give a range"):
+        assert must in wording, must
+
+
+def _fake_frame(boot, gw=10):
+    """A production frame with the explain columns for every player: the breakdown's own inputs, deterministic."""
+    rows = []
+    for e in boot["elements"]:
+        k = e["id"]
+        rows.append({"element": k, "gw": gw, "cutoff": gw, "position": POS[e["element_type"]], "team": f"Club {e['team']:02d}",
+                     "name": f"P {e['second_name']}", "pts_appear": 1.5 + (k % 5) / 10, "pts_goals": (k % 7) / 5,
+                     "pts_assists": (k % 3) / 4, "pts_cs": (k % 4) / 6, "pts_dc": 0.05, "pts_saves": 0.0, "pts_conceded": -(k % 2) / 3,
+                     "pts_cards": -0.1, "exp_bonus": 0.0, "p_60plus": 0.80 + (k % 10) / 100, "p_play_any": 0.95,
+                     "e_points": 3.0, "e_points_core": 3.0, "team_lambda": 1.2 + e["team"] / 100, "opp_lambda": 1.3})
+    return pd.DataFrame(rows)
+
+
+def test_d4_each_player_carries_his_main_breakdown_parts_from_explain_predictions_source(built, monkeypatch):
+    import explain
+    import model_tools as mt
+    df = _fake_frame(built.boot)
+    monkeypatch.setattr(mt, "_frame_raw", lambda: (df, 10, datetime(2026, 11, 2, 11, 0, tzinfo=UTC)))
+    sq = built.turns.run(mt.get_my_squad)
+    for r in _sq_rows(sq):
+        row, step, err = mt._explain_row(df, 10, r["player_id"], 10)
+        assert err is None
+        lines = explain.breakdown(row, step)["lines"]                  # what explain_prediction shows for him
+        want = [{"part": l["term"].replace("_", " "), "points": round(l["points"], 2)} for l in lines if round(l["points"], 2) != 0][:3]
+        b = r["breakdown"]
+        assert b["parts"] == want, (r["short_name"], b)
+        assert (b["chance_of_60_plus"], b["chance_of_playing"]) == (round(row["p_60plus"], 2), round(row["p_play_any"], 2))
+        for part in want:
+            assert f"{part['part']} {part['points']:+.2f}" in b["breakdown_words"]
+        assert f"a {round(row['p_60plus'] * 100)}% chance of playing 60+ minutes" in b["breakdown_words"]
+    monkeypatch.setattr(mt, "_frame_raw", lambda: (_ for _ in ()).throw(FileNotFoundError("gone")))
+    sq = built.turns.run(mt.get_my_squad)                              # no frame: no breakdown, the rest of the answer stands
+    assert all(r["breakdown"] is None for r in _sq_rows(sq)) and all(r["pick_reason"] for r in _sq_rows(sq))
 
 
 # ---- S: real squads are never touched ----------------------------------------------------------------------------------------

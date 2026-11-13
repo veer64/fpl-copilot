@@ -22,10 +22,12 @@ WHAT_THIS_IS = ("This is the user's DRAFT team: 15 players built from our predic
 TO_CHANGE = ("To change the draft, call set_my_squad with confirm=false (a preview the user must say yes to); apply it with "
              "confirm=true and the preview_ticket only after the user says yes in their next message. To suggest changes, "
              "call propose_transfers: in a draft it returns the best free swaps with their numbers.")
-REASONS_RULE = ("The only reason any player is in the draft is how_picked (the build's predicted points). For each player the "
-                "only facts are his predicted points, price, club and next fixture on his row: state them as facts, never as "
-                "judgements. Never call a fixture easy, good, tough or hard, and never judge value for money, cheapness, "
-                "upside, ceiling, form, minutes, risk or playing style; never add a reason of your own.")
+REASONS_RULE = ("Explain the picks only with how_picked, budget_line, each player's pick_reason and his breakdown parts; "
+                "his predicted points, price, club and next fixture are facts on his row. Any other causal reason counts as "
+                "invented: value for money, fixtures (easy, good, tough or hard), form, minutes, risk, upside, ceiling, playing "
+                "style, formation, or budget strategy (one player's price explaining another's). Never give a range; quote each "
+                "number as it is here.")
+POSITION_NAMES = {"GK": "Goalkeeper", "DEF": "Defender", "MID": "Midfielder", "FWD": "Forward"}
 # W11c R4: every money figure also as it is said ("£0.1m over"), so a reply quotes it instead of restating or rounding it
 MONEY_PLAIN = ("price", "out_price", "in_price", "value", "value_before", "value_after", "budget", "instead_of_price",
                "replaces_price")
@@ -115,7 +117,9 @@ def _how_picked(gw, n_changes):
     w = _bench_weight()
     out = (f"The 15 were picked by our build as the squad with the most predicted points for GW{gw}: the XI's predicted "
            f"points with the captain counted twice, plus {w:g} × the bench's, within £100.0m at current prices and FPL's "
-           "squad rules (2 GK, 5 DEF, 5 MID, 3 FWD; at most 3 per club).")
+           "squad rules (2 GK, 5 DEF, 5 MID, 3 FWD; at most 3 per club). The build's score is the XI's predicted points "
+           f"with the captain counted twice, plus {w:g} × the bench's; each pick_reason says how much of it the best legal "
+           "alternative would lose.")
     if n_changes:
         out += f" Since then the user has changed the draft {n_changes} time{'s' if n_changes != 1 else ''}."
     return out
@@ -224,6 +228,23 @@ def get_my_squad(d):
     bench = sorted((r for r in rows if r["role"] == "bench"), key=lambda r: r["bench_order"] or 0)
     import team_card
     xi_pts = _xi_total(xi) if points else None
+    reasons = {}
+    if gw is not None:                                  # W11d D1: reasons computed from the build's own objective
+        try:
+            S = _Scoring(doc, gw)
+            reasons = {} if S.missing else _pick_reasons(S)
+        except Exception:                               # noqa: BLE001 -- no frame: the rest of the answer stands
+            reasons = {}
+    parts = _breakdowns(ids, gw) if gw is not None else {}
+    order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
+    for r in rows:
+        r["position_name"] = POSITION_NAMES.get(r["position"], r["position"])
+        r["in_xi"] = r["role"] != "bench"
+        r.update(reasons.get(r["player_id"]) or {"pick_reason": None, "best_alternative": None, "build_score_loss": None})
+        r["breakdown"] = parts.get(r["player_id"])
+    by_position = {pos: sorted((r for r in rows if r["position"] == pos),
+                               key=lambda r: (not r["in_xi"], r["bench_order"] or 0, -(r["e_points"] or 0.0)))
+                   for pos in ("GK", "DEF", "MID", "FWD")}
     rebuild_with, rebuild_n = _rebuild_with(doc)
     run = mt._latest_run()
     out = {
@@ -235,7 +256,8 @@ def get_my_squad(d):
         "captain": next((r["name"] for r in xi if r["role"] == "CAPTAIN"), None),
         "vice": next((r["name"] for r in xi if r["role"] == "VICE"), None),
         "captain_points": _captain_points(xi),
-        "xi": xi, "bench_in_order": bench,
+        "squad_by_position": by_position,
+        "bench_in_order": [r["short_name"] for r in bench],
         "predicted_xi_points": xi_pts,
         "predicted_xi_points_meaning": (f"the XI's predicted points for GW{gw} with the captain counted twice, from the latest "
                                         "predictions") if xi_pts is not None else None,
@@ -246,6 +268,7 @@ def get_my_squad(d):
         "changes_since_build": int(row["n_changes"]),
         "version_id": int(row["version_id"]),
         "how_picked": _how_picked(gw, int(row["n_changes"])),
+        "budget_line": _budget_line(rows),
         "reasons_rule": REASONS_RULE,
         "rebuild_with": rebuild_with,
         "rebuild_would_change_players": rebuild_n,
@@ -558,6 +581,109 @@ def _shown_total(xi, cap, shown):
     return round(sum(shown.get(e, 0.0) for e in xi) + shown.get(cap, 0.0), 1)
 
 
+class _Scoring:
+    """The build's own scoring of the draft (W11c R1, shared by W11d D1): the latest production frame for the next deadline,
+    current prices, the club counts and the best line-up's score of the fifteen as they are."""
+
+    def __init__(self, doc, gw):
+        mt = _mt()
+        pool, _cutoff, self.built = mt._load_pool(gw=int(gw))
+        self.gw = int(gw)
+        self.have = [int(p["element"]) for p in doc["players"]]
+        self.by_id = {int(p["element"]): p for p in doc["players"]}
+        self.raw = {int(e): float(x) for e, x in zip(pool["element"], pool["e_points"])}
+        self.shown = {e: round(v, 2) for e, v in self.raw.items()}
+        self.ctx = drafts.context(allow_fetch=False)
+        self.cand = sorted(set(self.raw) - set(self.have))
+        self.meta = drafts.player_meta(self.cand + self.have, ctx=self.ctx)
+        self.prices = drafts.current_prices(self.cand + self.have, ctx=self.ctx)
+        self.before, self.missing = drafts.value_of(doc, self.prices)
+        self.players = [(e, self.by_id[e]["position"]) for e in self.have]
+        self.base_score = _lineup(self.players, self.raw)[0]
+        self.clubs = {}
+        for e in self.have:
+            self.clubs[self.by_id[e]["team"]] = self.clubs.get(self.by_id[e]["team"], 0) + 1
+        self.short = {e: (self.meta.get(e) or {}).get("web_name") or (self.meta.get(e) or {}).get("name")
+                      or self.by_id.get(e, {}).get("name") for e in self.cand + self.have}
+
+    def swaps_for(self, o):
+        """Every legal single swap of `o` (same position, the club cap kept, within £100.0m or no dearer than now), scored by
+        the build's objective with the line-up re-picked: [(score, o, i, value after)]."""
+        pos, club_o = self.by_id[o]["position"], self.by_id[o]["team"]
+        out = []
+        for i in self.cand:
+            m = self.meta.get(i)
+            if not m or m["position"] != pos or i not in self.prices:
+                continue
+            if self.clubs.get(m["team"], 0) - (1 if m["team"] == club_o else 0) >= drafts.MAX_PER_CLUB:
+                continue
+            after = self.before - int(self.prices[o]) + int(self.prices[i])
+            if after > drafts.BUDGET and after > self.before:
+                continue
+            new = [(i, pos) if e == o else (e, p) for e, p in self.players]
+            out.append((_lineup(new, self.raw)[0], o, i, after))
+        return out
+
+
+def _pick_reasons(S):
+    """W11d D1: for each of the fifteen, the best legal replacement (S.swaps_for) and how much of the build's score that swap
+    loses (negative = the replacement would raise it: not the build's pick now), as a ready sentence."""
+    out = {}
+    for o in S.have:
+        swaps = S.swaps_for(o)
+        if not swaps:
+            out[o] = {"pick_reason": "Picked: no legal alternative fits his place within £100.0m and FPL's squad rules.",
+                      "best_alternative": None, "build_score_loss": None}
+            continue
+        score, _o, i, _after = max(swaps, key=lambda t: (t[0], -t[2]))
+        loss = round(S.base_score - score, 2)
+        alt = {"player_id": i, "short_name": S.short[i], "name": S.meta[i]["name"], "team": S.meta[i]["team"],
+               "price": drafts.money(S.prices[i])}
+        where = f"{alt['short_name']} (£{alt['price']:.1f}m)"
+        if loss >= 0:
+            reason = f"Picked: the best legal alternative, {where}, would lower the build's score by {loss:.2f}."
+        else:
+            reason = f"Not the build's pick now: {where} would raise the build's score by {-loss:.2f}."
+        out[o] = {"pick_reason": reason, "best_alternative": alt, "build_score_loss": loss}
+    return out
+
+
+def _breakdowns(ids, gw):
+    """W11d D4: each player's 2-3 biggest breakdown parts and his chances of playing, from the SAME source as
+    explain_prediction (the production frame's raw row through explain.breakdown). {} without a frame."""
+    import explain
+    mt = _mt()
+    try:
+        df, cutoff, _built = mt._frame_raw()
+    except (FileNotFoundError, RuntimeError):
+        return {}
+    out = {}
+    for e in ids:
+        try:
+            row, step, err = mt._explain_row(df, cutoff, e, gw)
+            if err:
+                continue
+            lines = explain.breakdown(row, step)["lines"]
+        except Exception:                               # noqa: BLE001 -- one player's breakdown never breaks the answer
+            continue
+        parts = [{"part": ln["term"].replace("_", " "), "points": round(ln["points"], 2)} for ln in lines
+                 if round(ln["points"], 2) != 0][:3]
+        p60, ppa = float(row.get("p_60plus", float("nan"))), float(row.get("p_play_any", float("nan")))
+        words = ", ".join(f"{x['part']} {x['points']:+.2f}" for x in parts)
+        if p60 == p60:
+            words += f"; a {round(p60 * 100)}% chance of playing 60+ minutes"
+        out[e] = {"parts": parts, "chance_of_60_plus": round(p60, 2) if p60 == p60 else None,
+                  "chance_of_playing": round(ppa, 2) if ppa == ppa else None, "breakdown_words": words}
+    return out
+
+
+def _budget_line(rows):
+    w = _bench_weight()
+    xi = sum(r["price"] for r in rows if r["in_xi"] and r["price"] is not None)
+    bench = sum(r["price"] for r in rows if not r["in_xi"] and r["price"] is not None)
+    return f"XI £{xi:.1f}m, bench £{bench:.1f}m; bench points count {w:g}×, so most of the budget goes on the XI."
+
+
 def free_swaps(d, limit=3):
     """propose_transfers in a draft chat (W11c R1): up to `limit` best FREE single swaps for the draft -- the build's own
     predictions (the latest production frame for the next deadline) and its own score (_lineup: the solver's objective at
@@ -572,41 +698,16 @@ def free_swaps(d, limit=3):
     gw = _next_gw()
     if gw is None:
         return {"error": "the next deadline's gameweek is unknown right now (the FPL bootstrap is unreachable)", "draft": True}
+    doc = row["squad_json"]
     try:
-        pool, _cutoff, built = mt._load_pool(gw=int(gw))
+        S = _Scoring(doc, gw)
     except Exception as e:                              # noqa: BLE001
         return {"error": f"there are no predictions for GW{gw}: {e}", "draft": True}
-    doc = row["squad_json"]
-    have = [int(p["element"]) for p in doc["players"]]
-    by_id = {int(p["element"]): p for p in doc["players"]}
-    raw = {int(e): float(x) for e, x in zip(pool["element"], pool["e_points"])}
-    shown = {e: round(v, 2) for e, v in raw.items()}
-    ctx = drafts.context(allow_fetch=False)
-    cand = sorted(set(raw) - set(have))
-    meta = drafts.player_meta(cand + have, ctx=ctx)
-    prices = drafts.current_prices(cand + have, ctx=ctx)
-    before, missing = drafts.value_of(doc, prices)
-    if missing:
-        return {"error": f"no current price for player(s) {missing}", "draft": True}
-    players = [(e, by_id[e]["position"]) for e in have]
-    base_score = _lineup(players, raw)[0]
-    clubs = {}
-    for e in have:
-        clubs[by_id[e]["team"]] = clubs.get(by_id[e]["team"], 0) + 1
-    scored = []
-    for o in have:
-        pos, club_o = by_id[o]["position"], by_id[o]["team"]
-        for i in cand:
-            m = meta.get(i)
-            if not m or m["position"] != pos or i not in prices:
-                continue
-            if clubs.get(m["team"], 0) - (1 if m["team"] == club_o else 0) >= drafts.MAX_PER_CLUB:
-                continue
-            after = before - int(prices[o]) + int(prices[i])
-            if after > drafts.BUDGET and after > before:
-                continue
-            new = [(i, pos) if e == o else (e, p) for e, p in players]
-            scored.append((_lineup(new, raw)[0], o, i, after))
+    if S.missing:
+        return {"error": f"no current price for player(s) {S.missing}", "draft": True}
+    have, by_id, raw, shown, ctx, meta, prices = S.have, S.by_id, S.raw, S.shown, S.ctx, S.meta, S.prices
+    before, players, base_score, built = S.before, S.players, S.base_score, S.built
+    scored = [t for o in have for t in S.swaps_for(o)]
     scored.sort(key=lambda t: (-t[0], t[1], t[2]))
     picked, outs, ins = [], set(), set()
     for t in scored:
@@ -621,8 +722,7 @@ def free_swaps(d, limit=3):
     xi_now = [e for e in have if by_id[e]["role"] != "bench"]
     cap_now = next((e for e in have if by_id[e]["role"] == "CAPTAIN"), xi_now[0])
     xi_before = _shown_total(xi_now, cap_now, shown)
-    short = {e: (meta.get(e) or {}).get("web_name") or (meta.get(e) or {}).get("name") or by_id.get(e, {}).get("name")
-             for e in cand + have}
+    short = S.short
     swaps = []
     for rank, (score, o, i, after) in enumerate(picked, 1):
         new = [(i, by_id[o]["position"]) if e == o else (e, p) for e, p in players]
