@@ -983,6 +983,10 @@ def resolve_player(name: str, club: str = None):
     if total > RESOLVE_CAP:
         notes.append(f"{total} players match; the closest {RESOLVE_CAP} are listed")
     out["note"] = "; ".join(notes) or None
+    _d = _draft_turn()                                   # Prompt W11b: in a draft chat the player going OUT is one of its 15
+    if _d is not None:
+        import draft_tools
+        out = draft_tools.resolve_in_draft(_d, name, cands, out)
     return out
 
 

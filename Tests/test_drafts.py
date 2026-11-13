@@ -11,6 +11,10 @@ R   POST /me/draft: one per account (a second build returns the existing draft, 
 C   a change (draft_tools.set_my_squad inside a draft turn): over £100.0m refused with the amount, a 4th player from a club
     refused with the rule, a wrong position refused, a legal change previewed then saved in a LATER turn with its ticket; no
     free-transfer / hit / bank logic anywhere; a draft ticket can never match a real-squad write.
+N   (Prompt W11b) the numbers the agent was working out itself come from the tools on draft turns: each starter's points, the
+    captain's WITH the armband, the XI total, value and left / over (get_my_squad, get_my_xi); price out, price in, the
+    difference and the money before / after in a preview and a refusal, each alternative's price and money left; the steps to
+    enter it in FPL (digit-free link); the player going OUT matched against the draft's fifteen first (resolve_player).
 S   draft writes never touch squad_versions / squad_scores / user_fpl_teams.
 D   Delete account and the guest reaper remove the draft (O7).
 T   threads: a draft chat resolves whatever team is active; /threads marks it is_draft and titles it by its first question;
@@ -643,6 +647,201 @@ def test_c10_over_budget_after_price_rises_allows_a_cheaper_change_and_refuses_a
         e["now_cost"] for e in built.boot["elements"] if e["id"] == p["element"]))
     out = built.turns.run(mt.set_my_squad, **_args(built.doc, swap=(d_out["element"], dear["id"])))
     assert out["refused"] is True and out["reason_kind"] in ("over_budget", "club_cap")
+
+
+# ---- N: the numbers the agent was working out itself (Prompt W11b, 2026-11-13) ---------------------------------------------------
+# The W11 eval failed on three numbers the agent derived (a captain's points doubled, two prices added, an example team ID).
+# On draft turns the tools now give each of them; outside a draft turn nothing changes.
+
+def _pts(boot):
+    return {e["id"]: round(e["_pts"], 2) for e in boot["elements"]}
+
+
+def _price(boot):
+    return {e["id"]: e["now_cost"] for e in boot["elements"]}
+
+
+def test_n1_get_my_squad_gives_each_starters_points_the_captain_doubled_the_xi_total_and_the_money(built):
+    import model_tools as mt
+    sq = built.turns.run(mt.get_my_squad)
+    pts, price = _pts(built.boot), _price(built.boot)
+    assert all(r["e_points"] == pts[r["player_id"]] for r in sq["xi"])
+    cap = next(r for r in sq["xi"] if r["role"] == "CAPTAIN")
+    assert sq["captain_points"] == {"player_id": cap["player_id"], "name": cap["name"], "short_name": cap["short_name"],
+                                    "e_points": cap["e_points"], "with_armband": round(2 * cap["e_points"], 2)}
+    assert cap["e_points_with_armband"] == round(2 * cap["e_points"], 2)
+    assert all("e_points_with_armband" not in r for r in sq["xi"] + sq["bench_in_order"] if r["role"] != "CAPTAIN")
+    assert sq["predicted_xi_points"] == round(sum(r["e_points"] for r in sq["xi"]) + cap["e_points"], 1)
+    value = sum(price[r["player_id"]] for r in sq["xi"] + sq["bench_in_order"])
+    assert (sq["value"], sq["budget"], sq["left"]) == (round(value / 10, 1), 100.0, round((1000 - value) / 10, 1))
+    assert "over" not in sq and "do not add" in sq["numbers_note"]
+
+
+def test_n1b_get_my_xi_gives_the_same_numbers_for_its_xi_and_the_money(built):
+    import model_tools as mt
+    xi = built.turns.run(mt.get_my_xi)
+    cap = next(r for r in xi["xi"] if r["role"] == "CAPTAIN")
+    assert xi["captain_points"]["player_id"] == cap["player_id"] and xi["captain_points"]["with_armband"] == round(2 * cap["e_points"], 2)
+    assert cap["e_points_with_armband"] == round(2 * cap["e_points"], 2)
+    assert xi["predicted_xi_points"] == round(sum(r["e_points"] for r in xi["xi"]) + cap["e_points"], 1)
+    sq = built.turns.run(mt.get_my_squad)
+    assert (xi["value"], xi["budget"], xi["left"]) == (sq["value"], 100.0, sq["left"]) and "do not add" in xi["numbers_note"]
+
+
+def test_n1c_over_budget_after_price_rises_both_tools_say_how_much_over(built):
+    import model_tools as mt
+    built.api.league.raise_prices(2, {int(p["element"]) for p in built.doc["players"]})
+    sq, xi = built.turns.run(mt.get_my_squad), built.turns.run(mt.get_my_xi)
+    for out in (sq, xi):
+        assert out["value"] > 100.0 and out["over"] == round(out["value"] - 100.0, 1) and out["left"] == 0.0
+
+
+def test_n2_a_preview_gives_price_out_price_in_the_difference_and_the_money_before_and_after(built):
+    import model_tools as mt
+    price = _price(built.boot)
+    d_out, d_in = _legal_swap(built.doc, built.boot)
+    value = sum(price[int(p["element"])] for p in built.doc["players"])
+    prev = built.turns.run(mt.set_my_squad, **_args(built.doc, swap=(d_out["element"], d_in["id"])))
+    assert prev["preview"] is True, prev
+    t, ch = prev["change"]["transfers"][0], prev["change"]
+    diff = d_in["now_cost"] - price[d_out["element"]]
+    assert (t["out_price"], t["in_price"], t["price_difference"]) == (price[d_out["element"]] / 10, d_in["now_cost"] / 10,
+                                                                      round(diff / 10, 1))
+    word = "more" if diff > 0 else "less" if diff < 0 else "the same"
+    assert word in t["difference_words"] and (diff == 0 or f"£{abs(diff) / 10:.1f}m" in t["difference_words"])
+    after = value - price[d_out["element"]] + d_in["now_cost"]
+    assert (ch["value_before"], ch["left_before"]) == (round(value / 10, 1), round((1000 - value) / 10, 1))
+    assert (ch["value_after"], ch["left_after"], ch["over_after"]) == (round(after / 10, 1), round((1000 - after) / 10, 1), 0.0)
+
+
+def _over_swap(built):
+    doc, boot = built.doc, built.boot
+    have = {int(p["element"]) for p in doc["players"]}
+    names = {t["id"]: t["name"] for t in boot["teams"]}
+    clubs, price = _club_counts(doc), _price(boot)
+    out_mid = max((p for p in doc["players"] if p["position"] == "MID"), key=lambda p: price[p["element"]])
+    dear = max((e for e in _by_pos(boot, "MID") if e["id"] not in have
+                and (clubs.get(names[e["team"]], 0) < 3 or names[e["team"]] == out_mid["team"])), key=lambda e: e["now_cost"])
+    value = sum(price[int(p["element"])] for p in doc["players"])
+    dear["now_cost"] = max(dear["now_cost"], 1001 - value + price[out_mid["element"]])
+    return out_mid, dear, value
+
+
+def test_n2b_an_over_budget_refusal_gives_the_amount_over_and_each_alternatives_price_and_money_left(built):
+    import model_tools as mt
+    out_mid, dear, value = _over_swap(built)
+    price = _price(built.boot)
+    out = built.turns.run(mt.set_my_squad, **_args(built.doc, swap=(out_mid["element"], dear["id"])))
+    assert out["reason_kind"] == "over_budget", out
+    t = out["transfers"][0]
+    assert (t["out_id"], t["in_id"]) == (out_mid["element"], dear["id"])
+    assert (t["out_price"], t["in_price"]) == (price[out_mid["element"]] / 10, dear["now_cost"] / 10)
+    assert t["price_difference"] == round((dear["now_cost"] - price[out_mid["element"]]) / 10, 1) and "more" in t["difference_words"]
+    after = value - price[out_mid["element"]] + dear["now_cost"]
+    assert (out["value_before"], out["left_before"]) == (round(value / 10, 1), round((1000 - value) / 10, 1))
+    assert (out["value_after"], out["over_by"]) == (round(after / 10, 1), round((after - 1000) / 10, 1))
+    alts = out["legal_alternatives"]
+    assert alts
+    for a in alts:
+        assert a["price"] == price[a["player_id"]] / 10 and a["instead_of_price"] == price[dear["id"]] / 10
+        assert a["price_difference"] == round((price[a["player_id"]] - price[out_mid["element"]]) / 10, 1)
+        a_after = value - price[out_mid["element"]] + price[a["player_id"]]
+        assert (a["value_after"], a["left_after"]) == (round(a_after / 10, 1), round((1000 - a_after) / 10, 1))
+
+
+def test_n2c_a_club_cap_refusal_gives_the_prices_and_each_alternatives_money_left(built):
+    import model_tools as mt
+    doc, boot = built.doc, built.boot
+    names = {t["id"]: t["name"] for t in boot["teams"]}
+    clubs, price, have = _club_counts(doc), _price(boot), {int(p["element"]) for p in doc["players"]}
+    value = sum(price[e] for e in have)
+    club = max(clubs, key=clubs.get)
+    args, swaps = _args(doc), []
+    for e in sorted(boot["elements"], key=lambda e: e["now_cost"]):
+        if len(swaps) == 4 - clubs[club]:
+            break
+        if names[e["team"]] != club or e["id"] in have:
+            continue
+        o = next((p for p in doc["players"] if p["position"] == POS[e["element_type"]] and p["team"] != club
+                  and p["role"] in ("bench", "start") and p["element"] not in [s[0] for s in swaps]), None)
+        if o is not None:
+            swaps.append((o["element"], e["id"]))
+    for o, n in swaps:
+        args["player_ids"] = [n if x == o else x for x in args["player_ids"]]
+        args["bench_order_ids"] = [n if x == o else x for x in args["bench_order_ids"]]
+    out = built.turns.run(mt.set_my_squad, **args)
+    assert out["reason_kind"] == "club_cap", out
+    assert {(t["out_id"], t["in_id"]) for t in out["transfers"]} == set(swaps)
+    assert all({"out_price", "in_price", "price_difference", "difference_words"} <= set(t) for t in out["transfers"])
+    assert out["left_before"] == round((1000 - value) / 10, 1) and out["legal_alternatives"]
+    for a in out["legal_alternatives"]:
+        assert a["price"] == price[a["player_id"]] / 10 and a["left_after"] == round(100.0 - a["value_after"], 1)
+
+
+def test_n3_the_steps_to_enter_it_in_fpl_come_from_get_my_squad_with_a_digit_free_link(built):
+    import json
+    import re
+    import model_tools as mt
+    e = built.turns.run(mt.get_my_squad)["enter_in_fpl"]
+    text = json.dumps(e, ensure_ascii=False)
+    assert re.search(r"\d", text) is None, text
+    for must in ("fantasy.premierleague.com/entry/<your team ID>/", "Points", "Add my team ID", "How to enter it"):
+        assert must in text, must
+    assert isinstance(e["steps"], list) and len(e["steps"]) >= 4
+    wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
+    assert "enter_in_fpl" in wording and "Never invent an example team ID" in wording   # its numbers: test_draft_payload test_4
+
+
+def _named(built, monkeypatch, full, web):
+    """resolve_player over the synthetic league (its players_live and FPL web names), with chosen players renamed."""
+    import model_tools as mt
+    teams = {t["id"]: t["name"] for t in built.boot["teams"]}
+    rows = [{"element": e["id"], "name": full.get(e["id"], f"P {e['second_name']}"), "position": POS[e["element_type"]],
+             "team": teams[e["team"]], "price_tenths": e["now_cost"], "status": "a"} for e in built.boot["elements"]]
+    webs = {e["id"]: web.get(e["id"], e["web_name"]) for e in built.boot["elements"]}
+    monkeypatch.setattr(mt, "_q", lambda sql, params=(): [] if "status = ANY" in sql else [dict(r) for r in rows])
+    monkeypatch.setattr(mt, "_web_names", lambda: webs)
+
+
+def test_n4_the_player_going_out_is_matched_against_the_drafts_fifteen_first(built, monkeypatch):
+    import model_tools as mt
+    have = {int(p["element"]) for p in built.doc["players"]}
+    mine = next(p for p in built.doc["players"] if p["position"] == "MID" and p["role"] == "start")
+    other = next(e for e in _by_pos(built.boot, "DEF") if e["id"] not in have)
+    _named(built, monkeypatch, {mine["element"]: "Diego Gómez", other["id"]: "Joe Gomez"},
+           {mine["element"]: "Gomez", other["id"]: "Gomez"})
+    plain = mt.resolve_player("Gomez")                                 # outside a draft turn: exactly as before (ask)
+    assert plain["ambiguous"] is True and plain["action"] == "ask the user which one" and "in_your_draft" not in plain
+    out = built.turns.run(mt.resolve_player, name="Gomez")
+    assert out["in_your_draft"]["player_id"] == mine["element"] and out["in_your_draft"]["position"] == "MID"
+    assert "OUT" in out["action"] and "without asking" in out["action"]
+    assert {k: v for k, v in out.items() if k not in ("in_your_draft", "draft_note", "action")} == \
+        {k: v for k, v in plain.items() if k != "action"}
+
+
+def test_n4b_a_draft_player_beats_a_closer_outside_match_for_the_player_going_out(built, monkeypatch):
+    import model_tools as mt
+    have = {int(p["element"]) for p in built.doc["players"]}
+    mine = next(p for p in built.doc["players"] if p["position"] == "MID" and p["role"] == "start")
+    other = next(e for e in _by_pos(built.boot, "MID") if e["id"] not in have)
+    _named(built, monkeypatch, {mine["element"]: "Rayan Cherki", other["id"]: "Rayan Rocha"},
+           {mine["element"]: "Cherki", other["id"]: "Rayan"})
+    plain = mt.resolve_player("Rayan")
+    assert plain["ambiguous"] is False and plain["matches"][0]["player_id"] == other["id"]
+    out = built.turns.run(mt.resolve_player, name="Rayan")
+    assert out["in_your_draft"]["player_id"] == mine["element"]
+
+
+def test_n4c_two_draft_players_with_the_name_still_ask_and_none_says_so(built, monkeypatch):
+    import model_tools as mt
+    two = [p for p in built.doc["players"] if p["position"] == "DEF"][:2]
+    _named(built, monkeypatch, {two[0]["element"]: "Ben White", two[1]["element"]: "Kyle White"},
+           {two[0]["element"]: "White", two[1]["element"]: "White"})
+    out = built.turns.run(mt.resolve_player, name="White")
+    assert out["in_your_draft"] is None and {r["player_id"] for r in out["draft_matches"]} == {p["element"] for p in two}
+    assert "ask which" in out["draft_note"]
+    none = built.turns.run(mt.resolve_player, name="Nobody Here")
+    assert none["in_your_draft"] is None and "No player in the user's draft" in none["draft_note"]
 
 
 # ---- S: real squads are never touched ----------------------------------------------------------------------------------------

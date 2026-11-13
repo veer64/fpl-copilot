@@ -25,6 +25,27 @@ NOT_A_TRANSFER_PLAN = ("This is a DRAFT team, not an FPL entry: there are no tra
                        "transfer plan. Changes are free and unlimited within £100.0m and FPL's squad rules. To suggest "
                        "changes, compare players (compare_players, get_player_card, list_players) or solve with "
                        "build_squad_from_scratch (lock_player_ids / ban_player_ids), then preview the change with set_my_squad.")
+# Prompt W11b (2026-11-13): the numbers the W11 eval caught the agent working out itself now come from the tools, and the
+# steps to enter the draft in FPL come from get_my_squad -- digit-free, so no reply copies an example team ID.
+NUMBERS_NOTE = ("Quote these numbers exactly as they are here; do not add, subtract, double or estimate any number yourself. "
+                "The captain's points with the armband are captain_points.with_armband; the XI's total (captain counted twice) "
+                "is predicted_xi_points; the money is value and left (or over). A swap's price difference and the money "
+                "left after it come from set_my_squad: preview the swap (confirm=false) and quote its numbers.")
+ENTER_IN_FPL = {
+    "steps": ["Go to fantasy.premierleague.com and sign in, or create a free account.",
+              "Create your team with these fifteen players (the guide lists them with prices), set the same captain, "
+              "vice-captain and bench order, and save it.",
+              "Open the Points tab and copy the link from the address bar. It looks like "
+              "fantasy.premierleague.com/entry/<your team ID>/ followed by the gameweek: the number after /entry/ is your "
+              "team ID.",
+              "Back here, open the guide with the \"How to enter it\" link above the chat and press \"Add my team ID\" to add "
+              "that link or number."],
+    "guide": ("The \"How to enter it\" link above the chat opens the guide: the fifteen by position with prices, Copy list, "
+              "these steps and the \"Add my team ID\" button."),
+    "prices_note": "FPL prices change daily: if a player now costs more and the fifteen no longer fit, ask for a swap here.",
+    "how_to_answer": ("Give these steps as they are. Write the link exactly as fantasy.premierleague.com/entry/<your team ID>/ "
+                      "and never put an example number in it or anywhere else."),
+}
 
 
 def _mt():
@@ -64,7 +85,32 @@ def _rows(doc, prices, points, shorts=None):
                     "position": p["position"], "team": p["team"], "role": p["role"],
                     "bench_order": p.get("bench_order"), "price": drafts.money(prices.get(e)),
                     "e_points": points.get(e)})
+        _armband(out[-1])
     return out
+
+
+def _armband(row):
+    """W11b F1: the captain's row carries his points WITH the armband (doubled), so no reply doubles them."""
+    if row["role"] == "CAPTAIN" and row.get("e_points") is not None:
+        row["e_points_with_armband"] = round(2 * row["e_points"], 2)
+    return row
+
+
+def _captain_points(xi):
+    cap = next((r for r in xi if r["role"] == "CAPTAIN"), None)
+    if cap is None or cap.get("e_points") is None:
+        return None
+    return {"player_id": cap["player_id"], "name": cap["name"], "short_name": cap.get("short_name") or cap["name"],
+            "e_points": cap["e_points"], "with_armband": cap["e_points_with_armband"]}
+
+
+def _xi_total(xi):
+    """The XI's predicted points with the captain counted twice, from the rows' own (shown) numbers (a player missing from the
+    predictions counts 0, as on the card); None without any predictions."""
+    if not xi or all(r.get("e_points") is None for r in xi):
+        return None
+    return round(sum(r["e_points"] or 0.0 for r in xi)
+                 + next((r["e_points"] or 0.0 for r in xi if r["role"] == "CAPTAIN"), 0.0), 1)
 
 
 def _money_block(doc, prices):
@@ -111,7 +157,7 @@ def get_my_squad(d):
     xi = [r for r in rows if r["role"] != "bench"]
     bench = sorted((r for r in rows if r["role"] == "bench"), key=lambda r: r["bench_order"] or 0)
     import team_card
-    xi_pts = drafts._xi_points(doc, points) if points else None
+    xi_pts = _xi_total(xi) if points else None
     rebuild_with, rebuild_n = _rebuild_with(doc)
     run = mt._latest_run()
     out = {
@@ -122,6 +168,7 @@ def get_my_squad(d):
         "gw": gw, "formation": team_card.formation(doc),
         "captain": next((r["name"] for r in xi if r["role"] == "CAPTAIN"), None),
         "vice": next((r["name"] for r in xi if r["role"] == "VICE"), None),
+        "captain_points": _captain_points(xi),
         "xi": xi, "bench_in_order": bench,
         "predicted_xi_points": xi_pts,
         "predicted_xi_points_meaning": (f"the XI's predicted points for GW{gw} with the captain counted twice, from the latest "
@@ -138,6 +185,8 @@ def get_my_squad(d):
         "rebuild_with": rebuild_with,
         "rebuild_would_change_players": rebuild_n,
         "to_change": TO_CHANGE,
+        "numbers_note": NUMBERS_NOTE,
+        "enter_in_fpl": ENTER_IN_FPL,
         "latest_run_id": run["run_id"] if run else None,
     }
     return mt._with_flags(out)
@@ -164,9 +213,13 @@ def _alternatives(doc, new_ids, kind, prices_all=None, limit=3):
     if not ins:
         return []
     cand_ids = [int(e) for e in pool["element"]]
-    meta, prices = _meta_and_prices(cand_ids + list(old))
+    meta, prices = _meta_and_prices(cand_ids + list(old) + ins)
     before, _ = drafts.value_of(doc, prices)
     pts = {int(e): float(p) for e, p in zip(pool["element"], pool["e_points"])}
+    try:                                                # W11b F2: who each incoming player would replace
+        out_of = {t["in_id"]: t["out_id"] for t in drafts.pairs(doc, new_ids, meta, prices)}
+    except KeyError:
+        out_of = {}
     out = []
     for i in ins:
         if i not in meta:
@@ -187,9 +240,18 @@ def _alternatives(doc, new_ids, kind, prices_all=None, limit=3):
             total = base_cost + int(prices[e])
             if total > drafts.BUDGET and total > before:
                 continue
-            out.append({"player_id": e, "name": m["name"], "team": m["team"], "position": pos,
-                        "price": drafts.money(prices[e]), "e_points": round(pts.get(e, 0.0), 2),
-                        "value_after": drafts.money(total), "instead_of": meta[i]["name"]})
+            alt = {"player_id": e, "name": m["name"], "team": m["team"], "position": pos,
+                   "price": drafts.money(prices[e]), "e_points": round(pts.get(e, 0.0), 2),
+                   "value_after": drafts.money(total), "left_after": drafts.money(max(0, drafts.BUDGET - total)),
+                   "instead_of": meta[i]["name"], "instead_of_price": drafts.money(prices.get(i))}
+            if total > drafts.BUDGET:
+                alt["over_after"] = drafts.money(total - drafts.BUDGET)
+            o = out_of.get(i)
+            if o is not None and o in prices:
+                diff = int(prices[e]) - int(prices[o])
+                alt.update(replaces=old[o]["name"], replaces_price=drafts.money(prices[o]), price_difference=drafts.money(diff),
+                           difference_words=drafts.difference_words(m["name"], old[o]["name"], diff))
+            out.append(alt)
             if len([x for x in out if x["instead_of"] == meta[i]["name"]]) >= limit:
                 break
     return out
@@ -217,6 +279,15 @@ def set_my_squad(d, player_ids=None, captain_id=None, vice_id=None, bench_order_
                "rule": e.details.get("rule"), "active_version": int(row["version_id"])}
         out.update({k: v for k, v in e.details.items() if k in ("over_by", "value_after", "value_before", "budget", "club", "n")})
         if e.kind in ("over_budget", "club_cap"):
+            # W11b F2: price out, price in and the difference of each swap asked for, and the money now
+            try:
+                out["transfers"] = drafts.pairs(doc, ids, meta, prices)
+            except KeyError:
+                pass
+            before, missing = drafts.value_of(doc, prices)
+            if not missing:
+                out.setdefault("value_before", drafts.money(before))
+                out["left_before"] = drafts.money(max(0, drafts.BUDGET - before))
             out["legal_alternatives"] = _alternatives(doc, ids, e.kind)
             out["next_step"] = ("Say why it was refused, with the numbers above, and offer one of legal_alternatives (or "
                                 "another legal swap); nothing was previewed or saved.")
@@ -300,8 +371,8 @@ def get_my_xi(d, gw=None):
     rows = []
     for r in team.itertuples(index=False):
         role, bo = roles[int(r.element)]
-        rows.append({"player_id": int(r.element), "name": r.name, "position": r.position, "team": str(r.team),
-                     "role": role, "bench_order": bo, "e_points": round(float(r.e_points), 2)})
+        rows.append(_armband({"player_id": int(r.element), "name": r.name, "position": r.position, "team": str(r.team),
+                              "role": role, "bench_order": bo, "e_points": round(float(r.e_points), 2)}))
     order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
     rows.sort(key=lambda r: (order[r["role"]], r["bench_order"] or 0, -r["e_points"]))
     xi = [r for r in rows if r["role"] != "bench"]
@@ -309,7 +380,10 @@ def get_my_xi(d, gw=None):
     out = {"draft": True, "gw": int(target), "solve_seconds": round(time.time() - t0, 1),
            "captain": next(r["name"] for r in xi if r["role"] == "CAPTAIN"),
            "vice": next(r["name"] for r in xi if r["role"] == "VICE"),
-           "xi": xi, "bench_in_order": bench, "predicted_xi_points": comparison["optimal_xi_points"],
+           "captain_points": _captain_points(xi),
+           "xi": xi, "bench_in_order": bench, "predicted_xi_points": _xi_total(xi),
+           "predicted_xi_points_meaning": f"this XI's predicted points for GW{int(target)} with the captain counted twice",
+           **_money_block(doc, prices), "numbers_note": NUMBERS_NOTE,
            "draft_roles_now": comparison, "missing_from_frame": missing,
            "adopt_with": {"player_ids": sorted(ids),
                           "captain_id": next(r["player_id"] for r in xi if r["role"] == "CAPTAIN"),
@@ -317,6 +391,40 @@ def get_my_xi(d, gw=None):
                           "bench_order_ids": [r["player_id"] for r in bench], "confirm": False},
            "to_change": TO_CHANGE}
     return mt._with_flags(out)
+
+
+def resolve_in_draft(d, name, cands, out):
+    """resolve_player inside a draft chat (W11b F4): the name is matched against the draft's fifteen too, because a player going
+    OUT can only be one of them. One draft player at the best rank -> in_your_draft (with his id, even when the name is
+    ambiguous across the league: "Gomez" -> the Gomez in the draft); two or more -> draft_matches, ask which; none ->
+    in_your_draft None. The league-wide answer (matches, ambiguous, the lock) is left as it was."""
+    import player_names as pn
+    row = _row(d)
+    if row is None:
+        return out
+    doc = {int(p["element"]): p for p in row["squad_json"]["players"]}
+    mine = pn.rank_matches(name, [c for c in cands if int(c["id"]) in doc])
+    out = dict(out)
+    if not mine:
+        out["in_your_draft"] = None
+        out["draft_note"] = "No player in the user's draft answers to that name."
+        return out
+    best = mine[0][0]
+    rows = [{"player_id": int(c["id"]), "name": doc[int(c["id"])]["name"], "short_name": c.get("web_name") or None,
+             "position": doc[int(c["id"])]["position"], "team": doc[int(c["id"])]["team"]} for r, c in mine if r == best]
+    if len(rows) == 1:
+        out["in_your_draft"] = rows[0]
+        out["draft_note"] = (f"{rows[0]['name']} is the player in the user's draft with that name: when the user is taking a "
+                             "player of this name OUT of the draft, it is him.")
+        if out.get("action"):
+            out["action"] = ("for the player going OUT of the draft, use in_your_draft without asking; ask which one only if "
+                             "the user wants to bring a player of this name IN")
+    else:
+        out["in_your_draft"] = None
+        out["draft_matches"] = rows
+        out["draft_note"] = (f"{len(rows)} players in the user's draft answer to that name: if one of them is going OUT, ask "
+                             "which.")
+    return out
 
 
 def not_applicable(what):

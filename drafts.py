@@ -355,6 +355,32 @@ def fingerprint(player_ids, captain_id, vice_id, bench_order_ids):
     return hashlib.sha256(("draft:" + fp).encode("utf-8")).hexdigest()
 
 
+def difference_words(in_name, out_name, diff_tenths):
+    """W11b: a swap's price difference in words, so the reply never works it out ("X costs £0.3m more than Y")."""
+    if diff_tenths == 0:
+        return f"{in_name} costs the same as {out_name}"
+    return f"{in_name} costs £{money(abs(diff_tenths)):.1f}m {'more' if diff_tenths > 0 else 'less'} than {out_name}"
+
+
+def pairs(old_doc, new_ids, meta, prices):
+    """Pure. The swaps from `old_doc` to the fifteen `new_ids`, paired out -> in by position, each with both current prices and
+    the difference (W11b: price out, price in, the difference -- in a preview AND in a refusal)."""
+    old = {int(p["element"]): p for p in old_doc["players"]}
+    want = [int(x) for x in new_ids]
+    outs = [e for e in old if e not in set(want)]
+    ins = [e for e in want if e not in old]
+    out = []
+    for pos in POSITION_LIMITS:
+        po = [e for e in outs if old[e]["position"] == pos]
+        pi = [e for e in ins if meta[e]["position"] == pos]
+        for o, i in zip(po, pi):
+            diff = int(prices[i]) - int(prices[o])
+            out.append({"out": old[o]["name"], "out_id": o, "out_price": money(prices[o]),
+                        "in": meta[i]["name"], "in_id": i, "in_price": money(prices[i]),
+                        "price_difference": money(diff), "difference_words": difference_words(meta[i]["name"], old[o]["name"], diff)})
+    return out
+
+
 def plan_change(old_doc, player_ids, captain_id, vice_id, bench_order_ids, meta, prices):
     """Pure. The new document and the change summary, or Refused. Changes are free and unlimited: no free transfers, hits or
     bank. The only limits: the squad rules (check_squad) and £100.0m at current prices -- a fifteen that ends over £100.0m is
@@ -381,21 +407,13 @@ def plan_change(old_doc, player_ids, captain_id, vice_id, bench_order_ids, meta,
         raise Refused("over_budget", f"this fifteen would cost £{money(after):.1f}m at current prices: £{money(over):.1f}m "
                                      "over the £100.0m limit", value_after=money(after), over_by=money(over), budget=100.0,
                       value_before=money(before))
-    outs = [e for e in old if e not in set(new_ids)]
-    ins = [e for e in new_ids if e not in old]
-    transfers = []
-    for pos in POSITION_LIMITS:
-        po = [e for e in outs if old[e]["position"] == pos]
-        pi = [e for e in ins if meta[e]["position"] == pos]
-        for o, i in zip(po, pi):
-            transfers.append({"out": old[o]["name"], "out_id": o, "out_price": money(prices[o]),
-                              "in": meta[i]["name"], "in_id": i, "in_price": money(prices[i])})
+    transfers = pairs(old_doc, new_ids, meta, prices)
     new_doc = document(players, captain_id, vice_id, bench_order_ids, old_doc.get("season"))
     oc, ov, ob = roles_of(old_doc)
     change = {"transfers": transfers, "n_transfers": len(transfers),
               "captain_changed": int(captain_id) != oc, "vice_changed": int(vice_id) != ov,
               "bench_changed": [int(x) for x in bench_order_ids] != ob,
-              "value_before": money(before), "value_after": money(after),
+              "value_before": money(before), "left_before": money(max(0, BUDGET - before)), "value_after": money(after),
               "left_after": money(max(0, BUDGET - after)), "over_after": money(max(0, after - BUDGET)),
               "no_change": not transfers and int(captain_id) == oc and int(vice_id) == ov and [int(x) for x in bench_order_ids] == ob}
     return new_doc, change
