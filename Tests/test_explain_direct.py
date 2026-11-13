@@ -177,6 +177,6 @@ def test_5_the_draft_tool_schema_matches_its_function_and_the_lock_knows_it(ag):
     schema = ag.DRAFT_TOOLS[0]["input_schema"]
     params = inspect.signature(mt.explain_my_draft).parameters
     assert set(schema["properties"]) == set(params) and schema["required"] == ["detail"]
-    assert schema["properties"]["detail"]["enum"] == ["summary", "each_player"]
+    assert schema["properties"]["detail"]["enum"] == ["summary", "each_player", "captain"]          # W11h H1
     assert ag.TOOL_PLAIN_PHRASES["explain_my_draft"] and "explain_my_draft" in ag.DIRECT_TOOLS
     assert ag.replace_tool_names("call explain_my_draft")[1] == 1

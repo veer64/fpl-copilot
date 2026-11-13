@@ -442,14 +442,15 @@ DRAFT_TOOLS = [
         "description": "The draft's explanation, written by code from the build's own facts: how the 15 were picked, the "
                        "budget split, and for each player his club, price, predicted points, biggest breakdown parts, what "
                        "the best legal alternative would cost the build's score, his value facts and his pick rank. Call it "
-                       "for ANY request to explain, talk through or justify the draft or a player in it. Its text is shown "
-                       "to the user as the reply: write no explanation of your own.",
+                       "for ANY request to explain, talk through or justify the draft or a player in it, and (detail "
+                       "'captain') for any captain or vice-captain question about the draft. Its text is shown to the user "
+                       "as the reply: write no explanation of your own.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "detail": {"type": "string", "enum": ["summary", "each_player"],
+                "detail": {"type": "string", "enum": ["summary", "each_player", "captain"],
                            "description": "'each_player' when the user asks about every / each player or player by player; "
-                                          "otherwise 'summary'."},
+                                          "'captain' for a captain or vice-captain question; otherwise 'summary'."},
                 "player": {"type": "string", "description": "Optional: one draft player's name, for a question about him only."}
             },
             "required": ["detail"]

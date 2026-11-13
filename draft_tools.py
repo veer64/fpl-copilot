@@ -27,7 +27,8 @@ TO_CHANGE = ("To change the draft, call set_my_squad with confirm=false (a previ
 # allowed when it matches; the baseline's false claims were ranks the model worked out, so pick_rank states those.
 # Prompt W11g (2026-11-13): an explanation of the picks is written by CODE (explain_my_draft, below) and shown as the reply;
 # the model never writes one. Other answers that touch a pick (a swap, the captain) keep the W11f rule.
-REASONS_RULE = ("To explain, talk through or justify the picks, call explain_my_draft; never write your own explanation. In "
+REASONS_RULE = ("To explain, talk through or justify the picks, call explain_my_draft; never write your own explanation. For "
+                "any claim about what a swap can cost or whether a player is affordable, use swap_budget_words exactly. In "
                 "any other answer that touches a pick, use only how_picked, budget_line, and each player's pick_reason, "
                 "pick_rank, value_facts and breakdown parts; his predicted points, price, club and next fixture are facts on "
                 "his row. A value remark (\"for his price\", \"cheap\", \"good value\") is allowed only as his value_facts "
@@ -39,10 +40,12 @@ REASONS_RULE = ("To explain, talk through or justify the picks, call explain_my_
                 "so does any other claim about how the build works. Quote each number exactly as it is here.")
 EXPLAIN_ANSWER_RULE = ("To explain, talk through or justify the squad or any player in it, call explain_my_draft: detail "
                        "'each_player' when the user asks about every / each player or player by player, detail 'summary' "
-                       "otherwise, and player=<his name> for one player. Its text is shown to the user as your reply; never "
+                       "otherwise, and player=<his name> for one player. For any captain or vice-captain question about the "
+                       "draft, call explain_my_draft with detail 'captain'. Its text is shown to the user as your reply; never "
                        "write your own explanation of the picks.")
-EXPLAIN_CLOSING = "Want me to go into any player, or make a change?"
-EXPLAIN_CLOSING_ONE = "Want me to go into another player, or make a change?"
+# Prompt W11h H3 (the owner's wording): every code-built answer ends with this follow-up -- fixed text, no claim. The website's
+# chips under such an answer ("Explain one player", "Bring someone in") answer it (web/lib/draft-chips.ts, the same text).
+EXPLAIN_FOLLOW_UP = "Which player would you like me to go into, or is there anyone you'd like to bring in?"
 BONUS_NOTE = "Our model doesn't account for bonus points; top-ranked players tend to pick up a few extra points from bonus."
 ROLE_WORDS = {"CAPTAIN": "captain", "VICE": "vice-captain", "start": "starting"}
 SECTIONS = (("GK", "Goalkeepers"), ("DEF", "Defenders"), ("MID", "Midfielders"), ("FWD", "Forwards"))
@@ -220,14 +223,15 @@ def _captain_points(xi, gw=None):
         "e_points": nb["e_points"], "margin": round(cap["e_points"] - nb["e_points"], 2)}
     # the W11e dev smoke doubled the margin ("a 2.46-point edge"): captaining him rather than the next-best adds it ONCE
     out["captaincy_edge"] = None if nb is None else {"over": out["next_best"]["short_name"], "points": out["next_best"]["margin"]}
-    top = sorted((r for r in xi if r.get("e_points") is not None), key=lambda r: (-r["e_points"], r["player_id"]))[:3]
-    out["captain_options"] = [{"player_id": r["player_id"], "short_name": r.get("short_name") or r["name"],
-                               "e_points": r["e_points"], "with_armband": round(2 * r["e_points"], 2)} for r in top]
+    ranked = sorted((r for r in xi if r.get("e_points") is not None), key=lambda r: (-r["e_points"], r["player_id"]))
+    ranges = {cap["player_id"]: out["range_with_armband"]}
+    out["captain_options"] = [_option(r, ranked, gw, ranges) for r in ranked[:3]]                 # W11h H1
+    top = {r["player_id"] for r in ranked[:3]}
+    out["extra_options"] = [_option(r, ranked, gw, ranges) for r in ranked                        # the captain / vice
+                            if r["role"] in ("CAPTAIN", "VICE") and r["player_id"] not in top]   # when not in the top 3
     words = f"{short}: {cap['e_points']:.2f} predicted points, {cap['e_points_with_armband']:.2f} with the armband"
-    if rng is not None:
-        a = out["range_with_armband"]
-        words += (f"; likely range {rng['p10']:.1f} / {rng['p50']:.1f} / {rng['p90']:.1f} (P10 / P50 / P90), "
-                  f"{a['p10']:.1f} / {a['p50']:.1f} / {a['p90']:.1f} with the armband")
+    if rng is not None:                                              # W11h H2: one range, said with its scale
+        words += f"; {_armband_words(out['range_with_armband'])}"
     if nb is not None:
         m = out["next_best"]["margin"]
         nbs = out["next_best"]["short_name"]
@@ -247,13 +251,36 @@ def _half_up_int(num, den):
     return int((Decimal(str(num)) * 100 / Decimal(str(den))).quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
+def _armband_words(a):
+    """W11h H2: a likely range WITH the armband as one self-contained phrase -- never beside the bare range."""
+    return f"with the armband: low {a['p10']:.1f}, middle {a['p50']:.1f}, top {a['p90']:.1f}"
+
+
+def _option(r, ranked, gw, ranges):
+    """W11h H1: one captain option's own facts -- points, with the armband, his likely range WITH the armband, his biggest
+    part's share, his chance of 60+ minutes and his margin over the next option in the XI by predicted points."""
+    pid = r["player_id"]
+    if pid not in ranges:
+        rng = _captain_range(pid, gw)
+        ranges[pid] = None if rng is None else {k: round(2 * rng[k], 2) for k in ("p10", "p50", "p90")}
+    i = next(k for k, x in enumerate(ranked) if x["player_id"] == pid)
+    nxt = ranked[i + 1] if i + 1 < len(ranked) else None
+    b = r.get("breakdown") or {}
+    return {"player_id": pid, "short_name": r.get("short_name") or r["name"], "role": r["role"], "team": r.get("team"),
+            "e_points": r["e_points"], "with_armband": round(2 * r["e_points"], 2), "range_with_armband": ranges[pid],
+            "points_share": _points_share(r), "chance_of_60_plus": b.get("chance_of_60_plus"),
+            "margin_to_next": None if nxt is None else {"short_name": nxt.get("short_name") or nxt["name"],
+                                                        "e_points": nxt["e_points"],
+                                                        "points": round(r["e_points"] - nxt["e_points"], 2)}}
+
+
 def _points_share(row):
-    """W11g G5: the share of his predicted points that his goals part (else his biggest part) makes -- {"part", "points",
-    "of", "percent"}, from his own breakdown; None without one."""
+    """W11g G5 / W11h H1: the share of his predicted points that his biggest part makes -- {"part", "points", "of",
+    "percent"}, from his own breakdown; None without one."""
     parts = (row.get("breakdown") or {}).get("parts") or []
     if not parts or not row.get("e_points"):
         return None
-    part = next((x for x in parts if x["part"] == "goals"), None) or max(parts, key=lambda x: x["points"])
+    part = max(parts, key=lambda x: x["points"])
     return {"part": part["part"], "points": part["points"], "of": row["e_points"],
             "percent": _half_up_int(f"{part['points']:.2f}", f"{row['e_points']:.2f}")}
 
@@ -391,10 +418,52 @@ def _find_player(rows, name):
     return hits[0]
 
 
+def _option_line(o):
+    role = ROLE_WORDS.get(o["role"]) or "bench"
+    team = f"{o['team']}, " if o.get("team") else ""
+    out = f"- **{o['short_name']}** ({team}{role}): {o['e_points']:.2f} predicted points, {o['with_armband']:.2f} with the armband"
+    if o.get("range_with_armband"):
+        out += f"; {_armband_words(o['range_with_armband'])}"
+    out += "."
+    sh = o.get("points_share")
+    if sh:
+        out += f" {sh['part'][0].upper()}{sh['part'][1:]} {sh['points']:.2f} of his {sh['of']:.2f} predicted points ({sh['percent']}%)."
+    if o.get("chance_of_60_plus") is not None:
+        out += f" A {round(o['chance_of_60_plus'] * 100)}% chance of playing 60+ minutes."
+    m = o.get("margin_to_next")
+    if m:
+        if m["points"] > 0:
+            out += f" {m['points']:.2f} more than {m['short_name']} ({m['e_points']:.2f})."
+        else:
+            out += f" Level with {m['short_name']} ({m['e_points']:.2f})."
+    return out
+
+
+def captain_text(sq):
+    """W11h H1: the captain answer -- the current captain and vice, the top 3 options by predicted points (plus the captain
+    and vice when they are not among them), each with his own facts; the bonus sentence and the owner's follow-up."""
+    cap = sq.get("captain_points")
+    rows = _sq_rows(sq)
+    captain = next((r for r in rows if r["role"] == "CAPTAIN"), None)
+    vice = next((r for r in rows if r["role"] == "VICE"), None)
+    if not cap or captain is None:
+        raise NotInDraft("There are no predictions for the draft's captain yet.")
+    head = f"Captain: {captain['short_name']}." + (f" Vice-captain: {vice['short_name']}." if vice else "")
+    opts = list(cap.get("captain_options") or [])
+    lines = [head, "", f"The top {len(opts)} captain options in your XI, by predicted points:"]
+    lines += [_option_line(o) for o in opts]
+    extra = cap.get("extra_options") or []
+    if extra:
+        lines += ["", "Your current captain or vice-captain outside those:"] + [_option_line(o) for o in extra]
+    return "\n".join(lines + ["", BONUS_NOTE, "", EXPLAIN_FOLLOW_UP])
+
+
 def explain_text(sq, detail="summary", player=None):
     """W11g G1: the explanation as it is shown (get_my_squad's draft answer in, text out): 'summary' (how the 15 were
     picked, the captain, the biggest picks, the budget), 'each_player' (all fifteen by position, one line each) or one
     player. Every fact is a field of the answer; nothing is judged. NotInDraft for a name that is not one of the 15."""
+    if detail == "captain" and not player:                             # W11h H1
+        return captain_text(sq)
     rows = _sq_rows(sq)
     if player:
         r = _find_player(rows, player)
@@ -402,7 +471,7 @@ def explain_text(sq, detail="summary", player=None):
         cap = sq.get("captain_points")
         if r["role"] == "CAPTAIN" and cap and cap.get("captain_words"):
             lines.append(f"As captain: {cap['captain_words']}")
-        return "\n".join(lines + ["", BONUS_NOTE, "", EXPLAIN_CLOSING_ONE])
+        return "\n".join(lines + ["", BONUS_NOTE, "", EXPLAIN_FOLLOW_UP])
     out = [_head(sq)]
     cap = _captain_line(sq)
     if cap:
@@ -418,7 +487,7 @@ def explain_text(sq, detail="summary", player=None):
         if big:
             out.append(big)
         out.append(_money_line(sq, rows))
-    return "\n".join(out + ["", BONUS_NOTE, "", EXPLAIN_CLOSING])
+    return "\n".join(out + ["", BONUS_NOTE, "", EXPLAIN_FOLLOW_UP])
 
 
 def explain_my_draft(d, detail="summary", player=None):
@@ -426,7 +495,7 @@ def explain_my_draft(d, detail="summary", player=None):
     sq = get_my_squad(d)
     if sq.get("error"):
         return sq
-    detail = detail if detail in ("summary", "each_player") else "summary"
+    detail = detail if detail in ("summary", "each_player", "captain") else "summary"
     try:
         text = explain_text(sq, detail, player)
     except NotInDraft as e:
@@ -534,6 +603,7 @@ def get_my_squad(d):
         "version_id": int(row["version_id"]),
         "how_picked": _how_picked(gw, int(row["n_changes"])),
         "explain_answer_rule": EXPLAIN_ANSWER_RULE,                   # W11g: explanations come from explain_my_draft
+        "swap_budget_words": None,                                    # W11h H4: set below from the money block
         "budget_line": _budget_line(rows),
         "reasons_rule": REASONS_RULE,
         "rebuild_with": rebuild_with,
@@ -543,6 +613,7 @@ def get_my_squad(d):
         "enter_in_fpl": ENTER_IN_FPL,
         "latest_run_id": run["run_id"] if run else None,
     }
+    out["swap_budget_words"] = _swap_budget_words(out.get("left"), out.get("over"))
     return _said(mt._with_flags(out))
 
 
@@ -988,6 +1059,18 @@ def _breakdowns(ids, gw):
         out[e] = {"parts": parts, "chance_of_60_plus": round(p60, 2) if p60 == p60 else None,
                   "chance_of_playing": round(ppa, 2) if ppa == ppa else None, "breakdown_words": words}
     return out
+
+
+def _swap_budget_words(left, over):
+    """W11h H4: what a swap may cost, as a sentence from the money left (or over) -- the rule set_my_squad applies."""
+    if over is not None:
+        return (f"The draft is £{over:.1f}m over £100.0m: a new player can cost at most the same as the one going out until "
+                "it is back within £100.0m.")
+    if left is None:
+        return None
+    if left <= 0:
+        return "With £0.0m left, a new player can cost at most the same as the one going out."
+    return f"With £{left:.1f}m left, a new player can cost up to £{left:.1f}m more than the one going out."
 
 
 def _budget_line(rows):

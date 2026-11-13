@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { ApiError, api, type DraftResult, type Feedback, type MessageRow, type TeamCardData, type ThreadRow } from "@/lib/api";
-import { OPENING_CHIPS, draftChips, unusedChips, type DraftChip } from "@/lib/draft-chips";
+import { OPENING_CHIPS, answerChips, unusedChips, type DraftChip } from "@/lib/draft-chips";
 import { AddTeamDialog, ADD_COPY } from "@/components/home/AddTeamDialog";
 import { BuildFailedDialog, BuildingDialog, RebuildConfirm, useDraftBuild } from "@/components/draft/BuildFlow";
 import { EnterGuide } from "@/components/draft/EnterGuide";
@@ -567,12 +567,20 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
     () => ({ captain: draftData?.captain?.short_name ?? null, left: draftData?.left ?? null, over: draftData?.over ?? null }),
     [draftData],
   );
+  // W11h H3: the latest answer's text -- a code-built answer ends with the owner's follow-up, and its chips come first
+  const lastAnswer = useMemo(() => {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.kind === "assistant" && !m.opening) return m.text;
+    }
+    return null;
+  }, [msgs]);
   const listDraft = useMemo(
     () =>
       isDraftChat
-        ? { opening: OPENING_CHIPS, answer: unusedChips(draftChips(draftFacts), sentTexts, guideFromChip), onChip: onDraftChip }
+        ? { opening: OPENING_CHIPS, answer: unusedChips(answerChips(draftFacts, lastAnswer), sentTexts, guideFromChip), onChip: onDraftChip }
         : null,
-    [isDraftChat, draftFacts, sentTexts, guideFromChip, onDraftChip],
+    [isDraftChat, draftFacts, lastAnswer, sentTexts, guideFromChip, onDraftChip],
   );
 
   const general = ctx?.kind === "general";

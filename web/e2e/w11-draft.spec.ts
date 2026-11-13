@@ -87,7 +87,7 @@ type State = { teams: number; threads: unknown[]; draft: Draft | null; messages:
 const S: State = { teams: 0, threads: [], draft: null, messages: [], buildFails: 0, answers: [], chatBodies: [], deletes: 0, rebuilds: 0, builds: 0, explains: [] };
 // Prompt W11e E2: the squad explanation the server answers the "Why these players?" chip with (from code, no model call)
 const EXPLANATION =
-  "How the 15 were picked: the most predicted points for GW11, the XI's (captain counted twice) plus 0.2 × the bench's, within £100.0m and FPL's squad rules.\nCaptain: Haaland, 7.90 predicted points, 15.80 with the armband.\nBiggest picks, by what the best legal alternative would cost the build's score: Haaland 3.10 (Isak, £10.5m), Salah 1.40 (Palmer, £9.5m), Saka 0.90 (Rogers, £5.5m).\nBench and budget: XI £82.0m, bench £17.6m; bench points count 0.2×, so most of the budget goes on the XI.\n\nWant me to go into any player?";
+  "How the 15 were picked: the most predicted points for GW11, the XI's (captain counted twice) plus 0.2 × the bench's, within £100.0m and FPL's squad rules.\nCaptain: Haaland, 7.90 predicted points, 15.80 with the armband.\nBiggest picks, by what the best legal alternative would cost the build's score: Haaland 3.10 (Isak, £10.5m), Salah 1.40 (Palmer, £9.5m), Saka 0.90 (Rogers, £5.5m).\nBench and budget: XI £82.0m, bench £17.6m; bench points count 0.2×, so most of the budget goes on the XI.\n\nWhich player would you like me to go into, or is there anyone you'd like to bring in?";
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
 async function seed(p: Page) {
@@ -465,7 +465,7 @@ test("chat: the guide chip sends nothing; chips send; used chips never return; t
   expect(S.explains).toEqual([{ thread_id: DRAFT_TID, question: "Why these players?" }]);
   await expect(page.locator('[data-testid="user-message"]:visible').last()).toContainText("Why these players?");
   await expect(page.locator('[data-testid="assistant-message"]:visible').last()).toContainText("Biggest picks, by what the best legal alternative would cost the build's score");
-  await expect(page.locator('[data-testid="assistant-message"]:visible').last()).toContainText("Want me to go into any player?");
+  await expect(page.locator('[data-testid="assistant-message"]:visible').last()).toContainText("Which player would you like me to go into, or is there anyone you");
   note(`E2 chip: answered in ${Date.now() - t0} ms (typing included), /chat calls ${S.chatBodies.length}, explain calls ${S.explains.length}`);
   await page.waitForTimeout(300);
   await shot(page, "e2_why_chip_answer");
@@ -473,12 +473,15 @@ test("chat: the guide chip sends nothing; chips send; used chips never return; t
   expect(chips).not.toContain("How would you spend the £0.4m left?"); // £0.4m < £0.5m
   expect(chips).not.toContain("How do I enter this in FPL?"); // the guide was opened from a chip
   expect(chips).toContain("Why Haaland as captain?");
+  expect(chips.slice(0, 2)).toEqual(["Explain one player", "Bring someone in"]); // W11h H3: they answer the code-built follow-up
+  note(`H3 chips under the code-built answer: ${chips.join(" | ")}`);
   S.answers.push({ text: "Haaland: 7.90 predicted points, 15.80 with the armband." });
   await vis(page, "answer-chips").getByText("Why Haaland as captain?").click();
   await waitTyped(page);
   expect(S.chatBodies).toEqual(["Why Haaland as captain?"]); // every other chip still goes to the agent
   const again = await vis(page, "answer-chips").locator('[data-testid="draft-chip"]').allInnerTexts();
   expect(again).not.toContain("Why Haaland as captain?"); // used: never shown again
+  expect(again).not.toContain("Explain one player"); // W11h H3: only under an answer that ends with the follow-up
   // a draft with £1.2m left shows the spend chip
   reset();
   withDraft();

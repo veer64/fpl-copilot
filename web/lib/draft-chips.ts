@@ -35,6 +35,19 @@ export function draftChips(f: DraftChipFacts): DraftChip[] {
   return out;
 }
 
+/** Prompt W11h H3: the owner's follow-up that every code-built answer (the summary, the walkthrough, the captain answer) ends
+ *  with -- the same text as draft_tools.EXPLAIN_FOLLOW_UP (Tests/test_drafts.py h3 checks that they match). */
+export const EXPLAIN_FOLLOW_UP = "Which player would you like me to go into, or is there anyone you'd like to bring in?";
+
+/** W11h H3: the chips that answer that follow-up, first in the row under such an answer. */
+export const FOLLOW_UP_CHIPS: DraftChip[] = [{ text: "Explain one player" }, { text: "Bring someone in" }];
+
+/** The row under the latest answer: the follow-up's chips first when that answer ends with the owner's follow-up. */
+export function answerChips(f: DraftChipFacts, lastAnswer: string | null): DraftChip[] {
+  const base = draftChips(f);
+  return lastAnswer && lastAnswer.trimEnd().endsWith(EXPLAIN_FOLLOW_UP) ? [...FOLLOW_UP_CHIPS, ...base] : base;
+}
+
 /** How many chips the row under the latest answer shows at most. */
 export const ANSWER_CHIPS_MAX = 4;
 

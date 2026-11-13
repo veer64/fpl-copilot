@@ -1237,7 +1237,7 @@ def test_e1_the_summary_is_built_by_code_and_get_my_squad_no_longer_carries_its_
                      f"£{r['best_alternative']['price']:.1f}m, {_relation(r['price'], r['best_alternative']['price'])})"
                      for r in rows)
     assert f"by what the best legal alternative would cost the build's score: {want}." in ex
-    assert ex.rstrip().endswith(draft_tools.EXPLAIN_CLOSING)
+    assert ex.rstrip().endswith(draft_tools.EXPLAIN_FOLLOW_UP)
     assert "- **" not in ex                                             # never the fifteen
 
 
@@ -1283,7 +1283,8 @@ def test_e3_captain_points_carry_the_range_the_armband_range_and_the_margin_over
     words = cap["captain_words"]
     for n in (cap["e_points"], cap["with_armband"], nb["e_points"], nb["margin"]):
         assert f"{n:.2f}" in words, n
-    assert "2.0 / 6.0 / 14.0" in words and "4.0 / 12.0 / 28.0" in words and nb["short_name"] in words
+    assert "with the armband: low 4.0, middle 12.0, top 28.0" in words and nb["short_name"] in words
+    assert "2.0 / 6.0 / 14.0" not in words and "P10 / P50 / P90" not in words          # W11h H2: never two ranges side by side
     monkeypatch.setattr(mt, "get_prediction", lambda player_id, gw=None: {"error": "no prediction rows"})
     cap = built.turns.run(mt.get_my_squad)["captain_points"]           # no quantiles: no range, the rest stands
     assert cap["range"] is None and cap["range_with_armband"] is None and cap["next_best"]
@@ -1301,8 +1302,9 @@ def test_e3c_the_captaincy_edge_is_the_margin_itself_and_the_top_options_are_lis
             "(the armband counts one player twice, so the edge is the margin itself, not double it)")
     assert edge in cap["captain_words"]
     xi = sorted(_xi(sq), key=lambda r: (-r["e_points"], r["player_id"]))[:3]
-    assert cap["captain_options"] == [{"player_id": r["player_id"], "short_name": r["short_name"], "e_points": r["e_points"],
-                                       "with_armband": round(2 * r["e_points"], 2)} for r in xi]
+    assert [{k: o[k] for k in ("player_id", "short_name", "e_points", "with_armband")} for o in cap["captain_options"]] == \
+        [{"player_id": r["player_id"], "short_name": r["short_name"], "e_points": r["e_points"],
+          "with_armband": round(2 * r["e_points"], 2)} for r in xi]
 
 
 def test_e1b_get_my_squad_routes_every_explanation_to_explain_my_draft(built):
@@ -1515,7 +1517,7 @@ def test_g1_explain_my_draft_is_code_built_and_its_text_is_the_direct_reply(buil
         text = out["direct_reply"]
         assert text == draft_tools.explain_text(sq, detail)
         _check_explain(sq, text, detail)
-        assert text.rstrip().endswith(draft_tools.EXPLAIN_CLOSING) and draft_tools.BONUS_NOTE in text
+        assert text.rstrip().endswith(draft_tools.EXPLAIN_FOLLOW_UP) and draft_tools.BONUS_NOTE in text
     rows = _sq_rows(sq)
     each = built.turns.run(mt.explain_my_draft, detail="each_player")["direct_reply"]
     for pos, head in (("GK", "Goalkeepers"), ("DEF", "Defenders"), ("MID", "Midfielders"), ("FWD", "Forwards")):
@@ -1609,10 +1611,188 @@ def test_g5_captain_words_give_the_share_of_his_points(built, monkeypatch):
     cap = sq["captain_points"]
     row = next(r for r in _sq_rows(sq) if r["role"] == "CAPTAIN")
     parts = row["breakdown"]["parts"]
-    part = next((x for x in parts if x["part"] == "goals"), None) or max(parts, key=lambda x: x["points"])
+    part = max(parts, key=lambda x: x["points"])                     # W11h H1: his biggest part
     pct = _half_up_int(f"{part['points']:.2f}", f"{row['e_points']:.2f}")
     assert cap["points_share"] == {"part": part["part"], "points": part["points"], "of": row["e_points"], "percent": pct}
     assert f"{part['part']} {part['points']:.2f} of his {row['e_points']:.2f} predicted points ({pct}%)" in cap["captain_words"]
+
+
+# ---- H (Prompt W11h): the captain answer built by code; one range per phrase; the owner's follow-up; the swap budget fact ----
+# W11g: two captain replies spliced the bare and the armband ranges ("4.0 / 12.0 / 14.0") and one reply got the budget rule
+# wrong ("same or less" with £0.1m left). The captain answer is now code-built like the walkthrough, no field puts two ranges
+# side by side, and the budget rule for a swap is a sentence from code.
+
+RUN73_H = REPO / "Tests" / "fixtures" / "w11h_run73_get_my_squad.json"
+ARMBAND_RE = re.compile(r"with the armband: low (\d+\.\d), middle (\d+\.\d), top (\d+\.\d)")
+FOLLOW_UP = "Which player would you like me to go into, or is there anyone you'd like to bring in?"
+
+
+def _option_numbers(o):
+    out = {"1", "60", "3", f"{o['e_points']:.2f}", f"{o['with_armband']:.2f}"}
+    a = o.get("range_with_armband")
+    if a:
+        out |= {f"{a[k]:.1f}" for k in ("p10", "p50", "p90")}
+    sh = o.get("points_share")
+    if sh:
+        out |= {f"{sh['points']:.2f}", f"{sh['of']:.2f}", str(sh["percent"])}
+    if o.get("chance_of_60_plus") is not None:
+        out.add(str(round(o["chance_of_60_plus"] * 100)))
+    m = o.get("margin_to_next")
+    if m:
+        out |= {f"{m['points']:.2f}", f"{m['e_points']:.2f}"}
+    return out
+
+
+def _check_captain(sq, text):
+    """The by-construction rules over the code-built captain answer: the captain and the vice named from the rows; each
+    option's line carries only his own numbers; its range phrase is HIS armband range; no bare range anywhere; no vague
+    share; the bonus sentence and the owner's follow-up."""
+    import draft_tools
+    cap = sq["captain_points"]
+    rows = {r["short_name"]: r for r in _sq_rows(sq)}
+    captain = next(r["short_name"] for r in rows.values() if r["role"] == "CAPTAIN")
+    vice = next(r["short_name"] for r in rows.values() if r["role"] == "VICE")
+    assert f"Captain: {captain}. Vice-captain: {vice}." in text
+    lines = [ln for ln in text.split("\n") if ln.startswith("- **")]
+    opts = {o["short_name"]: o for o in cap["captain_options"] + (cap.get("extra_options") or [])}   # + the captain / vice
+    names = [ln[4:ln.index("**", 4)] for ln in lines]                                             # when not in the top 3
+    assert names[:3] == [o["short_name"] for o in cap["captain_options"]][:3], names
+    for ln, name in zip(lines, names):
+        o = opts[name]
+        a = o.get("range_with_armband")
+        found = ARMBAND_RE.findall(ln)
+        assert found == ([] if a is None else [(f"{a['p10']:.1f}", f"{a['p50']:.1f}", f"{a['p90']:.1f}")]), ln
+        body = ln[ln.index("**", 4) + 2:].replace(str(rows[name]["team"]), "")
+        m = o.get("margin_to_next")
+        if m:
+            body = body.replace(str(m["short_name"]), "")
+        for n in NUM_RE.findall(body):
+            assert n in _option_numbers(o), (name, n, ln)
+    low = text.lower()
+    for b in ("p10", "p50", "p90", "almost all", "entirely", "mostly", "captain_points", "range_with_armband"):
+        assert b not in low, b
+    assert draft_tools.BONUS_NOTE in text and text.rstrip().endswith(FOLLOW_UP)
+
+
+def test_h1_the_captain_answer_is_code_built_and_is_the_direct_reply(built, monkeypatch):
+    import draft_tools
+    import model_tools as mt
+    _fake_frame_sq(built, monkeypatch)
+    monkeypatch.setattr(mt, "get_prediction", _fake_prediction((2.0, 6.0, 14.0)))
+    sq = built.turns.run(mt.get_my_squad)
+    out = built.turns.run(mt.explain_my_draft, detail="captain")
+    assert out["direct_reply"] == draft_tools.explain_text(sq, "captain")
+    _check_captain(sq, out["direct_reply"])
+    xi = sorted((r for r in _sq_rows(sq) if r["in_xi"]), key=lambda r: (-r["e_points"], r["player_id"]))
+    opts = sq["captain_points"]["captain_options"]
+    assert [o["player_id"] for o in opts] == [r["player_id"] for r in xi[:3]]
+    for i, o in enumerate(opts):                                        # each option's own facts, from his row
+        r = xi[i]
+        assert o["range_with_armband"] == {"p10": 4.0, "p50": 12.0, "p90": 28.0}
+        assert o["chance_of_60_plus"] == r["breakdown"]["chance_of_60_plus"]
+        part = max(r["breakdown"]["parts"], key=lambda x: x["points"])
+        assert o["points_share"] == {"part": part["part"], "points": part["points"], "of": r["e_points"],
+                                     "percent": _half_up_int(f"{part['points']:.2f}", f"{r['e_points']:.2f}")}
+        nxt = xi[i + 1]
+        assert o["margin_to_next"] == {"short_name": nxt["short_name"], "e_points": nxt["e_points"],
+                                       "points": round(r["e_points"] - nxt["e_points"], 2)}
+
+
+def test_h1b_captain_answers_are_correct_by_construction_over_random_options_and_the_real_run73_draft(built, monkeypatch):
+    """60 random perturbations of the options (points, ranges, shares, chances, margins) and the real draft (production run 73):
+    every option line carries only its own numbers and its own armband range."""
+    import copy
+    import json
+    import draft_tools
+    import model_tools as mt
+    _fake_frame_sq(built, monkeypatch)
+    monkeypatch.setattr(mt, "get_prediction", _fake_prediction((2.0, 6.0, 14.0)))
+    base = built.turns.run(mt.get_my_squad)
+    for seed in range(60):
+        rng = random.Random(seed)
+        sq = copy.deepcopy(base)
+        for o in sq["captain_points"]["captain_options"]:
+            o["e_points"] = round(rng.uniform(2, 12), 2)
+            o["with_armband"] = round(2 * o["e_points"], 2)
+            lo = round(rng.uniform(0, 6), 1)
+            o["range_with_armband"] = None if rng.random() < 0.15 else {"p10": lo, "p50": round(lo + rng.uniform(0, 8), 1),
+                                                                        "p90": round(lo + rng.uniform(8, 30), 1)}
+            pts = round(rng.uniform(0.5, o["e_points"]), 2)
+            o["points_share"] = {"part": rng.choice(["goals", "appearance", "assists"]), "points": pts, "of": o["e_points"],
+                                 "percent": _half_up_int(f"{pts:.2f}", f"{o['e_points']:.2f}")}
+            o["chance_of_60_plus"] = round(rng.uniform(0.3, 0.99), 2)
+            o["margin_to_next"]["points"] = round(rng.uniform(0, 3), 2)
+        _check_captain(sq, draft_tools.explain_text(sq, "captain"))
+    real = json.loads(RUN73_H.read_text(encoding="utf-8"))
+    text = draft_tools.explain_text(real, "captain")
+    _check_captain(real, text)
+    assert "with the armband: low 4.0, middle 12.0, top 28.0" in text and "14.0" not in text
+
+
+def test_h2_no_field_puts_the_bare_and_the_armband_ranges_side_by_side(built, monkeypatch):
+    import json
+    import model_tools as mt
+    monkeypatch.setattr(mt, "get_prediction", _fake_prediction((2.0, 6.0, 14.0)))
+    sq = built.turns.run(mt.get_my_squad)
+    cap = sq["captain_points"]
+    assert cap["range"]["p90"] == 14.0 and cap["range_with_armband"]["p90"] == 28.0     # each in its own field
+
+    def strings(x):
+        if isinstance(x, str):
+            yield x
+        elif isinstance(x, dict):
+            for v in x.values():
+                yield from strings(v)
+        elif isinstance(x, list):
+            for v in x:
+                yield from strings(v)
+
+    def has(s_, n):
+        return re.search(rf"(?<![\d.]){re.escape(n)}(?!\d)", s_) is not None
+    for text in strings(sq):
+        assert not (has(text, "2.0") and has(text, "6.0") and has(text, "14.0")), text    # the bare range in no text
+        assert "P10 / P50 / P90" not in text
+    for text in strings(json.loads(RUN73_H.read_text(encoding="utf-8"))):
+        assert not (has(text, "2.0") and has(text, "6.0") and has(text, "14.0")), text
+
+
+def test_h3_the_code_built_answers_end_with_the_owners_follow_up_and_the_website_offers_its_chips(built, monkeypatch):
+    import draft_tools
+    import model_tools as mt
+    monkeypatch.setattr(mt, "get_prediction", _fake_prediction((2.0, 6.0, 14.0)))
+    assert draft_tools.EXPLAIN_FOLLOW_UP == FOLLOW_UP
+    for detail in ("summary", "each_player", "captain"):
+        assert built.turns.run(mt.explain_my_draft, detail=detail)["direct_reply"].rstrip().endswith(FOLLOW_UP), detail
+    one = _sq_rows(built.turns.run(mt.get_my_squad))[0]["short_name"]
+    assert built.turns.run(mt.explain_my_draft, detail="summary", player=one)["direct_reply"].rstrip().endswith(FOLLOW_UP)
+    ts = (REPO / "web" / "lib" / "draft-chips.ts").read_text(encoding="utf-8")
+    assert f'export const EXPLAIN_FOLLOW_UP =\n  "{FOLLOW_UP}";' in ts or f'export const EXPLAIN_FOLLOW_UP = "{FOLLOW_UP}";' in ts
+    assert '{ text: "Explain one player" }' in ts and '{ text: "Bring someone in" }' in ts
+
+
+def test_h4_the_swap_budget_words_match_the_money_left(built):
+    import draft_tools
+    import model_tools as mt
+    sq = built.turns.run(mt.get_my_squad)
+    left = sq["left"]
+    want = (f"With £{left:.1f}m left, a new player can cost up to £{left:.1f}m more than the one going out." if left > 0 else
+            "With £0.0m left, a new player can cost at most the same as the one going out.")
+    assert sq["swap_budget_words"] == want
+    assert draft_tools._swap_budget_words(0.1, None) == "With £0.1m left, a new player can cost up to £0.1m more than the one going out."
+    assert draft_tools._swap_budget_words(0.0, None) == "With £0.0m left, a new player can cost at most the same as the one going out."
+    assert draft_tools._swap_budget_words(0.0, 0.7) == ("The draft is £0.7m over £100.0m: a new player can cost at most the same as "
+                                                        "the one going out until it is back within £100.0m.")
+    assert draft_tools._swap_budget_words(None, None) is None
+
+
+def test_h5_the_wording_routes_captain_questions_and_affordability_to_code():
+    import draft_tools
+    wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
+    for text in (wording, draft_tools.EXPLAIN_ANSWER_RULE):
+        assert "captain" in text and "explain_my_draft" in text
+    assert 'detail="captain"' in wording and "outside the top 3" in wording and "swap_budget_words" in wording
+    assert "with and without the armband" not in wording                  # H2: one range per phrase
+    assert "swap_budget_words" in draft_tools.REASONS_RULE
 
 
 # ---- S: real squads are never touched ----------------------------------------------------------------------------------------
