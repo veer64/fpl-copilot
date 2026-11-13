@@ -1998,5 +1998,11 @@ def test_x1_the_buttons_answer_their_own_preview_by_code(built, monkeypatch):
     msgs = _get(built.api, f"/threads/{built.tid}/messages").json()
     said = [m["text"] for m in msgs if m["role"] == "user"][-4:]
     assert said == ["No", "Yes", "Yes", "Yes"]                          # stored as the chat's turns, like typed answers
+    assert [m["text"] for m in msgs if m["role"] == "assistant"][-4] == "No change made."   # the user sees the bare reply
+    import agent_graph
+    import confirm_gate
+    model_side = [m["content"] for m in agent_graph.load_history(built.tid) if m["role"] == "assistant" and isinstance(m["content"], str)]
+    assert "No change made. " + confirm_gate.NO_NOTE in model_side      # the model reads that the preview is void
+    assert any(t.endswith(confirm_gate.YES_NOTE) for t in model_side)
     bad = _post(built.api, "/me/preview/answer", json={"thread_id": built.tid, "message_id": mid2, "answer": "maybe"})
     assert bad.status_code == 422

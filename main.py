@@ -999,7 +999,8 @@ def preview_answer(request: PreviewAnswerRequest, http: Request):
         draft = drafts.turn_draft(uid, thread_id)
         with threads.turn_lock(thread_id):
             said, reply, applied, outcome = confirm_gate.answer_button(uid, thread_id, request.message_id, request.answer, draft)
-            out = agent_graph.store_scripted_turn_locked(uid, thread_id, said, reply, squad_applied=applied)
+            out = agent_graph.store_scripted_turn_locked(uid, thread_id, said, reply, squad_applied=applied,
+                                                         model_answer=confirm_gate.model_text(reply, outcome))
     confirm_gate._say(f"  [preview answer: thread {thread_id} {request.answer} -> {outcome}]")
     return {**out, "sources": [], "squad_preview": None, "squad_applied": applied}
 

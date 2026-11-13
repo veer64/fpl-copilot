@@ -8,7 +8,8 @@ import { DB_PREFIX, addTeamOnHome, apiCall, py } from "./w4";
  *  (clerk mode on :8010 with GUEST_MODE=on, the laptop database) and the production build on :3002, desktop only, one guest
  *  per test (made and deleted by the feature):
  *   D  draft: build -> "Make <X> my captain." (a real model turn: the preview) -> click No -> "No change made.", the draft's
- *      version, the pitch's captain and the card unchanged -> ask again -> click Yes -> saved: a new version, X wears the armband
+ *      version, the pitch's captain and the card unchanged -> "Make <Y> my captain." -> click Yes -> saved: a new version, Y
+ *      wears the armband
  *   T  team: add an FPL team -> its chat -> the same with the team's squad (squad_versions under the team's key)
  *  Costs: four agent turns (the previews); the Yes / No clicks are answered by code ($0). Env: X1_TEAM (default 895045). */
 
@@ -24,7 +25,7 @@ const last = (out: string) => JSON.parse(out.trim().split("\n").pop()!);
 
 /** The squad a case works on: the draft (user_drafts) or the team's active version; its captain and an XI MID/FWD with a
  *  unique web name (not captain or vice) to make captain. */
-function squadState(uid: number, kind: "draft" | "team"): { version: number; n: number; captain: string; pick: string } {
+function squadState(uid: number, kind: "draft" | "team"): { version: number; n: number; captain: string; pick: string; pick2: string } {
   return last(
     py(`${DB_PREFIX}
 import json, team_card
@@ -43,8 +44,9 @@ else:
     n = cur.fetchone()[0]
 ps = doc["players"]
 cap = next(p for p in ps if str(p["role"]).upper() == "CAPTAIN")
-pick = next(p for p in ps if p["role"] == "start" and p["position"] in ("MID", "FWD") and names.count(web[int(p["element"])]) == 1)
-print(json.dumps({"version": v, "n": n, "captain": web[int(cap["element"])], "pick": web[int(pick["element"])]}))`),
+picks = [p for p in ps if p["role"] == "start" and p["position"] in ("MID", "FWD") and names.count(web[int(p["element"])]) == 1]
+print(json.dumps({"version": v, "n": n, "captain": web[int(cap["element"])], "pick": web[int(picks[0]["element"])],
+                  "pick2": web[int(picks[1]["element"])]}))`),
   );
 }
 
@@ -85,22 +87,30 @@ print(json.dumps({"left": cur.fetchone()[0]}))`),
 /** Ask for the captain change, wait for the preview card, answer it with the button; returns the answer's text. */
 async function previewThenClick(page: Page, pick: string, button: "preview-no" | "preview-yes") {
   const before = await page.locator('[data-testid="assistant-message"]').count();
+  const cards = page.locator('[data-testid="preview-card"]:visible');
+  const nCards = await cards.count();
   await vis(page, "chat-input").fill(`Make ${pick} my captain.`);
   await page.keyboard.press("Enter");
-  const card = page.locator('[data-testid="preview-card"]:visible').last();
-  await expect(card).toBeVisible({ timeout: 120_000 });
+  await expect(cards).toHaveCount(nCards + 1, { timeout: 150_000 }); // THIS question's preview, not an earlier one
+  const card = cards.last();
   await expect(card.locator(`[data-testid="${button}"]`)).toBeVisible({ timeout: 30_000 });
   await card.locator(`[data-testid="${button}"]`).click();
   const answers = page.locator('[data-testid="assistant-message"]:visible');
   await expect(answers).toHaveCount(before + 2, { timeout: 60_000 }); // the preview + the button's answer
   await expect(answers.last()).toHaveAttribute("data-revealing", "false", { timeout: 15_000 });
-  return (await answers.last().innerText()).trim();
+  // the answer as stored (the row on screen also carries Copy, the thumbs and the draft chips)
+  const tid = /\/chat\/(th_[^/?#]+)/.exec(page.url())?.[1];
+  expect(tid).toBeTruthy();
+  const rows = (await apiCall(page, "get", `/threads/${tid}/messages`)).body as unknown as { role: string; text: string }[];
+  const said = rows.filter((r) => r.role === "user").pop()?.text;
+  expect(said).toBe(button === "preview-no" ? "No" : "Yes");
+  return rows.filter((r) => r.role === "assistant").pop()!.text.trim();
 }
 
 async function checkNoThenYes(page: Page, uid: number, kind: "draft" | "team") {
   const s0 = squadState(uid, kind);
   const cap0 = await pitchCaptain(page);
-  console.log(`[X1] ${kind}: user ${uid} version ${s0.version} (${s0.n}) captain ${s0.captain}; asking for ${s0.pick}; pitch captain "${cap0}"`);
+  console.log(`[X1] ${kind}: user ${uid} version ${s0.version} (${s0.n}) captain ${s0.captain}; No on ${s0.pick}, Yes on ${s0.pick2}; pitch captain "${cap0}"`);
   expect(cap0).toContain(s0.captain);
   const no = await previewThenClick(page, s0.pick, "preview-no");
   expect(no).toBe("No change made.");
@@ -110,12 +120,13 @@ async function checkNoThenYes(page: Page, uid: number, kind: "draft" | "team") {
   expect(await pitchCaptain(page)).toBe(cap0);
   await expect(vis(page, "saved-block")).toHaveCount(0);
   await shot(page, `${kind}_after_no`);
-  const yes = await previewThenClick(page, s0.pick, "preview-yes");
+  // the Yes half asks for ANOTHER captain: a repeat of the declined request is the model's call (the eval measures it)
+  const yes = await previewThenClick(page, s0.pick2, "preview-yes");
   expect(yes).toContain(`Done — saved to your ${kind === "draft" ? "draft" : "squad"}.`);
   const s2 = squadState(uid, kind);
   expect(s2.version).not.toBe(s0.version);
-  expect(s2.captain).toBe(s0.pick);
-  await expect.poll(() => pitchCaptain(page), { timeout: 30_000 }).toContain(s0.pick);
+  expect(s2.captain).toBe(s0.pick2);
+  await expect.poll(() => pitchCaptain(page), { timeout: 30_000 }).toContain(s0.pick2);
   await expect(vis(page, "saved-block")).toHaveCount(1);
   await shot(page, `${kind}_after_yes`);
   console.log(`[X1] ${kind}: No -> "${no}" (unchanged); Yes -> "${yes.slice(0, 80)}" version ${s0.version} -> ${s2.version}`);

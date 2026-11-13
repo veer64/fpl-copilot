@@ -452,7 +452,9 @@ def test_loop_c_two_proper_turns_write_once(tool, db, monkeypatch):
     answer2, history2 = ag.run_agent("Yes, apply it.", history)
     # Prompt X1: the yes is decided by code (confirm_gate) -- written once, and the model is not called at all
     assert answer2.startswith("Done — saved to your squad.") and len(fake2.calls) == 0
-    assert history2[-2:] == [{"role": "user", "content": "Yes, apply it."}, {"role": "assistant", "content": answer2}]
+    import confirm_gate
+    assert history2[-2:] == [{"role": "user", "content": "Yes, apply it."},
+                             {"role": "assistant", "content": f"{answer2} {confirm_gate.YES_NOTE}"}]
     n1 = _versions(db)
     assert n1[0] == n0[0] + 1
     with db.cursor() as cur:

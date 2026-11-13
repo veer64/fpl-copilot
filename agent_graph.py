@@ -333,9 +333,10 @@ def store_scripted_turn(user_id, thread_id, question, answer):
         return store_scripted_turn_locked(user_id, thread_id, question, answer)
 
 
-def store_scripted_turn_locked(user_id, thread_id, question, answer, message_id=None, squad_applied=None):
+def store_scripted_turn_locked(user_id, thread_id, question, answer, message_id=None, squad_applied=None, model_answer=None):
     """store_scripted_turn's body, for a caller that already holds the thread's turn lock (Prompt X1: the preview's Yes /
-    No buttons; squad_applied = what a Yes saved, for the website's card)."""
+    No buttons; squad_applied = what a Yes saved, for the website's card; model_answer = the answer as the model's history
+    keeps it -- confirm_gate.model_text -- when it differs from the one the user sees)."""
     import uuid
     import chat_messages
     message_id = message_id or uuid.uuid4().hex
@@ -347,7 +348,8 @@ def store_scripted_turn_locked(user_id, thread_id, question, answer, message_id=
     q_index = sum(1 for m in before if _is_question(m))
     at = _now_iso()
     entry = {"q": q_index, "user": question, "user_at": at, "answer": answer, "answer_at": at, "message_id": message_id}
-    g.update_state(cfg, {"messages": before + [{"role": "user", "content": question}, {"role": "assistant", "content": answer}],
+    g.update_state(cfg, {"messages": before + [{"role": "user", "content": question},
+                                               {"role": "assistant", "content": model_answer or answer}],
                          "transcript": transcript + [entry]}, as_node="finalize")
     chat_messages.record(message_id, thread_id, user_id, q_index, at, squad_applied=squad_applied)
     return {"answer": answer, "thread_id": str(thread_id), "message_id": message_id}

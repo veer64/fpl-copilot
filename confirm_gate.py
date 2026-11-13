@@ -34,6 +34,16 @@ NO_CHANGE_REPLY = "No change made."
 ASK_REPLY = "Shall I make this change? Yes or No"
 GONE_REPLY = "Nothing was saved: that preview is no longer open. Ask me for the change again and I'll show you a new preview."
 ALREADY_REPLY = "That change is already saved."
+# What the MODEL reads of a code-answered No / Yes in the thread's history (the user sees the reply without the note). Measured
+# on 13 Nov in laptop draft threads, "Make Doku my captain." again right after preview -> No -> "No change made.": with the
+# bare reply the model never called the tool for a new preview (0 of 6: it re-showed the old preview from history or offered
+# to apply its cancelled ticket -- no card, no buttons); with a note that the ticket was cancelled it previewed 2 of 3 times
+# on a live draft and once asked "Would you like me to preview ... again?"; with this note ("straight away; don't ask") 2 of 2.
+NO_NOTE = ("[App note: the user answered this preview No: its ticket is cancelled and can never be applied. If the user asks "
+           "for a change again -- the same one or another -- call set_my_squad with confirm=false straight away and show "
+           "that NEW preview; don't ask whether to preview it.]")
+YES_NOTE = ("[App note: the user answered this preview Yes and the app saved it; its ticket is spent. For any further "
+            "change, call set_my_squad with confirm=false straight away and show that NEW preview.]")
 ARG_KEYS = ("player_ids", "captain_id", "vice_id", "bench_order_ids", "gw", "note", "proposal_id")
 
 # ---- the words ------------------------------------------------------------------------------------------------------------
@@ -110,7 +120,8 @@ def saved_reply(res):
     roles = [w for k, w in (("captain_changed", "captain"), ("vice_changed", "vice-captain"), ("bench_changed", "bench"))
              if ch.get(k)]
     if roles:
-        out.append(f"The {', '.join(roles[:-1]) + ' and ' + roles[-1] if len(roles) > 1 else roles[0]} as previewed.")
+        out.append(f"The {', '.join(roles[:-1]) + ' and ' + roles[-1] if len(roles) > 1 else roles[0]} "
+                   f"{'are' if len(roles) > 1 else 'is'} as previewed.")
     if draft and ch.get("value_after") is not None and ch.get("left_after") is not None:
         out.append(f"The draft now costs {_m(ch['value_after'])} ({_m(ch['left_after'])} left).")
     elif not draft and ch.get("bank_after") is not None:
@@ -167,6 +178,15 @@ def commit(ticket, turn_id, thread_id, draft):
     return refused_reply(res, draft is not None), None, f"refused:{reason or str((res or {}).get('error'))[:80]}"
 
 
+def model_text(reply, outcome):
+    """The scripted reply as stored in the model's history: the reply + the app note for a cancel or a save."""
+    if outcome in ("no", "cancelled"):
+        return f"{reply} {NO_NOTE}"
+    if outcome == "committed":
+        return f"{reply} {YES_NOTE}"
+    return reply
+
+
 def answer_turn(user_message, messages, thread):
     """agent.run_agent's first step: (reply, messages) when the message answers the thread's open preview (yes / no /
     ask), else None -- the model runs. A no_more message cancels the ticket and returns None."""
@@ -211,7 +231,7 @@ def answer_turn(user_message, messages, thread):
     if messages is None:
         messages = []
     messages.append({"role": "user", "content": user_message})
-    messages.append({"role": "assistant", "content": reply})
+    messages.append({"role": "assistant", "content": model_text(reply, outcome)})     # the user sees `reply`
     turn_context.note(message_id=turn_id, sources=[], squad_preview=None, squad_applied=applied, scripted=True)
     return reply, messages
 

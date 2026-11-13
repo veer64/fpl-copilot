@@ -57,6 +57,14 @@ def test_a_no_with_more_is_never_a_yes(text):
     assert cg.classify(text) == "no_more"
 
 
+def test_the_model_reads_a_note_the_user_does_not():
+    assert cg.model_text("No change made.", "no") == "No change made. " + cg.NO_NOTE
+    assert cg.model_text("No change made.", "cancelled") == "No change made. " + cg.NO_NOTE
+    assert cg.model_text("Done.", "committed") == "Done. " + cg.YES_NOTE
+    assert cg.model_text(cg.ASK_REPLY, "ask") == cg.ASK_REPLY and cg.model_text(cg.GONE_REPLY, "no_open_ticket") == cg.GONE_REPLY
+    assert "NEW preview" in cg.NO_NOTE and "cancelled" in cg.NO_NOTE and "spent" in cg.YES_NOTE
+
+
 def test_the_fixed_texts():
     assert cg.NO_CHANGE_REPLY == "No change made."
     assert cg.ASK_REPLY == "Shall I make this change? Yes or No"
@@ -67,7 +75,7 @@ def test_the_fixed_texts():
 def test_the_saved_reply_is_built_from_the_write_result():
     draft = {"draft": True, "committed": True, "change": {"transfers": [{"out": "Doku", "in": "Enzo Fernández"}],
                                                          "value_after": 99.3, "left_after": 0.7, "captain_changed": True}}
-    assert cg.saved_reply(draft) == ("Done — saved to your draft. Doku out, Enzo Fernández in. The captain as previewed. "
+    assert cg.saved_reply(draft) == ("Done — saved to your draft. Doku out, Enzo Fernández in. The captain is as previewed. "
                                      "The draft now costs £99.3m (£0.7m left).")
     team = {"committed": True, "change": {"transfers": [{"out": "P16", "in": "P17"}], "bank_after": 0.5, "hit_cost_points": 4}}
     assert cg.saved_reply(team) == "Done — saved to your squad. P16 out, P17 in. Bank after: £0.5m. It costs a 4-point hit."
@@ -116,8 +124,9 @@ def test_a_typed_no_writes_nothing_and_cancels_the_ticket(tool, db, text):
     pv = _preview(tool)
     out = cg.answer_turn(text, [], None)
     turn_context.end()
-    assert out is not None and out[0] == "No change made."
-    assert out[1] == [{"role": "user", "content": text}, {"role": "assistant", "content": "No change made."}]
+    assert out is not None and out[0] == "No change made."                      # what the user sees
+    assert out[1] == [{"role": "user", "content": text},                          # what the model's history keeps
+                      {"role": "assistant", "content": "No change made. " + cg.NO_NOTE}]
     assert _versions(db) == n0 and _ticket_row(db, pv["preview_ticket"])["cancelled_at"] is not None
 
 
@@ -253,7 +262,7 @@ def test_run_agent_answers_a_preview_reply_without_the_model(tool, db, monkeypat
     _preview(tool)
     answer, history = agent.run_agent(text, [])
     assert answer == reply and fake.calls == 0 and _versions(db) == n0
-    assert history[-1] == {"role": "assistant", "content": reply}
+    assert history[-1] == {"role": "assistant", "content": cg.model_text(reply, "no" if text == "No" else "ask")}
     assert turn_context.current() is None and turn_context.last()["scripted"] is True
 
 
