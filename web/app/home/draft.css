@@ -38,6 +38,13 @@
 .dr-row{padding:20px 24px;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1.3fr) 260px;gap:28px;align-items:center}
 .dr-row .dr-stats{border-top:0!important;border-bottom:0!important;border-left:1px solid #2A2618;padding:4px 0 4px 24px}
 .dr-row .dr-side{display:flex;flex-direction:column;gap:8px}
+/* W11b F5: the row's actions on ONE line in the 260px column, as in the reference (Enter it in FPL | Rebuild · Delete) at the
+   reference's sizes -- `.hm button{font:inherit}` (0,1,1) outranks the plain .dr-link / .hm-btn-t sizes and left them at 16px */
+@media (min-width:981px){
+.dr-row .dr-acts{flex-wrap:nowrap;gap:2px}
+.dr-row .dr-acts .dr-link{font-size:13px}
+.dr-row .dr-acts .hm-btn-t{font-size:12px}
+}
 .hm-slimadd{min-height:64px;border:1.5px dashed rgba(59,232,255,.4);border-radius:14px;background:rgba(59,232,255,.03);color:#C9D6E3;display:flex;align-items:center;gap:14px;padding:12px 18px;text-align:left;width:100%}
 .hm-slimadd:hover{background:rgba(59,232,255,.08);border-color:#3BE8FF}
 .hm-slimadd .plus{width:40px;height:40px;flex-shrink:0;border-radius:50%;border:1.5px solid rgba(59,232,255,.6);color:#3BE8FF;display:flex;align-items:center;justify-content:center}

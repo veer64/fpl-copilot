@@ -352,6 +352,22 @@ test("home with a draft: 3rd column / slim Add row / full-width row, '· 1 draft
     expect(row!.y).toBeGreaterThan(Math.max(...cards)); // the row sits under the three team cards
     expect(row!.width).toBeGreaterThan(1000); // full width
   }
+  // Prompt W11b F5: the full-width row's actions on ONE line, as in the reference ("Enter it in FPL" | Rebuild · Delete)
+  await vis(page, "draft-card").scrollIntoViewIfNeeded();
+  await shot(page, "home_draft_3teams_row");
+  if (!phone()) {
+    const side = await vis(page, "draft-card").locator(".dr-side").boundingBox();
+    const boxes = await Promise.all(
+      ["draft-guide", "draft-rebuild", "draft-delete"].map(async (id) => (await vis(page, "draft-card").locator(`[data-testid="${id}"]`).boundingBox())!),
+    );
+    const mids = boxes.map((b) => b.y + b.height / 2);
+    const sizes = await vis(page, "draft-card").locator(".dr-acts > *, .dr-acts .grp > *").evaluateAll((els) =>
+      els.map((e) => `${(e as HTMLElement).dataset.testid ?? e.className}:${getComputedStyle(e).fontSize}/${e.getBoundingClientRect().width.toFixed(0)}`),
+    );
+    note(`full-width row actions: centres ${mids.map((m) => m.toFixed(1)).join(" / ")}, right edge ${Math.max(...boxes.map((b) => b.x + b.width)).toFixed(1)} of ${(side!.x + side!.width).toFixed(1)}; ${sizes.join(" ")}`);
+    expect(Math.max(...mids) - Math.min(...mids)).toBeLessThan(2);
+    expect(Math.max(...boxes.map((b) => b.x + b.width))).toBeLessThanOrEqual(side!.x + side!.width + 0.5);
+  }
 });
 
 test("home card actions: the guide (Copy list, Add my team ID), Rebuild confirm, Delete confirm; building failed -> Try again", async () => {
