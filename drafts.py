@@ -362,6 +362,19 @@ def difference_words(in_name, out_name, diff_tenths):
     return f"{in_name} costs £{money(abs(diff_tenths)):.1f}m {'more' if diff_tenths > 0 else 'less'} than {out_name}"
 
 
+def _left_or_over(tenths):
+    return f"£{money(BUDGET - tenths):.1f}m left" if tenths <= BUDGET else f"£{money(tenths - BUDGET):.1f}m over £100.0m"
+
+
+def money_words(before, after, refused=False):
+    """W11b: the money before and after a change as one sentence the reply can quote (the W11b smoke read a refusal's over_by
+    as "already over"): "Now the draft costs £99.9m (£0.1m left); after this change it costs £99.8m (£0.2m left)."."""
+    now = f"Now the draft costs £{money(before):.1f}m ({_left_or_over(before)}); "
+    if refused:
+        return now + f"with this change it would cost £{money(after):.1f}m ({_left_or_over(after)}), so it was refused."
+    return now + f"after this change it costs £{money(after):.1f}m ({_left_or_over(after)})."
+
+
 def pairs(old_doc, new_ids, meta, prices):
     """Pure. The swaps from `old_doc` to the fifteen `new_ids`, paired out -> in by position, each with both current prices and
     the difference (W11b: price out, price in, the difference -- in a preview AND in a refusal)."""
@@ -415,6 +428,7 @@ def plan_change(old_doc, player_ids, captain_id, vice_id, bench_order_ids, meta,
               "bench_changed": [int(x) for x in bench_order_ids] != ob,
               "value_before": money(before), "left_before": money(max(0, BUDGET - before)), "value_after": money(after),
               "left_after": money(max(0, BUDGET - after)), "over_after": money(max(0, after - BUDGET)),
+              "money_words": money_words(before, after),
               "no_change": not transfers and int(captain_id) == oc and int(vice_id) == ov and [int(x) for x in bench_order_ids] == ob}
     return new_doc, change
 

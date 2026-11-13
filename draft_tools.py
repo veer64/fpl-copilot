@@ -243,7 +243,8 @@ def _alternatives(doc, new_ids, kind, prices_all=None, limit=3):
             alt = {"player_id": e, "name": m["name"], "team": m["team"], "position": pos,
                    "price": drafts.money(prices[e]), "e_points": round(pts.get(e, 0.0), 2),
                    "value_after": drafts.money(total), "left_after": drafts.money(max(0, drafts.BUDGET - total)),
-                   "instead_of": meta[i]["name"], "instead_of_price": drafts.money(prices.get(i))}
+                   "instead_of": meta[i]["name"], "instead_of_price": drafts.money(prices.get(i)),
+                   "money_words": f"With {m['name']} instead: £{drafts.money(total):.1f}m, {drafts._left_or_over(total)}."}
             if total > drafts.BUDGET:
                 alt["over_after"] = drafts.money(total - drafts.BUDGET)
             o = out_of.get(i)
@@ -285,12 +286,17 @@ def set_my_squad(d, player_ids=None, captain_id=None, vice_id=None, bench_order_
             except KeyError:
                 pass
             before, missing = drafts.value_of(doc, prices)
-            if not missing:
+            if not missing and all(x in prices for x in ids):
+                after = sum(int(prices[x]) for x in ids)
                 out.setdefault("value_before", drafts.money(before))
                 out["left_before"] = drafts.money(max(0, drafts.BUDGET - before))
+                out.setdefault("value_after", drafts.money(after))
+                out["left_after" if after <= drafts.BUDGET else "over_after"] = drafts.money(abs(drafts.BUDGET - after))
+                out["money_words"] = drafts.money_words(before, after, refused=e.kind == "over_budget")
             out["legal_alternatives"] = _alternatives(doc, ids, e.kind)
-            out["next_step"] = ("Say why it was refused, with the numbers above, and offer one of legal_alternatives (or "
-                                "another legal swap); nothing was previewed or saved.")
+            out["next_step"] = ("Say why it was refused, with the numbers above (money_words says the money in one sentence: "
+                                "quote it, do not work the money out), and offer one of legal_alternatives with its own "
+                                "money_words (or another legal swap); nothing was previewed or saved.")
         return out
     if change["no_change"]:
         return {"draft": True, "refused": True, "reason_kind": "no_change",

@@ -712,6 +712,8 @@ def test_n2_a_preview_gives_price_out_price_in_the_difference_and_the_money_befo
     after = value - price[d_out["element"]] + d_in["now_cost"]
     assert (ch["value_before"], ch["left_before"]) == (round(value / 10, 1), round((1000 - value) / 10, 1))
     assert (ch["value_after"], ch["left_after"], ch["over_after"]) == (round(after / 10, 1), round((1000 - after) / 10, 1), 0.0)
+    assert ch["money_words"] == (f"Now the draft costs £{value / 10:.1f}m (£{(1000 - value) / 10:.1f}m left); after this change it "
+                                 f"costs £{after / 10:.1f}m (£{(1000 - after) / 10:.1f}m left).")
 
 
 def _over_swap(built):
@@ -740,6 +742,9 @@ def test_n2b_an_over_budget_refusal_gives_the_amount_over_and_each_alternatives_
     after = value - price[out_mid["element"]] + dear["now_cost"]
     assert (out["value_before"], out["left_before"]) == (round(value / 10, 1), round((1000 - value) / 10, 1))
     assert (out["value_after"], out["over_by"]) == (round(after / 10, 1), round((after - 1000) / 10, 1))
+    assert out["money_words"] == (f"Now the draft costs £{value / 10:.1f}m (£{(1000 - value) / 10:.1f}m left); with this change "
+                                  f"it would cost £{after / 10:.1f}m (£{(after - 1000) / 10:.1f}m over £100.0m), so it was "
+                                  "refused.")
     alts = out["legal_alternatives"]
     assert alts
     for a in alts:
@@ -747,6 +752,7 @@ def test_n2b_an_over_budget_refusal_gives_the_amount_over_and_each_alternatives_
         assert a["price_difference"] == round((price[a["player_id"]] - price[out_mid["element"]]) / 10, 1)
         a_after = value - price[out_mid["element"]] + price[a["player_id"]]
         assert (a["value_after"], a["left_after"]) == (round(a_after / 10, 1), round((1000 - a_after) / 10, 1))
+        assert a["money_words"] == f"With {a['name']} instead: £{a_after / 10:.1f}m, £{(1000 - a_after) / 10:.1f}m left."
 
 
 def test_n2c_a_club_cap_refusal_gives_the_prices_and_each_alternatives_money_left(built):
@@ -774,6 +780,8 @@ def test_n2c_a_club_cap_refusal_gives_the_prices_and_each_alternatives_money_lef
     assert {(t["out_id"], t["in_id"]) for t in out["transfers"]} == set(swaps)
     assert all({"out_price", "in_price", "price_difference", "difference_words"} <= set(t) for t in out["transfers"])
     assert out["left_before"] == round((1000 - value) / 10, 1) and out["legal_alternatives"]
+    after = value + sum(price[n] - price[o] for o, n in swaps)
+    assert out["value_after"] == round(after / 10, 1) and out["money_words"].startswith(f"Now the draft costs £{value / 10:.1f}m")
     for a in out["legal_alternatives"]:
         assert a["price"] == price[a["player_id"]] / 10 and a["left_after"] == round(100.0 - a["value_after"], 1)
 
