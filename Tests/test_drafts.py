@@ -1285,6 +1285,29 @@ def test_e3_captain_points_carry_the_range_the_armband_range_and_the_margin_over
     assert cap["range"] is None and cap["range_with_armband"] is None and cap["next_best"]
 
 
+def test_e3c_the_captaincy_edge_is_the_margin_itself_and_the_top_options_are_listed(built, monkeypatch):
+    """The W11e dev smoke: "doubles to a 2.46-point edge" (the margin doubled -- wrong: captaining him rather than the next-best
+    adds the margin once) and "no other player within 2 points" (an invented threshold, and false)."""
+    import model_tools as mt
+    monkeypatch.setattr(mt, "get_prediction", _fake_prediction((2.0, 6.0, 14.0)))
+    sq = built.turns.run(mt.get_my_squad)
+    cap, nb = sq["captain_points"], sq["captain_points"]["next_best"]
+    assert cap["captaincy_edge"] == {"over": nb["short_name"], "points": nb["margin"]}
+    edge = (f"captaining {cap['short_name']} rather than {nb['short_name']} adds {nb['margin']:.2f} to the XI's predicted total "
+            "(the armband counts one player twice, so the edge is the margin itself, not double it)")
+    assert edge in cap["captain_words"]
+    xi = sorted(_xi(sq), key=lambda r: (-r["e_points"], r["player_id"]))[:3]
+    assert cap["captain_options"] == [{"player_id": r["player_id"], "short_name": r["short_name"], "e_points": r["e_points"],
+                                       "with_armband": round(2 * r["e_points"], 2)} for r in xi]
+
+
+def test_e1b_get_my_squad_says_the_explain_answer_is_the_explanation_alone(built):
+    import model_tools as mt
+    rule = built.turns.run(mt.get_my_squad)["explain_answer_rule"]
+    for must in ("squad_explanation", "do not list the other players", "offer to go into any player"):
+        assert must in rule, must
+
+
 def test_e3b_the_wording_says_quote_numbers_exactly_with_no_hedges():
     wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
     assert "squad_explanation" in wording and "never list all fifteen unless" in wording.lower()

@@ -29,6 +29,8 @@ REASONS_RULE = ("Explain the picks only with squad_explanation, how_picked, budg
                 "number exactly as it is here.")
 EXPLAIN_MAX = 700                                       # W11e E1: the squad explanation's length cap (characters)
 EXPLAIN_OFFER = "Want me to go into any player?"
+EXPLAIN_ANSWER_RULE = ("For a 'why these players?' or 'explain the squad' question, the answer is squad_explanation (shortened if "
+                       "you like) and then an offer to go into any player; do not list the other players or add reasons.")
 POSITION_NAMES = {"GK": "Goalkeeper", "DEF": "Defender", "MID": "Midfielder", "FWD": "Forward"}
 # W11c R4: every money figure also as it is said ("£0.1m over"), so a reply quotes it instead of restating or rounding it
 MONEY_PLAIN = ("price", "out_price", "in_price", "value", "value_before", "value_after", "budget", "instead_of_price",
@@ -201,6 +203,11 @@ def _captain_points(xi, gw=None):
     out["next_best"] = None if nb is None else {
         "player_id": nb["player_id"], "name": nb["name"], "short_name": nb.get("short_name") or nb["name"],
         "e_points": nb["e_points"], "margin": round(cap["e_points"] - nb["e_points"], 2)}
+    # the W11e dev smoke doubled the margin ("a 2.46-point edge"): captaining him rather than the next-best adds it ONCE
+    out["captaincy_edge"] = None if nb is None else {"over": out["next_best"]["short_name"], "points": out["next_best"]["margin"]}
+    top = sorted((r for r in xi if r.get("e_points") is not None), key=lambda r: (-r["e_points"], r["player_id"]))[:3]
+    out["captain_options"] = [{"player_id": r["player_id"], "short_name": r.get("short_name") or r["name"],
+                               "e_points": r["e_points"], "with_armband": round(2 * r["e_points"], 2)} for r in top]
     words = f"{short}: {cap['e_points']:.2f} predicted points, {cap['e_points_with_armband']:.2f} with the armband"
     if rng is not None:
         a = out["range_with_armband"]
@@ -210,7 +217,8 @@ def _captain_points(xi, gw=None):
         m = out["next_best"]["margin"]
         nbs = out["next_best"]["short_name"]
         words += (f"; {abs(m):.2f} {'more' if m >= 0 else 'fewer'} than the next-best option, {nbs} "
-                  f"({nb['e_points']:.2f})")
+                  f"({nb['e_points']:.2f}); captaining {short} rather than {nbs} adds {m:.2f} to the XI's predicted total "
+                  "(the armband counts one player twice, so the edge is the margin itself, not double it)")
     out["captain_words"] = words + "."
     return out
 
@@ -349,6 +357,7 @@ def get_my_squad(d):
         "version_id": int(row["version_id"]),
         "how_picked": _how_picked(gw, int(row["n_changes"])),
         "squad_explanation": _squad_explanation(gw, cap_pts, rows, _budget_line(rows), int(row["n_changes"])),
+        "explain_answer_rule": EXPLAIN_ANSWER_RULE,
         "budget_line": _budget_line(rows),
         "reasons_rule": REASONS_RULE,
         "rebuild_with": rebuild_with,
