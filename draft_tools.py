@@ -10,6 +10,7 @@ a preview in an earlier turn, the same change, the same draft version; the ticke
 players_live (team_card's allow_fetch=False). Predicted points always come from the LATEST predictions for the next deadline
 (the production frame, as on the real team card)."""
 import time
+from decimal import ROUND_HALF_UP, Decimal
 
 import datewords
 import drafts
@@ -22,15 +23,23 @@ WHAT_THIS_IS = ("This is the user's DRAFT team: 15 players built from our predic
 TO_CHANGE = ("To change the draft, call set_my_squad with confirm=false (a preview the user must say yes to); apply it with "
              "confirm=true and the preview_ticket only after the user says yes in their next message. To suggest changes, "
              "call propose_transfers: in a draft it returns the best free swaps with their numbers.")
-REASONS_RULE = ("Explain the picks only with squad_explanation, how_picked, budget_line, each player's pick_reason and his "
-                "breakdown parts; his predicted points, price, club and next fixture are facts on his row. Any other causal "
-                "reason counts as invented: value for money, fixtures (easy, good, tough or hard), form, minutes, risk, upside, "
-                "ceiling, playing style, formation, or budget strategy (one player's price explaining another's). Quote each "
-                "number exactly as it is here.")
+# Prompt W11f V3 (2026-11-13): "for his price" IS the human explanation, so value_facts states it (V1) and a value remark is
+# allowed when it matches; the baseline's false claims were ranks the model worked out, so pick_rank states those.
+REASONS_RULE = ("Explain the picks only with squad_explanation, how_picked, budget_line, and each player's pick_reason, "
+                "pick_rank, value_facts and breakdown parts; his predicted points, price, club and next fixture are facts on "
+                "his row. A value remark (\"for his price\", \"cheap\", \"good value\") is allowed only as his value_facts "
+                "state it: his predicted points per £1m, or his rank at his position among the players at his price or less. "
+                "A rank (biggest, second, third, lowest, strongest) only as pick_rank or value_facts states it. Any other "
+                "causal reason counts as invented: fixtures (easy, good, tough or hard), form, minutes, risk, upside, ceiling, "
+                "playing style, formation, or budget strategy (one player's price explaining another's); so does any other "
+                "claim about how the build works. Quote each number exactly as it is here.")
 EXPLAIN_MAX = 700                                       # W11e E1: the squad explanation's length cap (characters)
 EXPLAIN_OFFER = "Want me to go into any player?"
-EXPLAIN_ANSWER_RULE = ("For a 'why these players?' or 'explain the squad' question, the answer is squad_explanation (shortened if "
-                       "you like) and then an offer to go into any player; do not list the other players or add reasons.")
+EXPLAIN_ANSWER_RULE = ("For a 'why these players?' or 'explain the squad' question, start from squad_explanation (shortened "
+                       "if you like) and offer to go into any player. When the user asks for each player (player by player, "
+                       "every pick, all fifteen, talk me through them), go through all fifteen by position, one short line "
+                       "each, from his row only: pick_reason, breakdown parts and, if you like, pick_rank and value_facts. "
+                       "Add no other reason.")
 POSITION_NAMES = {"GK": "Goalkeeper", "DEF": "Defender", "MID": "Midfielder", "FWD": "Forward"}
 # W11c R4: every money figure also as it is said ("£0.1m over"), so a reply quotes it instead of restating or rounding it
 MONEY_PLAIN = ("price", "out_price", "in_price", "value", "value_before", "value_after", "budget", "instead_of_price",
@@ -315,13 +324,14 @@ def get_my_squad(d):
     bench = sorted((r for r in rows if r["role"] == "bench"), key=lambda r: r["bench_order"] or 0)
     import team_card
     xi_pts = _xi_total(xi) if points else None
-    reasons = {}
+    reasons, values = {}, {}
     if gw is not None:                                  # W11d D1: reasons computed from the build's own objective
         try:
             S = _Scoring(doc, gw)
             reasons = {} if S.missing else _pick_reasons(S)
+            values = _value_facts(S)                    # W11f V1: the same predictions and current prices
         except Exception:                               # noqa: BLE001 -- no frame: the rest of the answer stands
-            reasons = {}
+            reasons, values = {}, {}
     parts = _breakdowns(ids, gw) if gw is not None else {}
     order = {"CAPTAIN": 0, "VICE": 1, "start": 2, "bench": 3}
     for r in rows:
@@ -329,6 +339,8 @@ def get_my_squad(d):
         r["in_xi"] = r["role"] != "bench"
         r.update(reasons.get(r["player_id"]) or {"pick_reason": None, "best_alternative": None, "build_score_loss": None})
         r["breakdown"] = parts.get(r["player_id"])
+        r["value_facts"] = values.get(r["player_id"])
+    _pick_ranks(rows)                                   # W11f V3
     cap_pts = _captain_points(xi, gw)                   # W11e E3: with the range and the margin over the next-best
     by_position = {pos: sorted((r for r in rows if r["position"] == pos),
                                key=lambda r: (not r["in_xi"], r["bench_order"] or 0, -(r["e_points"] or 0.0)))
@@ -736,6 +748,53 @@ def _pick_reasons(S):
             reason = f"Not the build's pick now: {where} would raise the build's score by {-loss:.2f}."
         out[o] = {"pick_reason": reason, "best_alternative": alt, "build_score_loss": loss}
     return out
+
+
+def _nth(rank, joint, word):
+    """A rank as it is said (W11f): 'the most', 'the 2nd-most', 'the joint 3rd-biggest'."""
+    if rank == 1:
+        return f"the joint {word}" if joint else f"the {word}"
+    suf = "th" if 10 <= rank % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
+    return f"the {'joint ' if joint else ''}{rank}{suf}-{word}"
+
+
+def _value_facts(S):
+    """W11f V1: for each of the fifteen, his predicted points per £1m (shown points / current price, half-up to 2 places)
+    and his rank at his position among ALL players priced at or below him -- the same predictions (the latest frame, as
+    shown) and current prices as the build. None for a player without a price or predicted points."""
+    pos = {e: (S.meta.get(e) or {}).get("position") for e in S.cand}
+    pos.update({e: S.by_id[e]["position"] for e in S.have})
+    out = {}
+    for e in S.have:
+        p, price, pts = pos[e], S.prices.get(e), S.shown.get(e)
+        if not price or pts is None:
+            out[e] = None
+            continue
+        group = [i for i in S.shown if pos.get(i) == p and S.prices.get(i) is not None and S.prices[i] <= price]
+        rank = 1 + sum(1 for i in group if S.shown[i] > pts)
+        joint = any(S.shown[i] == pts for i in group if i != e)
+        ppm = float((Decimal(f"{pts:.2f}") * 10 / Decimal(int(price))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        out[e] = {"points_per_million": ppm, "position": p, "rank": rank, "joint": joint, "of": len(group),
+                  "words": (f"{ppm:.2f} predicted points per £1m; {_nth(rank, joint, 'most')} predicted points of any {p} "
+                            f"at £{drafts.money(price):.1f}m or less ({len(group)} players)")}
+    return out
+
+
+def _pick_ranks(rows):
+    """W11f V3: each pick's rank among the fifteen by build_score_loss (what the best legal alternative would cost the
+    build's score), on the rows in place; None for a player the build would not pick now, or without a reason."""
+    ranked = [r for r in rows if r.get("build_score_loss") is not None and r["build_score_loss"] >= 0]
+    ids = {r["player_id"] for r in ranked}
+    for r in rows:
+        if r["player_id"] not in ids:
+            r["pick_rank"] = None
+            continue
+        loss = r["build_score_loss"]
+        rank = 1 + sum(1 for x in ranked if x["build_score_loss"] > loss)
+        joint = any(x["build_score_loss"] == loss for x in ranked if x["player_id"] != r["player_id"])
+        r["pick_rank"] = {"rank": rank, "joint": joint, "of": len(ranked),
+                          "words": (f"{_nth(rank, joint, 'biggest')} of the {len(ranked)} picks by what the best legal "
+                                    f"alternative would cost the build's score ({loss:.2f})")}
 
 
 def _breakdowns(ids, gw):

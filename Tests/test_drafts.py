@@ -1013,7 +1013,7 @@ def test_w3_get_my_squad_says_how_the_fifteen_were_picked_and_only_facts_per_pla
     for must in ("most predicted points for GW10", "captain counted twice", "0.2", "bench", "£100.0m", "squad rules"):
         assert must in hp, must
     assert "only" in sq["reasons_rule"] and "predicted points, price, club and next fixture" in sq["reasons_rule"]
-    for judgement in ("easy", "tough", "value for money", "upside", "ceiling", "form"):   # the smoke's invented reasons
+    for judgement in ("easy", "tough", "upside", "ceiling", "form"):   # the smoke's invented reasons
         assert judgement in sq["reasons_rule"], judgement
     ctx = built.api.league.ctx()
     team_of = {e["id"]: e["team"] for e in built.boot["elements"]}
@@ -1301,18 +1301,102 @@ def test_e3c_the_captaincy_edge_is_the_margin_itself_and_the_top_options_are_lis
                                        "with_armband": round(2 * r["e_points"], 2)} for r in xi]
 
 
-def test_e1b_get_my_squad_says_the_explain_answer_is_the_explanation_alone(built):
+def test_e1b_get_my_squad_says_the_explain_answer_starts_from_the_explanation_and_a_walkthrough_is_fine_when_asked(built):
     import model_tools as mt
     rule = built.turns.run(mt.get_my_squad)["explain_answer_rule"]
-    for must in ("squad_explanation", "do not list the other players", "offer to go into any player"):
+    for must in ("squad_explanation", "offer to go into any player", "player by player", "all fifteen", "pick_reason",
+                 "value_facts", "pick_rank"):
         assert must in rule, must
+    assert "do not list the other players" not in rule                  # W11f V2: withdrawn
 
 
 def test_e3b_the_wording_says_quote_numbers_exactly_with_no_hedges():
     wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
-    assert "squad_explanation" in wording and "never list all fifteen unless" in wording.lower()
+    assert "squad_explanation" in wording and "never list all fifteen" not in wording.lower()     # W11f V2: withdrawn
+    assert "player by player" in wording
     for w in ("nearly", "over", "about", "around"):
         assert f'"{w}"' in wording, w
+
+
+# ---- F (Prompt W11f): value facts by code, each pick's rank, the wording --------------------------------------------------
+
+def _most(rank, joint):
+    """'the most' / 'the 2nd-most' / 'the joint 3rd-most' -- written independently of draft_tools."""
+    if rank == 1:
+        return "the joint most" if joint else "the most"
+    suf = "th" if 10 <= rank % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
+    return f"the {'joint ' if joint else ''}{rank}{suf}-most"
+
+
+def _biggest(rank, joint):
+    if rank == 1:
+        return "the joint biggest" if joint else "the biggest"
+    suf = "th" if 10 <= rank % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
+    return f"the {'joint ' if joint else ''}{rank}{suf}-biggest"
+
+
+def test_f1_each_player_carries_his_points_per_million_and_his_rank_among_his_position_at_his_price_or_less(built):
+    """W11f V1: "for his price" IS the human explanation -- so the tool states it. Points per £1m from his shown points and
+    current price; his rank at his position among ALL players priced at or below him, from the same predictions and prices
+    (checked here by brute force over the league)."""
+    import model_tools as mt
+    sq = built.turns.run(mt.get_my_squad)
+    pts, price = _pts(built.boot), _price(built.boot)
+    pos_of = {e["id"]: POS[e["element_type"]] for e in built.boot["elements"]}
+    seen_ranks = set()
+    for r in _sq_rows(sq):
+        e, v = r["player_id"], r["value_facts"]
+        assert r["e_points"] == pts[e] and r["price"] == price[e] / 10
+        assert abs(v["points_per_million"] - pts[e] / (price[e] / 10)) <= 0.005 + 1e-9, r
+        group = [i for i in pos_of if pos_of[i] == r["position"] and price[i] <= price[e]]
+        rank = 1 + sum(1 for i in group if pts[i] > pts[e])
+        joint = any(pts[i] == pts[e] for i in group if i != e)
+        assert (v["rank"], v["joint"], v["of"], v["position"]) == (rank, joint, len(group), r["position"]), r
+        assert v["words"] == (f"{v['points_per_million']:.2f} predicted points per £1m; {_most(rank, joint)} predicted points "
+                              f"of any {r['position']} at £{price[e] / 10:.1f}m or less ({len(group)} players)"), v["words"]
+        seen_ranks.add(rank)
+    assert len(seen_ranks) > 1                                          # not one rank for everyone
+
+
+def test_f1b_without_a_price_or_points_there_are_no_value_facts(built, monkeypatch):
+    import model_tools as mt
+    first = int(built.doc["players"][0]["element"])
+    orig = drafts.current_prices
+    monkeypatch.setattr(drafts, "current_prices", lambda ids, ctx=None, allow_fetch=True:
+                        {e: v for e, v in orig(ids, ctx=ctx, allow_fetch=allow_fetch).items() if e != first})
+    rows = {r["player_id"]: r for r in _sq_rows(built.turns.run(mt.get_my_squad))}
+    assert rows[first]["value_facts"] is None
+    assert all(r["value_facts"] is not None for e, r in rows.items() if e != first)
+
+
+def test_f2_each_pick_carries_its_rank_by_what_the_best_legal_alternative_would_cost(built):
+    """W11f V3: the baseline's false claims were ranks the model worked out ("third-strongest pick overall", "the
+    second-biggest overall pick after Haaland") -- each pick's rank now comes from the tool."""
+    import model_tools as mt
+    rows = _sq_rows(built.turns.run(mt.get_my_squad))
+    ranked = [r for r in rows if r["build_score_loss"] is not None and r["build_score_loss"] >= 0]
+    assert len(ranked) >= 10
+    for r in rows:
+        if r not in ranked:
+            assert r["pick_rank"] is None
+            continue
+        loss = r["build_score_loss"]
+        rank = 1 + sum(1 for x in ranked if x["build_score_loss"] > loss)
+        joint = any(x["build_score_loss"] == loss for x in ranked if x is not r)
+        assert (r["pick_rank"]["rank"], r["pick_rank"]["joint"], r["pick_rank"]["of"]) == (rank, joint, len(ranked)), r
+        assert r["pick_rank"]["words"] == (f"{_biggest(rank, joint)} of the {len(ranked)} picks by what the best legal "
+                                           f"alternative would cost the build's score ({loss:.2f})")
+
+
+def test_f3_the_wording_allows_value_remarks_only_as_value_facts_state_them_and_ranks_only_from_pick_rank(built):
+    import model_tools as mt
+    rule = built.turns.run(mt.get_my_squad)["reasons_rule"]
+    wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
+    for text in (rule, wording):
+        for must in ("value_facts", "pick_rank", "for his price", "counts as invented", "pick_reason", "how_picked",
+                     "budget_line"):
+            assert must in text, must
+    assert "value for money, fixtures" not in wording                   # value is no longer on the invented list
 
 
 # ---- S: real squads are never touched ----------------------------------------------------------------------------------------

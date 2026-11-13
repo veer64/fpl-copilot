@@ -432,6 +432,17 @@ DRAFT_MODE_TEXT = DRAFT_MODE_PATH.read_text(encoding="utf-8").strip()
 # The model every turn is sent to; one name, so the usage log (below) and the call agree.
 AGENT_MODEL = "claude-sonnet-4-6"
 
+# Prompt W11f V2 (2026-11-13): the reply cap. A draft chat's fifteen-player walkthrough needs ~1,000-1,200 tokens and was cut
+# off at 1,024, so a draft turn's requests (the call and the send-back) get 2,048. Every other turn keeps 1,024 and sends
+# exactly the same bytes (payload v5, Tests/test_draft_payload.py).
+MAX_TOKENS = 1024
+DRAFT_MAX_TOKENS = 2048
+
+
+def _max_tokens():
+    """The reply cap of THIS turn's requests: DRAFT_MAX_TOKENS on a draft chat's turn, MAX_TOKENS on every other."""
+    return DRAFT_MAX_TOKENS if (turn_context.current() or {}).get("draft") is not None else MAX_TOKENS
+
 # Part 4b of the smoke fixes (2026-10-10): tool names reaching users. Section 9 of the prompt forbids
 # them and the tools' own strings no longer carry them, but a model that has just called a tool can
 # still write its name ("run it as a `build_squad_from_scratch`"). So the final text is rewritten,
@@ -852,7 +863,7 @@ def trim_turns(messages, question_index, max_turns):
 
 def _call_model(st):
     """One model call with the agent's parameters, unchanged: traced, tallied, the assistant's content appended."""
-    request = {"model": AGENT_MODEL, "max_tokens": 1024,                     # the agent's parameters, unchanged
+    request = {"model": AGENT_MODEL, "max_tokens": _max_tokens(),            # the agent's parameters (W11f V2: a draft turn 2,048)
                "system": _system_for_request(st["system"]),
                "tools": _tools_for_request(tools_schema),
                "messages": _messages_for_request(*_request_view(st, st["now_text"]))}
@@ -1007,7 +1018,7 @@ def _send_back(st):
     t0 = time.time()
     text2, reply = None, None
     try:
-        request = {"model": AGENT_MODEL, "max_tokens": 1024,
+        request = {"model": AGENT_MODEL, "max_tokens": _max_tokens(),
                    "system": _system_for_request(st["system"]),
                    "tools": _tools_for_request(tools_schema),
                    "tool_choice": dict(FACT_CHECK_TOOL_CHOICE),
