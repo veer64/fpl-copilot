@@ -312,6 +312,28 @@ def _with_message_rows(thread_id, rows):
     return rows
 
 
+def store_scripted_turn(user_id, thread_id, question, answer):
+    """Prompt W11e E2: a turn answered by code, not by the model ($0) -- the question and the answer stored exactly as a model
+    turn is (the history the agent sees on the next question, the transcript entry, the chat_messages row), under the
+    thread's turn lock. Returns {"answer", "thread_id", "message_id"}."""
+    import uuid
+    import chat_messages
+    message_id = uuid.uuid4().hex
+    with threads.turn_lock(thread_id):
+        g = thread_graph()
+        cfg = _thread_config(thread_id)
+        stored = _stored(thread_id)
+        before = list(stored.get("messages") or [])
+        transcript = list(stored.get("transcript") or [])
+        q_index = sum(1 for m in before if _is_question(m))
+        at = _now_iso()
+        entry = {"q": q_index, "user": question, "user_at": at, "answer": answer, "answer_at": at, "message_id": message_id}
+        g.update_state(cfg, {"messages": before + [{"role": "user", "content": question}, {"role": "assistant", "content": answer}],
+                             "transcript": transcript + [entry]}, as_node="finalize")
+        chat_messages.record(message_id, thread_id, user_id, q_index, at)
+    return {"answer": answer, "thread_id": str(thread_id), "message_id": message_id}
+
+
 def run_thread_turn(user_id, thread_id, user_message):
     """One /chat turn in a stored thread (Prompt B): the thread's history loaded from the checkpointer, the turn run on
     the engine AGENT_ENGINE names (the graph checkpoints itself; the loop's result is stored the same way), the

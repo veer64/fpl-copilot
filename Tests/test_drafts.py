@@ -124,6 +124,7 @@ class League:
         def no_frame():
             raise FileNotFoundError("no production frame in the synthetic league")
         mp.setattr(mt, "_frame_raw", no_frame)                     # W11d D4: hermetic unless a test installs one
+        mp.setattr(mt, "get_prediction", lambda player_id, gw=None: {"error": "no prediction rows in the synthetic league"})
         mp.setattr(mt, "_season_label", lambda: "2026-27")
         mp.setattr(mt, "_with_flags", lambda out: out)
         mp.setattr(team_card, "_live_rows", lambda elements, conn=None: {})
@@ -388,6 +389,8 @@ def test_r9_in_clerk_mode_the_draft_routes_need_only_the_session_token_like_ever
     assert built.status_code == 200, built.text
     assert bare.post("/me/draft/rebuild", headers=h).status_code == 200
     assert bare.post("/threads", headers=h, json={"draft": True}).status_code == 200
+    tid = built.json()["thread_id"]                                    # W11e E2: the chip's instant answer, a clerk route too
+    assert bare.post("/me/draft/explain", headers=h, json={"thread_id": tid, "question": "Why these players?"}).status_code == 200
     assert bare.delete("/me/draft", headers=h).status_code == 200
     assert bare.get("/me/draft").status_code == 401                    # no token: refused before the handler
 
@@ -396,7 +399,8 @@ def test_r7_off_mode_every_draft_route_is_404_and_nothing_reads_user_drafts(dapi
     monkeypatch.setenv("AUTH_MODE", "off")
     dapi.auth._reset()
     for method, path, kw in (("post", "/me/draft", {}), ("get", "/me/draft", {}), ("post", "/me/draft/rebuild", {}),
-                             ("delete", "/me/draft", {}), ("post", "/threads", {"json": {"draft": True}})):
+                             ("delete", "/me/draft", {}), ("post", "/threads", {"json": {"draft": True}}),
+                             ("post", "/me/draft/explain", {"json": {"thread_id": "th_x", "question": "Why these players?"}})):
         r = getattr(dapi.client, method)(path, **kw)
         assert r.status_code == 404, (method, path, r.status_code)
     import drafts as d
@@ -681,8 +685,8 @@ def test_n1_get_my_squad_gives_each_starters_points_the_captain_doubled_the_xi_t
     pts, price = _pts(built.boot), _price(built.boot)
     assert all(r["e_points"] == pts[r["player_id"]] for r in _xi(sq))
     cap = next(r for r in _xi(sq) if r["role"] == "CAPTAIN")
-    assert sq["captain_points"] == {"player_id": cap["player_id"], "name": cap["name"], "short_name": cap["short_name"],
-                                    "e_points": cap["e_points"], "with_armband": round(2 * cap["e_points"], 2)}
+    assert {k: sq["captain_points"][k] for k in ("player_id", "name", "short_name", "e_points", "with_armband")} ==         {"player_id": cap["player_id"], "name": cap["name"], "short_name": cap["short_name"],
+         "e_points": cap["e_points"], "with_armband": round(2 * cap["e_points"], 2)}
     assert cap["e_points_with_armband"] == round(2 * cap["e_points"], 2)
     assert all("e_points_with_armband" not in r for r in _sq_rows(sq) if r["role"] != "CAPTAIN")
     assert sq["predicted_xi_points"] == round(sum(r["e_points"] for r in _xi(sq)) + cap["e_points"], 1)
@@ -1154,14 +1158,16 @@ def test_d2_the_rows_are_grouped_by_position_with_the_position_spelled_out(built
     assert sq["bench_in_order"] == [short[p["element"]] for p in bench]
 
 
-def test_d3_the_wording_allows_only_the_tools_reasons_and_no_range(built):
+def test_d3_the_wording_allows_only_the_tools_reasons(built):
     import model_tools as mt
     rule = built.turns.run(mt.get_my_squad)["reasons_rule"]
-    for must in ("pick_reason", "how_picked", "budget_line", "breakdown", "counts as invented", "range"):
+    for must in ("pick_reason", "how_picked", "squad_explanation", "budget_line", "breakdown", "counts as invented"):
         assert must in rule, must
     wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
-    for must in ("pick_reason", "how_picked", "breakdown", "counts as invented", "Never give a range"):
+    for must in ("pick_reason", "how_picked", "squad_explanation", "breakdown", "counts as invented"):
         assert must in wording, must
+    # W11e E4: D3's "never give a range" is withdrawn -- it contradicts the system prompt's P10 / P50 / P90 ranges
+    assert "give a range" not in wording.lower() and "give a range" not in rule.lower()
 
 
 def _fake_frame(boot, gw=10):
@@ -1197,6 +1203,93 @@ def test_d4_each_player_carries_his_main_breakdown_parts_from_explain_prediction
     monkeypatch.setattr(mt, "_frame_raw", lambda: (_ for _ in ()).throw(FileNotFoundError("gone")))
     sq = built.turns.run(mt.get_my_squad)                              # no frame: no breakdown, the rest of the answer stands
     assert all(r["breakdown"] is None for r in _sq_rows(sq)) and all(r["pick_reason"] for r in _sq_rows(sq))
+
+
+# ---- E: the two "explain" answers (Prompt W11e, 2026-11-13) --------------------------------------------------------------------
+# W11d: every "why these players?" reply listed all fifteen and hit the 1,024-token reply limit, and every captain reply worked out
+# a number itself. E1 a short squad_explanation built by code; E2 the "Why these players?" chip answered from it, $0; E3 the
+# captain's P10 / P50 / P90 (with the armband too) and his margin over the next-best option; E4 the range ban withdrawn.
+
+def _fake_prediction(q):
+    """model_tools.get_prediction's shape for one gameweek (the source get_player_card shows), with these quantiles."""
+    def get_prediction(player_id, gw=None):
+        p10, p50, p90 = q
+        return {"player_id": player_id, "predictions": [{"gw": gw, "q_p10": p10, "q_p50": p50, "q_p90": p90}],
+                "quantiles": {"computed": True, "per_gw": [{"gw": gw, "p10": p10, "p50": p50, "p90": p90, "p10_unusable": False}]}}
+    return get_prediction
+
+
+def test_e1_get_my_squad_carries_a_short_squad_explanation_built_by_code(built):
+    import model_tools as mt
+    sq = built.turns.run(mt.get_my_squad)
+    ex = sq["squad_explanation"]
+    assert 0 < len(ex) <= 700, len(ex)
+    for must in ("most predicted points for GW10", "captain counted twice", "0.2 × the bench's", "£100.0m"):
+        assert must in ex, must
+    cap = sq["captain_points"]
+    assert f"Captain: {cap['short_name']}, {cap['e_points']:.2f} predicted points, {cap['with_armband']:.2f} with the armband." in ex
+    rows = sorted((r for r in _sq_rows(sq) if r["build_score_loss"] and r["build_score_loss"] > 0),
+                  key=lambda r: (-r["build_score_loss"], r["player_id"]))
+    named = [r for r in rows if f"{r['short_name']} {r['build_score_loss']:.2f} ({r['best_alternative']['short_name']}, "
+                                f"£{r['best_alternative']['price']:.1f}m)" in ex]
+    assert 3 <= len(named) <= 4 and named == rows[:len(named)], ex
+    assert sq["budget_line"] in ex
+    assert ex.count("\n") <= 4                                       # four short lines, never the fifteen
+
+
+def test_e2_the_why_chip_is_answered_from_code_stored_as_a_turn_and_no_model_is_called(dapi):
+    import agent_graph
+    import model_tools as mt
+    body = _post(dapi, "/me/draft").json()
+    tid = body["thread_id"]
+    called = []
+    dapi.mp.setattr(dapi.agent, "run_agent", lambda *a, **k: called.append(1) or ("never", []))
+    r = _post(dapi, "/me/draft/explain", json={"thread_id": tid, "question": "Why these players?"})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert called == [] and out["thread_id"] == tid and out["message_id"] and out["sources"] == []
+    row = drafts.read(U1)
+    sq = Turns(U1, tid, row["draft_key"]).run(mt.get_my_squad)
+    assert out["answer"].startswith(sq["squad_explanation"]) and out["answer"].rstrip().endswith("?")
+    msgs = _get(dapi, f"/threads/{tid}/messages").json()
+    assert [m["role"] for m in msgs] == ["assistant", "user", "assistant"]
+    assert msgs[1]["text"] == "Why these players?" and msgs[2]["text"] == out["answer"] and msgs[2]["message_id"] == out["message_id"]
+    hist = agent_graph.load_history(tid)                               # the agent sees the turn on the next question
+    assert hist[1] == {"role": "user", "content": "Why these players?"} and hist[2] == {"role": "assistant", "content": out["answer"]}
+    rows = _get(dapi, "/threads").json()
+    assert rows[0]["thread_id"] == tid and rows[0]["is_draft"] is True and rows[0]["title"] == "Why these players?"
+    plain = _post(dapi, "/threads").json()["thread_id"]                # not a draft chat: refused
+    assert _post(dapi, "/me/draft/explain", json={"thread_id": plain, "question": "Why these players?"}).status_code == 404
+    _post(dapi, "/me/draft", sub=T2)                                   # another user's draft chat: refused
+    assert _post(dapi, "/me/draft/explain", sub=T2, json={"thread_id": tid, "question": "Why these players?"}).status_code == 404
+    assert _post(dapi, "/me/draft/explain", json={"thread_id": tid, "question": "x" * 201}).status_code == 422
+
+
+def test_e3_captain_points_carry_the_range_the_armband_range_and_the_margin_over_the_next_best(built, monkeypatch):
+    import model_tools as mt
+    monkeypatch.setattr(mt, "get_prediction", _fake_prediction((2.0, 6.0, 14.0)))
+    sq = built.turns.run(mt.get_my_squad)
+    cap = sq["captain_points"]
+    assert cap["range"] == {"p10": 2.0, "p50": 6.0, "p90": 14.0, "p10_unusable": False}
+    assert cap["range_with_armband"] == {"p10": 4.0, "p50": 12.0, "p90": 28.0}
+    xi = sorted((r for r in _xi(sq) if r["player_id"] != cap["player_id"]), key=lambda r: -r["e_points"])
+    nb = cap["next_best"]
+    assert (nb["player_id"], nb["e_points"], nb["margin"]) == (xi[0]["player_id"], xi[0]["e_points"],
+                                                              round(cap["e_points"] - xi[0]["e_points"], 2))
+    words = cap["captain_words"]
+    for n in (cap["e_points"], cap["with_armband"], nb["e_points"], nb["margin"]):
+        assert f"{n:.2f}" in words, n
+    assert "2.0 / 6.0 / 14.0" in words and "4.0 / 12.0 / 28.0" in words and nb["short_name"] in words
+    monkeypatch.setattr(mt, "get_prediction", lambda player_id, gw=None: {"error": "no prediction rows"})
+    cap = built.turns.run(mt.get_my_squad)["captain_points"]           # no quantiles: no range, the rest stands
+    assert cap["range"] is None and cap["range_with_armband"] is None and cap["next_best"]
+
+
+def test_e3b_the_wording_says_quote_numbers_exactly_with_no_hedges():
+    wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
+    assert "squad_explanation" in wording and "never list all fifteen unless" in wording.lower()
+    for w in ("nearly", "over", "about", "around"):
+        assert f'"{w}"' in wording, w
 
 
 # ---- S: real squads are never touched ----------------------------------------------------------------------------------------

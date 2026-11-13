@@ -70,7 +70,7 @@ from fastapi import Body, FastAPI, Request
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 
@@ -179,7 +179,7 @@ CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET"
                 ("GET", "/guest/status"), ("POST", "/guest/start"),             # Prompt W9: guest mode (public; 404 in off mode)
                 ("POST", "/me/ping"), ("POST", "/me/leave"),                    # Prompt W9: the guest session's signals
                 ("GET", "/me/draft"), ("POST", "/me/draft"), ("DELETE", "/me/draft"),   # Prompt W11: the draft team
-                ("POST", "/me/draft/rebuild")}
+                ("POST", "/me/draft/rebuild"), ("POST", "/me/draft/explain")}
 CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$")),
                         ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$")),
                         ("GET", re.compile(r"^/me/teams/[^/]+/card$")),                 # Prompt W4: the Chat page
@@ -945,6 +945,28 @@ def rebuild_draft(http: Request):
     def work(user):
         row = drafts.rebuild(int(user["user_id"]), limited=lambda: users.draft_builds_limited(user))
         return drafts.as_json(drafts.card(int(user["user_id"]), row=row))
+    return _draft_call(http, work)
+
+
+class DraftExplainRequest(BaseModel):
+    thread_id: str = Field(min_length=1, max_length=64)
+    question: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/me/draft/explain")
+def explain_draft(request: DraftExplainRequest, http: Request):
+    """Prompt W11e E2: the "Why these players?" chip, answered from code with the draft's squad_explanation -- no model call,
+    $0 -- and stored as that chat's next turn (the agent sees it later). 404 unless the thread is the user's draft chat."""
+    import drafts
+    import draft_tools
+
+    def work(user):
+        uid = int(user["user_id"])
+        if drafts.turn_draft(uid, request.thread_id) is None:
+            return JSONResponse({"detail": DRAFT_NOT_FOUND}, status_code=404)
+        answer = draft_tools.squad_explanation_reply(uid)
+        out = agent_graph.store_scripted_turn(uid, request.thread_id, request.question.strip(), answer)
+        return {**out, "sources": [], "squad_preview": None, "squad_applied": None}
     return _draft_call(http, work)
 
 

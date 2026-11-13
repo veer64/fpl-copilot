@@ -22,11 +22,13 @@ WHAT_THIS_IS = ("This is the user's DRAFT team: 15 players built from our predic
 TO_CHANGE = ("To change the draft, call set_my_squad with confirm=false (a preview the user must say yes to); apply it with "
              "confirm=true and the preview_ticket only after the user says yes in their next message. To suggest changes, "
              "call propose_transfers: in a draft it returns the best free swaps with their numbers.")
-REASONS_RULE = ("Explain the picks only with how_picked, budget_line, each player's pick_reason and his breakdown parts; "
-                "his predicted points, price, club and next fixture are facts on his row. Any other causal reason counts as "
-                "invented: value for money, fixtures (easy, good, tough or hard), form, minutes, risk, upside, ceiling, playing "
-                "style, formation, or budget strategy (one player's price explaining another's). Never give a range; quote each "
-                "number as it is here.")
+REASONS_RULE = ("Explain the picks only with squad_explanation, how_picked, budget_line, each player's pick_reason and his "
+                "breakdown parts; his predicted points, price, club and next fixture are facts on his row. Any other causal "
+                "reason counts as invented: value for money, fixtures (easy, good, tough or hard), form, minutes, risk, upside, "
+                "ceiling, playing style, formation, or budget strategy (one player's price explaining another's). Quote each "
+                "number exactly as it is here.")
+EXPLAIN_MAX = 700                                       # W11e E1: the squad explanation's length cap (characters)
+EXPLAIN_OFFER = "Want me to go into any player?"
 POSITION_NAMES = {"GK": "Goalkeeper", "DEF": "Defender", "MID": "Midfielder", "FWD": "Forward"}
 # W11c R4: every money figure also as it is said ("£0.1m over"), so a reply quotes it instead of restating or rounding it
 MONEY_PLAIN = ("price", "out_price", "in_price", "value", "value_before", "value_after", "budget", "instead_of_price",
@@ -166,12 +168,89 @@ def _armband(row):
     return row
 
 
-def _captain_points(xi):
+def _captain_range(player_id, gw):
+    """W11e E3: the captain's P10 / P50 / P90 for the gameweek from model_tools.get_prediction -- the source get_player_card
+    shows (its quantiles block); None when the run did not compute them or there is no row."""
+    if gw is None:
+        return None
+    try:
+        pred = _mt().get_prediction(int(player_id), gw=int(gw))
+    except Exception:                                   # noqa: BLE001 -- the rest of the answer stands
+        return None
+    q = (pred or {}).get("quantiles") or {}
+    row = next((r for r in q.get("per_gw") or [] if r.get("gw") in (None, int(gw))), None) if q.get("computed") else None
+    if not row or row.get("p50") is None:
+        return None
+    return {"p10": round(float(row["p10"]), 2), "p50": round(float(row["p50"]), 2), "p90": round(float(row["p90"]), 2),
+            "p10_unusable": bool(row.get("p10_unusable"))}
+
+
+def _captain_points(xi, gw=None):
     cap = next((r for r in xi if r["role"] == "CAPTAIN"), None)
     if cap is None or cap.get("e_points") is None:
         return None
-    return {"player_id": cap["player_id"], "name": cap["name"], "short_name": cap.get("short_name") or cap["name"],
-            "e_points": cap["e_points"], "with_armband": cap["e_points_with_armband"]}
+    short = cap.get("short_name") or cap["name"]
+    out = {"player_id": cap["player_id"], "name": cap["name"], "short_name": short,
+           "e_points": cap["e_points"], "with_armband": cap["e_points_with_armband"]}
+    rng = _captain_range(cap["player_id"], gw)                       # W11e E3
+    out["range"] = rng
+    out["range_with_armband"] = None if rng is None else {k: round(2 * rng[k], 2) for k in ("p10", "p50", "p90")}
+    others = sorted((r for r in xi if r["player_id"] != cap["player_id"] and r.get("e_points") is not None),
+                    key=lambda r: (-r["e_points"], r["player_id"]))
+    nb = others[0] if others else None
+    out["next_best"] = None if nb is None else {
+        "player_id": nb["player_id"], "name": nb["name"], "short_name": nb.get("short_name") or nb["name"],
+        "e_points": nb["e_points"], "margin": round(cap["e_points"] - nb["e_points"], 2)}
+    words = f"{short}: {cap['e_points']:.2f} predicted points, {cap['e_points_with_armband']:.2f} with the armband"
+    if rng is not None:
+        a = out["range_with_armband"]
+        words += (f"; likely range {rng['p10']:.1f} / {rng['p50']:.1f} / {rng['p90']:.1f} (P10 / P50 / P90), "
+                  f"{a['p10']:.1f} / {a['p50']:.1f} / {a['p90']:.1f} with the armband")
+    if nb is not None:
+        m = out["next_best"]["margin"]
+        nbs = out["next_best"]["short_name"]
+        words += (f"; {abs(m):.2f} {'more' if m >= 0 else 'fewer'} than the next-best option, {nbs} "
+                  f"({nb['e_points']:.2f})")
+    out["captain_words"] = words + "."
+    return out
+
+
+def _squad_explanation(gw, cap, rows, budget_line, n_changes):
+    """W11e E1: the squad explained in at most EXPLAIN_MAX characters, built by code from the tools' own facts: how the 15
+    were picked, the captain with his points and armband points, the 3-4 biggest pick_reasons (what the best legal
+    alternative would cost the build's score), and the bench / budget line. Never the fifteen."""
+    w = _bench_weight()
+    head = (f"How the 15 were picked: the most predicted points for GW{gw}, the XI's (captain counted twice) plus {w:g} × the "
+            "bench's, within £100.0m and FPL's squad rules.")
+    if n_changes:
+        head += f" You have changed it {n_changes} time{'s' if n_changes != 1 else ''} since."
+    lines = [head]
+    if cap:
+        lines.append(f"Captain: {cap['short_name']}, {cap['e_points']:.2f} predicted points, {cap['with_armband']:.2f} with "
+                     "the armband.")
+    picks = sorted((r for r in rows if r.get("build_score_loss") and r["build_score_loss"] > 0 and r.get("best_alternative")),
+                   key=lambda r: (-r["build_score_loss"], r["player_id"]))
+    tail = f"Bench and budget: {budget_line}"
+    for n in (4, 3):
+        if len(picks) < 3:
+            body = lines + [tail]
+            break
+        part = ("Biggest picks, by what the best legal alternative would cost the build's score: "
+                + ", ".join(f"{r['short_name']} {r['build_score_loss']:.2f} ({r['best_alternative']['short_name']}, "
+                            f"£{r['best_alternative']['price']:.1f}m)" for r in picks[:n]) + ".")
+        body = lines + [part, tail]
+        if len("\n".join(body)) <= EXPLAIN_MAX:
+            break
+    return "\n".join(body)[:EXPLAIN_MAX]
+
+
+def squad_explanation_reply(user_id):
+    """W11e E2: the "Why these players?" chip's answer, from code ($0, no model call): get_my_squad's squad_explanation and
+    the offer to go into any player. NoDraft without a draft."""
+    sq = get_my_squad({"user_id": int(user_id)})
+    if sq.get("error"):
+        raise drafts.NoDraft(str(user_id))
+    return f"{sq['squad_explanation']}\n\n{EXPLAIN_OFFER}"
 
 
 def _xi_total(xi):
@@ -242,6 +321,7 @@ def get_my_squad(d):
         r["in_xi"] = r["role"] != "bench"
         r.update(reasons.get(r["player_id"]) or {"pick_reason": None, "best_alternative": None, "build_score_loss": None})
         r["breakdown"] = parts.get(r["player_id"])
+    cap_pts = _captain_points(xi, gw)                   # W11e E3: with the range and the margin over the next-best
     by_position = {pos: sorted((r for r in rows if r["position"] == pos),
                                key=lambda r: (not r["in_xi"], r["bench_order"] or 0, -(r["e_points"] or 0.0)))
                    for pos in ("GK", "DEF", "MID", "FWD")}
@@ -255,7 +335,7 @@ def get_my_squad(d):
         "gw": gw, "formation": team_card.formation(doc),
         "captain": next((r["name"] for r in xi if r["role"] == "CAPTAIN"), None),
         "vice": next((r["name"] for r in xi if r["role"] == "VICE"), None),
-        "captain_points": _captain_points(xi),
+        "captain_points": cap_pts,
         "squad_by_position": by_position,
         "bench_in_order": [r["short_name"] for r in bench],
         "predicted_xi_points": xi_pts,
@@ -268,6 +348,7 @@ def get_my_squad(d):
         "changes_since_build": int(row["n_changes"]),
         "version_id": int(row["version_id"]),
         "how_picked": _how_picked(gw, int(row["n_changes"])),
+        "squad_explanation": _squad_explanation(gw, cap_pts, rows, _budget_line(rows), int(row["n_changes"])),
         "budget_line": _budget_line(rows),
         "reasons_rule": REASONS_RULE,
         "rebuild_with": rebuild_with,
@@ -499,7 +580,7 @@ def get_my_xi(d, gw=None):
     out = {"draft": True, "gw": int(target), "solve_seconds": round(time.time() - t0, 1),
            "captain": next(r["name"] for r in xi if r["role"] == "CAPTAIN"),
            "vice": next(r["name"] for r in xi if r["role"] == "VICE"),
-           "captain_points": _captain_points(xi),
+           "captain_points": _captain_points(xi, int(target)),
            "xi": xi, "bench_in_order": bench, "predicted_xi_points": _xi_total(xi),
            "predicted_xi_points_meaning": f"this XI's predicted points for GW{int(target)} with the captain counted twice",
            **_money_block(doc, prices), "numbers_note": NUMBERS_NOTE,
