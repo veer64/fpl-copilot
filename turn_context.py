@@ -27,15 +27,18 @@ def clock():
     return datetime.now(timezone.utc)
 
 
-def begin(turn_id=None, started_at=None, thread_id=None, draft=None):
+def begin(turn_id=None, started_at=None, thread_id=None, draft=None, consent=None):
     """Open a turn (closing any earlier one in this context). Returns {"turn_id", "started_at"} (+ "thread_id" when the
     turn belongs to a stored thread; + "draft" -- {"user_id", "draft_key"} -- when it is the user's draft chat, Prompt W11:
-    the squad tools then read and write the draft)."""
+    the squad tools then read and write the draft; + "consent" -- a preview ticket id -- Prompt X1: ONLY confirm_gate sets
+    it, after the user's explicit yes to that preview; squad_previews.consume refuses a write without it)."""
     turn = {"turn_id": turn_id or uuid.uuid4().hex, "started_at": started_at or clock()}
     if thread_id is not None:
         turn["thread_id"] = str(thread_id)
     if draft is not None:
         turn["draft"] = dict(draft)
+    if consent is not None:
+        turn["consent"] = str(consent)
     _CURRENT.set(turn)
     _RECORD.set({})
     _LAST.set(None)

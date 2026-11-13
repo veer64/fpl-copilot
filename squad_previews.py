@@ -19,6 +19,12 @@ same_turn (issued in this turn, or in a turn that started no earlier than this o
 different_change (fingerprint), squad_changed (the active version is no longer the one previewed against).
 The refusal text is one fixed sentence naming the reason; the preview's message names the ticket and how to spend it.
 
+PROMPT X1 (13 Nov 2026): the owner answered two draft previews with "No" and the model wrote both anyway -- the checks above
+never read the user's answer. Now the ticket also stores the change it previewed (change_args), and one more check comes
+last: needs_yes -- the turn must carry the ticket as its CONSENT (turn_context "consent"), which only confirm_gate.py sets,
+after the user's explicit yes to THAT preview (the Yes button, or a typed clear yes, classified by code). A model's
+confirm=true call never has it, so the model can no longer write a squad or a draft on its own.
+
 Usage: python squad_previews.py --init  (ensure the table on the configured database) | --print-ddl"""
 import hashlib
 import json
@@ -33,7 +39,7 @@ import config_roles
 import db_write
 
 TTL = timedelta(minutes=30)
-REASONS = ("missing", "same_turn", "different_change", "squad_changed", "used", "cancelled", "expired")
+REASONS = ("missing", "same_turn", "different_change", "squad_changed", "used", "cancelled", "expired", "needs_yes")
 
 DDL = """
 CREATE TABLE IF NOT EXISTS squad_previews (
@@ -58,6 +64,14 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                    WHERE table_schema = current_schema() AND table_name = 'squad_previews' AND column_name = 'thread_id') THEN
         ALTER TABLE squad_previews ADD COLUMN thread_id TEXT;
+    END IF;
+END $$;
+-- Prompt X1 (2026-11-13): the change the preview showed (the tool's own arguments), so a Yes commits exactly THAT change
+-- by code (confirm_gate.py); NULL on tickets from before X1 (they cannot be spent by a Yes and expire within 30 minutes).
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = current_schema() AND table_name = 'squad_previews' AND column_name = 'change_args') THEN
+        ALTER TABLE squad_previews ADD COLUMN change_args JSONB;
     END IF;
 END $$;
 """
@@ -89,7 +103,14 @@ def fingerprint(player_ids, captain_id, vice_id, bench_order_ids, gw, **_ignored
     return hashlib.sha256(json.dumps(canon, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+NEEDS_YES_REFUSAL = ("Nothing was saved (reason: needs_yes). A change is saved only when the user answers its preview with "
+                     "Yes, and the app saves it itself; never call confirm=true. Ask the user to answer the preview Yes or "
+                     "No.")
+
+
 def refusal(reason):
+    if reason == "needs_yes":                            # Prompt X1: the model never commits; the user's yes does
+        return NEEDS_YES_REFUSAL
     return f"No valid preview for this change (reason: {reason}). Show the user a preview first."
 
 
@@ -98,9 +119,9 @@ def ticket_sentence(ticket_id):
             f"again with the same changes, confirm=true and preview_ticket={ticket_id}.")
 
 
-def issue(conn, user_id, turn, fp, base_version_id, now=None):
-    """Cancel the user's older open tickets and insert a new one; commits. Returns {"id", "expires_at",
-    "cancelled_older"}."""
+def issue(conn, user_id, turn, fp, base_version_id, now=None, args=None):
+    """Cancel the user's older open tickets and insert a new one; commits. `args` (Prompt X1): the preview call's own
+    arguments -- what a Yes commits. Returns {"id", "expires_at", "cancelled_older"}."""
     now = now or clock()
     ticket_id = new_id()
     with conn.cursor() as cur:
@@ -108,9 +129,10 @@ def issue(conn, user_id, turn, fp, base_version_id, now=None):
                     "WHERE user_id = %s AND used_at IS NULL AND cancelled_at IS NULL", (now, user_id))
         cancelled = cur.rowcount
         cur.execute("INSERT INTO squad_previews (id, user_id, turn_id, turn_started_at, change_fingerprint, "
-                    "base_version_id, created_at, expires_at, thread_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    "base_version_id, created_at, expires_at, thread_id, change_args) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                     (ticket_id, int(user_id), str(turn["turn_id"]), turn["started_at"], fp, int(base_version_id),
-                     now, now + TTL, turn.get("thread_id")))
+                     now, now + TTL, turn.get("thread_id"), None if args is None else json.dumps(args, default=str)))
     conn.commit()
     return {"id": ticket_id, "expires_at": now + TTL, "cancelled_older": cancelled}
 
@@ -131,6 +153,8 @@ def check(row, user_id, turn, fp, active_version_id, now):
         return "different_change"
     if int(row["base_version_id"]) != int(active_version_id):
         return "squad_changed"
+    if turn.get("consent") != row["id"]:                 # Prompt X1: the user's explicit yes to THIS ticket, set by code
+        return "needs_yes"
     return None
 
 
@@ -151,6 +175,39 @@ def consume(conn, user_id, ticket_id, turn, fp, active_version_id, now=None):
         if cur.rowcount != 1:
             return "used"
     return None
+
+
+def open_for_thread(conn, user_id, thread_id, now=None):
+    """Prompt X1: the user's open ticket (unused, uncancelled, unexpired) when it belongs to THIS thread, else None. A
+    preview cancels the user's older tickets, so a user has at most one open ticket: the latest open preview."""
+    now = now or clock()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM squad_previews WHERE user_id = %s AND used_at IS NULL AND cancelled_at IS NULL "
+                    "AND expires_at > %s ORDER BY created_at DESC LIMIT 1", (int(user_id), now))
+        row = cur.fetchone()
+    if row is None or row["thread_id"] != (None if thread_id is None else str(thread_id)):
+        return None
+    return dict(row)
+
+
+def of_message(conn, user_id, thread_id, message_id):
+    """Prompt X1: the tickets a preview answer (message_id = the turn that showed it) issued in this user's thread,
+    newest first."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM squad_previews WHERE user_id = %s AND thread_id IS NOT DISTINCT FROM %s AND turn_id = %s "
+                    "ORDER BY created_at DESC", (int(user_id), None if thread_id is None else str(thread_id), str(message_id)))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def cancel_one(conn, user_id, ticket_id, now=None):
+    """Prompt X1: cancel one open ticket of the user (a No); commits. Returns True when it was open."""
+    now = now or clock()
+    with conn.cursor() as cur:
+        cur.execute("UPDATE squad_previews SET cancelled_at = %s WHERE id = %s AND user_id = %s AND used_at IS NULL "
+                    "AND cancelled_at IS NULL", (now, str(ticket_id), int(user_id)))
+        n = cur.rowcount
+    conn.commit()
+    return n == 1
 
 
 def cancel_for_user(conn, user_id, now=None):

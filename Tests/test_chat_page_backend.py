@@ -266,7 +266,7 @@ def test_d3_a_bench_reorder_is_one_row_per_changed_bench_position(w4):
 def test_d3_a_committed_confirm_is_squad_applied_and_the_turn_has_no_preview(w4):
     a1 = _chat(w4, tf.PREVIEW_Q)
     a2 = _chat(w4, tf.YES_Q, a1["thread_id"])
-    assert a2["answer"] == "Written." and a2["squad_preview"] is None
+    assert a2["answer"].startswith("Done — saved to your squad.") and a2["squad_preview"] is None   # X1: by code
     assert set(a2["squad_applied"]) == {"gw", "version_id"} and a2["squad_applied"]["gw"] == 9
     assert isinstance(a2["squad_applied"]["version_id"], int)
     msgs = _messages(w4, a1["thread_id"])

@@ -1802,8 +1802,10 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
             row = squad_store.write_version(active, new_doc, gw, note, confirm, conn=conn, user_id=owner)
         except squad_store.SquadStateError as e:
             return {"error": str(e)}
-        if not confirm:
-            ticket = squad_previews.issue(conn, user_id, turn, fp, active["version_id"])
+        if not confirm:                                  # Prompt X1: the ticket keeps the change a Yes will commit
+            ticket = squad_previews.issue(conn, user_id, turn, fp, active["version_id"], args={
+                "player_ids": list(player_ids or []), "captain_id": captain_id, "vice_id": vice_id,
+                "bench_order_ids": list(bench_order_ids or []), "gw": gw, "note": note, "proposal_id": proposal_id})
     finally:
         conn.close()
 

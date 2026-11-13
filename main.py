@@ -179,7 +179,8 @@ CLERK_ROUTES = {("POST", "/chat"), ("POST", "/reset"), ("GET", "/admin"), ("GET"
                 ("GET", "/guest/status"), ("POST", "/guest/start"),             # Prompt W9: guest mode (public; 404 in off mode)
                 ("POST", "/me/ping"), ("POST", "/me/leave"),                    # Prompt W9: the guest session's signals
                 ("GET", "/me/draft"), ("POST", "/me/draft"), ("DELETE", "/me/draft"),   # Prompt W11: the draft team
-                ("POST", "/me/draft/rebuild"), ("POST", "/me/draft/explain")}
+                ("POST", "/me/draft/rebuild"), ("POST", "/me/draft/explain"),
+                ("POST", "/me/preview/answer")}                                 # Prompt X1: the preview's Yes / No buttons
 CLERK_ROUTE_PATTERNS = [("GET", re.compile(r"^/threads/[^/]+/messages$")),
                         ("POST", re.compile(r"^/me/teams/[^/]+/(activate|refresh)$")),
                         ("GET", re.compile(r"^/me/teams/[^/]+/card$")),                 # Prompt W4: the Chat page
@@ -968,6 +969,39 @@ def explain_draft(request: DraftExplainRequest, http: Request):
         out = agent_graph.store_scripted_turn(uid, request.thread_id, request.question.strip(), answer)
         return {**out, "sources": [], "squad_preview": None, "squad_applied": None}
     return _draft_call(http, work)
+
+
+class PreviewAnswerRequest(BaseModel):
+    thread_id: str = Field(min_length=1, max_length=64)
+    message_id: str = Field(min_length=1, max_length=64)       # the answer that showed the preview (= its ticket's turn)
+    answer: str = Field(pattern=r"^(yes|no)$")
+
+
+@app.post("/me/preview/answer")
+def preview_answer(request: PreviewAnswerRequest, http: Request):
+    """Prompt X1 (2026-11-13): the preview card's Yes / No buttons, decided by code with no model call ($0): Yes commits
+    THAT preview's ticket when it is still the thread's open preview (else nothing is written and the reply says why); No
+    cancels it and the reply is "No change made.". Stored as the chat's next turn ("Yes" / "No" + the reply), like a typed
+    answer. Any team, draft or general thread of the user: 403 / 409 as /chat."""
+    import confirm_gate
+    import drafts
+    user, refusal = _account(http)
+    if refusal is not None:
+        return refusal
+    uid = int(user["user_id"])
+    with config_roles.acting_user(uid):
+        try:
+            thread_id = threads.resolve(uid, request.thread_id)
+        except threads.ThreadRefused:
+            return JSONResponse({"detail": THREAD_REFUSED}, status_code=403)
+        except threads.TeamChanged as e:
+            return _team_changed(e)
+        draft = drafts.turn_draft(uid, thread_id)
+        with threads.turn_lock(thread_id):
+            said, reply, applied, outcome = confirm_gate.answer_button(uid, thread_id, request.message_id, request.answer, draft)
+            out = agent_graph.store_scripted_turn_locked(uid, thread_id, said, reply, squad_applied=applied)
+    confirm_gate._say(f"  [preview answer: thread {thread_id} {request.answer} -> {outcome}]")
+    return {**out, "sources": [], "squad_preview": None, "squad_applied": applied}
 
 
 @app.delete("/me/draft")

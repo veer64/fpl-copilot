@@ -418,11 +418,14 @@ class Turns:
     def __init__(self, uid, tid, key):
         self.uid, self.tid, self.key, self.n = uid, tid, key, 0
 
-    def run(self, fn, **kw):
+    def run(self, fn, yes=True, **kw):
+        """Prompt X1: a confirm=true call carries the user's yes to its ticket (what confirm_gate sets after "Yes");
+        yes=False is the model calling confirm=true on its own (refused: needs_yes)."""
         import turn_context
         self.n += 1
+        consent = kw.get("preview_ticket") if (kw.get("confirm") and yes) else None
         turn_context.begin(f"turn-{self.n}", started_at=datetime.now(UTC) + timedelta(seconds=self.n), thread_id=self.tid,
-                           draft={"user_id": self.uid, "draft_key": self.key})
+                           draft={"user_id": self.uid, "draft_key": self.key}, consent=consent)
         try:
             return fn(**kw)
         finally:
@@ -1913,3 +1916,87 @@ def test_squad_store_ddl_is_unchanged():
     import squad_store
     from test_squad_store_writes import DDL_SHA256 as SQUAD_DDL
     assert hashlib.sha256(squad_store.DDL.encode("utf-8")).hexdigest() == SQUAD_DDL
+
+
+# ---- Prompt X1 (2026-11-13): a draft change is saved ONLY by the user's explicit yes to THAT preview ---------------------
+# The incident: the owner's "No" to two draft previews was read by the model as a yes and both swaps were saved. Now the
+# model alone can never write, a typed answer is decided by code, and the preview's buttons name their own preview.
+
+def _draft_preview(built):
+    import model_tools as mt
+    d_out, d_in = _legal_swap(built.doc, built.boot)
+    args = _args(built.doc, swap=(d_out["element"], d_in["id"]))
+    prev = built.turns.run(mt.set_my_squad, **args)
+    assert prev["preview"] is True and prev["preview_ticket"], prev
+    return args, prev, f"turn-{built.turns.n}"
+
+
+def test_x1_the_incident_a_models_confirm_after_no_saves_nothing(built):
+    import model_tools as mt
+    args, prev, _ = _draft_preview(built)
+    out = built.turns.run(mt.set_my_squad, yes=False, **args, confirm=True, preview_ticket=prev["preview_ticket"])
+    assert out["refused"] is True and out["reason"] == "needs_yes" and out["draft"] is True
+    assert drafts.read(U1)["version_id"] == built.row["version_id"]
+
+
+@pytest.mark.parametrize("said", ["No", "No, keep it", "no thanks", "nope", "cancel", "don't", "keep my team",
+                                  "no don't change it"])
+def test_x1_a_typed_no_in_the_draft_chat_saves_nothing(built, said):
+    import confirm_gate
+    import turn_context
+    _draft_preview(built)
+    thread = {"thread_id": built.tid, "user_id": U1, "draft": {"user_id": U1, "draft_key": built.row["draft_key"]}}
+    reply, _ = confirm_gate.answer_turn(said, [], thread)
+    turn_context.end()
+    assert reply == "No change made." and drafts.read(U1)["version_id"] == built.row["version_id"]
+
+
+def _after_the_preview(monkeypatch):
+    """Turns.run dates its turns a few seconds AHEAD of now; the answer's turn must start after the preview's."""
+    import turn_context
+    monkeypatch.setattr(turn_context, "clock", lambda: datetime.now(UTC) + timedelta(minutes=5))
+
+
+def test_x1_a_typed_yes_in_the_draft_chat_saves_once(built, monkeypatch):
+    import confirm_gate
+    import turn_context
+    args, prev, _ = _draft_preview(built)
+    _after_the_preview(monkeypatch)
+    thread = {"thread_id": built.tid, "user_id": U1, "draft": {"user_id": U1, "draft_key": built.row["draft_key"]}}
+    reply, _ = confirm_gate.answer_turn("yes please", [], thread)
+    assert turn_context.current()["consent"] == prev["preview_ticket"]   # the commit ran under THIS ticket's consent
+    turn_context.end()
+    row = drafts.read(U1)
+    assert reply.startswith("Done — saved to your draft.") and row["version_id"] != built.row["version_id"]
+    assert row["n_changes"] == 1 and (turn_context.last() or {}).get("squad_applied", {}).get("draft") is True
+    assert confirm_gate.answer_turn("yes", [], thread) is None          # a second yes: nothing open, no second write
+    turn_context.end()
+    assert drafts.read(U1)["version_id"] == row["version_id"]
+
+
+def test_x1_the_buttons_answer_their_own_preview_by_code(built, monkeypatch):
+    """POST /me/preview/answer: No -> "No change made." and the draft unchanged; Yes on that cancelled preview -> nothing;
+    a new preview's Yes -> saved once (squad_applied for the card); a second Yes -> "already saved"; another user -> 403."""
+    _, _, mid = _draft_preview(built)
+    _after_the_preview(monkeypatch)
+    no = _post(built.api, "/me/preview/answer", json={"thread_id": built.tid, "message_id": mid, "answer": "no"})
+    assert no.status_code == 200 and no.json()["answer"] == "No change made." and no.json()["squad_applied"] is None
+    assert drafts.read(U1)["version_id"] == built.row["version_id"]
+    late = _post(built.api, "/me/preview/answer", json={"thread_id": built.tid, "message_id": mid, "answer": "yes"})
+    assert late.json()["answer"].startswith("Nothing was saved") and drafts.read(U1)["version_id"] == built.row["version_id"]
+    _, _, mid2 = _draft_preview(built)
+    assert _post(built.api, "/me/preview/answer", json={"thread_id": built.tid, "message_id": mid2, "answer": "yes"},
+                 sub=T2).status_code == 403
+    yes = _post(built.api, "/me/preview/answer", json={"thread_id": built.tid, "message_id": mid2, "answer": "yes"})
+    row = drafts.read(U1)
+    assert yes.status_code == 200 and yes.json()["answer"].startswith("Done — saved to your draft.")
+    assert yes.json()["squad_applied"] == {"gw": yes.json()["squad_applied"]["gw"], "version_id": row["version_id"],
+                                           "draft": True, "kind": "change"}
+    assert row["version_id"] != built.row["version_id"] and row["n_changes"] == 1
+    again = _post(built.api, "/me/preview/answer", json={"thread_id": built.tid, "message_id": mid2, "answer": "yes"})
+    assert again.json()["answer"] == "That change is already saved." and drafts.read(U1)["version_id"] == row["version_id"]
+    msgs = _get(built.api, f"/threads/{built.tid}/messages").json()
+    said = [m["text"] for m in msgs if m["role"] == "user"][-4:]
+    assert said == ["No", "Yes", "Yes", "Yes"]                          # stored as the chat's turns, like typed answers
+    bad = _post(built.api, "/me/preview/answer", json={"thread_id": built.tid, "message_id": mid2, "answer": "maybe"})
+    assert bad.status_code == 422

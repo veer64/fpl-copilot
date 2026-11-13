@@ -778,8 +778,10 @@ def set_my_squad(d, player_ids=None, captain_id=None, vice_id=None, bench_order_
                 conn.rollback()
                 return {"error": str(e), "draft": True}
             conn.commit()
-        else:
-            ticket = squad_previews.issue(conn, uid, turn, fp, int(row["version_id"]))
+        else:                                            # Prompt X1: the ticket keeps the change a Yes will commit
+            ticket = squad_previews.issue(conn, uid, turn, fp, int(row["version_id"]), args={
+                "player_ids": list(player_ids or []), "captain_id": captain_id, "vice_id": vice_id,
+                "bench_order_ids": list(bench_order_ids or []), "gw": gw, "note": note, "proposal_id": proposal_id})
     finally:
         conn.close()
     next_gw = _next_gw()

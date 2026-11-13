@@ -375,6 +375,10 @@ export const api = {
   // call) and stored as the chat's next turn; the reply has /chat's shape
   draftExplain: (t: TokenGetter, threadId: string, question: string) =>
     apiFetch<ChatReply>(t, "/me/draft/explain", { method: "POST", json: { thread_id: threadId, question } }),
+  // Prompt X1: the preview card's Yes / No -- decided by the server from code for THAT preview (its answer's message id), no
+  // model call; Yes saves that change, No cancels it ("No change made."); the reply has /chat's shape
+  previewAnswer: (t: TokenGetter, threadId: string, messageId: string, answer: "yes" | "no") =>
+    apiFetch<ChatReply>(t, "/me/preview/answer", { method: "POST", json: { thread_id: threadId, message_id: messageId, answer } }),
   chat: (t: TokenGetter, message: string, threadId: string | null, timeoutMs = CHAT_TIMEOUT_MS) =>
     apiFetch<ChatReply>(t, "/chat", { method: "POST", json: threadId ? { message, thread_id: threadId } : { message }, timeoutMs }),
   feedback: (t: TokenGetter, messageId: string, score: Feedback) =>

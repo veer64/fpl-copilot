@@ -843,8 +843,14 @@ def run_agent(user_message: str, messages: list = None, *, thread=None):
     turn_context for its whole duration (Prompt E, 2026-10-27: the squad-write lock reads which turn a tool runs
     in) and closed on every exit, a raised exception included. `thread` (Prompt B, 2026-10-31): {"thread_id",
     "user_id", "max_turns"} when the turn belongs to a stored thread (agent_graph.run_thread_turn, i.e. /chat); None
-    for a caller's own list (the eval runner, the tests), exactly as before."""
+    for a caller's own list (the eval runner, the tests), exactly as before. Prompt X1 (2026-11-13): a message that
+    answers the thread's open squad-change preview (yes / no / unclear) is answered by code first (confirm_gate), with no
+    model call; otherwise nothing changes."""
     try:
+        import confirm_gate
+        scripted = confirm_gate.answer_turn(user_message, messages, thread)
+        if scripted is not None:
+            return scripted
         return _run_turn(user_message, messages, thread=thread)
     finally:
         tracing.close_open()                         # Prompt L: a turn that raised closes its trace at ERROR level

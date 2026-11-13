@@ -263,6 +263,9 @@ def _turn(n):
 def _ask(change, n, **kw):
     import turn_context
     _turn(n)
+    if kw.get("confirm"):                       # Prompt X1: the user's yes to that ticket (what confirm_gate sets)
+        t = turn_context.current()
+        turn_context.begin(t["turn_id"], started_at=t["started_at"], consent=kw.get("preview_ticket"))
     try:
         return mt.set_my_squad(**change, user_id=U, **kw)
     finally:

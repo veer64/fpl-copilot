@@ -329,21 +329,27 @@ def store_scripted_turn(user_id, thread_id, question, answer):
     """Prompt W11e E2: a turn answered by code, not by the model ($0) -- the question and the answer stored exactly as a model
     turn is (the history the agent sees on the next question, the transcript entry, the chat_messages row), under the
     thread's turn lock. Returns {"answer", "thread_id", "message_id"}."""
+    with threads.turn_lock(thread_id):
+        return store_scripted_turn_locked(user_id, thread_id, question, answer)
+
+
+def store_scripted_turn_locked(user_id, thread_id, question, answer, message_id=None, squad_applied=None):
+    """store_scripted_turn's body, for a caller that already holds the thread's turn lock (Prompt X1: the preview's Yes /
+    No buttons; squad_applied = what a Yes saved, for the website's card)."""
     import uuid
     import chat_messages
-    message_id = uuid.uuid4().hex
-    with threads.turn_lock(thread_id):
-        g = thread_graph()
-        cfg = _thread_config(thread_id)
-        stored = _stored(thread_id)
-        before = list(stored.get("messages") or [])
-        transcript = list(stored.get("transcript") or [])
-        q_index = sum(1 for m in before if _is_question(m))
-        at = _now_iso()
-        entry = {"q": q_index, "user": question, "user_at": at, "answer": answer, "answer_at": at, "message_id": message_id}
-        g.update_state(cfg, {"messages": before + [{"role": "user", "content": question}, {"role": "assistant", "content": answer}],
-                             "transcript": transcript + [entry]}, as_node="finalize")
-        chat_messages.record(message_id, thread_id, user_id, q_index, at)
+    message_id = message_id or uuid.uuid4().hex
+    g = thread_graph()
+    cfg = _thread_config(thread_id)
+    stored = _stored(thread_id)
+    before = list(stored.get("messages") or [])
+    transcript = list(stored.get("transcript") or [])
+    q_index = sum(1 for m in before if _is_question(m))
+    at = _now_iso()
+    entry = {"q": q_index, "user": question, "user_at": at, "answer": answer, "answer_at": at, "message_id": message_id}
+    g.update_state(cfg, {"messages": before + [{"role": "user", "content": question}, {"role": "assistant", "content": answer}],
+                         "transcript": transcript + [entry]}, as_node="finalize")
+    chat_messages.record(message_id, thread_id, user_id, q_index, at, squad_applied=squad_applied)
     return {"answer": answer, "thread_id": str(thread_id), "message_id": message_id}
 
 
@@ -389,7 +395,7 @@ def run_thread_turn(user_id, thread_id, user_message):
         record = turn_context.last() or {}               # Prompt W4: what the turn produced beside its text
         entry = {"q": q_index, "user": user_message, "user_at": asked_at,
                  "answer": answer, "answer_at": _now_iso(), "message_id": record.get("message_id")}   # Prompt F1a: the transcript
-        if agent._engine() == "loop":                    # the loop does not checkpoint; its history is stored here
+        if agent._engine() == "loop" or record.get("scripted"):   # the loop (and X1's code-answered turn) do not checkpoint
             g.update_state(cfg, {"messages": history, "transcript": transcript + [entry]}, as_node="finalize")
         else:
             try:

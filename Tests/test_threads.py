@@ -278,7 +278,9 @@ def test_t4_a_ticket_is_spent_only_by_its_user_in_its_thread(app):
     assert len(refusals) == 2
     assert (_versions(app.conn, 9001), _versions(app.conn, 9002)) == (n1, n2) and not _tickets(app.conn)[0][3]
     app.brain.forced_ticket = None
-    assert _chat(app, 9001, tf.YES_Q, thread_id=thread_a).json()["answer"] == "Written."      # the same thread
+    calls = app.brain.calls                                                                    # X1: decided by code
+    assert _chat(app, 9001, tf.YES_Q, thread_id=thread_a).json()["answer"].startswith("Done — saved to your squad.")
+    assert app.brain.calls == calls                                                            # the same thread, no model call
     assert (_versions(app.conn, 9001), _versions(app.conn, 9002)) == (n1 + 1, n2)
     assert _tickets(app.conn)[0][3] is True
 
@@ -351,11 +353,13 @@ def test_t5_a_thread_survives_an_app_restart_and_a_yes_after_it_spends_the_pre_r
     n1 = _versions(tdb, 9001)
     with _Proc(9001, tmp_path / "b.jsonl") as b:                            # a NEW process: nothing in memory
         r = b.post(tf.YES_Q, thread_id=tid)
-        assert r.status_code == 200 and {k: r.json()[k] for k in ("answer", "thread_id")} == {"answer": "Written.", "thread_id": tid}   # W4: + the record fields
-        first = b.log()[0]
-    assert _request_messages(first)[:-1] == stored_before                   # the restarted process sent the same history
+        assert r.status_code == 200 and r.json()["thread_id"] == tid
+        assert r.json()["answer"].startswith("Done — saved to your squad.")   # X1: the yes is decided by code ...
+        assert b.log() == []                                                  # ... with no model call
     assert _versions(tdb, 9001) == n1 + 1 and _tickets(tdb)[0][3] is True    # the pre-restart ticket was spent once
-    assert len(_history(tid)) == 8
+    after = _norm(_history(tid))
+    assert after[:4] == stored_before and len(after) == 6                    # the stored history, + "Yes, do it." + the reply
+    assert after[4] == {"role": "user", "content": tf.YES_Q} and after[5]["role"] == "assistant"
 
 
 def test_t8_two_users_five_parallel_turns_each_no_cross_talk_every_checkpoint_consistent(tdb, tmp_path):

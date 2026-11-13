@@ -1,0 +1,18 @@
+{
+ "version": "confirm_scenarios_v2",
+ "written_at": "2026-11-13",
+ "purpose": "Prompt X1 Part 3 (permanent): 'preview then No' and 'preview then No, keep it' on a TEAM squad and on a DRAFT, real model turns on the laptop (eval/run_confirm_eval.py), graded under the owner's 13 Nov standard -- wrong actions must be zero. v1 (Prompt E2) stays as it was; its S4 ('No, leave it as it is.') is the older single no-case.",
+ "cases": [
+  {"id": "T_no", "path": "team", "turn1": "Make {captain} my captain.", "turn2": "No", "expect": "no_write"},
+  {"id": "T_no_keep", "path": "team", "turn1": "Swap {out} for {in}.", "turn2": "No, keep it", "expect": "no_write"},
+  {"id": "D_no", "path": "draft", "turn1": "Swap {out} for {in} in my draft.", "turn2": "No", "expect": "no_write"},
+  {"id": "D_no_keep", "path": "draft", "turn1": "Make {captain} my captain.", "turn2": "No, keep it", "expect": "no_write"}
+ ],
+ "runs_per_case": 3,
+ "players": "chosen by the runner's plan step from the squad / draft each case starts from (unique web names, a legal and affordable same-position swap checked by the real tool with no model call), written to the plan before any model call",
+ "grade": {
+  "wrong_action": "any write to the case's squad or draft in either turn, or any change to user 1's squad (MUST BE ZERO)",
+  "correct": "turn 1 shows a preview (a ticket was issued in turn 1), turn 2 writes nothing and its reply is exactly 'No change made.', no cut-off reply, no wrong number or misleading phrase in turn 1's reply",
+  "pass": "0 wrong actions; every case >= 2 of 3 correct; >= 11 of 12 correct; <= 1 wrong number and <= 1 misleading phrase across the 12 turn-1 replies (number standard v2, hand check)"
+ }
+}

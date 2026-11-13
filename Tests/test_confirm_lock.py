@@ -145,9 +145,10 @@ def _ticket_row(c, tid):
     return dict(r) if r else None
 
 
-def _turn(n):
-    """Begin turn n of a conversation: distinct ids, strictly later start times."""
-    return turn_context.begin(turn_id=f"turn{n:02d}", started_at=T0 + timedelta(minutes=n))
+def _turn(n, yes=None):
+    """Begin turn n of a conversation: distinct ids, strictly later start times. yes (Prompt X1): the ticket the user said
+    yes to in this turn -- the consent confirm_gate sets; without it no confirm writes (needs_yes)."""
+    return turn_context.begin(turn_id=f"turn{n:02d}", started_at=T0 + timedelta(minutes=n), consent=yes)
 
 
 # ---- the pure parts ---------------------------------------------------------------------------------------------
@@ -163,9 +164,11 @@ def test_fingerprint_is_canonical_over_the_change_and_nothing_else():
 
 
 def test_the_refusal_names_the_reason_and_the_ticket_sentence_names_the_id():
-    for r in sp.REASONS:
+    for r in sp.REASONS[:-1]:
         assert sp.refusal(r) == f"No valid preview for this change (reason: {r}). Show the user a preview first."
-    assert sp.REASONS == ("missing", "same_turn", "different_change", "squad_changed", "used", "cancelled", "expired")
+    assert sp.REASONS == ("missing", "same_turn", "different_change", "squad_changed", "used", "cancelled", "expired",
+                          "needs_yes")                                  # Prompt X1: the user's yes, set by code
+    assert sp.refusal("needs_yes") == sp.NEEDS_YES_REFUSAL
     s = sp.ticket_sentence("abc")
     assert s == ("Preview ticket abc. To apply it after the user says yes in their next message, call this tool again "
                  "with the same changes, confirm=true and preview_ticket=abc.")
@@ -258,7 +261,7 @@ def test_the_valid_two_turn_flow_writes_once_and_marks_the_ticket_used(tool, db)
     n0 = _versions(db)
     pv = tool(**CHANGE_A, confirm=False)
     assert _versions(db) == n0                                                # the preview wrote nothing
-    _turn(2)
+    _turn(2, yes=pv["preview_ticket"])                                       # X1: the user said yes to THIS ticket
     out = tool(**CHANGE_A, confirm=True, preview_ticket=pv["preview_ticket"])
     assert out["committed"] and not out["preview"] and out["change"]["transfers"][0]["in_id"] == 16
     n1 = _versions(db)
@@ -270,7 +273,7 @@ def test_the_valid_two_turn_flow_writes_once_and_marks_the_ticket_used(tool, db)
     assert prov["preview_ticket"] == pv["preview_ticket"] and prov["turn_id"] == "turn02"
     assert prov["turn_started_at"] == (T0 + timedelta(minutes=2)).isoformat()
     assert row["turn_id"] == "turn01" and row["turn_started_at"] < T0 + timedelta(minutes=2)
-    _turn(3)
+    _turn(3, yes=pv["preview_ticket"])
     again = tool(**CHANGE_A, confirm=True, preview_ticket=pv["preview_ticket"])    # used twice
     assert again["refused"] and again["reason"] == "used"
     assert _versions(db) == n1
@@ -447,8 +450,9 @@ def test_loop_c_two_proper_turns_write_once(tool, db, monkeypatch):
     fake2 = _Dyn([lambda kw: _write(CHANGE_A, True, _ticket_in(kw), id_="t2"), lambda kw: _text("Written.")])
     monkeypatch.setattr(ag, "client", fake2)
     answer2, history2 = ag.run_agent("Yes, apply it.", history)
-    assert answer2 == "Written." and len(fake2.calls) == 2
-    assert "'committed': True" in _tool_results(fake2.calls[1])[-1]
+    # Prompt X1: the yes is decided by code (confirm_gate) -- written once, and the model is not called at all
+    assert answer2.startswith("Done — saved to your squad.") and len(fake2.calls) == 0
+    assert history2[-2:] == [{"role": "user", "content": "Yes, apply it."}, {"role": "assistant", "content": answer2}]
     n1 = _versions(db)
     assert n1[0] == n0[0] + 1
     with db.cursor() as cur:

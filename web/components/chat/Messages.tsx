@@ -135,8 +135,8 @@ function AnswerRow({
   pending: boolean;
   now: Date | null;
   phone: boolean;
-  onYes: () => void;
-  onNo: () => void;
+  onYes: (messageId: string | null) => void; // X1: the preview's own answer id
+  onNo: (messageId: string | null) => void;
   onFeedback: (m: AssistantMsg, score: Feedback) => void;
   /** Prompt W11: the draft chips under THIS answer (shown once it has finished writing itself out, like Copy and the thumbs) */
   chips?: DraftChip[] | null;
@@ -166,7 +166,7 @@ function AnswerRow({
             </div>
           </>
         )}
-        {done && m.preview && <PreviewCard preview={m.preview} pending={pending} choice={pending ? null : choiceAfter(msgs, i)} now={now} phone={phone} onYes={onYes} onNo={onNo} />}
+        {done && m.preview && <PreviewCard preview={m.preview} pending={pending} choice={pending ? null : choiceAfter(msgs, i)} now={now} phone={phone} onYes={() => onYes(m.messageId ?? null)} onNo={() => onNo(m.messageId ?? null)} />}
         {done && !m.opening && (
           <div className="ch-ans-foot">
             {m.sources.length > 0 && <SourcesRow sources={m.sources} id={`src-${m.key}`} />}
@@ -200,8 +200,8 @@ export const MessageList = memo(function MessageList({
   msgs: Msg[];
   now: Date | null;
   phone: boolean;
-  onYes: () => void;
-  onNo: () => void;
+  onYes: (messageId: string | null) => void; // X1: the preview's own answer id
+  onNo: (messageId: string | null) => void;
   onRetry: (question: string) => void;
   onStartNew: () => void;
   onFeedback: (m: AssistantMsg, score: Feedback) => void;

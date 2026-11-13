@@ -348,7 +348,7 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
   }, []);
 
   const send = useCallback(
-    async (text: string, opts?: { explain?: boolean }) => {
+    async (text: string, opts?: { explain?: boolean; preview?: { messageId: string; answer: "yes" | "no" } }) => {
       const question = text.trim();
       if (!question || busy || !ctx || disabledText) return;
       setDraft("");
@@ -377,8 +377,13 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
           setThreadId(tid);
           window.history.replaceState(null, "", `/chat/${tid}`);
         }
-        // W11e E2: the "Why these players?" chip is answered from code (no model call); everything else goes to the agent
-        const reply = opts?.explain && ctx.kind === "draft" ? await api.draftExplain(getToken, tid, question) : await api.chat(getToken, question, tid);
+        // W11e E2: the "Why these players?" chip is answered from code (no model call); X1: so are the preview's Yes / No
+        // buttons (that preview only); everything else goes to the agent
+        const reply = opts?.preview
+          ? await api.previewAnswer(getToken, tid, opts.preview.messageId, opts.preview.answer)
+          : opts?.explain && ctx.kind === "draft"
+            ? await api.draftExplain(getToken, tid, question)
+            : await api.chat(getToken, question, tid);
         if (reply.capped && reply.limit) {
           if (reply.limit.kind === "daily" && reply.limit.reset_at) {
             replaceThinking(thinkKey, { kind: "system", key: key("s"), variant: "limit", resetAt: reply.limit.reset_at });
@@ -531,8 +536,9 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
   const onDeadlinesExpired = useCallback(() => reloadDeadlines(), [reloadDeadlines]);
   // W8a: the message list is memoised -- stable callbacks, and the clock reaches it only while a message shows a countdown
   // (a preview's expiry, a limit / rate notice), so the 1 s / 60 s ticks, the music and the card reloads never re-render it
-  const onYes = useCallback(() => send("Yes"), [send]);
-  const onNo = useCallback(() => send("No"), [send]);
+  // X1: the buttons answer THEIR preview by its message id (a typed yes / no is decided by the same server code)
+  const onYes = useCallback((messageId: string | null) => send("Yes", messageId ? { preview: { messageId, answer: "yes" } } : undefined), [send]);
+  const onNo = useCallback((messageId: string | null) => send("No", messageId ? { preview: { messageId, answer: "no" } } : undefined), [send]);
   const listNeedsClock = useMemo(() => msgs.some((m) => m.kind === "system" || (m.kind === "assistant" && !!m.preview)), [msgs]);
   const listNow = listNeedsClock ? now : null;
 
