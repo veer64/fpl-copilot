@@ -83,8 +83,11 @@ const PREVIEW = {
   draft: true, kind: "change",
 };
 
-type State = { teams: number; threads: unknown[]; draft: Draft | null; messages: unknown[]; buildFails: number; answers: { text: string; preview?: unknown; applied?: unknown; after?: () => void }[]; chatBodies: string[]; deletes: number; rebuilds: number; builds: number };
-const S: State = { teams: 0, threads: [], draft: null, messages: [], buildFails: 0, answers: [], chatBodies: [], deletes: 0, rebuilds: 0, builds: 0 };
+type State = { teams: number; threads: unknown[]; draft: Draft | null; messages: unknown[]; buildFails: number; answers: { text: string; preview?: unknown; applied?: unknown; after?: () => void }[]; chatBodies: string[]; deletes: number; rebuilds: number; builds: number; explains: { thread_id: string; question: string }[] };
+const S: State = { teams: 0, threads: [], draft: null, messages: [], buildFails: 0, answers: [], chatBodies: [], deletes: 0, rebuilds: 0, builds: 0, explains: [] };
+// Prompt W11e E2: the squad explanation the server answers the "Why these players?" chip with (from code, no model call)
+const EXPLANATION =
+  "How the 15 were picked: the most predicted points for GW11, the XI's (captain counted twice) plus 0.2 × the bench's, within £100.0m and FPL's squad rules.\nCaptain: Haaland, 7.90 predicted points, 15.80 with the armband.\nBiggest picks, by what the best legal alternative would cost the build's score: Haaland 3.10 (Isak, £10.5m), Salah 1.40 (Palmer, £9.5m), Saka 0.90 (Rogers, £5.5m).\nBench and budget: XI £82.0m, bench £17.6m; bench points count 0.2×, so most of the budget goes on the XI.\n\nWant me to go into any player?";
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
 async function seed(p: Page) {
@@ -131,6 +134,12 @@ async function seed(p: Page) {
     return r.fulfill({ json: { draft: S.draft } });
   });
   await p.route(new RegExp(`^${esc(API)}/messages/[^/]+/feedback$`), (r) => r.fulfill({ json: { ok: true } }));
+  await p.route(`${API}/me/draft/explain`, async (r) => {
+    const body = r.request().postDataJSON() as { thread_id: string; question: string };
+    S.explains.push(body);
+    if (body.thread_id === DRAFT_TID && !(S.threads as { thread_id: string }[]).some((t) => t.thread_id === DRAFT_TID)) S.threads = [draftRow(body.question), ...S.threads];
+    await r.fulfill({ json: { answer: EXPLANATION, thread_id: body.thread_id, message_id: "w11e-explain-1", sources: [], squad_preview: null, squad_applied: null } });
+  });
   await p.route(`${API}/chat`, async (r) => {
     const body = r.request().postDataJSON() as { message: string; thread_id?: string };
     S.chatBodies.push(body.message);
@@ -159,7 +168,7 @@ async function waitTyped(p: Page) {
   await expect(p.locator('[data-testid="assistant-message"][data-revealing="true"]:visible')).toHaveCount(0, { timeout: 15_000 });
 }
 function reset(over: Partial<State> = {}) {
-  Object.assign(S, { teams: 0, threads: [], draft: null, messages: [], buildFails: 0, answers: [], chatBodies: [], deletes: 0, rebuilds: 0, builds: 0 }, over);
+  Object.assign(S, { teams: 0, threads: [], draft: null, messages: [], buildFails: 0, answers: [], chatBodies: [], deletes: 0, rebuilds: 0, builds: 0, explains: [] }, over);
 }
 function withDraft(title?: string) {
   S.draft = draftCard();
@@ -447,16 +456,27 @@ test("chat: the guide chip sends nothing; chips send; used chips never return; t
   await expect(phone() ? vis(page, "guide-sheet") : vis(page, "guide-dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   expect(S.chatBodies).toEqual([]); // the guide chip sent nothing
-  S.answers.push({ text: "Each of the 15 is there for his predicted points: **Haaland** 7.9, **Salah** 7.4. Does that sound good?" });
+  // W11e E2: "Why these players?" is answered from code -- POST /me/draft/explain, never /chat (no model call)
+  await expect(opening.getByText("Why these players?")).toHaveAttribute("data-action", "explain");
+  const t0 = Date.now();
   await opening.getByText("Why these players?").click();
   await expect(vis(page, "answer-chips")).toBeVisible({ timeout: 15_000 });
-  expect(S.chatBodies).toEqual(["Why these players?"]);
+  expect(S.chatBodies).toEqual([]);
+  expect(S.explains).toEqual([{ thread_id: DRAFT_TID, question: "Why these players?" }]);
+  await expect(page.locator('[data-testid="user-message"]:visible').last()).toContainText("Why these players?");
+  await expect(page.locator('[data-testid="assistant-message"]:visible').last()).toContainText("Biggest picks, by what the best legal alternative would cost the build's score");
+  await expect(page.locator('[data-testid="assistant-message"]:visible').last()).toContainText("Want me to go into any player?");
+  note(`E2 chip: answered in ${Date.now() - t0} ms (typing included), /chat calls ${S.chatBodies.length}, explain calls ${S.explains.length}`);
+  await page.waitForTimeout(300);
+  await shot(page, "e2_why_chip_answer");
   const chips = await vis(page, "answer-chips").locator('[data-testid="draft-chip"]').allInnerTexts();
   expect(chips).not.toContain("How would you spend the £0.4m left?"); // £0.4m < £0.5m
   expect(chips).not.toContain("How do I enter this in FPL?"); // the guide was opened from a chip
   expect(chips).toContain("Why Haaland as captain?");
+  S.answers.push({ text: "Haaland: 7.90 predicted points, 15.80 with the armband." });
   await vis(page, "answer-chips").getByText("Why Haaland as captain?").click();
   await waitTyped(page);
+  expect(S.chatBodies).toEqual(["Why Haaland as captain?"]); // every other chip still goes to the agent
   const again = await vis(page, "answer-chips").locator('[data-testid="draft-chip"]').allInnerTexts();
   expect(again).not.toContain("Why Haaland as captain?"); // used: never shown again
   // a draft with £1.2m left shows the spend chip

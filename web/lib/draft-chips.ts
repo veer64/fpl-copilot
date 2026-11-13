@@ -1,13 +1,14 @@
 /** Prompt W11 (O2, O3): EVERY chip a draft chat shows, in one file so the owner can edit the wording. Chips are in the
- *  user's voice. A chip with action "guide" opens the "Enter it in FPL" guide and sends nothing; every other chip under an
- *  answer sends its text as the user's message (the empty state's chips fill the box, as on every chat). Draft chats never
- *  show the Team or General chips. */
+ *  user's voice. A chip with action "guide" opens the "Enter it in FPL" guide and sends nothing; a chip with action "explain"
+ *  (Prompt W11e E2) is answered at once by the server from the draft's own squad explanation -- no model call, $0 -- and
+ *  stored as the chat's next turn; every other chip under an answer sends its text as the user's message (the empty
+ *  state's chips fill the box, as on every chat). Draft chats never show the Team or General chips. */
 
-export type DraftChip = { text: string; action?: "guide" };
+export type DraftChip = { text: string; action?: "guide" | "explain" };
 
 /** O2: under the opening message (while no question has been asked yet). */
 export const OPENING_CHIPS: DraftChip[] = [
-  { text: "Why these players?" },
+  { text: "Why these players?", action: "explain" },
   { text: "Suggest some changes" },
   { text: "I want to swap a player" },
   { text: "How do I enter this in FPL?", action: "guide" },

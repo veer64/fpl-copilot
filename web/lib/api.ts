@@ -371,6 +371,10 @@ export const api = {
   rebuildDraft: (t: TokenGetter) => apiFetch<DraftResult>(t, "/me/draft/rebuild", { method: "POST", timeoutMs: 45_000 }),
   deleteDraft: (t: TokenGetter) => apiFetch<DeleteDraftResult>(t, "/me/draft", { method: "DELETE", timeoutMs: 60_000 }),
   newDraftThread: (t: TokenGetter) => apiFetch<{ thread_id: string; draft: true }>(t, "/threads", { method: "POST", json: { draft: true } }),
+  // Prompt W11e E2: the "Why these players?" chip -- answered by the server from code (the draft's squad explanation, no model
+  // call) and stored as the chat's next turn; the reply has /chat's shape
+  draftExplain: (t: TokenGetter, threadId: string, question: string) =>
+    apiFetch<ChatReply>(t, "/me/draft/explain", { method: "POST", json: { thread_id: threadId, question } }),
   chat: (t: TokenGetter, message: string, threadId: string | null, timeoutMs = CHAT_TIMEOUT_MS) =>
     apiFetch<ChatReply>(t, "/chat", { method: "POST", json: threadId ? { message, thread_id: threadId } : { message }, timeoutMs }),
   feedback: (t: TokenGetter, messageId: string, score: Feedback) =>

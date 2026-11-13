@@ -348,7 +348,7 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
   }, []);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, opts?: { explain?: boolean }) => {
       const question = text.trim();
       if (!question || busy || !ctx || disabledText) return;
       setDraft("");
@@ -377,7 +377,8 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
           setThreadId(tid);
           window.history.replaceState(null, "", `/chat/${tid}`);
         }
-        const reply = await api.chat(getToken, question, tid);
+        // W11e E2: the "Why these players?" chip is answered from code (no model call); everything else goes to the agent
+        const reply = opts?.explain && ctx.kind === "draft" ? await api.draftExplain(getToken, tid, question) : await api.chat(getToken, question, tid);
         if (reply.capped && reply.limit) {
           if (reply.limit.kind === "daily" && reply.limit.reset_at) {
             replaceThinking(thinkKey, { kind: "system", key: key("s"), variant: "limit", resetAt: reply.limit.reset_at });
@@ -557,7 +558,7 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
         setGuideFromChip(true);
         setGuideOpen(true);
       } else {
-        send(c.text);
+        send(c.text, c.action === "explain" ? { explain: true } : undefined);
       }
     },
     [send, setGuideOpen, setGuideFromChip],
