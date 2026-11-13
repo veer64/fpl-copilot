@@ -599,10 +599,10 @@ def test_c7_the_seven_squad_tools_answer_for_the_draft_in_a_draft_turn_only(buil
     assert "free_transfers_now" not in sq and "bank" not in sq
     xi = built.turns.run(mt.get_my_xi)
     assert xi["draft"] is True and len(xi["xi"]) == 11 and xi["adopt_with"]["player_ids"] == sorted(sq["rebuild_with"]["player_ids"])
-    for fn in (mt.propose_transfers, mt.get_my_points, mt.get_wildcard_gap):
+    for fn in (mt.get_my_points, mt.get_wildcard_gap):
         out = built.turns.run(fn)
         assert out["draft"] is True and out["not_applicable"] is True
-    assert "free and unlimited" in built.turns.run(mt.propose_transfers)["message"]
+    assert built.turns.run(mt.propose_transfers)["kind"] == "free_swaps"      # W11c R1: the draft's best free swaps
 
 
 def test_c8_rebuild_in_chat_is_a_preview_of_rebuild_with_and_yes_saves_it_as_a_rebuild(built):
@@ -850,6 +850,199 @@ def test_n4c_two_draft_players_with_the_name_still_ask_and_none_says_so(built, m
     assert "ask which" in out["draft_note"]
     none = built.turns.run(mt.resolve_player, name="Nobody Here")
     assert none["in_your_draft"] is None and "No player in the user's draft" in none["draft_note"]
+
+
+# ---- W: the root causes behind W11b's eval failures (Prompt W11c, 2026-11-13) --------------------------------------------------
+# R1 "suggest changes" had no tool; R2 refusals did not lead with the alternatives; R3 the agent invented reasons; R4 money it
+# restated or rounded. On draft turns only.
+
+def _solver_score(boot, ids):
+    """The build's own score for a fixed fifteen, by the REAL optimiser (optimize_squad at its defaults, the fifteen locked):
+    (objective, XI points with the captain counted twice)."""
+    import simulator as sim
+    from optimize import optimize_squad, resolve_bench_weight
+    pool = pool_of(boot)
+    p15 = pool[pool["element"].isin(ids)].reset_index(drop=True)
+    prob, sol = optimize_squad(p15, locked_elements=sorted(ids), budget=int(p15["value"].sum()))
+    team = sim.solution_to_squad(p15, sol)
+    xi = team[team["role"] != "bench"]
+    cap = float(team.loc[team["role"] == "CAPTAIN", "e_points"].iloc[0])
+    bench = float(team.loc[team["role"] == "bench", "e_points"].sum())
+    return float(xi["e_points"].sum()) + cap + resolve_bench_weight() * bench, float(xi["e_points"].sum()) + cap
+
+
+def _legal_single_swaps(doc, boot):
+    have = {int(p["element"]) for p in doc["players"]}
+    names = {t["id"]: t["name"] for t in boot["teams"]}
+    price, clubs = _price(boot), _club_counts(doc)
+    value = sum(price[e] for e in have)
+    out = []
+    for p in doc["players"]:
+        o = int(p["element"])
+        for e in _by_pos(boot, p["position"]):
+            club = names[e["team"]]
+            if e["id"] in have or clubs.get(club, 0) - (1 if club == p["team"] else 0) >= 3:
+                continue
+            if value - price[o] + e["now_cost"] <= 1000:
+                out.append((o, e["id"]))
+    return out
+
+
+def test_w1_propose_transfers_in_a_draft_gives_the_best_free_swaps_by_the_builds_own_score(built):
+    import random
+    import model_tools as mt
+    doc, boot = built.doc, built.boot
+    out = built.turns.run(mt.propose_transfers)
+    assert out["draft"] is True and out["kind"] == "free_swaps" and 1 <= len(out["swaps"]) <= 3, out
+    assert out["already_best"] is True and "already the best" in out["summary"]   # the synthetic draft IS the build
+    assert "suggestion" in out["how_to_present"] and "only after the user picks" in out["how_to_present"]
+    have = [int(p["element"]) for p in doc["players"]]
+    base_obj, base_xi = _solver_score(boot, have)
+    pts, price = _pts(boot), _price(boot)
+    tops = []
+    for s in out["swaps"]:
+        o, i = s["out"]["player_id"], s["in"]["player_id"]
+        assert (s["out"]["e_points"], s["in"]["e_points"]) == (pts[o], pts[i])
+        assert s["points_difference"] == round(pts[i] - pts[o], 2)
+        assert s["price_difference"] == round((price[i] - price[o]) / 10, 1)
+        after = sum(price[e] for e in have) - price[o] + price[i]
+        assert s["value_after"] == round(after / 10, 1) and s["left_after"] == round((1000 - after) / 10, 1)
+        new = [i if e == o else e for e in have]
+        obj, xi = _solver_score(boot, new)
+        assert abs(s["xi_points_after"] - xi) <= 0.06 and abs(s["build_score_change"] - (obj - base_obj)) <= 0.02
+        assert s["build_score_change"] <= 0                                  # nothing beats the build
+        a = s["preview_with"]
+        drafts.plan_change(doc, a["player_ids"], a["captain_id"], a["vice_id"], a["bench_order_ids"],
+                           drafts.player_meta(a["player_ids"], ctx=built.api.league.ctx()), {e["id"]: e["now_cost"] for e in boot["elements"]})
+        assert sorted(a["player_ids"]) == sorted(new) and a["confirm"] is False
+        tops.append(obj)
+    assert tops == sorted(tops, reverse=True)
+    rng = random.Random(3)
+    for o, i in rng.sample(_legal_single_swaps(doc, boot), 25):            # no sampled legal swap scores above the first
+        assert _solver_score(boot, [i if e == o else e for e in have])[0] <= tops[0] + 1e-6
+    assert drafts.read(U1)["version_id"] == built.row["version_id"]
+    assert _q(built.api.conn, "SELECT count(*) FROM squad_previews")[0][0] == 0
+
+
+def test_w1b_after_a_worse_change_the_first_free_swap_gains(built):
+    import db_write
+    import model_tools as mt
+    doc, boot = built.doc, built.boot
+    have = {int(p["element"]) for p in doc["players"]}
+    price = _price(boot)
+    start_def = max((p for p in doc["players"] if p["position"] == "DEF" and p["role"] == "start"), key=lambda p: _pts(boot)[p["element"]])
+    clubs, names = _club_counts(doc), {t["id"]: t["name"] for t in boot["teams"]}
+    worse = min((e for e in _by_pos(boot, "DEF") if e["id"] not in have and e["now_cost"] <= price[start_def["element"]]
+                 and clubs.get(names[e["team"]], 0) < 3), key=lambda e: e["_pts"])
+    a = _args(doc, swap=(start_def["element"], worse["id"]))
+    new_doc, _ = drafts.plan_change(doc, a["player_ids"], a["captain_id"], a["vice_id"], a["bench_order_ids"],
+                                    drafts.player_meta(a["player_ids"] + list(have), ctx=built.api.league.ctx()), price)
+    conn = db_write.connect()
+    try:
+        drafts.write_change(conn, U1, built.row["version_id"], new_doc)
+        conn.commit()
+    finally:
+        conn.close()
+    out = built.turns.run(mt.propose_transfers)
+    assert out["already_best"] is False and out["swaps"][0]["build_score_change"] > 0, out
+    assert out["swaps"][0]["xi_points_change"] >= 0 and "best free swaps" in out["summary"]
+
+
+def _first_keys(d, n=2):
+    return list(d)[:n]
+
+
+def test_w2_a_refusal_leads_with_the_alternatives_in_a_ready_sentence(built):
+    import model_tools as mt
+    out_mid, dear, value = _over_swap(built)
+    out = built.turns.run(mt.set_my_squad, **_args(built.doc, swap=(out_mid["element"], dear["id"])))
+    assert out["reason_kind"] == "over_budget" and _first_keys(out) == ["instead", "legal_alternatives"], list(out)
+    alts = out["legal_alternatives"]
+    parts = [f"{a['short_name']} ({a['price_text']}, {a['left_after_text']})" for a in alts]
+    want = "Instead you could bring in " + (", ".join(parts[:-1]) + " or " + parts[-1] if len(parts) > 1 else parts[0]) + "."
+    assert out["instead"] == want
+
+
+def test_w2b_a_club_cap_refusal_leads_with_its_alternatives_too(built):
+    import model_tools as mt
+    doc, boot = built.doc, built.boot
+    names = {t["id"]: t["name"] for t in boot["teams"]}
+    clubs, have = _club_counts(doc), {int(p["element"]) for p in doc["players"]}
+    club = max(clubs, key=clubs.get)
+    args, swaps = _args(doc), []
+    for e in sorted(boot["elements"], key=lambda e: e["now_cost"]):
+        if len(swaps) == 4 - clubs[club]:
+            break
+        if names[e["team"]] != club or e["id"] in have:
+            continue
+        o = next((p for p in doc["players"] if p["position"] == POS[e["element_type"]] and p["team"] != club
+                  and p["role"] in ("bench", "start") and p["element"] not in [s[0] for s in swaps]), None)
+        if o is not None:
+            swaps.append((o["element"], e["id"]))
+    for o, n in swaps:
+        args["player_ids"] = [n if x == o else x for x in args["player_ids"]]
+        args["bench_order_ids"] = [n if x == o else x for x in args["bench_order_ids"]]
+    out = built.turns.run(mt.set_my_squad, **args)
+    assert out["reason_kind"] == "club_cap" and _first_keys(out) == ["instead", "legal_alternatives"], list(out)
+    assert out["instead"].startswith("Instead") and all(a["short_name"] in out["instead"] for a in out["legal_alternatives"])
+
+
+def test_w3_get_my_squad_says_how_the_fifteen_were_picked_and_only_facts_per_player(built):
+    import model_tools as mt
+    sq = built.turns.run(mt.get_my_squad)
+    assert "basis" not in sq
+    hp = sq["how_picked"]
+    for must in ("most predicted points for GW10", "captain counted twice", "0.2", "bench", "£100.0m", "squad rules"):
+        assert must in hp, must
+    assert "only" in sq["reasons_rule"] and "predicted points, price, club and next fixture" in sq["reasons_rule"]
+    ctx = built.api.league.ctx()
+    team_of = {e["id"]: e["team"] for e in built.boot["elements"]}
+    for r in sq["xi"] + sq["bench_in_order"]:
+        nf = ctx.next_fixture(team_of[r["player_id"]])
+        assert r["next_fixture"] == f"{nf['opp']} ({'H' if nf['home'] else 'A'})", r
+    wording = (REPO / "prompts" / "draft_mode.md").read_text(encoding="utf-8")
+    for must in ("only reasons a tool states", "propose_transfers", "instead"):
+        assert must in wording, must
+
+
+MONEY_PLAIN = ("price", "out_price", "in_price", "value", "value_before", "value_after", "budget", "instead_of_price", "replaces_price")
+MONEY_LEFT = ("left", "left_before", "left_after")
+MONEY_OVER = ("over", "over_after", "over_by")
+
+
+def _money_texts_ok(x, path="", seen=None):
+    """Every money number in a draft tool's output has its said form beside it (R4); returns the money keys checked."""
+    seen = [] if seen is None else seen
+    if isinstance(x, dict):
+        for k, v in x.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and k in MONEY_PLAIN + MONEY_LEFT + MONEY_OVER + ("price_difference",):
+                want = (f"£{v:.1f}m" if k in MONEY_PLAIN else f"£{v:.1f}m left" if k in MONEY_LEFT else f"£{v:.1f}m over"
+                        if k in MONEY_OVER else ("the same price" if v == 0 else f"£{abs(v):.1f}m {'more' if v > 0 else 'less'}"))
+                assert x.get(f"{k}_text") == want, f"{path}.{k}: {x.get(k + '_text')!r} != {want!r}"
+                seen.append(k)
+            else:
+                _money_texts_ok(v, f"{path}.{k}", seen)
+    elif isinstance(x, list):
+        for i, v in enumerate(x):
+            _money_texts_ok(v, f"{path}[{i}]", seen)
+    return seen
+
+
+def test_w4_every_money_figure_is_in_the_output_as_it_would_be_said(built):
+    import model_tools as mt
+    d_out, d_in = _legal_swap(built.doc, built.boot)
+    outs = {"squad": built.turns.run(mt.get_my_squad), "xi": built.turns.run(mt.get_my_xi),
+            "preview": built.turns.run(mt.set_my_squad, **_args(built.doc, swap=(d_out["element"], d_in["id"]))),
+            "swaps": built.turns.run(mt.propose_transfers)}
+    out_mid, dear, _ = _over_swap(built)
+    outs["over"] = built.turns.run(mt.set_my_squad, **_args(built.doc, swap=(out_mid["element"], dear["id"])))
+    seen = {k: set(_money_texts_ok(v, k)) for k, v in outs.items()}
+    assert {"price", "value", "left", "budget"} <= seen["squad"] and {"value", "left"} <= seen["xi"]
+    assert {"out_price", "in_price", "price_difference", "value_before", "left_before", "value_after", "left_after"} <= seen["preview"]
+    assert {"over_by", "value_before", "left_before", "value_after", "price", "left_after"} <= seen["over"]
+    assert {"price", "price_difference", "value_after", "left_after"} <= seen["swaps"]
+    built.api.league.raise_prices(2, {int(p["element"]) for p in built.doc["players"]})
+    assert "over" in _money_texts_ok(built.turns.run(mt.get_my_squad), "squad_over")
 
 
 # ---- S: real squads are never touched ----------------------------------------------------------------------------------------

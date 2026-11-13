@@ -2256,10 +2256,10 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     user request is always 'chat') or 'proof' for a maintainer's verification
     run -- proof rows are marked so the track record never starts with
     synthetic entries."""
-    _d = _draft_turn()                                   # Prompt W11: the user's draft chat -> the draft's own tool
+    _d = _draft_turn()                                   # Prompt W11c R1: in the user's draft chat, the best FREE swaps
     if _d is not None:
         import draft_tools
-        return draft_tools.not_applicable("transfer plan")
+        return draft_tools.free_swaps(_d)
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     if source not in ("chat", "proof", "deadline_run"):
         return {"error": f"source must be chat | proof | deadline_run, got {source!r}"}
