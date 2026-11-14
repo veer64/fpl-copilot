@@ -1582,3 +1582,88 @@ players. Measured 2026-10-02 on the canary article (`eval/run_canaries.py --dry-
 line "Lewis-Potter (BRE), Lewis (MCI), Schade (BRE)"; the canary placeholders exclude hyphenated
 web_names for that reason (eval/run_canaries.py `resolve_placeholders`). The judge's verdict on
 that article was not measured with the artefact present (the run used Schade instead).
+
+## #29 -- the simulator opened every season holding a free transfer FPL does not give: TWO at the gameweek-2 deadline (three at gameweek 3 after the record's gameweek-2 Wildcard) -- CLOSED 2026-11-14 (M1)
+
+**Status:** Found 2026-11-14 by the X2 review of an outside repo (`eval/reports/x2_luck_or_skill_plan.md`
+sections 8 A1 and 9; their replay opens with none and adds one from gameweek 2). Fixed the same day
+on branch `m1-fix-record` (the commit that adds this entry). Scope: every season the simulator has
+ever played -- all three reference logs of record (`data/arms/armlog_{2023_24,2024_25,2025_26}_gap0_tc2.parquet`
+carry `free_transfers` = 2 after GW1 and 3 after GW2) and every earlier family in
+`Logs/season_totals_index.md`. The live product was never affected: an imported squad's free transfers
+are derived from its own FPL history (`fpl_import.derive_free_transfers`).
+
+### What was wrong
+
+`simulate_season` built the gameweek-1 state with `SquadState(..., free_transfers=1)` and then called
+`end_gameweek()`, which earns the next week's transfer -- so the manager stood at the gameweek-2 deadline
+with two. FPL: unlimited changes before the first deadline, no free transfer held at it, one from
+gameweek 2 (`game_settings`, read from the fplcache snapshots: `max_extra_free_transfers` 4, i.e. a cap
+of 5, in 2024-25, 2025-26 and 2026-27). The same `free_transfers=1` sat at every sibling opening site:
+the gated opening-horizon solve, the gated robust opening, `squad/pathcontrol._replay` and
+`eval/run_arms_full_system.replay_state`.
+
+Reproduced before the fix (R0, unchanged code and frames, `C:\dev\fpl-backups\m1_files\runs\*_r0.parquet`):
+all three reference logs bit-identical in every column, free transfers 2 / 3 at the GW2 / GW3 deadlines
+in every season. At face value on those logs' own transfers the opening gift is one 4-point hit a season
+(the transfers the simulator made free and FPL would have charged: 2023-24 GW3, 2024-25 GW4, 2025-26 GW4).
+
+### The fix
+
+`squad_state.OPENING_FREE_TRANSFERS = 0`, read live at every site that opens a simulated season
+(`squad/simulator.py` -- the gameweek-1 state and the opening-horizon solve; `squad/opening_robust.py`;
+`squad/pathcontrol.py`). Every decision-log row is stamped `opening_free_transfers` (0; -1 for a segment
+resumed from a caller's state, which `eval/run_arms_full_system.py` re-stamps with its reference log's
+opening). `replay_state` opens a log the way THAT LOG opened: a log without the stamp was written before
+2026-11-14 and replays from one, so the old record stays reproducible gameweek by gameweek.
+`SquadState`'s default (1) and `initial_squad_from_team` are unchanged -- they describe a squad at a
+later deadline (the live seed, `eval/seed_squad_gw4.py`), not a season opening.
+
+Only the opening moved. After it, the simulator holds one free transfer at gameweek 2 and -- with the
+record's gameweek-2 Wildcard -- two at gameweek 3; FPL's rule gives one there. That remainder is the
+chip-week rule, #30 below, deliberately left open by M1.
+
+### Guard and record
+
+`Tests/test_season_opening.py` (19 tests; 18 failed before the fix): the opening for every season the
+full-system simulator runs, with and without the gameweek-2 Wildcard; the gameweek-3 banking rule; the
+stamp; the opening-horizon and path-control sites; replay of new and of unstamped logs. The restated
+figures of record are in `Logs/season_totals_index.md` (the 2026-11-14 block); they are one path each.
+
+## #30 -- the simulator EARNS a free transfer in a Wildcard / Free Hit week; FPL (and the live import's rule) keeps the banked transfers and earns none -- OPEN 2026-11-14 (found by M1, outside its scope, NOT fixed)
+
+**Status:** Found 2026-11-14 while reading the free-transfer rules for #29. Not fixed: M1 was scoped to
+the opening only. Scope: every simulated season with an in-sim chip -- the reference configuration plays
+three (Wildcard 1 at GW2, Free Hit 2, Wildcard 2).
+
+### What is wrong
+
+On a chip week the simulator spends no banked transfer (`free_before = n_transfers`, no
+`spend_transfers`) and then calls `end_gameweek()`, which adds one: banked + 1 the following week
+(`squad/simulator.py`, "leaving state.free_transfers untouched means the bank carries into next week" --
+and the +1 on top). The transfer MIP plans the same way (`spend[wildcard_step] = 0` inside
+`ft[t] <= ft[t-1] - spend[t-1] + hits[t-1] + 1`, `squad/transfer_mip.py`).
+
+The live import does the opposite and is the rule that agrees with FPL's own accounting:
+`fpl_import.derive_free_transfers` -- "a wildcard / free hit week spends none and earns none" -- pinned by
+`Tests/test_fpl_import.py::test_i3_the_recorded_hit_fits_only_no_earning_in_a_chip_week` on a saved
+real team history (the hit FPL charged at GW6 fits only that rule). So the two halves of this repo
+disagree, and the simulator is the generous one: one free transfer too many after each in-sim chip.
+
+Measured on the record's own transfers (face value, `C:\dev\fpl-backups\m1_files\evidence_06_ft_ledger_R0.txt`):
+under FPL's rule each reference season would have been charged FOUR more hits than the log shows (16
+points) -- one from the opening (#29) and three from the chip weeks -- and no week ever ended at the cap of
+5, so every gifted transfer was spent. After M1 the chip-week three remain. Face value only: a planner
+that knew it had fewer free transfers would have chosen differently.
+
+Also not modelled, by the project's one-rule-set convention (`squad/chip_legality.py`: the 2025-26 rules
+on every backtest season): 2023-24's own free-transfer rules (its `game_settings` carry no
+`max_extra_free_transfers` key -- the older, smaller bank).
+
+### To close
+
+Decide the convention (FPL's 2025-26 rule on every season: banked transfers kept through a Wildcard /
+Free Hit, none earned that week), change the chip-week accounting in `simulate_season` and
+`pathcontrol._replay` and the MIP's chain at a wildcard step together, update
+`Tests/test_season_opening.py::test_gameweek_3_after_a_gameweek_2_wildcard__simulator_2_live_rule_1__known_issue_30`
+(it pins today's 2-versus-1 on purpose), re-run the three reference seasons and restate the record once more.

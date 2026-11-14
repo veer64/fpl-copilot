@@ -60,6 +60,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pulp  # noqa: E402
 
 from optimize import optimize_squad, get_team  # noqa: E402
+import squad_state as _squad_state  # noqa: E402   (OPENING_FREE_TRANSFERS, read live -- KNOWN_ISSUES #29)
 from transfer_mip import build_and_solve  # noqa: E402
 
 SEED = 20260820
@@ -245,7 +246,7 @@ def robust_opening_squad(pool_by_gw, prob_by_gw, decay, mode="balanced",
             pools_k[gw] = df
         status, plan = build_and_solve(
             pools_k, current_squad=[], purchase_prices={}, bank=0,
-            free_transfers=1, mode=mode, decay=decay)
+            free_transfers=_squad_state.OPENING_FREE_TRANSFERS, mode=mode, decay=decay)
         if plan is None:
             continue
         squad = tuple(sorted(plan[0]["squad"]))
@@ -260,7 +261,7 @@ def robust_opening_squad(pool_by_gw, prob_by_gw, decay, mode="balanced",
     # expectation horizon MIP (Step 1's rule) and any caller references.
     status, plan = build_and_solve(
         pool_by_gw, current_squad=[], purchase_prices={}, bank=0,
-        free_transfers=1, mode=mode, decay=decay)
+        free_transfers=_squad_state.OPENING_FREE_TRANSFERS, mode=mode, decay=decay)
     if plan is not None:
         squad = tuple(sorted(plan[0]["squad"]))
         if squad not in seen:

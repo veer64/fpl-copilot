@@ -42,6 +42,16 @@ simulator; scoring lives in scoring.py.
 import pandas as pd
 
 MAX_FREE_TRANSFERS = 5      # free transfers bank up to this many
+# Free transfers HELD AT THE FIRST DEADLINE of a simulated season: none. FPL's gameweek-1 squad
+# is a free pick and no free transfer exists yet -- the first is earned for gameweek 2, which
+# end_gameweek() adds. Until 2026-11-14 every season-opening site passed 1, so the simulated
+# manager stood at the gameweek-2 deadline with TWO free transfers, and with three at gameweek 3
+# after the record's gameweek-2 Wildcard (KNOWN_ISSUES #29; found by X2, fixed by M1). Read LIVE
+# (module attribute) by the simulator, the opening-horizon and robust opening solves, the
+# path-control replay and eval/run_arms_full_system.replay_state, and stamped into every
+# decision-log row as `opening_free_transfers`. A game rule, not a tunable. SquadState's own
+# default below (1) is a squad at a LATER deadline and is unchanged.
+OPENING_FREE_TRANSFERS = 0
 SQUAD_SIZE = 15
 STARTING_BUDGET = 1000      # £100.0m in tenths
 
@@ -305,6 +315,12 @@ def initial_squad_from_team(team, prices=None):
 
     At gameweek 1 there is no history, so purchase_price is simply the price you
     paid — the `value` column from the optimizer input.
+
+    NOT a season opening: this seeds a squad that stands at a deadline with ONE
+    free transfer (its one caller, eval/seed_squad_gw4.py, seeds a live squad
+    mid-season). A SIMULATED season opens with OPENING_FREE_TRANSFERS (0) --
+    see that constant and KNOWN_ISSUES #29; the simulator does not come through
+    here.
     """
     s = team.copy()
     s["purchase_price"] = s["value"].astype(int)

@@ -26,17 +26,36 @@ WC1 = 2
 START_GW = {"2024-25": 8}          # props coverage begins 2024-25 GW8; other seasons run in full
 
 
+def log_opening(log):
+    """Free transfers a decision log held at its season's first deadline: its
+    `opening_free_transfers` stamp, or 1 for a log written before the stamp
+    existed (2026-11-14, KNOWN_ISSUES #29). A resumed segment stamps -1 inside
+    the simulator and is re-stamped by main() below with its reference's value."""
+    if "opening_free_transfers" in log.columns:
+        v = int(log["opening_free_transfers"].iloc[0])
+        assert v >= 0, "a resumed segment's opening must be read from the log it resumed from"
+        return v
+    return 1
+
+
 def replay_state(log, df, through_gw):
     """Rebuild the SquadState at the END of `through_gw` from a decision log by
     replaying its transfers on the canonical frame's prices; asserted against
-    the log at every gameweek."""
+    the log at every gameweek.
+
+    The season is opened as THE LOG opened it (KNOWN_ISSUES #29): a log stamped
+    `opening_free_transfers` opened with that many free transfers at the first
+    deadline (0 since 2026-11-14); a log without the stamp was written before
+    that date and opened with 1, so every armlog of the old record still replays
+    gameweek by gameweek against its own free-transfer column."""
+    opening = log_opening(log)
     log = log.set_index("gw")
     els = json.loads(log.loc[1, "elements"]) if isinstance(log.loc[1, "elements"], str) else list(log.loc[1, "elements"])
     pool1 = simulator.gw_slice(df, 1, cutoff=1)
     start = pool1[pool1["element"].isin(els)][["element", "name", "position", "team", "value"]].copy()
     assert len(start) == 15, f"GW1 squad has {len(start)} rows in the pool"
     start["purchase_price"] = start["value"].astype(int)
-    state = SquadState(start, bank=STARTING_BUDGET - int(start["purchase_price"].sum()), free_transfers=1)
+    state = SquadState(start, bank=STARTING_BUDGET - int(start["purchase_price"].sum()), free_transfers=opening)
     for gw in range(1, through_gw + 1):
         row = log.loc[gw]
         pool = simulator.gw_slice(df, gw, cutoff=gw)
@@ -169,6 +188,9 @@ def main():
     state, log = simulator.simulate_season(df, policy="mip", horizon=rfs.H, decay=rfs.DECAY, gws=gws, initial_state=initial, verbose=False, **sched)
     simulator.HOLD_PREFERENCE_EPS = None      # gate rests None (hold_gap0 sets it in-process only)
     log = log.copy()
+    if start_gw > 1:
+        # a resumed segment did not open the season: its opening is the reference log's (KNOWN_ISSUES #29)
+        log["opening_free_transfers"] = int(log_opening(ref))
     played = set(int(g) for g in log["gw"])
     if start_gw > 1:
         played |= set(int(g) for g in ref["gw"] if g < start_gw)

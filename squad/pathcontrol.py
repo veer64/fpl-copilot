@@ -56,6 +56,7 @@ from scoring import assign_bench_order, score_gameweek
 from simulator import (_pool_with_owned, decide_gameweek_mip, gw_actuals,
                        gw_slice, solution_to_squad)
 from squad_state import STARTING_BUDGET, SquadState
+import squad_state as _squad_state     # OPENING_FREE_TRANSFERS, read live (KNOWN_ISSUES #29)
 from transfer_mip import DEFAULT_DECAY, DEFAULT_HORIZON
 
 DEFAULT_W = (1, 2, 3, 5)
@@ -103,9 +104,11 @@ def _replay(arm, gws, state=None):
             transfers = []
             start = team.copy()
             start["purchase_price"] = start["value"].astype(int)
+            # The season opens exactly as simulate_season opens it (KNOWN_ISSUES #29):
+            # no free transfer at the first deadline; the first is earned for gameweek 2.
             state = SquadState(start,
                                bank=STARTING_BUDGET - int(start["purchase_price"].sum()),
-                               free_transfers=1)
+                               free_transfers=_squad_state.OPENING_FREE_TRANSFERS)
         else:
             team, transfers, _step, _eff = decide_gameweek_mip(
                 df, gw, state, pool, prices, arm.all_gws, mode=arm.mode,

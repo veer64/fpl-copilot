@@ -69,6 +69,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from optimize import optimize_squad, get_team, BUDGET
 from scoring import assign_bench_order, score_gameweek
 from squad_state import SquadState, sell_price, STARTING_BUDGET
+import squad_state as _squad_state     # OPENING_FREE_TRANSFERS is read live (KNOWN_ISSUES #29)
 from transfer_mip import (build_and_solve, plan_to_team,
                           DEFAULT_HORIZON, DEFAULT_DECAY)
 
@@ -727,6 +728,14 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
 
     log = []
     state = initial_state
+    # THE OPENING (KNOWN_ISSUES #29, fixed 2026-11-14 by M1). Free transfers held at the first
+    # deadline of the season: squad_state.OPENING_FREE_TRANSFERS (0 -- FPL's gameweek-1 squad is a
+    # free pick, the first free transfer is earned for gameweek 2). Read once here and stamped on
+    # every log row as `opening_free_transfers`; a run that RESUMES from a caller's state did not
+    # open the season, so it stamps -1 and the caller records the opening of the log it replayed
+    # (eval/run_arms_full_system.py). Logs written before 2026-11-14 carry no stamp and opened with 1.
+    opening_free_transfers = int(_squad_state.OPENING_FREE_TRANSFERS)
+    opening_stamp = opening_free_transfers if initial_state is None else -1
     # Whether the opening squad was ACTUALLY built with a horizon / robustly --
     # stamped on every log row. Distinct from the raw gates: policy="single"
     # never plans, so the gates are scoped to the MIP policy and the stamps
@@ -819,7 +828,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                 bb_step = list(pools).index(bb_in[0]) if bb_in else None
                 status, plan = build_and_solve(
                     pools, current_squad=[], purchase_prices={}, bank=0,
-                    free_transfers=1, mode=mode, decay=decay,
+                    free_transfers=opening_free_transfers, mode=mode, decay=decay,
                     hit_bar=hit_bar, bench_boost_step=bb_step)
                 if plan is None:
                     raise RuntimeError(f"GW{gw}: opening-horizon solve is {status}")
@@ -835,9 +844,13 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
 
             start = team.copy()
             start["purchase_price"] = start["value"].astype(int)
+            # THE OPENING (KNOWN_ISSUES #29, fixed 2026-11-14): the gameweek-1 squad is a
+            # free pick and NO free transfer is held at its deadline; end_gameweek() below
+            # earns the first one, so the manager stands at the gameweek-2 deadline with
+            # exactly one. This line passed 1 until M1, which made that two.
             state = SquadState(start,
                                bank=STARTING_BUDGET - int(start["purchase_price"].sum()),
-                               free_transfers=1)
+                               free_transfers=opening_free_transfers)
         elif policy == "single":
             team, transfer = decide_gameweek(pool, state, prices, mode=mode)
             if team is None:
@@ -948,6 +961,10 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             # AND horizon-aware frame), not the raw constant.
             "opening_horizon_active": bool(opening_horizon_used),
             "opening_robust_active": bool(opening_robust_used),
+            # KNOWN_ISSUES #29: free transfers held at the season's first deadline
+            # (0 since 2026-11-14; -1 = resumed from a caller's state). Absent on
+            # every log written before that date, which opened with 1.
+            "opening_free_transfers": int(opening_stamp),
             # P5 gates, read live (drivers flip them in-process)
             "bench_order_by_play": bool(__import__("scoring").BENCH_ORDER_BY_PLAY),
             "xi_tiebreak_p60": bool(__import__("optimize").XI_TIEBREAK_P60),
