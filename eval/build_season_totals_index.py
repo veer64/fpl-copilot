@@ -100,6 +100,20 @@
 # pre-leak-fix), 2302/2275/2227 (horizon, post-fix), 2335/2074 (combined,
 # post-fix), 2328/2221 (props; armlogs NOT re-run on the as-of frames).
 #
+# THE RECORD RESTATED 2026-11-14 (M1) -- two correctness fixes, one move. The
+# reference cells are the same configuration (baseline, gap0, all chips, TC2
+# in-sim) re-run with (A1) the season opening corrected -- the simulator opened
+# every season HOLDING a free transfer (two at the GW2 deadline; KNOWN_ISSUES #29)
+# -- and (A2) on the frames of the de-duplicated history stack (KNOWN_ISSUES #17;
+# only the 2025-26 frames read the repeated rows and only they were rebuilt, the
+# old ones preserved as *_pre_dedup). Reference cells = data/arms/armlog_*_gap0_tc2_m1
+# (new names: the old logs are never overwritten). The gap0_tc2 rows (2387 / 2325 /
+# 2279) stay indexed and drift-checked, flagged SUPERSEDED (old opening convention).
+# An armlog WITHOUT the `opening_free_transfers` stamp was simulated on the old
+# opening; a 2025-26 one of the then-current lineage is read against the preserved
+# _pre_dedup frames it was built on. One path each (sd ~60): a corrected record,
+# not evidence. The restatement table in the header is built from the logs.
+#
 # Self-check (drift only -- circular by construction, kept for that purpose):
 # the recompute chain is validated against the corrected reference figures
 # (fslog base_wc2 chip-inclusive == 2296/2294/2206), the p1 baselines'
@@ -149,7 +163,8 @@ STALE_SUFFIXES = ["prefix", "dcbase", "prerateblend", "preunify", "presynth",
                   "synth", "baseline", "d1cards", "av", "odds2", "dgwonly",
                   "precrosswalk",      # 2025-26 canonical / arm frames before the crosswalk fix (a758541)
                   "preasof",           # every canonical / arm frame before the 2026-09-11 as-of rebuild (LEAKAGE.md items 6-9)
-                  "pre_dcfix"]         # every canonical / arm frame before the 2026-09-13 Dixon-Coles cutoff-day rebuild (LEAKAGE.md item 7; KNOWN_ISSUES #25)
+                  "pre_dcfix",         # every canonical / arm frame before the 2026-09-13 Dixon-Coles cutoff-day rebuild (LEAKAGE.md item 7; KNOWN_ISSUES #25)
+                  "pre_dedup"]         # the 2025-26 canonical / arm frames before the 2026-11-14 rebuild on the de-duplicated history stack (M1; KNOWN_ISSUES #17)
 STALE_RE = re.compile(r"_(" + "|".join(STALE_SUFFIXES) + r")\.parquet")
 
 # Known-of-record figures the recompute chain must reproduce exactly.
@@ -168,6 +183,14 @@ TC2_DROP_REASON = "collision with BB2 -- one chip per gameweek"
 # The gap0-family cells of the 2026-09-13 Dixon-Coles cutoff-day rebuild, pinned from the armlogs (drift check only).
 # Were 2390 / 2285 / 2249 (gap0_tc2), 2302 / 2275 / 2227 (hmin_gap0), 2335 / 2074 (both_gap0) on the 2026-09-11 frames.
 GAP0_TC2_2324, GAP0_TC2_2425, GAP0_TC2_2526 = 2387, 2325, 2279
+# THE RECORD RESTATED 2026-11-14 (M1): the same configuration with the season opening corrected (KNOWN_ISSUES #29) on the
+# frames of the de-duplicated history stack (KNOWN_ISSUES #17). Pinned from data/arms/armlog_*_gap0_tc2_m1 (drift check
+# only): chip-inclusive, and the path total beside it. The gap0_tc2 cells above are SUPERSEDED, still drift-checked.
+M1_2324, M1_2425, M1_2526 = 2377, 2158, 2181
+M1_PATH = {"2023-24": 2344, "2024-25": 2111, "2025-26": 2137}
+# The intermediate step, for the header's table only: A1 alone on the OLD frames (chip-inclusive, path). Those logs are
+# kept outside data/ (C:\dev\fpl-backups\m1_files\runs\armlog_*_gap0_tc2_r1_a1.parquet) -- they are not cells of record.
+M1_A1_ONLY = {"2023-24": (2377, 2344), "2024-25": (2158, 2111), "2025-26": (2304, 2238)}
 HMIN_GAP0_2324, HMIN_GAP0_2425, HMIN_GAP0_2526 = 2271, 2292, 2227
 BOTH_GAP0_2425, BOTH_GAP0_2526 = 2422, 2222
 EXPECT_ARMS_CHIP = {("2023-24", "hmin"): 2405, ("2024-25", "baseline8"): 2294,
@@ -189,6 +212,9 @@ EXPECT_ARMS_CHIP = {("2023-24", "hmin"): 2405, ("2024-25", "baseline8"): 2294,
                     # re-run on frames whose Dixon-Coles fit no longer trains on the cutoff day's results. The 2026-09-11 armlogs are
                     # preserved as *_pre_dcfix and indexed as SUPERSEDED. Regenerated and labelled; they decide nothing (prereg section 5.7).
                     ("2023-24", "gap0_tc2"): GAP0_TC2_2324, ("2024-25", "gap0_tc2"): GAP0_TC2_2425, ("2025-26", "gap0_tc2"): GAP0_TC2_2526,
+                    # 2026-11-14 M1 RESTATEMENT (KNOWN_ISSUES #29 opening free transfer + #17 de-duplicated stack): new logs under
+                    # new names; the gap0_tc2 logs above are kept, SUPERSEDED (old opening convention).
+                    ("2023-24", "gap0_tc2_m1"): M1_2324, ("2024-25", "gap0_tc2_m1"): M1_2425, ("2025-26", "gap0_tc2_m1"): M1_2526,
                     ("2023-24", "gap0_tc2_pre_dcfix"): 2390, ("2024-25", "gap0_tc2_pre_dcfix"): 2285, ("2025-26", "gap0_tc2_pre_dcfix"): 2249,
                     ("2023-24", "gap0_tc2_preasof"): 2343, ("2024-25", "gap0_tc2_preasof"): 2306, ("2025-26", "gap0_tc2_preasof"): 2216,
                     ("2025-26", "gap0_tc2_precrosswalk"): 2190,
@@ -205,8 +231,11 @@ EXPECT_ARMS_CHIP = {("2023-24", "hmin"): 2405, ("2024-25", "baseline8"): 2294,
 # THE REFERENCE CELLS OF RECORD (2026-09-11): BASELINE on the gap0 convention, on the as-of-rebuilt frames.
 # Was 2425/2335/2266 (hmin_gap0, 2026-08-28, with the objection) and 2251/2306/2268 (bonusdel_tc2, 2026-08-26).
 # NOT adopted on these figures -- see the module docstring, the index HEADER and Logs/baseline_adoption_log.md.
-EXPECT_REFERENCE_CHIP = {"2023-24": GAP0_TC2_2324, "2024-25": GAP0_TC2_2425, "2025-26": GAP0_TC2_2526}
-REFERENCE_ARM = {"2023-24": "gap0_tc2", "2024-25": "gap0_tc2", "2025-26": "gap0_tc2"}
+# RESTATED 2026-11-14 (M1): the same configuration, opening corrected, de-duplicated-stack frames -> the _m1 logs.
+# Was 2387 / 2325 / 2279 (gap0_tc2, old opening convention; 2026-09-13).
+EXPECT_REFERENCE_CHIP = {"2023-24": M1_2324, "2024-25": M1_2425, "2025-26": M1_2526}
+REFERENCE_ARM = {"2023-24": "gap0_tc2_m1", "2024-25": "gap0_tc2_m1", "2025-26": "gap0_tc2_m1"}
+SUPERSEDED_REFERENCE_CHIP = {"2023-24": GAP0_TC2_2324, "2024-25": GAP0_TC2_2425, "2025-26": GAP0_TC2_2526}     # gap0_tc2, old opening
 GAP0_FAMILY = ("gap0", "props_gap0", "hmin_gap0", "both_gap0", "hold_gap0")
 TC2_RULE_WEEK = {"2023-24": 25, "2024-25": 24, "2025-26": 26}      # p4 log 12c (ii)
 ARM_LABEL = {"baseline8": "baseline re-run", "props": "arm=props",
@@ -218,7 +247,8 @@ ARM_LABEL = {"baseline8": "baseline re-run", "props": "arm=props",
              "bonusdel_tc2": "bonus_delete + TC2 in-sim (SUPERSEDED reference cell 2026-08-26, pre-leak-fix canonical)",
              "leakfix": "arm=leak-fixed canonical (bonus_delete; TC2 scored zero)",
              "leakfix_tc2": "leak-fixed canonical + bonus_delete + TC2 in-sim (SUPERSEDED reference cell 2026-08-27; MIP gap 1e-4)",
-             "gap0_tc2": "PRODUCTION = REFERENCE CELL OF RECORD (2026-09-11; frames rebuilt 2026-09-13 for the DC cutoff-day fix): baseline gap0 on the as-of-rebuilt frames (leak fix + solver gap 0 + fixed crosswalk; bonus_delete; TC2 in-sim)",
+             "gap0_tc2_m1": "PRODUCTION CONFIGURATION = REFERENCE CELL OF RECORD, RESTATED 2026-11-14 (M1): baseline gap0 with the season opening corrected (no free transfer held at GW1, one at GW2) on the frames of the de-duplicated history stack (leak fix + solver gap 0 + fixed crosswalk; bonus_delete; TC2 in-sim)",
+             "gap0_tc2": "baseline gap0 on the OLD OPENING CONVENTION (SUPERSEDED 2026-11-14 by the _m1 row; was PRODUCTION = REFERENCE CELL OF RECORD 2026-09-11, frames rebuilt 2026-09-13 for the DC cutoff-day fix; leak fix + solver gap 0 + fixed crosswalk; bonus_delete; TC2 in-sim)",
              "gap0_tc2_pre_dcfix": "baseline gap0 on the PRE-DC-FIX as-of frames (SUPERSEDED 2026-09-13; was PRODUCTION = REFERENCE CELL OF RECORD 2026-09-11)",
              "gap0_tc2_preasof": "baseline gap0 on the PRE-AS-OF frames (SUPERSEDED 2026-09-11; was the SHADOW row 2026-08-28)",
              "gap0_tc2_precrosswalk": "baseline gap0 on the PRE-CROSSWALK 2025-26 canonical (SUPERSEDED candidate 2026-08-27)",
@@ -516,7 +546,8 @@ def rows_fullsystem():
             r["flags"] = (r["flags"] + "; " if r["flags"] else "") + (
                 "SUPERSEDED AS REFERENCE CELL (2026-08-26): TC2 scored zero and incumbent bonus term; "
                 f"the reference of record is arms/armlog_{season.replace('-', '_')}_{REFERENCE_ARM[season]} "
-                f"({EXPECT_REFERENCE_CHIP[season]}, baseline on the gap0 convention, as-of frames, 2026-09-11)")
+                f"({EXPECT_REFERENCE_CHIP[season]}, baseline on the gap0 convention, as-of frames, 2026-09-11; "
+                "restated 2026-11-14 with the opening corrected)")
         out.append(r)
     assert fs_chip == EXPECT_FS_WC2_CHIP, (
         f"chip-inclusive recompute drifted from the corrected reference "
@@ -668,17 +699,30 @@ def rows_arms():
     gap0-family arms that ran TC2 ZERO carry a TC2-equivalent captain multiple at the rule
     week (GW25 / GW24 / GW26) instead of the old BB2-week read, exactly as
     data/leakfix_logs/arms_table.py (the source of record for the four-config table)."""
-    out, got = [], {}
+    out, got, got_path = [], {}, {}
     for p in sorted(ARMS.glob("armlog_*.parquet")):
         d = pd.read_parquet(p)
         season, base_arm = d["season"].iloc[0], d["arm"].iloc[0]
         precrosswalk = p.stem.endswith("_precrosswalk")
         preasof = p.stem.endswith("_preasof")          # pre-2026-09-11 armlogs, preserved and SUPERSEDED
         pre_dcfix = p.stem.endswith("_pre_dcfix")      # 2026-09-11 armlogs before the 2026-09-13 DC cutoff-day rebuild, preserved and SUPERSEDED
+        m1 = p.stem.endswith("_m1")                    # 2026-11-14 M1 restatement: opening corrected (#29) on the de-duplicated-stack frames (#17)
+        # The opening convention is read off the log, never off its name: a log without the stamp (or stamped 1 --
+        # a segment resumed from an old-convention log) was simulated holding a free transfer at GW1, two at the
+        # GW2 deadline -- KNOWN_ISSUES #29.
+        old_opening = "opening_free_transfers" not in d.columns or int(d["opening_free_transfers"].iloc[0]) != 0
+        if m1:
+            assert not old_opening and (d["opening_free_transfers"] == 0).all() and int(d["start_gw"].iloc[0]) == 1, \
+                f"{p.name}: an _m1 log must be a full season opened with no free transfer"
         # props_gap0 armlogs were not re-run on the as-of frames: read them against the frames they
         # were built on (the preserved _preasof ones) so their TC1 read reproduces their figure of record.
         # Likewise every preserved armlog is read against the frames of ITS lineage.
         frames_preserved = "_preasof" if (preasof or base_arm == "props_gap0") else ("_pre_dcfix" if pre_dcfix else "")
+        # 2026-11-14 (M1): the 2025-26 frames were rebuilt on the de-duplicated stack. A 2025-26 log of the lineage that
+        # was current until then (old opening, no other preserved suffix) is read against the _pre_dedup frames it was
+        # built on. Frames only: the log it resumed from keeps its own name (frames_preserved, below).
+        pre_dedup = season == "2025-26" and old_opening and not frames_preserved and not precrosswalk
+        frames_suffix = "_pre_dedup" if pre_dedup else frames_preserved
         arm = base_arm
         if "tc2_gw" in d.columns and int(d["tc2_gw"].iloc[0]) > 0:
             arm = f"{arm}_tc2"          # in-sim TC2 variant (armlog_*_tc2.parquet; the log's arm column is the base arm)
@@ -688,6 +732,8 @@ def rows_arms():
             arm = f"{arm}_preasof"
         if pre_dcfix:
             arm = f"{arm}_pre_dcfix"
+        if m1:
+            arm = f"{arm}_m1"
         gap0 = base_arm in GAP0_FAMILY
         tag = season.replace("-", "_")
         start_gw = int(d["start_gw"].iloc[0])
@@ -705,8 +751,8 @@ def rows_arms():
         assert (tc_in == [] or arm.endswith("_tc2") or "_tc2_" in arm or arm in ("bonusdel_tc2", "leakfix_tc2")), \
             f"{p.name}: in-sim TC on a non-TC2 arm"
         if gap0:
-            canon_wf, arm_wf = _gap0_frames(season, base_arm, precrosswalk, frames_preserved)
-            cp = cap_pred_gap0(season, base_arm, precrosswalk, frames_preserved)
+            canon_wf, arm_wf = _gap0_frames(season, base_arm, precrosswalk, frames_suffix)
+            cp = cap_pred_gap0(season, base_arm, precrosswalk, frames_suffix)
             reads = [("bench", bb1, int(full.loc[bb1, "bench_points"])),
                      ("bench", bb2, int(full.loc[bb2, "bench_points"]))]
             tc1_gw, tc1 = tc1_read(full, {2, bb1}, cp)
@@ -740,12 +786,30 @@ def rows_arms():
         elif arm == "bonusdel_tc2":
             flags = ("SUPERSEDED AS REFERENCE CELL (2026-08-27): built on the pre-leak-fix canonical (same-season "
                      f"Understat penalty join, KNOWN_ISSUES #19); the reference of record is arms/armlog_{tag}_{REFERENCE_ARM[season]} "
-                     f"({EXPECT_REFERENCE_CHIP[season]}, baseline, as-of frames, 2026-09-11). Was: REFERENCE CELL OF RECORD 2026-08-26 (2251/2306/2268): "
+                     f"({EXPECT_REFERENCE_CHIP[season]}, baseline, as-of frames, 2026-09-11; restated 2026-11-14). Was: REFERENCE CELL OF RECORD 2026-08-26 (2251/2306/2268): "
                      "BONUS_MODE=delete + TC2 in-sim (p4 log section 15); path identical to arm=bonus_delete in all 38 gws")
         elif arm == "bonusdel":
             flags = "ADOPTED on component metrics (Logs/bonus_delete_prereg.md); TC2 scored zero here -- see the bonusdel_tc2 row"
         elif arm == REFERENCE_ARM.get(season) and gap0:
-            flags = ("PRODUCTION AND REFERENCE CELL OF RECORD (2026-09-11): baseline on the gap0 convention (leak fix e04fb72, "
+            flags = ("REFERENCE CELL OF RECORD, RESTATED 2026-11-14 (M1): the production configuration (baseline on the gap0 "
+                     "convention: leak fix e04fb72, solver gap 0 37ad782, fixed crosswalk a758541, BONUS_MODE=delete, TC2 in-sim; "
+                     "as-of frames, DC cutoff-day fix) re-run with (A1) the season opening corrected -- no free transfer held at "
+                     "GW1, ONE at the GW2 deadline (was two; KNOWN_ISSUES #29) -- and (A2) on the frames of the de-duplicated "
+                     "history stack (KNOWN_ISSUES #17: " + (
+                         "this season's frame REBUILT, the old one preserved as _pre_dedup" if season == "2025-26" else
+                         "this season's frame read none of the repeated rows and is unchanged")
+                     + "). ONE path (sd ~60): a corrected record, not evidence for or against anything. Still open and inside "
+                     "this figure: the simulator earns a free transfer in a Wildcard / Free Hit week (KNOWN_ISSUES #30). Replaces "
+                     f"arms/armlog_{tag}_gap0_tc2 ({SUPERSEDED_REFERENCE_CHIP[season]}, old opening convention). The 2026-09-11 "
+                     "adoption of baseline was a JUDGEMENT CALL, not taken on season totals (Logs/baseline_adoption_log.md; header)")
+        elif arm == "gap0_tc2":
+            flags = ("SUPERSEDED AS REFERENCE CELL (2026-11-14, M1) -- OLD OPENING CONVENTION: the simulated season opened HOLDING a "
+                     "free transfer -- two at the GW2 deadline, three at GW3 after the GW2 Wildcard (KNOWN_ISSUES #29)"
+                     + ("; and this season's frame carried ten repeated fixture rows (KNOWN_ISSUES #17; the frame is preserved as "
+                        "_pre_dedup)" if season == "2025-26" else "")
+                     + f". Retained, never deleted; the cell of record is arms/armlog_{tag}_{REFERENCE_ARM[season]} "
+                     f"({EXPECT_REFERENCE_CHIP[season]}). Was: "
+                     "PRODUCTION AND REFERENCE CELL OF RECORD (2026-09-11): baseline on the gap0 convention (leak fix e04fb72, "
                      "solver gap 0 37ad782, fixed crosswalk a758541, BONUS_MODE=delete, TC2 in-sim) on the AS-OF-REBUILT frames "
                      "(LEAKAGE.md items 6-9 closed; KNOWN_ISSUES #22/#23/#24), REBUILT AGAIN 2026-09-13 with the Dixon-Coles fit no "
                      "longer training on the cutoff day's results (LEAKAGE.md item 7; KNOWN_ISSUES #25; the 2026-09-11 cell is the "
@@ -789,20 +853,81 @@ def rows_arms():
             prefix = "arms/" + str(d["resume_from"].iloc[0]).split("@")[0] if gap0 else "the fslog reference cell"
             flags += (f"; starts GW{start_gw} from {prefix}'s GW{start_gw - 1} state "
                       f"(GW1-{start_gw - 1} stitched); like-for-like = GW{start_gw}-38 segment vs that baseline")
+        if gap0 and old_opening and arm != "gap0_tc2" and not (preasof or pre_dcfix or precrosswalk):
+            flags += ("; OLD OPENING CONVENTION (a free transfer held at GW1 -- KNOWN_ISSUES #29), NOT re-run by M1: comparable to "
+                      "the superseded gap0_tc2 row, not to the restated _m1 cell")
         sched = sched_str(wc, fh, bb) + (f" TC@{tc_in[0]} (in-sim)" if tc_in else "")
         r = row("arms", season, f"{ARM_LABEL[arm]} start=GW{start_gw}", 6, 0.45,
                 sched, wf, gates_str(d, extra),
                 int(full["points"].sum()), reads, f"arms/{p.name}", flags=flags,
                 run=mtime(p), wc=wc, fh=fh, bb=bb, played=played_weeks(full), tc_insim=tc_in)
         got[(season, arm)] = r["chip"]
+        got_path[(season, arm)] = r["path"]
         out.append(r)
     for k, v in EXPECT_ARMS_CHIP.items():
         if k in got:
             assert got[k] == v, f"arms recompute drifted for {k}: {got[k]} != {v}"
     ref = {s_: got[(s_, a_)] for s_, a_ in REFERENCE_ARM.items() if (s_, a_) in got}
     assert ref == EXPECT_REFERENCE_CHIP, f"REFERENCE cells drifted: {ref} != {EXPECT_REFERENCE_CHIP}"
+    ref_path = {s_: got_path[(s_, a_)] for s_, a_ in REFERENCE_ARM.items() if (s_, a_) in got_path}
+    assert ref_path == M1_PATH, f"REFERENCE cells' PATH totals drifted: {ref_path} != {M1_PATH}"
     print("gap0-family recompute:", {k: v for k, v in sorted(got.items()) if k[1].split('_')[0] in ("gap0", "hmin", "props", "both", "leakfix")})
     return out
+
+
+def restatement_table(rows):
+    """The header's old-vs-new table for the 2026-11-14 restatement (M1). Every figure is read from the six
+    logs and the rows built from them -- nothing typed -- except the A1-alone line (M1_A1_ONLY: those logs are
+    kept outside data/)."""
+    seasons = ["2023-24", "2024-25", "2025-26"]
+    by_src = {r["source"]: r for r in rows}
+
+    def cell(season, suffix):
+        name = f"armlog_{season.replace('-', '_')}_gap0_tc2{suffix}.parquet"
+        r = by_src[f"arms/{name}"]
+        d = pd.read_parquet(ARMS / name).set_index("gw")
+        bench, reads = iter(("BB1", "BB2")), []
+        for lbl, gw, v, dropped in r["reads"]:
+            assert not dropped, f"{name}: a dropped read on a reference cell"
+            if lbl == "bench":
+                reads.append(f"{next(bench)}@GW{gw} {v:+d}")
+            elif lbl == "TC1 cap":
+                reads.append(f"TC1@GW{gw} {v:+d}")
+            elif lbl == "TC2 in-sim":
+                reads.append(f"TC2@GW{gw} {v:+d} (in the path)")
+        outside = ~(d["wildcard"].astype(bool) | d["free_hit"].astype(bool))
+        return dict(chip=r["chip"], path=r["path"], reads=", ".join(reads),
+                    hits=f"{int(d['hit'].sum())} pts in {int((d['hit'] > 0).sum())} weeks",
+                    transfers=f"{int(d['n_transfers'].sum())} ({int(d.loc[outside, 'n_transfers'].sum())} outside Wildcard / Free Hit weeks)",
+                    ft=f"{int(d.loc[1, 'free_transfers'])} / {int(d.loc[2, 'free_transfers'])}",       # carried AFTER GW1 / GW2
+                    margin=f"{r['chip'] - AVG_ONDISK[season]:+d}")
+
+    new, old = {s: cell(s, "_m1") for s in seasons}, {s: cell(s, "") for s in seasons}
+
+    def line(label, f):
+        return f"| {label} | " + " | ".join(str(f(s)) for s in seasons) + " |"
+
+    def block(tag, c):
+        return [line(f"{tag} -- path", lambda s: c[s]["path"]),
+                line(f"{tag} -- chip reads", lambda s: c[s]["reads"]),
+                line(f"{tag} -- hits paid", lambda s: c[s]["hits"]),
+                line(f"{tag} -- transfers made", lambda s: c[s]["transfers"]),
+                line(f"{tag} -- free transfers held at the GW2 / GW3 deadline", lambda s: c[s]["ft"]),
+                line(f"{tag} -- vs the average manager (fplcache {' / '.join(str(AVG_ONDISK[s]) for s in seasons)})", lambda s: c[s]["margin"])]
+
+    a1 = M1_A1_ONLY
+    t = (["| | 2023-24 | 2024-25 | 2025-26 |", "|---|---|---|---|",
+          line("**RESTATED 2026-11-14 -- chip-inclusive (the cells of record)**", lambda s: f"**{new[s]['chip']}**")]
+         + block("restated", new)
+         + [line("SUPERSEDED, old opening convention (2026-09-13) -- chip-inclusive", lambda s: old[s]["chip"])]
+         + block("superseded", old)
+         + [line("the move, chip-inclusive / path", lambda s: f"{new[s]['chip'] - old[s]['chip']:+d} / {new[s]['path'] - old[s]['path']:+d}"),
+            line("A1 alone, on the old frames: chip-inclusive / path (move)",
+                 lambda s: f"{a1[s][0]} / {a1[s][1]} ({a1[s][0] - old[s]['chip']:+d} / {a1[s][1] - old[s]['path']:+d})"),
+            line("then A2, the de-duplicated-stack frames (move)",
+                 lambda s: f"{new[s]['chip'] - a1[s][0]:+d} / {new[s]['path'] - a1[s][1]:+d}"
+                           + ("" if s == "2025-26" else " (frame unchanged)"))])
+    return "\n".join(t)
 
 
 def rows_references():
@@ -866,7 +991,7 @@ SECTIONS = [
      "predictions. These rows are MEASUREMENTS of an upper bound, never "
      "baselines, never adoptable, comparable only to their reference cell "
      "(fslog base_wc2). Same TC2@BB2 drop as the full system."),
-    ("arms", "ARMS -- 2026-08-26/27/28 arms and the 2026-09-11 as-of re-runs, incl. THE REFERENCE CELLS OF RECORD = gap0_tc2 (baseline, as-of frames; data/arms/armlog_*)",
+    ("arms", "ARMS -- 2026-08-26/27/28 arms, the 2026-09-11 as-of re-runs and the 2026-11-14 restatement, incl. THE REFERENCE CELLS OF RECORD = gap0_tc2_m1 (baseline, opening corrected, de-duplicated-stack frames; data/arms/armlog_*)",
      "Full-system wc2 config with a feature applied in-process for the season "
      "figure only: props (conditional spec, w=0.75 m=1.396; PROPS_HOOK rests "
      "None) and/or horizon minutes lever 1 (HORIZON_MINUTES_ACTIVE rests "
@@ -900,7 +1025,12 @@ SECTIONS = [
      "RE-RUN AGAIN 2026-09-13 on frames whose Dixon-Coles fit no longer trains on the cutoff day's "
      "results (LEAKAGE.md item 7; KNOWN_ISSUES #25; Logs/dc_fix_log_2026-09-13.md): gap0_tc2 stays "
      "PRODUCTION AND THE REFERENCE CELLS OF RECORD on the rebuilt frames; the 2026-09-11 armlogs are kept "
-     "as *_pre_dcfix and listed as SUPERSEDED, read against the _pre_dcfix frames they were built on."),
+     "as *_pre_dcfix and listed as SUPERSEDED, read against the _pre_dcfix frames they were built on. "
+     "RESTATED 2026-11-14 (M1; header): **gap0_tc2_m1 -- THE REFERENCE CELLS OF RECORD**, the same configuration "
+     "with the season opening corrected (KNOWN_ISSUES #29) on the frames of the de-duplicated history stack "
+     "(KNOWN_ISSUES #17). The gap0_tc2 rows are kept and flagged SUPERSEDED (old opening convention); no other "
+     "arm was re-run, so every other row here is on the old opening, and the 2025-26 rows of the lineage "
+     "current until 2026-11-14 are read against the preserved _pre_dedup frames they were built on."),
     ("references", "REFERENCES -- pre-canonical lineage figures",
      "Retained for lineage only."),
 ]
@@ -922,24 +1052,59 @@ measurably WORSE where decisions are made, scored +109 / +49 / -84 by season
 total; props, slightly better on the component read, scored -56 / -107. Run
 the totals first and both calls come out wrong.
 
-**REFERENCE CELLS OF RECORD (moved 2026-09-11) -- BASELINE, and production = baseline.**
+**THE RECORD RESTATED 2026-11-14 (M1) -- two correctness fixes, ONE move.** The reference cells are the
+same configuration as before -- the production configuration: baseline on the gap0 convention, all chips,
+WC1 @ GW2, TC2 in-sim -- re-run once with two defects removed (`data/arms/armlog_*_gap0_tc2_m1`; the old
+logs keep their own names and are never overwritten):
+
+- **A1, the opening free transfer (KNOWN_ISSUES #29).** The simulator opened every season HOLDING a free
+  transfer and banked a second at the end of gameweek 1, so the manager stood at the GW2 deadline with two
+  (three at GW3 after the GW2 Wildcard). FPL gives none at GW1 and one from GW2. Every simulated total in
+  this index from before 2026-11-14 carries it.
+- **A2, the history stack (KNOWN_ISSUES #17).** 69 repeated fixture rows removed; ten of them were 2025-26
+  rows, inherited from the public vaastav file, that doubled two players' expected minutes and expected
+  points on ten rows and their ACTUAL points on six. Only the 2025-26 frames read those rows and only they
+  were rebuilt (the old ones are preserved as `*_pre_dedup`); the 2023-24 and 2024-25 frames are
+  bit-identical on the new stack.
+
+{m1_table}
+
+**Read this before quoting a restated figure.** Each cell is ONE path (path sd ~60). The move is a corrected
+record, NOT evidence for or against anything: no decision was taken on it and none may be. At face value the
+opening gift was worth one 4-point hit a season on the old logs' own transfers; everything beyond that in the
+table is path divergence -- a different squad from gameweek 2 on -- which is how a one-transfer correction
+moves one season by nine points and another by 158 (the A1-alone line). **Still open and inside the restated
+figures: KNOWN_ISSUES #30** -- the simulator earns a free transfer in a Wildcard / Free Hit week where FPL
+earns none: three gifted transfers a season in this configuration, and free transfers at the GW3 deadline
+are 2 where FPL's rule gives 1. **Every other row in this index was simulated on the old opening**, and
+every 2025-26 row from before 2026-11-14 on the pre-de-duplication frames, so the three `_m1` rows are
+comparable to NO other row; 2025-26 logs of the lineage current until 2026-11-14 are read against the
+preserved `_pre_dedup` frames they were built on. Report: `eval/reports/m1_fix_record.md` (not in git).
+
+**REFERENCE CELLS OF RECORD (moved 2026-09-11) -- BASELINE, and production = baseline.** *(The choice
+stands; its figures were rebuilt on 2026-09-13 and RESTATED on 2026-11-14 -- the block above. Every figure
+in this block is as measured on 2026-09-11 and is SUPERSEDED.)*
 On 2026-08-28 the reference cells were re-pointed to the HORIZON arm and combined
 (props + horizon) was named production intent, with an objection recorded: both levers
 had FAILED their pre-registered component tests and the adoption cited season totals,
 which the standing rule forbids. On 2026-09-10/11 three leaks were found and fixed
 (KNOWN_ISSUES #22 DC, #23 saves, #24 p60 starter-history), an as-of reconstruction
 guard was built (`eval/asof_reconstruction.py`, `Tests/test_asof_reconstruction.py`) and
-the record was rebuilt (`Logs/asof_rebuild_log.md`). Post-fix, chip-inclusive:
+the record was rebuilt (`Logs/asof_rebuild_log.md`). Post-fix, chip-inclusive, AS MEASURED ON
+2026-09-11 -- the configuration roles are those of 2026-08-28, the day's starting point -- with what
+each row became:
 
-| | 2023-24 | 2024-25 | 2025-26 |
-|---|---|---|---|
-| reference hmin | 2302 | 2275 | 2227 |
-| shadow baseline | 2390 | 2285 | 2249 |
-| production both | -- | 2335 | 2074 |
+| as measured 2026-09-11 (SUPERSEDED) | 2023-24 | 2024-25 | 2025-26 | after the 2026-09-13 DC cutoff-day rebuild | restated 2026-11-14 |
+|---|---|---|---|---|---|
+| reference hmin | 2302 | 2275 | 2227 | {dc_hmin} | not re-run (old opening convention) |
+| shadow baseline -- adopted that day as production and reference | 2390 | 2285 | 2249 | {dc_base} | **{m1_cells}** |
+| production both | -- | 2335 | 2074 | {dc_both} | not re-run (old opening convention) |
 
 **This adoption is NOT taken on those figures.** Baseline is adopted as production, and
-its cells become the reference cells -- **2390 / 2285 / 2249** (paths ex-TC2 2344 / 2201 /
-2187; `data/arms/armlog_*_gap0_tc2`) -- on these grounds (`Logs/baseline_adoption_log.md`):
+its cells become the reference cells -- **2390 / 2285 / 2249** as measured that day (paths ex-TC2
+2344 / 2201 / 2187; `data/arms/armlog_*_gap0_tc2_pre_dcfix` today), {dc_base} from 2026-09-13
+(`armlog_*_gap0_tc2`), {m1_cells} from 2026-11-14 (`armlog_*_gap0_tc2_m1`) -- on these grounds
+(`Logs/baseline_adoption_log.md`):
 1. Baseline is the only configuration whose adoption never required an objection to be
    recorded. Both levers failed their pre-registered tests.
 2. The leak fix invalidated the comparison the 2026-08-28 choice rested on. Production
@@ -1087,8 +1252,9 @@ marked **(r)** and decomposed in the `chip reads` column; `= path` means no
 exogenous chips were scheduled, so the two totals are identical by
 construction. The recompute chain is drift-checked at generation time against
 the old-convention fslog base_wc2 figures (2296/2294/2206), the reference
-cells of record (arms gap0_tc2 on the as-of frames -> 2390/2285/2249, plus every gap0-family and
-superseded arm figure incl. the _preasof rows) and the p1 baselines (2204/2362/2032); generation FAILS on drift. That check is
+cells of record (arms gap0_tc2_m1, restated 2026-11-14 -> {m1_cells}, and their path totals), the superseded
+gap0_tc2 cells ({dc_base}), every other gap0-family and superseded arm figure incl. the _preasof / _pre_dcfix
+rows, and the p1 baselines (2204/2362/2032); generation FAILS on drift. That check is
 circular by construction (same convention both sides) and is kept ONLY for
 drift; legality is the structural check above.
 
@@ -1161,6 +1327,10 @@ FOOTER = """
    props_gap0 was not re-run. The bonusdel_tc2 / leakfix_tc2 / _precrosswalk rows are
    superseded lineage. A _preasof row may be compared ONLY to another _preasof row, and a
    _pre_dcfix row (the 2026-09-11 lineage, before the DC cutoff-day rebuild) ONLY to another _pre_dcfix row.
+   RESTATED 2026-11-14: the reference cells are the gap0_tc2_m1 rows (opening corrected, de-duplicated-stack
+   frames). They are comparable to NO other row in this index -- every other row opened the season holding a
+   free transfer (KNOWN_ISSUES #29). The gap0_tc2 rows (old opening) remain the like-for-like base for the
+   hmin_gap0 / both_gap0 rows, which were not re-run.
 11. Nothing else. Cross-H, cross-decay, cross-season, cross-family and every
    REFERENCE row: NOT comparable.
 
@@ -1187,6 +1357,16 @@ FOOTER = """
   2302/2275/2227 (horizon, post-fix), 2335/2074 (combined, post-fix), 2328/2221
   (props, not re-run). Both levers' verdicts are UNSETTLED (reached on leaked
   frames); re-measurement is a new pre-registration on clean frames.
+- RESTATED 2026-11-14 (M1): the reference cells are the arms gap0_tc2_m1 rows
+  ({m1_cells}) -- the same baseline configuration with the season opening
+  corrected (KNOWN_ISSUES #29: the simulator held a free transfer at GW1, two
+  at the GW2 deadline) on the frames of the de-duplicated history stack
+  (KNOWN_ISSUES #17; 2025-26 rebuilt). Superseded, dated: 2390/2285/2249
+  (2026-09-11 frames, the _pre_dcfix rows) and 2387/2325/2279 (2026-09-13
+  frames, old opening convention, the gap0_tc2 rows). A corrected record, one
+  path each; not evidence. EVERY other simulated total in this index is on the
+  old opening. Still open: KNOWN_ISSUES #30 (a free transfer earned in a
+  Wildcard / Free Hit week).
 - MOVED 2026-08-28 (superseded 2026-09-11): the reference cells were the arms hmin_gap0 rows
   (2425/2335/2266) -- the horizon-minutes arm, REJECTED on its component test;
   adopted on season totals against the standing rule, deliberately, objection
@@ -1256,7 +1436,9 @@ def render(rows):
     return lines, counts
 
 
-def main():
+def main(out=None):
+    """Writes Logs/season_totals_index.md; `out` (the first CLI argument) writes somewhere else instead --
+    a dry run that leaves the index of record alone."""
     rows = (rows_sweep() + rows_chips() + rows_p1() + rows_wcgrid()
             + rows_fullsystem() + rows_p3() + rows_p5() + rows_oracle()
             + rows_arms() + rows_references())
@@ -1275,11 +1457,16 @@ def main():
         wfkey.append(f"| {name} ({fam}) | " + " | ".join(
             str(full.get(c, "?")) for c in STAMPS) + " |")
 
+    m1_cells = " / ".join(str(EXPECT_REFERENCE_CHIP[s]) for s in ("2023-24", "2024-25", "2025-26"))
     text = HEADER.format(today=dt.date.today(),
                          stale=", ".join("_" + s for s in STALE_SUFFIXES),
-                         wfkey="\n".join(wfkey)) \
-        + "\n".join(body) + FOOTER
-    out = REPO / "Logs" / "season_totals_index.md"
+                         wfkey="\n".join(wfkey),
+                         m1_table=restatement_table(rows), m1_cells=m1_cells,
+                         dc_hmin=f"{HMIN_GAP0_2324} / {HMIN_GAP0_2425} / {HMIN_GAP0_2526}",
+                         dc_base=f"{GAP0_TC2_2324} / {GAP0_TC2_2425} / {GAP0_TC2_2526}",
+                         dc_both=f"-- / {BOTH_GAP0_2425} / {BOTH_GAP0_2526}") \
+        + "\n".join(body) + FOOTER.format(m1_cells=m1_cells)
+    out = Path(out) if out else REPO / "Logs" / "season_totals_index.md"
     out.write_text(text, encoding="utf-8")
     total = sum(counts.values())
     n_drop = sum(1 for r in rows if any(x[3] for x in r["reads"]))
@@ -1290,4 +1477,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1] if len(sys.argv) > 1 else None)

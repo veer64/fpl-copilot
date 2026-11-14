@@ -907,7 +907,7 @@ rows (Junior Kroupi GW1-9, Ben Gannon-Doak GW1) -- CLOSED 2026-11-14 (M1)
 **Status:** Found 2026-08-24 by the horizon-minutes step-0 reproduction check
 (eval/measure_horizon_minutes.py). Scope as found: 10 of 28,929 single-fixture
 step-0 rows in data/walkforward_h6_2025_26.parquet; other seasons clean.
-**CLOSED 2026-11-14** on branch `m1-fix-record` (cause located by the X2 review, fixed by M1) -- see
+**CLOSED 2026-11-14** on branch `m1-fix-record`, commit `bd38a93` (cause located by the X2 review, fixed by M1) -- see
 "Closed" at the end of this entry. The scope was wider than found: the same ten rows also carried
 DOUBLED ACTUAL points and minutes on six of them, and every model fitted on 2025-26 rows saw the copies.
 
@@ -1642,7 +1642,7 @@ that article was not measured with the artefact present (the run used Schade ins
 
 **Status:** Found 2026-11-14 by the X2 review of an outside repo (`eval/reports/x2_luck_or_skill_plan.md`
 sections 8 A1 and 9; their replay opens with none and adds one from gameweek 2). Fixed the same day
-on branch `m1-fix-record` (the commit that adds this entry). Scope: every season the simulator has
+on branch `m1-fix-record`, commit `808e3a0` (the commit that adds this entry). Scope: every season the simulator has
 ever played -- all three reference logs of record (`data/arms/armlog_{2023_24,2024_25,2025_26}_gap0_tc2.parquet`
 carry `free_transfers` = 2 after GW1 and 3 after GW2) and every earlier family in
 `Logs/season_totals_index.md`. The live product was never affected: an imported squad's free transfers
@@ -1684,6 +1684,17 @@ chip-week rule, #30 below, deliberately left open by M1.
 full-system simulator runs, with and without the gameweek-2 Wildcard; the gameweek-3 banking rule; the
 stamp; the opening-horizon and path-control sites; replay of new and of unstamped logs. The restated
 figures of record are in `Logs/season_totals_index.md` (the 2026-11-14 block); they are one path each.
+
+Restated 2026-11-14 together with #17 (one move; `data/arms/armlog_*_gap0_tc2_m1.parquet`, the old logs
+kept under their own names): chip-inclusive 2377 / 2158 / 2181 (was 2387 / 2325 / 2279), path 2344 / 2111 /
+2137 (was 2364 / 2269 / 2229); free transfers held at the GW2 / GW3 deadline 1 / 2 in all three seasons
+(was 2 / 3). This fix alone, on the old frames: 2377 / 2158 / 2304 chip-inclusive, 2344 / 2111 / 2238 path
+-- the 2023-24 and 2024-25 cells are entirely this fix (their frames did not change), and 2024-25's -167 on
+one removed transfer is path divergence, not the price of a transfer (face value: one 4-point hit).
+`eval/run_arms_full_system.py` still resumes the exploratory gap0 arms of 2024-25 (the one season whose
+arms start at GW8) from the OLD reference log (`armlog_2024_25_gap0_tc2.parquet`; the segment is stamped
+opening 1); an arm meant to be compared with the restated cells must resume from the `_m1` log -- not
+changed here because no arm was re-run.
 
 ## #30 -- the simulator EARNS a free transfer in a Wildcard / Free Hit week; FPL (and the live import's rule) keeps the banked transfers and earns none -- OPEN 2026-11-14 (found by M1, outside its scope, NOT fixed)
 
