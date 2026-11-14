@@ -87,8 +87,16 @@ EXPECTED_ROWS = 165_401
 # p_cs is fit-priced there): Spearman 0.74538 -> 0.74531, MAE 1.05064 -> 1.05096, rows unchanged. Inside
 # the tolerances at the old pins; re-pinned deliberately anyway. Pre-fix file preserved as
 # walkforward_h6_2025_26_pre_dcfix.parquet.
+# 2026-11-14 -- REBUILT on the DE-DUPLICATED history stack (M1; KNOWN_ISSUES #17 closed;
+# Tests/test_stack_dedupe.py): the archive carried ten byte-identical 2025-26 fixture rows (element 100
+# gameweeks 1-9, element 391 gameweek 1) that doubled those players' expected minutes and points on ten
+# rows and their ACTUAL points on six, and every model fitted on 2025-26 rows saw them. Rows unchanged
+# (165,401; 409 doubles); Spearman 0.74531 -> 0.74534; MAE 1.05096 -> 1.04985 (0.0009 of the 0.0011 is the
+# six corrected actuals, the rest the refit). Inside the tolerances at the old pins; re-pinned deliberately
+# anyway: EXPECTED_MAE 1.0510 -> 1.0498, EXPECTED_SPEARMAN 0.7453 unchanged at 4 dp. Pre-fix file preserved
+# as walkforward_h6_2025_26_pre_dedup.parquet.
 EXPECTED_SPEARMAN = 0.7453
-EXPECTED_MAE = 1.0510
+EXPECTED_MAE = 1.0498
 # Element -> Understat id pairs that only the crosswalk-fixed build carries.
 CROSSWALK_FIX_IDS = {417: 8094.0, 713: 12168.0}      # Rayan Cherki, Alex Jimenez Sanchez
 PRECROSSWALK = REPO / "data" / "walkforward_h6_2025_26_precrosswalk.parquet"

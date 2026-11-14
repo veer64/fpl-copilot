@@ -902,11 +902,14 @@ of the play, checked independently of the figure it produces -- and must
 be seen to FAIL once before they are trusted.
 
 ## #17 -- canonical 2025-26 walkforward: e_minutes doubled on 10 single-fixture
-rows (Junior Kroupi GW1-9, Ben Gannon-Doak GW1) -- OPEN
+rows (Junior Kroupi GW1-9, Ben Gannon-Doak GW1) -- CLOSED 2026-11-14 (M1)
 
 **Status:** Found 2026-08-24 by the horizon-minutes step-0 reproduction check
-(eval/measure_horizon_minutes.py). Not fixed. Scope: 10 of 28,929 single-fixture
+(eval/measure_horizon_minutes.py). Scope as found: 10 of 28,929 single-fixture
 step-0 rows in data/walkforward_h6_2025_26.parquet; other seasons clean.
+**CLOSED 2026-11-14** on branch `m1-fix-record` (cause located by the X2 review, fixed by M1) -- see
+"Closed" at the end of this entry. The scope was wider than found: the same ten rows also carried
+DOUBLED ACTUAL points and minutes on six of them, and every model fitted on 2025-26 rows saw the copies.
 
 ### What was found
 
@@ -933,6 +936,58 @@ Locate the duplicate (minutes frame vs fixture join for elements 100 and 391 at
 cutoffs 1-9), fix at the grain it fails at, add a uniqueness assert on
 (cutoff, gw, element, fixture) before the collapse, rebuild the 2025-26
 canonical, and re-run the step-0 check to zero differing rows.
+
+### Closed 2026-11-14 (M1)
+
+**Cause -- inherited from the public vaastav 2025-26 file.** The duplicate was never made by our join:
+it was in the history stack. `data/history/all_seasons_fixed.parquet` carried ten BYTE-IDENTICAL pairs of
+2025-26 fixture rows -- element 100 (Junior Kroupi) at fixtures 1, 12, 29, 32, 42, 56, 63, 73, 83
+(gameweeks 1-9) and element 391 (Ben Gannon-Doak) at fixture 1 -- and the public vaastav
+`2025-26/gws/merged_gw.csv` carries the same twenty rows (29,757 rows, 20 in duplicated (element,
+fixture) groups, all 20 fully identical; X2 evidence `C:\dev\research\x2\evidence\35_ki17_cause.txt`,
+`21_data_compare.txt`). Two steps then did what they are meant to do on a wrong input:
+`minutes._prepare` collapsed each pair as a double gameweek, and in `assemble_fixtures` the `d1_features`
+merge on (element, gw, fixture) fanned each fixture row out twice, which `collapse_to_gameweek` summed.
+So expected minutes and expected points were doubled on those ten step-0 rows -- and so were the
+frame's ACTUAL points and minutes on the six where the player played (Kroupi GW8: 148 minutes and 24
+points recorded for one match; truth 74 and 12). The crosswalk was innocent, as the entry said.
+
+A second kind was found in the same pass: 59 phantom 2019-20 rows. Fixture 275 was postponed from
+gameweek 29 and played in gameweek 39; the archive kept a 0-minute, 0-point row at gameweek 29 beside
+the real row for 59 players. They reached no frame of record (the minutes model trains on 2022-23
+onward) -- only the unused `bonus_mean` population.
+
+**Fix.** One row per (season, element, fixture), the PLAYED row: `season_stack.dedupe_fixture_rows`
+(most minutes, then the later gameweek, then the first of exact copies; two DIFFERENT played rows for
+one fixture are refused). It lives in the stack builder -- `eval/fetch_fpl_history.combine` drops
+repeated rows from every stack it writes, whatever the archive holds -- and the frozen archive was
+rewritten once through the same function (`--dedupe-archive`, no network). Exactly 69 rows went, the
+count pre-registered by M1: 59 in 2019-20 (59 elements, first 1, last 617; fixture 275, gameweek 29) and
+10 in 2025-26 (elements 100 and 391). Archive 253,900 -> 253,831 rows, combined stack 260,462 -> 260,393;
+survivors identical, order and dtypes kept, a second run removes nothing
+(`C:\dev\fpl-backups\m1_files\evidence_08_dedupe_archive.txt`, `evidence_09_stack_regen_verify.txt`).
+The uniqueness assert asked for above sits where the fan-out happened: `assemble_fixtures` raises if the
+D1 merge returns two rows for one (element, gw, fixture).
+
+**Rebuild.** Only the 2025-26 lineage read the changed rows (inputs hashed per frame,
+`evidence_03_input_hash_compare.txt`): the canonical frame, the horizon-minutes refit and the three
+arm frames were rebuilt; the old ones are preserved as `*_pre_dedup`. 2023-24 and 2024-25 were NOT
+rebuilt -- their only changed input is the `bonus_mean` population, unused under `BONUS_MODE = "delete"`;
+three cutoffs of each rebuilt on the new stack are bit-identical to the frames of record in all 62 columns
+(`evidence_10_spot_rebuild_2324_2425.txt`). On the rebuilt 2025-26 frame Kroupi's and Gannon-Doak's ten
+rows carry single expected minutes and, for all 29,338 step-0 rows, actual points and minutes equal the
+stack's (`evidence_11_canonical_2025_26_old_vs_new.txt`); rows 165,401 unchanged; step-0 Spearman 0.74531
+-> 0.74534, MAE 1.05096 -> 1.04985. Because every model that trains on 2025-26 rows was refitted, the
+other rows moved too, a little: median |d p_start| 0.001, 99th percentile 0.06 -- and a handful of
+fringe rows a lot (`evidence_13_movers_2025_26.txt`), which is a statement about the minutes model's
+stability on back-ups, not about this fix.
+
+**Guard.** `Tests/test_stack_dedupe.py` (11 tests): the rule on synthetic rows, the builder on an archive
+that still carries repeats, and two data guards -- no repeated (season, element, fixture) row in either
+stack on disk, and every step-0 row of the 2025-26 frame of record equal to the stack's truth with no
+single fixture above 90 minutes. Both data guards failed before the fix (69 repeated rows; 6 rows).
+The check that found the issue, re-run on the rebuilt files (`eval/measure_horizon_minutes.py --levers
+refit`): 0 e_minutes rows differing in 2023-24, 2024-25 and 2025-26 (was 10 exactly-2x rows in 2025-26).
 
 ## #18 -- p_play_any carries a flat 0.30 substitute floor and overstates appearances on the written-off band by ~40%
 

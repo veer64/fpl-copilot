@@ -638,6 +638,19 @@ def assemble_fixtures(df, cw, mins_out, rates, priors, fixtures, dc_out,
                           "red_per_90", "penalty_share", "team_pen_rate"]].copy()
 
     asm = asm.merge(d1_features, on=["element", "gw", "fixture"], how="left")
+    # THE GRAIN #17 FAILED AT (KNOWN_ISSUES #17, closed 2026-11-14). d1_features comes from the raw
+    # season rows, so a stack that repeats a fixture row fans this merge out: two identical rows for
+    # one (element, gw, fixture), which collapse_to_gameweek then SUMS -- expected minutes, expected
+    # points and the realised minutes / points all exactly doubled, with n_fixtures still 1. That is
+    # what the 2025-26 frame of record carried for elements 100 and 391. The skeleton above was
+    # already deduplicated; this merge was the one without a uniqueness check.
+    if asm.duplicated(FIXTURE_KEY).any():
+        bad = asm.loc[asm.duplicated(FIXTURE_KEY, keep=False), "element"].unique().tolist()
+        raise AssertionError(
+            f"season {season!r}: the history stack repeats a (season, element, fixture) row for element(s) "
+            f"{sorted(int(e) for e in bad)[:10]} -- the frame would double those players (KNOWN_ISSUES #17). "
+            "Regenerate the stack: `eval/fetch_fpl_history.py --dedupe-archive`, then `--season <live season> "
+            "--combine`.")
     asm["saves_per_90"] = asm["saves_per_90"].fillna(0)
     # Card columns are position constants: a row that misses the merge still
     # gets its position rate rather than silently dropping the deduction.

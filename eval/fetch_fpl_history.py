@@ -26,6 +26,11 @@ data/history/all_seasons_with_{tag}.parquet = concat(all_seasons_fixed.parquet, 
 with the schema asserted equal -- the archive stays the source of truth for the past; the API serves only
 the current season. Nothing in modelling reads the combined file yet (deliberately -- season-boundary
 constants are unfixed; see the report of 2026-08-31).
+ONE ROW PER FIXTURE (2026-11-14, KNOWN_ISSUES #17). The archive inherited 69 repeated (season, element,
+fixture) rows from vaastav -- ten byte-identical 2025-26 pairs and fifty-nine 2019-20 phantoms of a
+postponed fixture -- and the per-gameweek collapse summed them. --combine now leaves repeated rows out of
+every stack it builds (squad/season_stack.dedupe_fixture_rows: the played row is kept), and
+--dedupe-archive is the one sanctioned rewrite of the archive itself, run once per data directory.
 
 Columns with no API source (vaastav's own xP model and the long-dead legacy columns that are all-null in
 recent seasons) are emitted as nulls of the correct dtype; none is read by modelling code.
@@ -34,6 +39,7 @@ Usage:
   uv run python eval/fetch_fpl_history.py --season 2026-27 --gw 1
   uv run python eval/fetch_fpl_history.py --season 2026-27 --gw 2 --provisional
   uv run python eval/fetch_fpl_history.py --season 2026-27 --combine
+  uv run python eval/fetch_fpl_history.py --dedupe-archive           (one-off, no network; then --combine)
   uv run python eval/fetch_fpl_history.py --season 2026-27 --gw 1 --verify-vaastav data/history/vaastav_gw1_2026_27_reference.csv
 """
 import argparse
@@ -224,8 +230,47 @@ def write_provisional(df, prov, season):
     return out
 
 
+def _dedupe():
+    """squad/season_stack.dedupe_fixture_rows + describe_removed (the one rule; KNOWN_ISSUES #17)."""
+    squad = str(REPO / "squad")
+    if squad not in sys.path:
+        sys.path.insert(0, squad)
+    import season_stack
+    return season_stack.dedupe_fixture_rows, season_stack.describe_removed
+
+
+def dedupe_archive():
+    """THE ONE SANCTIONED REWRITE of the frozen archive (KNOWN_ISSUES #17; M1, 2026-11-14): drop the
+    repeated (season, element, fixture) rows it inherited from vaastav, keeping the played row.
+    Atomic; every surviving row keeps its order, values and dtypes; a second run finds nothing.
+    combine() applies the same rule to whatever it builds, so a stack is clean even where the
+    archive has not been rewritten yet -- this exists because other readers open the archive
+    directly. Returns the removed rows."""
+    dedupe, describe = _dedupe()
+    base = pd.read_parquet(STACK)
+    clean, removed = dedupe(base)
+    if not len(removed):
+        log(f"{STACK.name}: already one row per (season, element, fixture) -- nothing to do ({len(base)} rows)")
+        return removed
+    assert (clean.dtypes == base.dtypes).all() and list(clean.columns) == list(base.columns)
+    tmp = STACK.with_suffix(".tmp.parquet")
+    clean.to_parquet(tmp, index=False)
+    back = pd.read_parquet(tmp)
+    assert list(back.columns) == list(base.columns) and (back.dtypes == base.dtypes).all(), \
+        "the rewritten archive does not read back with the archive's schema"
+    replace_with_retry(tmp, STACK)
+    log(f"DEDUPED -> {STACK.name}: {len(base)} -> {len(clean)} rows, {len(removed)} repeated fixture rows removed")
+    for line in describe(removed):
+        log("  removed " + line)
+    return removed
+
+
 def combine(season):
-    """all_seasons_fixed.parquet (UNTOUCHED) + the API season file -> the combined stack."""
+    """all_seasons_fixed.parquet + the API season file -> the combined stack, ONE ROW PER
+    (season, element, fixture). combine never writes the archive; repeated fixture rows are
+    dropped from what it builds (season_stack.dedupe_fixture_rows -- KNOWN_ISSUES #17), so
+    every rebuilt stack is right whether or not the archive has been through
+    --dedupe-archive."""
     tag = season.replace("-", "_")
     api = pd.read_parquet(HIST / f"fpl_api_{tag}.parquet")
     base = pd.read_parquet(STACK)
@@ -241,10 +286,16 @@ def combine(season):
     assert season not in set(base["season"]), f"{season} already in the stack -- refusing to double-append"
     out = HIST / f"all_seasons_with_{tag}.parquet"
     combined = pd.concat([base, api], ignore_index=True)
+    dedupe, describe = _dedupe()
+    combined, removed = dedupe(combined)
+    assert (combined["season"] == season).sum() == len(api), "an API season row was dropped as a repeat"
     tmp = out.with_suffix(".tmp.parquet")
     combined.to_parquet(tmp, index=False)
     replace_with_retry(tmp, out)
-    log(f"COMBINED -> {out.name}: {len(base)} archive rows (source of truth, untouched) + {len(api)} API rows")
+    log(f"COMBINED -> {out.name}: {len(base)} archive rows (source of truth, untouched) + {len(api)} API rows"
+        + (f" - {len(removed)} repeated fixture rows = {len(combined)}" if len(removed) else f" = {len(combined)}"))
+    for line in describe(removed):
+        log("  repeated rows left out (run --dedupe-archive to clean the archive itself): " + line)
     return out
 
 
@@ -286,13 +337,20 @@ def verify_vaastav(season, gw, csv_path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--season", required=True)
+    ap.add_argument("--season")
     ap.add_argument("--gw", type=int)
     ap.add_argument("--provisional", action="store_true",
                     help="allow a not-data_checked gameweek, into a side file that is never merged")
     ap.add_argument("--combine", action="store_true")
+    ap.add_argument("--dedupe-archive", action="store_true",
+                    help="one-off: drop the archive's repeated (season, element, fixture) rows, keeping the "
+                         "played row (KNOWN_ISSUES #17). No network. Run --combine afterwards.")
     ap.add_argument("--verify-vaastav", default=None, help="path to vaastav's gw csv to compare against")
     a = ap.parse_args()
+    if a.dedupe_archive:
+        dedupe_archive()
+        return
+    assert a.season, "--season required"
     if a.combine:
         combine(a.season)
         return
