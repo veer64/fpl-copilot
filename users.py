@@ -43,6 +43,15 @@ RATE_WINDOW_S = 60.0
 READS_PER_MINUTE = 120                                   # Prompt F1a: the website's other endpoints (/me, /threads, ...); W7b: 60 -> 120 (a fast Home / Chat walk is 4 reads a page)
 IMPORTS_PER_MINUTE = 5                                   # Prompt F1a: FPL team imports and refreshes (FPL's API is a guest's)
 CAP_REPLY = "You've reached today's limit. It resets at 00:00 UTC (in {h} h {m} m)."
+# Prompt R1 (2026-11-14; USER DECISION 13 Nov: "$50 will be the wallet"): the site's daily wallet -- $50.00/day across ALL
+# signed-in users together, next to each person's own cap. The owner is exempt and his spend does not count; guests keep
+# their own wallet (guest.py) and do not count; the reserved eval ids do not count. SITE_DAILY_BUDGET_USD overrides the
+# default (0 = closed to everyone but the owner: the kill switch). A refusal: HTTP 200, no model call, a cap_hits row with
+# kind 'site'. Turns already running finish, so a day can end over the budget by at most the cost of the turns in flight.
+SITE_BUDGET_ENV = "SITE_DAILY_BUDGET_USD"
+DEFAULT_SITE_BUDGET_USD = 50.00
+SITE_HIT_KIND = "site"
+SITE_CAP_REPLY = "FPL Copilot has reached its daily limit for everyone today. It resets at 00:00 UTC (in {h} h {m} m)."
 
 DDL = f"""
 CREATE SEQUENCE IF NOT EXISTS app_users_user_id_seq START WITH {FIRST_NEW_USER_ID} MINVALUE {FIRST_NEW_USER_ID};
@@ -68,6 +77,7 @@ CREATE TABLE IF NOT EXISTS cap_hits (
     cap_usd    NUMERIC(10, 4)
 );
 CREATE INDEX IF NOT EXISTS ix_cap_hits_user ON cap_hits (user_id, hit_at);
+ALTER TABLE cap_hits ADD COLUMN IF NOT EXISTS kind TEXT;                -- Prompt R1: 'site' = the site wallet; NULL = the user's own cap
 ALTER TABLE chat_usage ADD COLUMN IF NOT EXISTS user_id INT;
 CREATE INDEX IF NOT EXISTS ix_chat_usage_user_ts ON chat_usage (user_id, ts);
 """
@@ -281,14 +291,18 @@ def spent_today(user_id, conn=None):
             conn.close()
 
 
-def record_cap_hit(user_id, spent, cap, conn=None):
+def record_cap_hit(user_id, spent, cap, conn=None, kind=None):
     own = conn is None
     if own:
         conn = db_write.connect()
     try:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO cap_hits (user_id, hit_at, spent_usd, cap_usd) VALUES (%s, %s, %s, %s)",
-                        (int(user_id), clock(), spent, cap))
+            if kind is None:
+                cur.execute("INSERT INTO cap_hits (user_id, hit_at, spent_usd, cap_usd) VALUES (%s, %s, %s, %s)",
+                            (int(user_id), clock(), spent, cap))
+            else:                                        # Prompt R1: the site wallet's row
+                cur.execute("INSERT INTO cap_hits (user_id, hit_at, spent_usd, cap_usd, kind) VALUES (%s, %s, %s, %s, %s)",
+                            (int(user_id), clock(), spent, cap, kind))
         conn.commit()
     finally:
         if own:
@@ -300,6 +314,56 @@ def cap_reply():
     now = clock()
     left = int((_midnight(now) + timedelta(days=1) - now).total_seconds())
     return CAP_REPLY.format(h=left // 3600, m=(left % 3600) // 60)
+
+
+def site_budget():
+    """SITE_DAILY_BUDGET_USD as a float, else 50.00 (unparseable or negative -> 50.00: the wallet never vanishes; 0 closes
+    it to everyone but the owner)."""
+    try:
+        v = float(os.environ.get(SITE_BUDGET_ENV, "") or DEFAULT_SITE_BUDGET_USD)
+        return v if v >= 0 else DEFAULT_SITE_BUDGET_USD
+    except (TypeError, ValueError):
+        return DEFAULT_SITE_BUDGET_USD
+
+
+def site_spent_today(conn=None):
+    """The site wallet's spend since 00:00 UTC (users.clock), in USD: every signed-in non-guest user's chat_usage -- the
+    owner and the reserved ids excluded -- plus deleted accounts' anonymised rows (turn_id 'deleted'; a deleted guest's
+    rows are 'deleted-guest' and never count). Off-mode rows (no user) never count."""
+    own = conn is None
+    if own:
+        conn = db_write.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT COALESCE(SUM(usd), 0) FROM chat_usage
+                           WHERE ts >= %s AND (turn_id = 'deleted'
+                                               OR user_id IN (SELECT user_id FROM app_users
+                                                              WHERE NOT is_guest AND NOT (user_id = ANY(%s))))""",
+                        (_midnight(clock()), list(RESERVED_USER_IDS)))
+            return float(cur.fetchone()[0])
+    finally:
+        if own:
+            conn.close()
+
+
+def site_cap_reply():
+    """The site wallet's refusal, with the time left until 00:00 UTC in whole hours and minutes (rounded down)."""
+    now = clock()
+    left = int((_midnight(now) + timedelta(days=1) - now).total_seconds())
+    return SITE_CAP_REPLY.format(h=left // 3600, m=(left % 3600) // 60)
+
+
+def site_capped(user):
+    """Prompt R1: (True, the reply) when the site's daily wallet is spent (a cap_hits row, kind 'site'), else (False, None).
+    Never the owner, never a guest (their own wallet)."""
+    if is_owner(user) or user.get("is_guest"):
+        return False, None
+    budget = site_budget()
+    spent = site_spent_today()
+    if spent >= budget:
+        record_cap_hit(user["user_id"], spent, budget, kind=SITE_HIT_KIND)
+        return True, site_cap_reply()
+    return False, None
 
 
 def cap_reset_at(now=None):

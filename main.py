@@ -389,6 +389,10 @@ def _chat_signed_in(request, http):
     if refused:                                         # Prompt W4 Data 2: the same text + the structured limit
         return {"answer": reply, "thread_id": request.thread_id, "capped": True,
                 "limit": {"kind": "guest" if user.get("is_guest") else "daily", "reset_at": threads.iso(users.cap_reset_at())}}
+    refused, reply = users.site_capped(user)            # Prompt R1: the site's $50/day wallet (owner, guests: never)
+    if refused:                                         # the website shows the server's wording for any kind but "daily"
+        return {"answer": reply, "thread_id": request.thread_id, "capped": True,
+                "limit": {"kind": "site", "reset_at": threads.iso(users.cap_reset_at())}}
     with config_roles.acting_user(user_id):             # every tool, ticket and trace of the turn answers for this user
         try:
             thread_id = threads.resolve(user_id, request.thread_id)
