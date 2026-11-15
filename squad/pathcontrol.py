@@ -56,7 +56,7 @@ from scoring import assign_bench_order, score_gameweek
 from simulator import (_pool_with_owned, decide_gameweek_mip, gw_actuals,
                        gw_slice, solution_to_squad)
 from squad_state import STARTING_BUDGET, SquadState
-import squad_state as _squad_state     # OPENING_FREE_TRANSFERS, read live (KNOWN_ISSUES #29)
+import squad_state as _squad_state     # OPENING_FREE_TRANSFERS (#29), CHIP_WEEK_FREE_TRANSFERS_EARNED (#30), read live
 from transfer_mip import DEFAULT_DECAY, DEFAULT_HORIZON
 
 DEFAULT_W = (1, 2, 3, 5)
@@ -130,7 +130,10 @@ def _replay(arm, gws, state=None):
 
         result = score_gameweek(state.squad, actuals, transfers_made=n,
                                 free_transfers=free_before)
-        state.end_gameweek(result["points"])
+        # A wildcard week keeps the bank and earns none, exactly as simulate_season
+        # ends it (KNOWN_ISSUES #30).
+        state.end_gameweek(result["points"],
+                           earned=_squad_state.CHIP_WEEK_FREE_TRANSFERS_EARNED if is_wildcard else 1)
         rows.append({"gw": gw, "points": result["points"], "hit": result["hit"],
                      "n_transfers": n, "elements": list(state.elements)})
 

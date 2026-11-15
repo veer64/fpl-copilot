@@ -66,6 +66,9 @@ Now ft[t] is a variable, bounded by:
     ft[t] <= ft[t-1] - used[t-1] + hits[t-1] + 1
     ft[t] >= 0
 
+(After a WILDCARD step the chain is ft[t] <= ft[t-1] + hits[t-1] + 0: the chip's
+transfers spend nothing and the week earns nothing -- FPL's rule, KNOWN_ISSUES #30.)
+
 The `min` needs no extra machinery: larger ft[t] loosens the hit constraint below,
 so the solver already wants ft[t] as large as possible and the upper bounds bind
 exactly where min() would.
@@ -118,8 +121,9 @@ from optimize import (
     VICE_WEIGHT, resolve_bench_weight, _default_solver, _is_set,
 )
 from squad_state import sell_price, MAX_FREE_TRANSFERS
+import squad_state as _squad_state     # CHIP_WEEK_FREE_TRANSFERS_EARNED is read live (KNOWN_ISSUES #30)
 
-HIT_COST = 4          # FPL's actual charge. Never change this: it is a game rule.
+HIT_COST = 4         # FPL's actual charge. Never change this: it is a game rule.
 
 # Bench-aware Bench Boost (P4 follow-up, 2026-08-20). When a Bench Boost is
 # scheduled for a gameweek inside the planning horizon, that step's bench
@@ -206,8 +210,10 @@ def build_and_solve(
     decay            : per-gameweek discount on future predicted points
     wildcard_step    : horizon index (0 = the executed gameweek) at which transfers
                        are free, or None. Budget, squad composition and club limits
-                       still apply. Banking is untouched, so the following gameweek
-                       resumes with its normal free transfer.
+                       still apply. The banked free transfers are kept and the
+                       chip week earns none, so the following gameweek resumes
+                       with the SAME count (FPL's rule; KNOWN_ISSUES #30 -- until
+                       2026-11-15 the chain added one after a wildcard step).
     bench_boost_step : horizon index of a scheduled Bench Boost, or None. Under
                        BENCH_BOOST_AWARE that step's bench weight is 1.0 -- all
                        fifteen score that week -- so the solver can build toward
@@ -457,6 +463,14 @@ def build_and_solve(
     # which is why it only looked correct on a truncated one-gameweek season.
     if wildcard_step is not None:
         spend[wildcard_step] = 0
+    # ...and EARNS none (KNOWN_ISSUES #30, fixed 2026-11-15): FPL keeps the bank through a
+    # Wildcard / Free Hit week and adds no new free transfer, so the week after a wildcard
+    # step starts from the same count. squad_state.CHIP_WEEK_FREE_TRANSFERS_EARNED (0), read
+    # live -- the same constant the simulator's end_gameweek uses, so the plan and the state
+    # it is executed against cannot disagree. Every other step earns 1.
+    earned = {t: 1 for t in range(T)}
+    if wildcard_step is not None:
+        earned[wildcard_step] = int(_squad_state.CHIP_WEEK_FREE_TRANSFERS_EARNED)
 
     prob += ft[0] == free_transfers
     if force_hold:
@@ -465,7 +479,7 @@ def build_and_solve(
         # ft[t] <= max(0, ft[t-1] - used[t-1]) + 1, with the max handled by the
         # hits term: when h hits are taken, used = ft + h at the optimum, so
         # ft[t-1] - used[t-1] + hits[t-1] collapses to exactly 0.
-        prob += ft[t] <= ft[t - 1] - spend[t - 1] + hits[t - 1] + 1
+        prob += ft[t] <= ft[t - 1] - spend[t - 1] + hits[t - 1] + earned[t - 1]
 
     for t in range(T):
         if t == 0 and is_first_squad:

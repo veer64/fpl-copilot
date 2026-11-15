@@ -38,6 +38,22 @@ def log_opening(log):
     return 1
 
 
+# The gap0 reference logs an exploratory gap0 arm resumes from: the M3 restatement of 2026-11-15
+# (opening corrected #29, de-duplicated-stack frames #17, no free transfer earned in a chip week #30).
+# Was armlog_{tag}_gap0_tc2.parquet (the 2026-09-13 record, old opening) until M3.
+REFERENCE_LOG = "armlog_{tag}_gap0_tc2_m3a.parquet"
+
+
+def log_chip_week_earned(log):
+    """Free transfers a decision log earned in a Wildcard / Free Hit week: its
+    `chip_week_free_transfers_earned` stamp, or 1 for a log written before the
+    stamp existed (2026-11-15, KNOWN_ISSUES #30) -- every log up to and including
+    the M1 restatement kept the bank AND earned one."""
+    if "chip_week_free_transfers_earned" in log.columns:
+        return int(log["chip_week_free_transfers_earned"].iloc[0])
+    return 1
+
+
 def replay_state(log, df, through_gw):
     """Rebuild the SquadState at the END of `through_gw` from a decision log by
     replaying its transfers on the canonical frame's prices; asserted against
@@ -47,8 +63,13 @@ def replay_state(log, df, through_gw):
     `opening_free_transfers` opened with that many free transfers at the first
     deadline (0 since 2026-11-14); a log without the stamp was written before
     that date and opened with 1, so every armlog of the old record still replays
-    gameweek by gameweek against its own free-transfer column."""
+    gameweek by gameweek against its own free-transfer column.
+
+    A Wildcard week is ended as THE LOG ended it (KNOWN_ISSUES #30): a log stamped
+    `chip_week_free_transfers_earned` earned that many (0 since 2026-11-15); a log
+    without the stamp earned 1."""
     opening = log_opening(log)
+    chip_week_earned = log_chip_week_earned(log)
     log = log.set_index("gw")
     els = json.loads(log.loc[1, "elements"]) if isinstance(log.loc[1, "elements"], str) else list(log.loc[1, "elements"])
     pool1 = simulator.gw_slice(df, 1, cutoff=1)
@@ -71,7 +92,7 @@ def replay_state(log, df, through_gw):
         want = json.loads(row["elements"]) if isinstance(row["elements"], str) else list(row["elements"])
         assert set(state.elements) == set(int(e) for e in want), f"GW{gw}: replayed squad != log"
         assert state.bank == int(row["bank"]), f"GW{gw}: replayed bank {state.bank} != log {row['bank']}"
-        state.end_gameweek(int(row["points"]))
+        state.end_gameweek(int(row["points"]), earned=chip_week_earned if bool(row["wildcard"]) else 1)
         assert state.free_transfers == int(row["free_transfers"]), f"GW{gw}: replayed FT {state.free_transfers} != log {row['free_transfers']}"
         assert state.total_points == int(row["total_points"]), f"GW{gw}: replayed total != log"
     return state
@@ -101,7 +122,7 @@ def main():
     ref = pd.read_parquet(P1 / f"fslog_{tag}_{OPENING}_wc{WC1}.parquet")
     if arm in ("props_gap0", "hmin_gap0", "both_gap0"):
         # like-for-like base for the exploratory arms is the gap0 reference path (TC2 in-sim; TC flag never changes a decision)
-        ref = pd.read_parquet(ARMS_DIR / f"armlog_{tag}_gap0_tc2.parquet")
+        ref = pd.read_parquet(ARMS_DIR / REFERENCE_LOG.format(tag=tag))
     if arm == "baseline8":
         wf_path = REPO / "data" / f"walkforward_h6_{tag}.parquet"
     elif arm in ("props_gap0", "hmin_gap0", "both_gap0"):
@@ -182,6 +203,11 @@ def main():
     if start_gw > 1:
         canon = simulator.load_season(walkforward_path=str(REPO / "data" / f"walkforward_h6_{tag}.parquet"), horizon_aware=True, season=season)
         initial = replay_state(ref, canon, start_gw - 1)
+        # a like-for-like arm must run under the chip-week rule of the log it continues (KNOWN_ISSUES #30)
+        import squad_state as _ss
+        assert log_chip_week_earned(ref) == int(_ss.CHIP_WEEK_FREE_TRANSFERS_EARNED), \
+            (f"the reference log earned {log_chip_week_earned(ref)} free transfer(s) in a chip week, the simulator now earns "
+             f"{_ss.CHIP_WEEK_FREE_TRANSFERS_EARNED}: the resumed segment would mix two rules")
         gws = list(range(start_gw, 39))
         print(f"{season} {arm}: resuming from the reference cell's state at end of GW{start_gw - 1}: {initial}", flush=True)
     t0 = time.time()
@@ -206,7 +232,7 @@ def main():
     log["season"], log["opening"], log["arm"] = season, OPENING, arm
     log["wc1"], log["wc2"], log["fh2"], log["bb1"], log["bb2"] = WC1, rfs.WC2[season], rfs.FH2[season], bb1, bb2
     log["wf_file"] = wf_path.name; log["start_gw"] = start_gw
-    log["resume_from"] = ((f"armlog_{tag}_gap0_tc2.parquet@GW{start_gw - 1}" if arm in ("props_gap0", "hmin_gap0", "both_gap0") else f"fslog_{tag}_{OPENING}_wc{WC1}.parquet@GW{start_gw - 1}") if start_gw > 1 else "none")
+    log["resume_from"] = ((f"{REFERENCE_LOG.format(tag=tag)}@GW{start_gw - 1}" if arm in ("props_gap0", "hmin_gap0", "both_gap0") else f"fslog_{tag}_{OPENING}_wc{WC1}.parquet@GW{start_gw - 1}") if start_gw > 1 else "none")
     log["props_active"] = arm in ("props", "both", "props_gap0", "both_gap0"); log["horizon_minutes_active"] = arm in ("hmin", "both", "hmin_gap0", "both_gap0"); log["exploratory_not_adoptable"] = arm in ("props_gap0", "hmin_gap0", "both_gap0")
     log["penalty_fix_active"] = arm in ("penfix", "cal_penfix"); log["topend_cal_active"] = arm in ("cal", "cal_penfix"); log["bonus_mode"] = {"bonusow": "outcome", "bonusdel": "delete", "leakfix": "delete", "gap0": "delete", "hold_gap0": "delete"}.get(arm, "incumbent")
     log["penalty_join_prior_season"] = bool(df["penalty_join_prior_season"].iloc[0]) if "penalty_join_prior_season" in df.columns else False

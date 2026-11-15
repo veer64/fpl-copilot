@@ -10,7 +10,9 @@ FOUR THINGS PERSIST
 1. The 15 players you own — AND what you paid for each. The purchase price is not
    bookkeeping trivia; it is what determines how much you get back when you sell.
 2. Bank — money not currently spent on players.
-3. Free transfers — one earned per gameweek, banked up to a cap of 5.
+3. Free transfers — one earned per gameweek, banked up to a cap of 5. A
+   Wildcard / Free Hit week keeps the bank and earns none (see
+   CHIP_WEEK_FREE_TRANSFERS_EARNED).
 4. Points so far — the running total.
 
 THE SELL-PRICE RULE (the reason purchase price is stored)
@@ -52,6 +54,19 @@ MAX_FREE_TRANSFERS = 5      # free transfers bank up to this many
 # decision-log row as `opening_free_transfers`. A game rule, not a tunable. SquadState's own
 # default below (1) is a squad at a LATER deadline and is unchanged.
 OPENING_FREE_TRANSFERS = 0
+# Free transfers EARNED IN A WILDCARD / FREE HIT WEEK: none. FPL makes that week's transfers
+# free, keeps the free transfers already banked, and adds no new one -- the rule the live import
+# derives from FPL's own hit charges (fpl_import.derive_free_transfers; pinned on a saved real
+# team history by Tests/test_fpl_import.py::test_i3_the_recorded_hit_fits_only_no_earning_in_a_chip_week).
+# Until 2026-11-15 the simulator kept the bank AND earned one, so every simulated season held a
+# free transfer too many after each in-sim chip -- two at the gameweek-3 deadline after the
+# record's gameweek-2 Wildcard, where FPL gives one (KNOWN_ISSUES #30; found by M1, fixed by M3).
+# Read LIVE (module attribute) by the simulator, the path-control replay and the transfer MIP's
+# free-transfer chain at a wildcard step, and stamped into every decision-log row as
+# `chip_week_free_transfers_earned`; eval/run_arms_full_system.replay_state replays a log by ITS
+# OWN stamp (none = written before 2026-11-15 = 1). A game rule, not a tunable: 1 reproduces the
+# old accounting exactly and exists for that purpose only.
+CHIP_WEEK_FREE_TRANSFERS_EARNED = 0
 SQUAD_SIZE = 15
 STARTING_BUDGET = 1000      # £100.0m in tenths
 
@@ -255,10 +270,17 @@ class SquadState:
         self.free_transfers = max(0, self.free_transfers - n)
         return paid
 
-    def end_gameweek(self, points_scored):
-        """Roll the state forward: bank the points, earn next week's transfer."""
+    def end_gameweek(self, points_scored, earned=1):
+        """Roll the state forward: bank the points, earn next week's transfer.
+
+        earned : free transfers earned for next week -- 1 after an ordinary
+                 gameweek (the default). After a Wildcard / Free Hit week the
+                 caller passes CHIP_WEEK_FREE_TRANSFERS_EARNED (0: the bank is
+                 kept and none is earned, KNOWN_ISSUES #30). This object does not
+                 know which weeks are chip weeks; the season loop does.
+        """
         self.total_points += int(points_scored)
-        self.free_transfers = min(MAX_FREE_TRANSFERS, self.free_transfers + 1)
+        self.free_transfers = min(MAX_FREE_TRANSFERS, self.free_transfers + int(earned))
 
     # -- chip support --------------------------------------------------------
 
@@ -282,7 +304,8 @@ class SquadState:
     def restore(self, snap):
         """Put back a snapshot(), leaving the squad indistinguishable from the
         one held before the chip week -- same players, same purchase prices,
-        same bank, same free transfers. A Free Hit consumes none of them."""
+        same bank, same free transfers. A Free Hit consumes none of them (and
+        earns none: the caller ends the week with earned=CHIP_WEEK_FREE_TRANSFERS_EARNED)."""
         self.squad = snap["squad"].copy(deep=True)
         self.bank = int(snap["bank"])
         self.free_transfers = int(snap["free_transfers"])

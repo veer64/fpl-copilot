@@ -69,7 +69,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from optimize import optimize_squad, get_team, BUDGET
 from scoring import assign_bench_order, score_gameweek
 from squad_state import SquadState, sell_price, STARTING_BUDGET
-import squad_state as _squad_state     # OPENING_FREE_TRANSFERS is read live (KNOWN_ISSUES #29)
+import squad_state as _squad_state     # OPENING_FREE_TRANSFERS (#29) and CHIP_WEEK_FREE_TRANSFERS_EARNED (#30) are read live
 from transfer_mip import (build_and_solve, plan_to_team,
                           DEFAULT_HORIZON, DEFAULT_DECAY)
 
@@ -736,6 +736,11 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
     # (eval/run_arms_full_system.py). Logs written before 2026-11-14 carry no stamp and opened with 1.
     opening_free_transfers = int(_squad_state.OPENING_FREE_TRANSFERS)
     opening_stamp = opening_free_transfers if initial_state is None else -1
+    # THE CHIP WEEK (KNOWN_ISSUES #30, fixed 2026-11-15 by M3). Free transfers earned in a Wildcard
+    # / Free Hit week: squad_state.CHIP_WEEK_FREE_TRANSFERS_EARNED (0 -- FPL keeps the bank and adds
+    # none). Read once here and stamped on every log row as `chip_week_free_transfers_earned`; a log
+    # without the stamp was written before 2026-11-15 and earned one.
+    chip_week_earned = int(_squad_state.CHIP_WEEK_FREE_TRANSFERS_EARNED)
     # Whether the opening squad was ACTUALLY built with a horizon / robustly --
     # stamped on every log row. Distinct from the raw gates: policy="single"
     # never plans, so the gates are scoped to the MIP policy and the stamps
@@ -910,10 +915,11 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
         # so both the charge and the spend are skipped. Reporting the allowance as
         # the transfer count is what makes score_gameweek bill zero, and leaving
         # state.free_transfers untouched means the bank carries into next week
-        # exactly as FPL does.
+        # exactly as FPL does -- and end_gameweek below adds NOTHING to it that
+        # week (chip_week_earned; until 2026-11-15 it added one, KNOWN_ISSUES #30).
         # A Free Hit is the same bargain as a wildcard for one week: every
-        # transfer free, no banked transfer consumed. The difference comes after
-        # scoring, when the squad is handed back.
+        # transfer free, no banked transfer consumed, none earned. The difference
+        # comes after scoring, when the squad is handed back.
         if is_wildcard or is_free_hit:
             free_before = n_transfers
         else:
@@ -937,11 +943,14 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
 
         if is_free_hit:
             # The squad reverts; the points do not. Restoring BEFORE
-            # end_gameweek means next week's free transfer is earned on the
-            # pre-chip balance, which is what FPL does.
+            # end_gameweek puts the pre-chip free-transfer balance back, and
+            # that balance is what the manager holds next week.
             state.restore(pre_chip)
 
-        state.end_gameweek(result["points"])
+        # An ordinary week earns next week's free transfer; a Wildcard / Free Hit
+        # week keeps the bank and earns chip_week_earned (0 -- KNOWN_ISSUES #30).
+        state.end_gameweek(result["points"],
+                           earned=chip_week_earned if (is_wildcard or is_free_hit) else 1)
 
         log.append({
             "gw": gw,
@@ -965,6 +974,10 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             # (0 since 2026-11-14; -1 = resumed from a caller's state). Absent on
             # every log written before that date, which opened with 1.
             "opening_free_transfers": int(opening_stamp),
+            # KNOWN_ISSUES #30: free transfers earned in a Wildcard / Free Hit week
+            # (0 since 2026-11-15). Absent on every log written before that date,
+            # which earned 1.
+            "chip_week_free_transfers_earned": int(chip_week_earned),
             # P5 gates, read live (drivers flip them in-process)
             "bench_order_by_play": bool(__import__("scoring").BENCH_ORDER_BY_PLAY),
             "xi_tiebreak_p60": bool(__import__("optimize").XI_TIEBREAK_P60),

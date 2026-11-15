@@ -98,7 +98,8 @@ def test_chip_relief_beats_ft_plus_one(T):
 
 def test_chip_relief_banks_nothing_extra():
     """The chip must not leak free transfers into the following week: ft[1] is
-    capped at the pre-chip balance plus the usual one."""
+    capped at the pre-chip balance -- kept, none earned (FPL's rule; KNOWN_ISSUES
+    #30). Until 2026-11-15 the cap pinned here was the balance plus one (1 + 1)."""
     pool = make_random_pool(11)
     owned = a_squad(pool)
     pools = {20: pool.copy(), 21: pool.copy()}
@@ -109,7 +110,7 @@ def test_chip_relief_banks_nothing_extra():
         bank=0, free_transfers=1, mode="balanced", decay=0.3, wildcard_step=0,
     )
     assert status == "Optimal"
-    assert plan[1]["free_transfers"] <= min(MAX_FREE_TRANSFERS, 1 + 1)
+    assert plan[1]["free_transfers"] <= min(MAX_FREE_TRANSFERS, 1)
 
 
 def test_without_relief_transfers_stay_cheap():

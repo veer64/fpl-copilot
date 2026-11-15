@@ -11,11 +11,12 @@ Pinned here, on a small synthetic season so it runs in the unit suite:
     gameweek-2 Wildcard (the simulator has ONE rule set for every season -- the 2025-26 rules by project
     convention, squad/chip_legality.py -- so the season only chooses the synthetic data);
   * the gameweek-3 count without a chip (the banking rule is untouched by the fix);
-  * the gameweek-3 count after a gameweek-2 Wildcard AS THE SIMULATOR COMPUTES IT -- banked transfers kept
-    and one earned = 2 -- next to what the live import's rule (fpl_import.derive_free_transfers, the rule
-    checked against FPL's own hit charges) gives for the same history: kept, none earned = 1. That
-    disagreement is KNOWN_ISSUES #30 (OPEN, deliberately outside M1). The test states it so it cannot be
-    forgotten, and it fails the day the chip-week rule is changed -- the moment to update it;
+  * the gameweek-3 count after a gameweek-2 Wildcard next to what the live import's rule
+    (fpl_import.derive_free_transfers, the rule checked against FPL's own hit charges) gives for the same
+    history: banked transfers kept, none earned = 1, in both. Until 2026-11-15 the simulator kept the bank
+    AND earned one = 2 (KNOWN_ISSUES #30, left open by M1 on purpose); this test pinned that 2-versus-1 so it
+    could not be forgotten, failed the day M3 changed the chip-week rule, and was updated by hand in that
+    commit (2 -> 1). The rule itself is pinned in Tests/test_chip_week_free_transfers.py;
   * the provenance stamp `opening_free_transfers` on every decision-log row, and that replaying a log
     follows the log's OWN opening (logs written before 2026-11-14 carry no stamp and opened with one);
   * the sibling season-opening sites: the opening-horizon free-pick solve and the path-control replay.
@@ -106,12 +107,12 @@ def test_a_second_transfer_at_gameweek_2_costs_a_hit():
 
 
 @pytest.mark.parametrize("season", SEASONS)
-def test_gameweek_3_after_a_gameweek_2_wildcard__simulator_2_live_rule_1__known_issue_30(season):
-    """After the fix the simulator stands at gameweek 3 with TWO free transfers when gameweek 2 was a
-    Wildcard (the record had three): the chip week keeps the banked transfer AND earns one. The live
-    import's rule for the same history -- kept, none earned -- gives ONE. M1 fixes the opening only; the
-    chip-week rule is KNOWN_ISSUES #30, OPEN. This test pins the simulator's present behaviour and the size
-    of the disagreement, and must be updated in the commit that changes either rule."""
+def test_gameweek_3_after_a_gameweek_2_wildcard__simulator_1_live_rule_1__known_issue_30_closed(season):
+    """The simulator stands at gameweek 3 with ONE free transfer when gameweek 2 was a Wildcard: the chip
+    week keeps the banked transfer and earns none. The live import's rule for the same history -- kept,
+    none earned -- gives ONE too. Until 2026-11-15 the simulator gave TWO (the M1 record; three before M1):
+    KNOWN_ISSUES #30, closed by M3. This test pinned the 2-versus-1 disagreement while it was open
+    (`sim_gw3 == 2`, `sim_gw3 == live_gw3 + 1`) and was updated by hand in the commit that changed the rule."""
     import fpl_import
     _, log = _run(season, gw2_wildcard=True)
     assert bool(log.loc[2, "wildcard"]) and int(log.loc[2, "hit"]) == 0
@@ -121,8 +122,8 @@ def test_gameweek_3_after_a_gameweek_2_wildcard__simulator_2_live_rule_1__known_
                "chips": [{"event": 2, "name": "wildcard"}]}
     live_gw3, _notes = fpl_import.derive_free_transfers(history, 1, 2, MAX_FREE_TRANSFERS)
     assert live_gw3 == 1
-    assert sim_gw3 == 2
-    assert sim_gw3 == live_gw3 + 1, "the simulator earns a free transfer in a chip week; the live rule does not"
+    assert sim_gw3 == 1
+    assert sim_gw3 == live_gw3, "the simulator and the live rule agree: a chip week keeps the bank and earns none"
 
 
 @pytest.mark.parametrize("gw2_wildcard", [False, True])
