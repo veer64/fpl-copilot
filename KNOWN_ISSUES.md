@@ -1696,15 +1696,18 @@ arms start at GW8) from the OLD reference log (`armlog_2024_25_gap0_tc2.parquet`
 opening 1); an arm meant to be compared with the restated cells must resume from the `_m1` log -- not
 changed here because no arm was re-run.
 
-## #30 -- the simulator EARNS a free transfer in a Wildcard / Free Hit week; FPL (and the live import's rule) keeps the banked transfers and earns none -- OPEN 2026-11-14 (found by M1, outside its scope, NOT fixed)
+## #30 -- the simulator EARNED a free transfer in a Wildcard / Free Hit week; FPL (and the live import's rule) keeps the banked transfers and earns none -- CLOSED 2026-11-15 (found by M1, fixed by M3)
 
-**Status:** Found 2026-11-14 while reading the free-transfer rules for #29. Not fixed: M1 was scoped to
-the opening only. Scope: every simulated season with an in-sim chip -- the reference configuration plays
-three (Wildcard 1 at GW2, Free Hit 2, Wildcard 2).
+**Status:** Found 2026-11-14 while reading the free-transfer rules for #29; M1 was scoped to the opening
+only and left it open on purpose. Fixed 2026-11-15 on branch `m3-crowd-build`, commit `17e36c0` (the
+simulator); the record was restated in the commit that closes this entry. Scope: every simulated season
+with an in-sim chip -- the reference configuration plays three (Wildcard 1 at GW2, Free Hit 2, Wildcard 2).
+The live product's own roll-forward (`squad_store.free_transfers_at`) has the same chip-week gap and is NOT
+touched here (production; handled separately).
 
-### What is wrong
+### What was wrong
 
-On a chip week the simulator spends no banked transfer (`free_before = n_transfers`, no
+On a chip week the simulator spent no banked transfer (`free_before = n_transfers`, no
 `spend_transfers`) and then calls `end_gameweek()`, which adds one: banked + 1 the following week
 (`squad/simulator.py`, "leaving state.free_transfers untouched means the bank carries into next week" --
 and the +1 on top). The transfer MIP plans the same way (`spend[wildcard_step] = 0` inside
@@ -1726,10 +1729,42 @@ Also not modelled, by the project's one-rule-set convention (`squad/chip_legalit
 on every backtest season): 2023-24's own free-transfer rules (its `game_settings` carry no
 `max_extra_free_transfers` key -- the older, smaller bank).
 
-### To close
+### The fix
 
-Decide the convention (FPL's 2025-26 rule on every season: banked transfers kept through a Wildcard /
-Free Hit, none earned that week), change the chip-week accounting in `simulate_season` and
-`pathcontrol._replay` and the MIP's chain at a wildcard step together, update
-`Tests/test_season_opening.py::test_gameweek_3_after_a_gameweek_2_wildcard__simulator_2_live_rule_1__known_issue_30`
-(it pins today's 2-versus-1 on purpose), re-run the three reference seasons and restate the record once more.
+`squad_state.CHIP_WEEK_FREE_TRANSFERS_EARNED = 0`, read live at the three sites that end or plan a chip
+week: `simulate_season` (`SquadState.end_gameweek` takes `earned`, default 1; a Wildcard / Free Hit week
+passes the constant), `pathcontrol._replay`, and the transfer MIP's free-transfer chain after a wildcard
+step (`ft[t] <= ft[t-1] - spend[t-1] + hits[t-1] + earned[t-1]`, earned 0 at the wildcard step). One rule
+set for every backtest season, as before (FPL's 2025-26 rule). Every decision-log row is stamped
+`chip_week_free_transfers_earned`; a log without the stamp was written before 2026-11-15 and earned one, and
+`eval/run_arms_full_system.replay_state` ends a Wildcard week by the log's own rule, so the 2026-09-13
+record, the M1 restatement and every older armlog still replay gameweek by gameweek.
+`eval/run_arms_full_system.py` now resumes the exploratory gap0 arms from the restated log
+(`REFERENCE_LOG = armlog_{tag}_gap0_tc2_m3a`) and refuses to resume a segment under a chip-week rule other
+than its reference log's.
+
+Reproduced before the fix (A0, unchanged code, `C:\dev\fpl-backups\m3_files\runs\*_a0.parquet`): the three
+M1 logs bit-identical in every column. With the constant set back to 1 the model handed to the solver is
+the old one, expression for expression.
+
+### Guard and record
+
+`Tests/test_chip_week_free_transfers.py` (45 tests; 30 failed before the fix): the rule for every simulated
+season and each of Wildcard 1 / Free Hit 2 / Wildcard 2 in that season's order of record; one free transfer
+at the gameweek-3 deadline after the gameweek-2 Wildcard, in the state and in what the planner is handed;
+the simulator's free-transfer column and hit charges equal to `fpl_import.derive_free_transfers` on the
+simulator's own transfers every gameweek; the MIP chain; the path-control replay; the stamp; replay by the
+log's own rule, including the logs of record on disk. Pins updated by hand in the same commit:
+`Tests/test_season_opening.py::test_gameweek_3_after_a_gameweek_2_wildcard__simulator_1_live_rule_1__known_issue_30_closed`
+(was `..._simulator_2_live_rule_1__known_issue_30`: simulator 2 -> 1) and
+`Tests/test_transfer_mip.py::test_chip_relief_banks_nothing_extra` (cap 1 + 1 -> 1).
+
+Restated 2026-11-15 (`data/arms/armlog_*_gap0_tc2_m3a.parquet`, same frames as the M1 logs, which keep
+their names): chip-inclusive 2310 / 2283 / 2192 (M1: 2377 / 2158 / 2181), path 2269 / 2247 / 2151 (M1: 2344 /
+2111 / 2137); free transfers held at the GW2 / GW3 deadline 1 / 1 in all three seasons (M1: 1 / 2); hits 64 /
+40 / 16 points (M1: 68 / 56 / 16); transfers 84 / 80 / 73 (M1: 87 / 83 / 76). The ledger check on the new
+logs' own transfers: FPL's rule charges exactly what the logs charge, 0 extra hits in every season
+(`C:\dev\fpl-backups\m3_files\evidence_A2b_ft_ledger.txt`; on the M1 logs it was 3 extra a season). One
+path each (path sd ~60): a corrected record, not evidence -- the moves (-67 / +125 / +11 chip-inclusive) are
+path divergence from the gameweek-2 Wildcard on, not the price of three transfers (face value: 12 points a
+season). Figures of record: `Logs/season_totals_index.md` (the 2026-11-15 block).
