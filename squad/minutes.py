@@ -33,15 +33,20 @@ AVAILABILITY_DEFAULT = True
 # NOT ADOPTED. When active, the pre-deadline crowd block (squad/crowd_block.py: ownership and the
 # week's transfer flow, from the bootstrap snapshot the availability block already names for each
 # gameweek) joins the feature list of ALL FIVE sub-models, in the form CROWD_FORM:
-#   "rank"  ownership + the four flow features as within-gameweek percentile ranks
-#   "raw"   the five features as they are
+#   "raw"   the five features as they are -- THE FORM M3's MIDWEEK TEST CHOSE (B0, pre-registered
+#           rule: fed a snapshot 72 h before the deadline, raw had the lower all-rows Brier than
+#           rank in all three seasons and still beat the baseline)
+#   "rank"  ownership + the four flow features as within-gameweek percentile ranks. FRAGILE away
+#           from the deadline: for a player whose price did not change, the rank of the price
+#           change is one tied value that only encodes how many OTHER players' prices moved, and
+#           the model splits on it (2026-27 GW10 at midweek: Brier 0.092 against 0.063).
 # With the gate off this module asks for no crowd column, never imports crowd_block, reads no
 # snapshot and builds every frame exactly as before (the parity suite and M3's gate-off rebuild
 # of the three frames of record prove it). Read LIVE: a driver flips it in-process, as the
 # assembly gates are flipped. The walk-forward harness stamps crowd_features_active / crowd_form
 # on the frames the gate changes, and only on those.
 CROWD_FEATURES_ACTIVE = False
-CROWD_FORM = "rank"
+CROWD_FORM = "raw"
 
 MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"

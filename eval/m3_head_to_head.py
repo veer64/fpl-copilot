@@ -130,7 +130,10 @@ def cmd_run(a):
     todo.sort(key=lambda t: (-t[2], t[0], t[1]))
     print(f"windows to run {len(todo)} (seasons {seasons}; workers {a.workers}; solver threads {os.environ.get('FPL_SOLVER_THREADS', 'unset')})", flush=True)
     t0, done = time.time(), 0
-    with ProcessPoolExecutor(max_workers=a.workers) as ex:
+    # One window per worker process. A worker that lives on keeps every season frame it has loaded (_CACHE);
+    # measured 2026-11-15: ~1.7 GB per worker with ONE season's two frames, and a twelve-worker pool crossing
+    # into its second season was heading past 31 GB of RAM. Reloading two frames costs seconds per window.
+    with ProcessPoolExecutor(max_workers=a.workers, max_tasks_per_child=1) as ex:
         futs = {ex.submit(run_one, s, k, n, arm, a.crowd_dir, str(out_dir)): (s, k, n, arm) for s, k, n, arm in todo}
         for f in as_completed(futs):
             s, k, n, arm = futs[f]

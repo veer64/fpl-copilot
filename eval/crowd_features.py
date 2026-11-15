@@ -1,5 +1,7 @@
-"""As-of crowd features for the P(start) probe -- PROBE CODE (M2, model-upgrade plan step 2).
-Nothing in production imports this module; it changes no prediction.
+"""As-of crowd features -- written as PROBE CODE for the P(start) probe (M2, model-upgrade plan step 2).
+Since M3 (2026-11-15) squad/crowd_block.py imports the formulas, the snapshot reader and the join from here
+to offer the features to the minutes model, behind minutes.CROWD_FEATURES_ACTIVE -- which rests False, so
+with the gate off nothing in production imports this module and it changes no prediction.
 
 This is Probe A's feature builder (X2 review, PR-6; C:\\dev\\research\\x2\\scripts\\pr6_build_crowd.py) brought
 into the repo, the formulas unchanged, extended to read the live season's snapshots (gzip) beside the
