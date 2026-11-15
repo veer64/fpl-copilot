@@ -209,6 +209,13 @@ def walk_forward(season, cutoffs=None, horizon=6, verbose=True, save_path=None):
     import synthetic_lambda as synth_mod
     result["synthetic_lambda_active"] = bool(synth_mod.SYNTHETIC_LAMBDA_ACTIVE)
     result["train_seasons"] = ",".join(tr)
+    # Crowd features in the minutes model (M3; minutes.CROWD_FEATURES_ACTIVE, gated off, not
+    # adopted). Stamped ONLY on a frame built with the gate on: a gate-off frame must stay
+    # byte-identical to the frames of record, which predate these columns (the parity and
+    # as-of suites compare column sets). A frame without the stamp was built with the gate off.
+    if minutes_mod.CROWD_FEATURES_ACTIVE:
+        result["crowd_features_active"] = True
+        result["crowd_form"] = str(minutes_mod.CROWD_FORM)
 
     if save_path:
         result.to_parquet(save_path, index=False)

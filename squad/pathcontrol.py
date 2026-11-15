@@ -264,3 +264,75 @@ def summarise(df, block=4, n_boot=2000, seed=0):
             row.update(ci_low=np.nan, ci_high=np.nan, excludes_0=None)
         out.append(row)
     return pd.DataFrame(out)
+
+
+# ---------------------------------------------------------------------------
+# Same-squad head-to-head FROM A REFERENCE RECORD (M3, 2026-11-15)
+# ---------------------------------------------------------------------------
+# The crossover harness above replays a wildcard-only arm with its own loop. The
+# reference configuration plays every chip (two Wildcards, a Free Hit, two Bench
+# Boosts, a Triple Captain), so a head-to-head against the RECORD is run with the
+# simulator of record itself: both arms are restarted from the record's own squad
+# state at an anchor gameweek (rebuilt from its log by
+# eval/run_arms_full_system.replay_state and asserted against it) and played for
+# W gameweeks under the record's chip schedule. One direction only -- anchored on
+# the record -- which is what "would this frame have done better from where the
+# record stood" asks. eval/m3_head_to_head.py is the driver.
+
+def window_run(season_df, window, state, schedule=None, horizon=DEFAULT_HORIZON,
+               decay=DEFAULT_DECAY, calendar=None):
+    """Play the consecutive gameweeks `window` from `state` (None = the season's
+    opening pick) on the frame `season_df`, with simulate_season itself.
+
+    schedule : the chip schedule as simulate_season keywords (wildcard_gws,
+               free_hit_gws, bench_boost_gw, triple_captain_gw, ...); chips outside
+               the window simply never fire.
+    calendar : the gameweeks the planner may look ahead to -- default the whole
+               season of the frame, so a window's last weeks are NOT planned like a
+               season's last weeks.
+    `state` is mutated; pass a fresh one per run. Returns the decision log.
+    """
+    from simulator import simulate_season
+    if calendar is None:
+        calendar = sorted(int(g) for g in season_df["gw"].unique())
+    _, log = simulate_season(season_df, policy="mip", horizon=horizon, decay=decay,
+                             gws=[int(g) for g in window], plan_gws=calendar,
+                             initial_state=state, verbose=False, **(schedule or {}))
+    return log
+
+
+def summarise_head_to_head(deltas, block=4, n_boot=2000, seed=0):
+    """Paired window deltas (treated - reference) per anchor -> one row per season
+    and a pooled row.
+
+    deltas : {season: Series of per-anchor deltas, indexed by anchor gameweek}.
+    Per season: the mean over anchors and a 95% interval from a block bootstrap over
+    anchors in anchor order (windows overlap, so neighbouring anchors are correlated;
+    blocks keep that). Pooled: the mean over EVERY anchor of every season; its
+    interval stacks the seasons' draws (sum of the seasons' resampled sums over the
+    total number of anchors, draw by draw -- each season resampled within itself,
+    with its own seed).
+    """
+    from bootstrap import block_bootstrap, interval
+
+    rows, sums, n_total, positive = [], [], 0, 0
+    for i, (season, d) in enumerate(deltas.items()):
+        v = np.asarray(pd.Series(d).sort_index().to_numpy(), dtype=float)
+        s = block_bootstrap(v, block_length=block, n_boot=n_boot, seed=seed + i)
+        lo, hi = interval(s / len(v))
+        mean = float(v.mean())
+        positive += int(mean > 0)
+        rows.append({"season": season, "n_anchors": len(v), "mean_delta": round(mean, 3),
+                     "ci_low": round(lo, 3), "ci_high": round(hi, 3),
+                     "treated_better": int((v > 0).sum()), "reference_better": int((v < 0).sum()),
+                     "tied": int((v == 0).sum()), "seasons_positive": np.nan})
+        sums.append(s)
+        n_total += len(v)
+    pooled = np.sum(sums, axis=0) / n_total
+    lo, hi = interval(pooled)
+    allv = np.concatenate([np.asarray(pd.Series(d).to_numpy(), dtype=float) for d in deltas.values()])
+    rows.append({"season": "pooled", "n_anchors": n_total, "mean_delta": round(float(allv.mean()), 3),
+                 "ci_low": round(lo, 3), "ci_high": round(hi, 3),
+                 "treated_better": int((allv > 0).sum()), "reference_better": int((allv < 0).sum()),
+                 "tied": int((allv == 0).sum()), "seasons_positive": positive})
+    return pd.DataFrame(rows)

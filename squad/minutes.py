@@ -29,6 +29,20 @@ import availability_features as avf
 # this changes the season baseline; see KNOWN_ISSUES.md #10 before you do.
 AVAILABILITY_DEFAULT = True
 
+# CROWD FEATURES (M3, model-upgrade plan step 3; eval/reports/m3_crowd_build.md) -- GATED OFF,
+# NOT ADOPTED. When active, the pre-deadline crowd block (squad/crowd_block.py: ownership and the
+# week's transfer flow, from the bootstrap snapshot the availability block already names for each
+# gameweek) joins the feature list of ALL FIVE sub-models, in the form CROWD_FORM:
+#   "rank"  ownership + the four flow features as within-gameweek percentile ranks
+#   "raw"   the five features as they are
+# With the gate off this module asks for no crowd column, never imports crowd_block, reads no
+# snapshot and builds every frame exactly as before (the parity suite and M3's gate-off rebuild
+# of the three frames of record prove it). Read LIVE: a driver flips it in-process, as the
+# assembly gates are flipped. The walk-forward harness stamps crowd_features_active / crowd_form
+# on the frames the gate changes, and only on those.
+CROWD_FEATURES_ACTIVE = False
+CROWD_FORM = "rank"
+
 MLFLOW_URI = "http://127.0.0.1:5000"
 MLFLOW_EXPERIMENT = "fpl-components"
 
@@ -235,6 +249,15 @@ def _eval_metrics(pf):
     return m
 
 
+def _crowd_columns():
+    """The crowd block's model columns in the form CROWD_FORM -- or [] with the gate off, in
+    which case squad/crowd_block.py is not even imported."""
+    if not CROWD_FEATURES_ACTIVE:
+        return []
+    import crowd_block
+    return crowd_block.columns(CROWD_FORM)
+
+
 def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=None,
                 per_fixture=False, train_seasons=None, predict_season=None):
     """Train on prior seasons (+ current season before up_to_gw), predict.
@@ -278,6 +301,7 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
     predict_season = PREDICT_SEASON if predict_season is None else predict_season
     availability = AVAILABILITY_DEFAULT if availability is None else availability
     AV = avf.FEATURES if availability else []
+    CR = _crowd_columns()   # [] unless CROWD_FEATURES_ACTIVE (gated off; see the constant)
 
     from season_stack import load_stack
     df = load_stack()   # stack + forward skeleton: the prediction universe for an
@@ -285,13 +309,20 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
     col = _prepare(df)
     if AV:
         col = avf.attach(col)
+    if CR:
+        # Joined on (season, element, GW) exactly as the availability block is, so the
+        # training rows, the predicted rows and forward-skeleton rows all carry it; a
+        # player the snapshot does not list is NaN. The row count is guarded.
+        import crowd_block
+        col = crowd_block.attach(col, CROWD_FORM)
     cs, sd, bd = _build_frames(col)
 
     FP = S1 + ["has_no_history", "prev_start_rate", "prev_avg_minutes", "prev_games", "transfer_status"]
     S2 = S1 + ["past60_rate_3", "past60_rate_5", "last_start_minutes"]
     # Extended lists for FITTING only. The base lists stay the dropna subset below, so
-    # a null availability column can never silently delete a player-gameweek.
-    xFP, xS2, xS1, xSUBF, xSUBRF = FP + AV, S2 + AV, S1 + AV, SUBF + AV, SUBRF + AV
+    # a null availability column can never silently delete a player-gameweek. The crowd
+    # block (CR, empty with the gate off) is appended to all five in the same way.
+    xFP, xS2, xS1, xSUBF, xSUBRF = FP + AV + CR, S2 + AV + CR, S1 + AV + CR, SUBF + AV + CR, SUBRF + AV + CR
 
     trc = cs[_train_mask(cs, up_to_gw, train_seasons, predict_season)]
     trc = trc[trc["starts"].notna()]     # forward-skeleton rows carry no label
@@ -345,6 +376,7 @@ def get_minutes(up_to_gw=None, predict_gws=None, log_mlflow=False, availability=
             params={
                 "up_to_gw": up_to_gw,
                 "availability": availability,
+                **({"crowd_form": CROWD_FORM} if CR else {}),     # logged only when the gate is on
                 "predict_gws": "all" if predict_gws is None else str(predict_gws),
                 "train_seasons": ",".join(TRAIN_SEASONS),
                 "predict_season": PREDICT_SEASON,

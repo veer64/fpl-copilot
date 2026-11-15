@@ -65,9 +65,15 @@ def replay_state(log, df, through_gw):
     that date and opened with 1, so every armlog of the old record still replays
     gameweek by gameweek against its own free-transfer column.
 
-    A Wildcard week is ended as THE LOG ended it (KNOWN_ISSUES #30): a log stamped
-    `chip_week_free_transfers_earned` earned that many (0 since 2026-11-15); a log
-    without the stamp earned 1."""
+    A Wildcard / Free Hit week is ended as THE LOG ended it (KNOWN_ISSUES #30): a log
+    stamped `chip_week_free_transfers_earned` earned that many (0 since 2026-11-15);
+    a log without the stamp earned 1.
+
+    A FREE HIT week is replayed too (2026-11-15, for the same-squad head-to-head of
+    eval/m3_head_to_head.py, which needs the record's state at every anchor): the
+    chip squad is handed back, so the state keeps the squad, purchase prices and bank
+    it held before the week; the row's `elements` (the squad that PLAYED) must be
+    that squad with the week's transfers applied."""
     opening = log_opening(log)
     chip_week_earned = log_chip_week_earned(log)
     log = log.set_index("gw")
@@ -83,16 +89,21 @@ def replay_state(log, df, through_gw):
         prices = dict(zip(pool["element"], pool["value"]))
         tr = row["all_transfers"]; tr = json.loads(tr) if isinstance(tr, str) else list(tr)
         pairs = [(int(o), int(i)) for o, i in tr]
-        assert not bool(row["free_hit"]), f"GW{gw}: replay through a Free Hit week is not supported"
-        if pairs:
-            in_rows = {b: pool[pool["element"] == b].iloc[0] for _, b in pairs}
-            state.make_transfers(pairs, in_rows, prices)
-        if not bool(row["wildcard"]):
-            state.spend_transfers(len(pairs))
         want = json.loads(row["elements"]) if isinstance(row["elements"], str) else list(row["elements"])
-        assert set(state.elements) == set(int(e) for e in want), f"GW{gw}: replayed squad != log"
+        free_hit, wildcard = bool(row["free_hit"]), bool(row["wildcard"])
+        if free_hit:
+            # nothing the chip bought stays: the held squad, its purchase prices and the bank are untouched
+            played = (set(state.elements) - {o for o, _ in pairs}) | {i for _, i in pairs}
+            assert played == set(int(e) for e in want), f"GW{gw}: the Free Hit squad is not the held squad with the week's transfers"
+        else:
+            if pairs:
+                in_rows = {b: pool[pool["element"] == b].iloc[0] for _, b in pairs}
+                state.make_transfers(pairs, in_rows, prices)
+            if not wildcard:
+                state.spend_transfers(len(pairs))
+            assert set(state.elements) == set(int(e) for e in want), f"GW{gw}: replayed squad != log"
         assert state.bank == int(row["bank"]), f"GW{gw}: replayed bank {state.bank} != log {row['bank']}"
-        state.end_gameweek(int(row["points"]), earned=chip_week_earned if bool(row["wildcard"]) else 1)
+        state.end_gameweek(int(row["points"]), earned=chip_week_earned if (wildcard or free_hit) else 1)
         assert state.free_transfers == int(row["free_transfers"]), f"GW{gw}: replayed FT {state.free_transfers} != log {row['free_transfers']}"
         assert state.total_points == int(row["total_points"]), f"GW{gw}: replayed total != log"
     return state

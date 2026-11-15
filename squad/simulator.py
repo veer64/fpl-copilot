@@ -637,8 +637,16 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                     wildcard_gws=None, triple_captain_gw=None,
                     free_hit_gws=None, bench_boost_gw=None,
                     second_half_start=DEFAULT_SECOND_HALF_START, hit_bar=None,
-                    initial_state=None):
+                    initial_state=None, plan_gws=None):
     """Run the full season. Returns (final_state, decision_log DataFrame).
+
+    plan_gws : the calendar the PLANNER sees, default `gws` (the gameweeks being
+             played -- the unchanged behaviour). A measurement parameter for
+             WINDOWED runs (squad/pathcontrol.window_run): the loop plays a few
+             gameweeks from `initial_state`, and each of them must still be
+             planned against the whole season -- with the default, a window's
+             last weeks would be planned like a season's last weeks (a horizon
+             that shrinks to one gameweek).
 
     initial_state : a SquadState to RESUME from (with `gws` starting after the
              gameweeks it already played), instead of picking an opening squad
@@ -725,6 +733,9 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
 
     if gws is None:
         gws = sorted(season_df["gw"].unique())
+    # What the planner may look ahead to. The played gameweeks unless the caller names
+    # the season's calendar (plan_gws; windowed runs only -- see the docstring).
+    calendar = gws if plan_gws is None else sorted(int(g) for g in plan_gws)
 
     log = []
     state = initial_state
@@ -792,7 +803,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                 # same cutoff==gw rows, so no later-cutoff information exists
                 # in either input (verified row-for-row in the smoke test).
                 from opening_robust import robust_opening_squad, PROB_COLS
-                future = [g for g in gws if g >= gw][:horizon]
+                future = [g for g in calendar if g >= gw][:horizon]
                 pools, probs = {gw: pool}, {}
                 for g in future[1:]:
                     try:
@@ -822,7 +833,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
                 # same cutoff discipline as every later transfer decision.
                 # build_and_solve's free-pick path (empty current_squad) prices
                 # the opening 15 as a free pick against the full 100.0 budget.
-                future = [g for g in gws if g >= gw][:horizon]
+                future = [g for g in calendar if g >= gw][:horizon]
                 pools = {gw: pool}
                 for g in future[1:]:
                     try:
@@ -887,7 +898,7 @@ def simulate_season(season_df, mode="balanced", gws=None, verbose=True,
             eff_horizon = 1 if is_free_hit else horizon
 
             team, transfers, step, eff_h = decide_gameweek_mip(
-                season_df, gw, state, pool, prices, gws,
+                season_df, gw, state, pool, prices, calendar,
                 mode=mode, horizon=eff_horizon, decay=decay,
                 wildcard=is_wildcard or is_free_hit, hit_bar=hit_bar,
                 bench_boost_gw=bench_boost_gws)
