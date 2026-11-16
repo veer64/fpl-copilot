@@ -29,7 +29,7 @@
   {"id": "C5", "path": "team", "what": "no cap", "turns": ["What transfers should I make over the next five gameweeks?"]},
   {"id": "C6", "path": "team", "what": "a cap of 2, stated", "turns": ["Make two transfers for me this week."]}
  ],
- "players": {"p1": "Grealish", "p2": "Rashford", "in8": "Yarmoliuk", "out8": "Sangare", "in9": "Dunk", "out9": "Lindelof"},
+ "players": {"p1": "Grealish", "p2": "Rashford", "in8": "Yarmoliuk", "out8": "Ibrahim Sangare", "in9": "Dunk", "out9": "Lindelof"},
  "fallbacks": {"case 6": ["Sesko", "Ekitike"], "case 8 IN": ["Mehmeti", "Slater"], "case 9 IN": ["Mings", "Castagne"],
                "rule": "used in this fixed order only when a name does not have a single match, or its swap does not preview as legal, on the laptop database; the plan file records which was used and why. Case 6's fallbacks are flagged players, as p2 is."},
  "not_reused": {"r3": ["Declan Rice", "Dominik Szoboszlai", "Kudus", "Foden", "Van de Ven", "Collins", "Wirtz", "Eze", "Tavernier", "Neto", "Vuskovic", "Pinnock"],
