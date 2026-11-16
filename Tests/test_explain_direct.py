@@ -125,7 +125,7 @@ def test_2_the_tool_is_offered_on_draft_turns_only(ag, monkeypatch):
     assert draft_tools_sent[-1] == pf._strip(ag.DRAFT_TOOLS[0])
     script = _script(ag, monkeypatch, [_reply()])
     ag.run_agent("hello", [], thread=None)
-    assert [t["name"] for t in script.calls[0]["tools"]] == [t["name"] for t in ag.tools_schema] and len(ag.tools_schema) == 26   # R3: was 24
+    assert [t["name"] for t in script.calls[0]["tools"]] == [t["name"] for t in ag.tools_schema] and len(ag.tools_schema) == 27   # R3: was 24; R3c: + captain_pick
 
 
 def test_2b_outside_a_draft_turn_the_tool_does_not_exist(ag, monkeypatch):

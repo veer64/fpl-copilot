@@ -6,7 +6,7 @@ sums it added itself; the whole-squad review was too long for one reply; and fac
 price figure read as "toward a fall", the hold baseline described as covering three gameweeks). The rule applied here is
 W11's: when the model reaches for a number, supply the fact; number-dense answers belong in code.
 
-Seven answers are built here. Each is delivered as the reply itself (agent.DIRECT_TOOLS: the model only routes):
+Ten answers are built here. Each is delivered as the reply itself (agent.DIRECT_TOOLS: the model only routes):
   rank          -- the true top N over the WHOLE player pool                    (model_tools.rank_players)
   review        -- the user's own fifteen                                       (model_tools.review_my_squad)
   plan          -- the transfer plan, from the planner's own result             (model_tools.propose_transfers)
@@ -14,6 +14,9 @@ Seven answers are built here. Each is delivered as the reply itself (agent.DIREC
   best_squad    -- a whole fifteen from the build's own solve (Prompt R3b)      (model_tools.get_best_squad / optimise)
   compare       -- two or more players, gameweek by gameweek (Prompt R3b)       (model_tools.compare_players)
   fixture_grid  -- club x gameweek, for all clubs or more than five (R3b)       (model_tools.get_fixtures)
+  captain       -- the captain options in the user's line-up (Prompt R3c)     (model_tools.captain_pick)
+  preview_text  -- the text sent with a squad-change preview (R3c)            (model_tools.set_my_squad)
+  league_table  -- the table as of a date (R3c)                               (model_tools.get_league_table)
 
 PURE: no database, no file, no clock, no model. model_tools.py reads the facts and calls these builders. Every number in a
 reply is a fact handed in, or one sum / difference / quotient / rank of such facts, rounded half-up here; every builder ends
@@ -618,13 +621,14 @@ def squad_mark(role, bench_order=None):
 # ---- 5. best squad: a whole fifteen from the build's own solve ------------------------------------------------------------
 
 def best_squad(rows, gw, *, budget_tenths, cal=None, shorts=None, flags=None, built=None, next_update=None, market_gw=None,
-               has_squad=False, planning_note=None, warning=None, forced=(), must_start=(), banned=(), prices_now=None):
+               has_squad=False, planning_note=None, warning=None, forced=(), must_start=(), banned=(), prices_now=None, own=None):
     """The best-squad answer. rows = the solver's fifteen, each {"element", "name", "position", "team", "price_tenths" (the
     price the solve used), "points" (his predicted points for `gw`, the solve's own row), "role" (CAPTAIN / VICE / start /
     bench), "bench_order"} -- roles and bench order are the solver's, never re-derived. Every total here is one sum of those
     rows: the XI's points both ways, and the spend of the XI, the bench and the fifteen against the budget the solve was
     given. forced / must_start / banned = the names the user asked for; prices_now = {element: today's price in tenths}, for
-    the line that says which prices have moved since the solve."""
+    the line that says which prices have moved since the solve. own = (the user's own best XI's points before the captain's
+    double, with it) for the same gameweek -- the line that compares the two (Prompt R3c), or None."""
     gw = int(gw)
     rows = [dict(r) for r in rows]
     label = f"GW{gw}"
@@ -668,7 +672,7 @@ def best_squad(rows, gw, *, budget_tenths, cal=None, shorts=None, flags=None, bu
             f"twice, {once:.2f} before that.")
     spend = (f"**Spend:** the starting XI costs {money(xi_cost)} and the bench {money(bench_cost)}; all 15 cost {money(total_cost)}, "
              f"which leaves {money(left)} of the {money(budget_tenths)} budget in the bank.")
-    out += ["", line, spend]
+    out += ["", line, spend] + ([own_xi_line(doubled, own[0], own[1], gw)] if own else [])
     asked = []
     if forced:
         asked.append(f"Put in as you asked: {', '.join(str(x) for x in forced)}"
@@ -865,7 +869,7 @@ def _run_order(sums, n=3):
 
 
 def fixture_grid(clubs, gws, cells, *, shorts=None, players=None, deadline=None, built=None, next_update=None, market_gw=None,
-                 all_clubs=True, mine=False):
+                 all_clubs=True, mine=False, calendar_note=None):
     """The fixture grid: one row a club, one column a gameweek. cells = {(club, gw): entry} (grid_cell); players = {club:
     "Raya (GK), Saliba (DEF)"} for the user's own players (the "Your players" column); deadline = the next-deadline line as
     the clock helper writes it. Under the table, each club's scoring ratings and clean-sheet ratings are added up over the
@@ -918,5 +922,244 @@ def fixture_grid(clubs, gws, cells, *, shorts=None, players=None, deadline=None,
     ll = later_line([g for g in gws if g in rated_gws], market_gw, what="these ratings") if rated_gws else None
     if ll:
         out.append(ll)
-    out += [ANYONE_CAN_WIN, "", GRID_FOLLOW_UP_MINE if mine else GRID_FOLLOW_UP]
+    out += ([calendar_note] if calendar_note else []) + [ANYONE_CAN_WIN, "", GRID_FOLLOW_UP_MINE if mine else GRID_FOLLOW_UP]
     return "\n".join(out)
+
+
+# ---- Prompt R3c (2026-11-16): the last model-written number answers, written by code -----------------------------------------
+# R3b's gate (eval/reports/r3b_answers.md): every zero held and 58 of 58 code-built answers were right; all five slips were in
+# text the model still wrote -- four in the captain answer ("The next best is Gabriel (5.97), then Isak (4.08)" with Lindelöf
+# third, "more than 3 points clear", "a 94% chance of playing the full game" for 60 minutes or more, a 98% chance of playing
+# labelled "Start %") and one in a swap preview ("5 used → 1 used, 4 remaining"). The league-table answers added commentary
+# their own table contradicted.
+#   captain       -- the captain options in the user's line-up            (model_tools.captain_pick)
+#   preview_text  -- the text sent with a squad-change preview card       (model_tools.set_my_squad, confirm=false)
+#   league_table  -- the table as of a date                               (model_tools.get_league_table)
+
+CAPTAIN_FOLLOW_UP = "Want me to go into either of them?"
+PREVIEW_QUESTION = "Shall I make this change? Yes or No"          # == confirm_gate.ASK_REPLY (a test pins the pair)
+TABLE_FOLLOW_UP = "Want me to look at any of these clubs' fixtures?"
+CAPTAIN_OPTIONS = 5
+HIT_POINTS = 4
+
+
+def range_phrase(rng):
+    """A likely range (P10 to P90, the middle P50) as one phrase: "2 to 14 (middle 6)". A low end the model marks as not
+    usable is not given. None -> "not computed"."""
+    if not rng or rng.get("p50") is None:
+        return "not computed"
+
+    def n(x):
+        x = float(x)
+        return str(int(x)) if x == int(x) else f"{x:.1f}"
+    if rng.get("p10_unusable"):
+        return f"up to {n(rng['p90'])} (middle {n(rng['p50'])}; the low end cannot be trusted for this fixture)"
+    return f"{n(rng['p10'])} to {n(rng['p90'])} (middle {n(rng['p50'])})"
+
+
+def fixture_words(cal, shorts, team, gw):
+    """One club's fixture(s) in a gameweek in words: "Fulham at home", "away at Arsenal"; a double joined with "and"; a blank
+    "no fixture"; a calendar that could not be read "not known"."""
+    if cal is None:
+        return "not known"
+    fx = (cal or {}).get((team, int(gw))) or []
+    if not fx:
+        return "no fixture"
+    return " and ".join((f"{f['opponent']} at home" if f["home"] else f"away at {f['opponent']}") for f in fx)
+
+
+def captain(xi, gw, *, pool, ranges, shares=None, cal=None, shorts=None, flags=None, built=None, next_update=None, market_gw=None,
+            named=(), solver_captain=None):
+    """The captain answer for the user's own line-up. xi = the line-up pick's eleven starters' element ids (and bench ids are
+    passed in `named` only when the user names a bench player); pool = {element: pool row} (pts / start / p60 per gameweek);
+    ranges = {element: {p10, p50, p90, p10_unusable}} (the prediction tool's quantiles); shares = {element: points_share} (the
+    draft team's biggest-part figure); named = the element ids the user named. Every number is a pool row's own figure (2 dp,
+    half-up) or the difference of two shown figures. The margin between two options is the difference between their OWN
+    predicted points -- the armband counts one player twice, so the edge is that difference, never double it."""
+    gw = int(gw)
+    shares = shares or {}
+
+    def pts(e):
+        return hu(((pool.get(e) or {}).get("pts") or {}).get(gw) or 0.0)
+
+    def prob(e, key):
+        return ((pool.get(e) or {}).get(key) or {}).get(gw)
+
+    ranked = sorted(xi, key=lambda e: (-pts(e), 0 if e == solver_captain else 1, _name(pool.get(e) or {"element": e}), e))
+    top = ranked[:CAPTAIN_OPTIONS]
+    extra = sorted((e for e in named if e not in top), key=lambda e: (ranked.index(e) if e in ranked else len(ranked), e))
+    pick, nxt = ranked[0], (ranked[1] if len(ranked) > 1 else None)
+    nm = {e: _name(pool.get(e) or {"element": e}) for e in set(xi) | set(named)}
+    a = pts(pick)
+    out = [f"**Captain for GW{gw}: {nm[pick]}, {a:.2f} predicted points; {hu(2 * a):.2f} with the armband (his points counted twice).**"]
+    if built is not None:
+        out.append(freshness_line(built, next_update))
+    out.append("")
+    rows = []
+    for k, e in enumerate(top + extra, 1):
+        r = pool.get(e) or {}
+        st, p60 = prob(e, "start"), prob(e, "p60")
+        rank = str(k) if e in top else ("bench" if e not in xi else str(ranked.index(e) + 1))
+        rows.append([rank, nm[e] + (" (named)" if e in extra else ""), r.get("team") or "?", f"{pts(e):.2f}", range_phrase(ranges.get(e)),
+                     pct_words(st) or "—", pct_words(p60) or "—", fixture_words(cal, shorts, r.get("team"), gw),
+                     flag_text((flags or {}).get(e))])
+    out += _table(["#", "Player", "Club", f"Predicted points GW{gw}", f"Likely range GW{gw} (P10 to P90, without the armband)",
+                   f"Chance of starting GW{gw}", f"Chance of playing 60+ minutes GW{gw}", f"Fixture GW{gw}", "Flag"], rows)
+    out.append("")
+    lines = []
+    if nxt is not None:
+        b = pts(nxt)
+        lines.append(f"Captaining {nm[pick]} over {nm[nxt]} is worth {a - b:.2f} predicted points — the difference between their own "
+                     f"scores ({a:.2f} against {b:.2f}).")
+        lines.append(f"Vice-captain: {nm[nxt]}, the next option ({b:.2f} predicted points).")
+    if len(named) == 2 and set(named) != {pick, nxt}:
+        x, y = sorted(named, key=lambda e: (-pts(e), named.index(e)))
+        d = pts(x) - pts(y)
+        lines.append(f"Of the two you named, captaining {nm[x]} over {nm[y]} is worth {d:.2f} predicted points — the difference between "
+                     f"their own scores ({pts(x):.2f} against {pts(y):.2f})." if d else
+                     f"Of the two you named, {nm[x]} and {nm[y]} have the same predicted points ({pts(x):.2f}).")
+    elif len(named) == 1 and named[0] != pick:
+        x = named[0]
+        lines.append(f"{nm[x]} is predicted {pts(x):.2f}: captaining {nm[pick]} instead is worth {a - pts(x):.2f} predicted points — the "
+                     f"difference between their own scores.")
+    for e in named:
+        if e not in xi:
+            lines.append(f"{nm[e]} is on your bench in this line-up: a captain must start.")
+    pr = ranges.get(pick) or {}
+    if pr.get("p50") is not None and pr.get("p90") is not None:
+        ups = [e for e in top[1:] if (ranges.get(e) or {}).get("p50") is not None and (ranges.get(e) or {}).get("p90") is not None
+               and float(ranges[e]["p50"]) < float(pr["p50"]) and float(ranges[e]["p90"]) > float(pr["p90"])]
+        if ups:
+            u = max(ups, key=lambda e: (float(ranges[e]["p90"]), -top.index(e)))
+            lines.append(f"{nm[u]} has the higher top of the range ({range_phrase(ranges[u])} against {nm[pick]}'s {range_phrase(pr)}), "
+                         "though his middle is lower.")
+    sh = shares.get(pick)
+    if sh:
+        lines.append(f"The biggest part of {nm[pick]}'s {sh['of']:.2f} predicted points is {sh['part']}: {sh['points']:.2f} "
+                     f"({sh['percent']}%).")
+    out += lines
+    ll = later_line([gw], market_gw, what="these")
+    out += [""] + ([ll] if ll else []) + [BONUS_NOTE, "", CAPTAIN_FOLLOW_UP]
+    data = [{"rank": k, "player_id": e, "name": nm[e], "predicted_points": float(pts(e)), "range": ranges.get(e),
+             "chance_of_starting": prob(e, "start"), "chance_of_60_plus": prob(e, "p60")} for k, e in enumerate(top + extra, 1)]
+    return {"direct_reply": "\n".join(out), "gw": gw, "captain_id": pick, "vice_id": nxt, "options": data,
+            "margin": None if nxt is None else float(a - pts(nxt))}
+
+
+def free_transfer_words(n, before, used, after, hits, hit_points):
+    """The free-transfer sentence of a squad-change preview, from the change's own numbers."""
+    s = "" if before == 1 else "s"
+    if not n:
+        return "This makes no transfer."
+    if not hits:
+        return f"This uses {used} of your {before} free transfer{s}: {after} left, no hit."
+    if not before:
+        return f"You have no free transfers, so this costs a {hit_points}-point hit ({plural(hits, 'transfer')} beyond your free ones)."
+    lead = "your 1 free transfer" if before == 1 else f"all {before} of your free transfers"
+    return f"This uses {lead}: {after} left, and costs a {hit_points}-point hit ({plural(hits, 'transfer')} beyond your free ones)."
+
+
+def preview_text(change, players, gws, *, pool, captain_change=None, flags=None, built=None, next_update=None, market_gw=None):
+    """The text sent with a squad-change preview card. change = set_my_squad's own `change` block (transfers with sold_for /
+    bought_for in £m, the bank and free-transfer numbers, hits); players = {element: {"name", "team", "position", "bought"
+    (tenths), "now" (tenths)}}; pool rows for the predicted gain over `gws` against keeping each outgoing player. Ends with the
+    confirm gate's own question."""
+    ts = list(change.get("transfers") or [])
+    label = gw_label(gws)
+
+    def who(e):
+        p = players.get(int(e)) or {}
+        return f"{p.get('name') or e} ({p.get('team') or '?'}, {p.get('position') or '?'})"
+
+    names = [(players.get(int(t["out_id"])) or {}).get("name") or t["out_id"] for t in ts]
+    ins = [(players.get(int(t["in_id"])) or {}).get("name") or t["in_id"] for t in ts]
+    head = (f"**Preview: {names[0]} out, {ins[0]} in.**" if len(ts) == 1 else
+            f"**Preview: {len(ts)} transfers: " + "; ".join(f"{o} out, {i} in" for o, i in zip(names, ins)) + ".**")
+    out = [head, "Nothing is saved until you say yes.", ""]
+    rows = []
+    for t in ts:
+        o, i = int(t["out_id"]), int(t["in_id"])
+        po = players.get(o) or {}
+        a = points_over((pool.get(i) or {}).get("pts") or {}, gws)
+        b = points_over((pool.get(o) or {}).get("pts") or {}, gws)
+        rows.append([who(o), money(po["bought"]) if po.get("bought") is not None else "—",
+                     money(po["now"]) if po.get("now") is not None else "—", f"£{float(t['sold_for']):.1f}m",
+                     who(i), f"£{float(t['bought_for']):.1f}m", f"{signed(a - b)} ({a:.2f} against {b:.2f})"])
+    out += _table(["Out", "Bought at", "Price now", "Sells for", "In", "Costs", f"Predicted gain {label} against keeping him"], rows)
+    out.append("")
+    out.append(f"**Bank:** £{float(change['bank_before']):.1f}m before, £{float(change['bank_after']):.1f}m after "
+               f"(£{float(change['proceeds']):.1f}m from sales, £{float(change['purchases']):.1f}m on purchases).")
+    out.append("**Free transfers:** " + free_transfer_words(int(change["n_transfers"]), int(change["free_transfers_before"]),
+                                                            int(change["free_transfers_used"]), int(change["free_transfers_after"]),
+                                                            int(change["hits"]), int(change["hit_cost_points"])))
+    if captain_change:
+        out.append(captain_change)
+    flagged = [f"{(players.get(int(t['in_id'])) or {}).get('name')}: {flag_text((flags or {}).get(int(t['in_id'])))}"
+               for t in ts if (flags or {}).get(int(t["in_id"]))]
+    if flagged:
+        out.append("Flags: " + "; ".join(flagged) + ".")
+    out.append(f"Predicted gain = the incoming player's predicted points minus the outgoing player's, added over {span_words(gws)}.")
+    if built is not None:
+        out.append(freshness_line(built, next_update))
+    ll = later_line(gws, market_gw, what="these")
+    if ll:
+        out.append(ll)
+    out += ["", PREVIEW_QUESTION]
+    return "\n".join(out)
+
+
+def league_table(rows, *, season, as_of_words, source_words, statement, n_matches, latest=None, missing=(), season_note=None,
+                 tiebreak=None, after_gw=None):
+    """The league table answer: one row a club (position, played, won, drawn, lost, goals for / against, goal difference,
+    points) exactly as the table builder ranked them, the as-of line, and nothing else -- no commentary."""
+    def gd(v):
+        v = int(v)
+        return f"+{v}" if v > 0 else (f"{MINUS}{abs(v)}" if v < 0 else "0")
+
+    counted = f"{plural(int(n_matches), 'result')} counted" + (f", the latest from {latest}" if latest else "")
+    out = [f"**Premier League table {season}{f' after GW{int(after_gw)}' if after_gw is not None else ''}: {counted}.**"]
+    if season_note:
+        out.append(season_note)
+    out.append(f"As of {as_of_words} ({source_words}). {statement[0].upper()}{statement[1:]}.")
+    out.append("")
+    body = []
+    for r in rows:
+        if r.get("no_matches") or r.get("position") is None:
+            body.append(["—", r["team"], "0", "—", "—", "—", "—", "—", "—", "—"])
+            continue
+        body.append([r["position"], r["team"], r["played"], r["won"], r["drawn"], r["lost"], r["gf"], r["ga"], gd(r["gd"]), r["points"]])
+    out += _table(["Pos", "Club", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"], body)
+    out.append("")
+    if missing:
+        out.append(f"Not counted: {plural(len(missing), 'fixture')} dated before the as-of day with no result in the archive "
+                   f"({'; '.join(missing)}). The table is incomplete as of that date.")
+    nulls = [r["team"] for r in rows if r.get("no_matches") or r.get("position") is None]
+    if nulls:
+        out.append(f"No result counted yet for {', '.join(nulls)}, so {'it is' if len(nulls) == 1 else 'they are'} listed last, unranked.")
+    if tiebreak:
+        out.append(f"Level clubs are ordered by {tiebreak.rstrip('.')}.")
+    out += ["", TABLE_FOLLOW_UP]
+    return "\n".join(out)
+
+
+def doubles_and_blanks(cal, clubs, first_gw):
+    """The calendar's doubles and blanks from `first_gw` to its last gameweek, in one sentence."""
+    if not cal:
+        return None
+    gws = sorted({g for _c, g in cal if g >= int(first_gw)}) or [int(first_gw)]
+    lo, hi = gws[0], max(g for _c, g in cal)
+    doubles = [(c, g) for (c, g), fx in sorted(cal.items()) if g >= lo and len(fx) > 1 and c in clubs]
+    blanks = [(c, g) for c in clubs for g in range(lo, hi + 1) if not cal.get((c, g))]
+
+    def lst(xs):
+        return "; ".join(f"{c} GW{g}" for c, g in sorted(xs, key=lambda x: (x[1], x[0]))) if xs else "none"
+    return (f"**Double and blank gameweeks in the loaded calendar, GW{lo}–{hi}:** doubles: {lst(doubles)}. Blanks: {lst(blanks)}. "
+            "Doubles and blanks are usually confirmed later in the season, as cup ties and postponements settle.")
+
+
+def own_xi_line(best_doubled, own_once, own_doubled, gw):
+    """The best squad's comparison with the user's own fifteen: their best XI for the same gameweek, both ways, and the gap."""
+    d = hu(best_doubled) - hu(own_doubled)
+    rel = (f"{abs(d):.2f} fewer than" if d > 0 else (f"{abs(d):.2f} more than" if d < 0 else "the same as"))
+    return (f"**Against your own squad:** the best XI from your 15 for GW{int(gw)} is predicted {hu(own_doubled):.2f} points with the "
+            f"captain's points counted twice ({hu(own_once):.2f} before that): {rel} this squad's XI.")

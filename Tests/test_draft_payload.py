@@ -21,7 +21,7 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
 import payload_fixture as pf                                               # noqa: E402
 
 FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"     # what a DRAFT turn must still equal (R3: byte-identical)
-V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v7.json"          # Prompt R3b (2026-11-16): what a NORMAL turn sends now (was v6, Prompt R3)
+V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v8.json"          # Prompt R3c (2026-11-16): what a NORMAL turn sends now (v7 in R3b, v6 in R3)
 BASE_SYSTEM_PROMPT_SHA = "3acb1ee49f0dec5d8e58d31136c0ac3325b8cb083548621aa2c45cf757ae2fc5"    # 984a62a
 BASE_TOOLS_SHA = "30a8355ed3540b72cf2a5d45f912b123fd0e63f5df1063bc5dfefdab38a9136e"            # 984a62a, 24 tools
 DRAFT = {"user_id": 10001, "draft_key": 800_000_001}
@@ -71,7 +71,7 @@ def test_1_the_prompt_tools_and_model_are_unchanged_since_984a62a(monkeypatch):
     assert hashlib.sha256(tools).hexdigest() == BASE_TOOLS_SHA and len(ag.DRAFT_BASE_TOOLS) == 24
     assert ag.AGENT_MODEL == "claude-sonnet-4-6"
     assert "draft" not in ag.DRAFT_SYSTEM_PROMPT.lower() and "draft" not in ag.SYSTEM_PROMPT.lower()   # the draft wording lives in its own file only
-    assert ag.SYSTEM_PROMPT != ag.DRAFT_SYSTEM_PROMPT and len(ag.tools_schema) == 26                    # the normal turn's moved (R3)
+    assert ag.SYSTEM_PROMPT != ag.DRAFT_SYSTEM_PROMPT and len(ag.tools_schema) == 27                    # the normal turn's moved (R3: 26; R3c: 27)
 
 
 def test_2_ordinary_thread_turns_equal_fixture_v5(monkeypatch):

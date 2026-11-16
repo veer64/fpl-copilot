@@ -1,0 +1,30 @@
+{
+ "name": "r3c_setB_v1",
+ "written": "2026-11-16",
+ "purpose": "Prompt R3c, the final gate. Set B: the same ten case types as eval/agent_evals/r3_setB_v1.json and r3b_setB_v1.json, 3 runs each, graded by hand under the owner's 13 Nov standard (number standard v2), with NEW wording and NEW named / IN players versus both. Every named / IN player has exactly ONE player-lookup match and each swap previews as legal (checked by the plan step on a probe user, before any model call). Set C: four questions, one run each, gated on the zeros only.",
+ "runs_per_case": 3,
+ "placeholders": {"p1": "the first named player of case 6", "p2": "the second", "in8": "the player brought in in case 8", "out8": "the squad player he replaces", "in9": "the player brought in in case 9", "out9": "the squad player he replaces", "c1": "the first of 9001's XI named in Set C question 3", "c2": "the second"},
+ "cases": [
+  {"id": "B1", "path": "team", "what": "whole-squad review, next 3 gameweeks", "turns": ["Talk me through every player in my squad over the next three gameweeks."]},
+  {"id": "B2", "path": "team", "what": "a 3-gameweek transfer plan using free transfers", "turns": ["Using only my free transfers, what moves should I make across the next three gameweeks?"]},
+  {"id": "B3", "path": "team", "what": "top 8 forwards, next 4 gameweeks, table with price and fixtures", "turns": ["List the top eight forwards over the next four gameweeks in a table, prices and fixtures included."]},
+  {"id": "B4", "path": "team", "what": "best possible squad for £100m", "turns": ["Ignore my team: what's the highest-scoring fifteen I could build with £100m?"]},
+  {"id": "B5", "path": "team", "what": "captain this week and why", "turns": ["Who deserves my captaincy this gameweek, and why?"]},
+  {"id": "B6", "path": "team", "what": "compare two named players", "turns": ["Over the coming gameweeks, is {p1} or {p2} the better pick?"]},
+  {"id": "B7", "path": "team", "what": "which of my players may rise / fall in price", "turns": ["Which of my players are closest to rising or falling in price?"]},
+  {"id": "B8", "path": "team", "what": "swap preview then no -> 'No change made.', 0 writes", "turns": ["Take {out8} out and put {in8} in.", "no"]},
+  {"id": "B9", "path": "team", "what": "swap preview then continue -> asks Yes / No, 0 writes; then yes -> saved once", "turns": ["Sell {out9} and buy {in9}.", "continue", "yes"]},
+  {"id": "B10", "path": "general", "what": "General mode: best-value defenders under £5.0m, next 5 gameweeks", "turns": ["Over the next five gameweeks, which defenders under £5.0m offer the best points per pound?"]}
+ ],
+ "set_c": [
+  {"id": "C1", "path": "team", "what": "line-up against the best possible squad", "turns": ["Weigh my line-up against the best possible squad."]},
+  {"id": "C2", "path": "general", "what": "doubles coming up", "turns": ["Which clubs have a double gameweek coming up?"]},
+  {"id": "C3", "path": "team", "what": "captain: two of 9001's XI named", "turns": ["Should I captain {c1} or {c2} this week?"]},
+  {"id": "C4", "path": "general", "what": "the league table after gameweek 10", "turns": ["What did the league table look like after gameweek 10?"]}
+ ],
+ "players": {"p1": "Doku", "p2": "Semenyo", "in8": "Madueke", "out8": "Mbeumo", "in9": "Delap", "out9": "Barry", "c1": "Isak", "c2": "Mbeumo"},
+ "fallbacks": {"case 6": ["Cherki", "Anderson"], "case 8 IN": ["Dewsbury-Hall", "Schade"], "case 9 IN": ["Zirkzee", "Thiago"],
+               "rule": "used in this fixed order only when a name does not have a single match, or its swap does not preview as legal, on the laptop database; the plan file records which was used and why"},
+ "not_reused": {"r3": ["Declan Rice", "Dominik Szoboszlai", "Kudus", "Foden", "Van de Ven", "Collins", "Wirtz", "Eze", "Tavernier", "Neto", "Vuskovic", "Pinnock"],
+                "r3b": ["Bukayo Saka", "Cole Palmer", "Odegaard", "Gakpo", "De Cuyper", "Guehi", "Bruno Fernandes", "Morgan Rogers", "Gross", "Mitoma", "Saliba", "Kerkez"]}
+}

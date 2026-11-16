@@ -127,7 +127,7 @@ def test_the_agent_entry_point_is_registered_and_dispatches(monkeypatch):
     assert (fn.__module__, fn.__qualname__) == ("model_tools", "get_league_table")
     schema = next(t for t in agent.tools_schema if t["name"] == "get_league_table")
     assert set(schema["input_schema"]["properties"]) == {"as_of", "team", "form_last_n",
-                                                         "include_odds_xpts"}
+                                                         "include_odds_xpts", "after_gw"}   # R3c: + after_gw
     monkeypatch.setitem(agent.available_functions, "get_league_table",
                         lambda **k: {"ok": True, "got": k})
     out = agent.call_tool("get_league_table", {"team": "Arsenal", "form_last_n": 3})

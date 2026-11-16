@@ -18,10 +18,13 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
 
 import payload_fixture as pf                               # noqa: E402
 
-FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v7.json"   # v7 (2026-11-16, Prompt R3b): a NORMAL turn -- v6 plus the written lists (five tool descriptions / schemas, two prompt changes); a draft turn still equals v5 (Tests/test_draft_payload.py)
+FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v8.json"   # v8 (2026-11-16, Prompt R3c): a NORMAL turn -- v7 plus the written lists (captain_pick added, four tools changed, three prompt changes)
+V7 = REPO / "Tests" / "fixtures" / "agent_payloads_v7.json"        # v7 (2026-11-16, Prompt R3b): a NORMAL turn -- v6 plus the written lists (five tool descriptions / schemas, two prompt changes); a draft turn still equals v5 (Tests/test_draft_payload.py)
 V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v6.json"        # v6 (2026-11-16, Prompt R3): max_tokens 2,048, two code-built tools, three tool descriptions, the written list of prompt changes
 PROMPT_CHANGES_V7 = REPO / "Tests" / "fixtures" / "agent_prompt_v6_to_v7.json"   # the written list: every prompt change of R3b, old -> new
 TOOL_CHANGES_V7 = REPO / "Tests" / "fixtures" / "agent_tools_v6_to_v7.json"      # the written list: every tool change of R3b, old -> new
+PROMPT_CHANGES_V8 = REPO / "Tests" / "fixtures" / "agent_prompt_v7_to_v8.json"   # the written list: every prompt change of R3c, old -> new
+TOOL_CHANGES_V8 = REPO / "Tests" / "fixtures" / "agent_tools_v7_to_v8.json"      # the written list: every tool change of R3c, old -> new
 V5 = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"        # v5 (2026-10-27, Prompt E): set_my_squad's ticket sentence + preview_ticket; v4 lives on the parked branch agent-sonnet5
 PROMPT_CHANGES = REPO / "Tests" / "fixtures" / "agent_prompt_v5_to_v6.json"   # the written list: every prompt change of R3, old -> new
 V1 = REPO / "Tests" / "fixtures" / "agent_payloads_v1.json"
@@ -120,7 +123,7 @@ R3B_CHANGED_TOOLS = ["compare_players", "best_squad_from_scratch", "build_squad_
 
 
 def test_v7_is_v6_with_the_written_lists_of_changes_and_nothing_else():
-    v6, v7 = json.loads(V6.read_text(encoding="utf-8")), _fixture()
+    v6, v7 = json.loads(V6.read_text(encoding="utf-8")), json.loads(V7.read_text(encoding="utf-8"))   # R3c: v7 is a record now (was _fixture())
     prompt_changes = json.loads(PROMPT_CHANGES_V7.read_text(encoding="utf-8"))["changes"]
     tool_changes = json.loads(TOOL_CHANGES_V7.read_text(encoding="utf-8"))["changes"]
     # 1. the tools: undo every listed change on v7's tools -> v6's tools
@@ -156,14 +159,61 @@ def test_v7_is_v6_with_the_written_lists_of_changes_and_nothing_else():
     assert (v6["shared"]["max_tokens"], v7["shared"]["max_tokens"], v6["shared"]["model"]) == (2048, 2048, v7["shared"]["model"])
 
 
-def test_v7s_prompt_and_v5s_prompt_are_the_two_prompt_files(monkeypatch):
-    """R3b: was test_v6s_prompt_and_v5s_prompt_are_the_two_prompt_files -- the NORMAL turn's fixture is v7 now."""
+# ---- Prompt R3c (2026-11-16): v8 is v7 plus two WRITTEN lists, and nothing else ----------------------------------------------------
+# The brief: "fixture v8 for normal turns, the test rebuilds v7 by undoing a written list of every change". The lists:
+# Tests/fixtures/agent_tools_v7_to_v8.json (captain_pick added before search_news; get_my_xi, set_my_squad, get_league_table,
+# get_fixtures, compare_players and compare_predictions changed: a description edit each, and the schema before and after for the
+# one whose arguments changed) and
+# Tests/fixtures/agent_prompt_v7_to_v8.json (three prompt changes). max_tokens, the model, every question's messages and the tool
+# turn are v7's.
+R3C_ADDED_TOOLS = ["captain_pick"]
+R3C_CHANGED_TOOLS = ["get_my_xi", "set_my_squad", "get_league_table", "get_fixtures", "compare_players", "compare_predictions"]
+
+
+def test_v8_is_v7_with_the_written_lists_of_changes_and_nothing_else():
+    v7, v8 = json.loads(V7.read_text(encoding="utf-8")), _fixture()
+    prompt_changes = json.loads(PROMPT_CHANGES_V8.read_text(encoding="utf-8"))["changes"]
+    tool_changes = json.loads(TOOL_CHANGES_V8.read_text(encoding="utf-8"))["changes"]
+    tools = json.loads(json.dumps(v8["shared"]["tools"]))
+    assert [c["tool"] for c in tool_changes if "tool_json" in c] == R3C_ADDED_TOOLS
+    assert sorted(c["tool"] for c in tool_changes if "tool_json" not in c) == sorted(R3C_CHANGED_TOOLS)
+    for ch in tool_changes:                                              # 1. undo every listed tool change
+        if "tool_json" in ch:
+            assert tools[ch["added_at"]] == ch["tool_json"]
+            del tools[ch["added_at"]]
+            continue
+        tool = next(t for t in tools if t["name"] == ch["tool"])
+        for d in reversed(ch.get("description") or []):
+            assert tool["description"].count(d["new"]) == 1 and d["old"] != d["new"], ch["tool"]
+            tool["description"] = tool["description"].replace(d["new"], d["old"])
+        if "input_schema" in ch:
+            assert tool["input_schema"] == ch["input_schema"]["new"] != ch["input_schema"]["old"], ch["tool"]
+            tool["input_schema"] = ch["input_schema"]["old"]
+    assert [c["tool"] for c in tool_changes if "input_schema" in c] == ["get_league_table"]
+    text = v8["shared"]["system"][0]["text"]                             # 2. undo the prompt's written list, newest first
+    for ch in reversed(prompt_changes):
+        assert text.count(ch["new"]) == 1 and ch["old"] != ch["new"], ch["why"]
+        text = text.replace(ch["new"], ch["old"])
+    assert len(prompt_changes) == 3 and len(v7["shared"]["system"]) == len(v8["shared"]["system"]) == 1
+    rebuilt = {**v8, "shared": {**v8["shared"], "tools": tools, "system": [{**v8["shared"]["system"][0], "text": text}]}}
+    labels = ("built_at", "agent_head")                                  # 3. ... IS v7, byte for byte
+    a = json.dumps({k: v for k, v in rebuilt.items() if k not in labels}, sort_keys=True, ensure_ascii=False)
+    b = json.dumps({k: v for k, v in v7.items() if k not in labels}, sort_keys=True, ensure_ascii=False)
+    assert a.encode("utf-8") == b.encode("utf-8")
+    t7, t8 = {t["name"]: t for t in v7["shared"]["tools"]}, {t["name"]: t for t in v8["shared"]["tools"]}
+    assert sorted(n for n in t7 if t7[n] != t8[n]) == sorted(R3C_CHANGED_TOOLS)
+    assert [t["name"] for t in v8["shared"]["tools"]][-2:] == ["captain_pick", "search_news"]
+
+
+def test_v8s_prompt_and_v5s_prompt_are_the_two_prompt_files(monkeypatch):
+    """R3c: was test_v7s_prompt_and_v5s_prompt_are_the_two_prompt_files (R3b), before that the v6 one -- the NORMAL turn's
+    fixture is v8 now."""
     ag = _agent(monkeypatch)
-    v5, v7 = json.loads(V5.read_text(encoding="utf-8")), _fixture()
-    assert "".join(b["text"] for b in v7["shared"]["system"]) == f"{v7['context_text']}\n\n{ag.SYSTEM_PROMPT}"
+    v5, v8 = json.loads(V5.read_text(encoding="utf-8")), _fixture()
+    assert "".join(b["text"] for b in v8["shared"]["system"]) == f"{v8['context_text']}\n\n{ag.SYSTEM_PROMPT}"
     assert "".join(b["text"] for b in v5["shared"]["system"]) == f"{v5['context_text']}\n\n{ag.DRAFT_SYSTEM_PROMPT}"   # the frozen copy
     assert v5["shared"]["tools"] == [pf._strip(t) for t in ag.DRAFT_BASE_TOOLS]                                       # the frozen tools
-    assert v7["shared"]["tools"] == [pf._strip(t) for t in ag.tools_schema]
+    assert v8["shared"]["tools"] == [pf._strip(t) for t in ag.tools_schema]
 
 
 def test_the_normalizer_treats_a_string_and_its_single_text_block_alike():

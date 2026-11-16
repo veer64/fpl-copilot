@@ -45,7 +45,7 @@ tools_schema = [
     },
     {
         "name": "compare_players",
-        "description": "Compare two or more players under the production model, written by code: a table with each player's predicted points and fixture gameweek by gameweek, each total, who is ahead and by how much, how the gap moves across the span, the price difference in £m, each player's chance of starting and FPL's flags. Its text is shown to the user as the reply, so write nothing of your own. Pass every player's id in player_ids (two to six, from resolve_player) and, when the user names a number of gameweeks, horizon ('over the next 3 gameweeks' is 3); with no horizon it covers every gameweek the latest update covers from the next deadline's -- the six-gameweek horizon. This is the route for comparing two players over the coming weeks ('who's better over the next six weeks', 'how do X and Y compare'): it carries each player's FPL flag, so the comparison needs no player card. For 'X or Y this week' prefer compare_predictions, which defaults to the next deadline's gameweek and names the terms behind the gap. A result that is an error or carries no code-built text is yours to answer from: whatever you quote, name its gameweek; available=false means the player cannot play for his club; lead with availability_note.",
+        "description": "Not for the armband: any captain or vice-captain question -- 'X or Y for captain', 'who should I captain', 'is X the right captain' -- goes to captain_pick, whose answer is written by code. Compare two or more players under the production model, written by code: a table with each player's predicted points and fixture gameweek by gameweek, each total, who is ahead and by how much, how the gap moves across the span, the price difference in £m, each player's chance of starting and FPL's flags. Its text is shown to the user as the reply, so write nothing of your own. Pass every player's id in player_ids (two to six, from resolve_player) and, when the user names a number of gameweeks, horizon ('over the next 3 gameweeks' is 3); with no horizon it covers every gameweek the latest update covers from the next deadline's -- the six-gameweek horizon. This is the route for comparing two players over the coming weeks ('who's better over the next six weeks', 'how do X and Y compare'): it carries each player's FPL flag, so the comparison needs no player card. For 'X or Y this week' prefer compare_predictions, which defaults to the next deadline's gameweek and names the terms behind the gap. A result that is an error or carries no code-built text is yours to answer from: whatever you quote, name its gameweek; available=false means the player cannot play for his club; lead with availability_note.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -106,7 +106,7 @@ tools_schema = [
     },
     {
         "name": "get_my_xi",
-        "description": "The NEXT DEADLINE's best starting XI, captain, vice-captain and bench order over the fifteen the user owns, solved by the production optimiser from the current model run's predictions (a real solve, about a second). Between deadlines the frame belongs to the previous deadline, so the predictions are labelled as of that cutoff (note_stale, stale_by_gameweeks) -- say so when present. Use for 'who should I start', 'who should I captain', 'what is my best XI', 'should X or Y start'. Optional gw solves the XI for another gameweek of the run's horizon; that answer is a planning view and carries a note saying so. It also reports how the recorded roles differ and the expected points they leave on the table (recorded_roles.expected_gain_vs_recorded). Nothing is written. For 'how is my line-up / my team doing / what is it costing me': give the gain, then END by asking the next_question the result carries, word for word, and stop; never offer to apply, set or record this XI. Only when the user themselves asks to adopt it, pass adopt_with to set_my_squad (it previews with confirm=false; confirm=true only after they confirm that preview).",
+        "description": "The NEXT DEADLINE's best starting XI, captain, vice-captain and bench order over the fifteen the user owns, solved by the production optimiser from the current model run's predictions (a real solve, about a second). Between deadlines the frame belongs to the previous deadline, so the predictions are labelled as of that cutoff (note_stale, stale_by_gameweeks) -- say so when present. Use for 'who should I start', 'what is my best XI', 'should X or Y start'. For a captain or vice-captain question ('who should I captain', 'X or Y as captain') call captain_pick instead: its answer is written by code. Optional gw solves the XI for another gameweek of the run's horizon; that answer is a planning view and carries a note saying so. It also reports how the recorded roles differ and the expected points they leave on the table (recorded_roles.expected_gain_vs_recorded). Nothing is written. For 'how is my line-up / my team doing / what is it costing me': give the gain, then END by asking the next_question the result carries, word for word, and stop; never offer to apply, set or record this XI. Only when the user themselves asks to adopt it, pass adopt_with to set_my_squad (it previews with confirm=false; confirm=true only after they confirm that preview).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -145,7 +145,7 @@ tools_schema = [
     },
     {
         "name": "compare_predictions",
-        "description": "Starts with summary_plain -- who is ahead, by how much, and the main reasons in words: answer from it; the two breakdowns and the per-term table sit under detail, for when the user asks for the maths. WHY two players' expected points differ for a gameweek: both breakdowns (see explain_prediction) on the same gameweek at the same cutoff, the per-term difference a minus b ranked by size, one sentence naming the terms that account for at least 80% of the gap, and flags where a term is a constant on one side against a model value on the other (say those out loud). The `rendered` block is quotable verbatim. Same stale-by-one labelling and identity checks. Use for 'why is X above Y', 'what separates X and Y', 'X or Y and why'. This is the route for comparing players for one gameweek ('X or Y this week', 'who should I pick'): each side carries the player's FPL status word and chance of playing with the gameweek it is for, so the comparison needs no player card. available=false means the player cannot play for his club; lead with availability_note. A gameweek outside the run's range comes back as an error with error_kind: already_played, too_far_ahead or invalid_gw.",
+        "description": "Not for the armband: any captain or vice-captain question -- 'X or Y for captain', 'who should I captain', 'is X the right captain' -- goes to captain_pick, whose answer is written by code. Starts with summary_plain -- who is ahead, by how much, and the main reasons in words: answer from it; the two breakdowns and the per-term table sit under detail, for when the user asks for the maths. WHY two players' expected points differ for a gameweek: both breakdowns (see explain_prediction) on the same gameweek at the same cutoff, the per-term difference a minus b ranked by size, one sentence naming the terms that account for at least 80% of the gap, and flags where a term is a constant on one side against a model value on the other (say those out loud). The `rendered` block is quotable verbatim. Same stale-by-one labelling and identity checks. Use for 'why is X above Y', 'what separates X and Y', 'X or Y and why'. This is the route for comparing players for one gameweek ('X or Y this week', 'who should I pick'): each side carries the player's FPL status word and chance of playing with the gameweek it is for, so the comparison needs no player card. available=false means the player cannot play for his club; lead with availability_note. A gameweek outside the run's range comes back as an error with error_kind: already_played, too_far_ahead or invalid_gw.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -172,7 +172,7 @@ tools_schema = [
     },
     {
         "name": "set_my_squad",
-        "description": "Record a NEW version of the user's own squad: the full fifteen after any transfers, plus captain, vice-captain and the four bench players in order. Money is derived, never supplied: players sold are valued by FPL's sell rule (purchase price plus half any rise, rounded down; falls in full), players bought cost their current price, free transfers are used first and extra transfers cost 4 points each (reported as hits). Illegal or unaffordable squads are refused with the reason. ALWAYS call with confirm=false first and show the user the preview (transfers, proceeds, cost, bank after, hits); call again with confirm=true ONLY when the user explicitly says to make the change. A preview issues a ticket: confirm=true needs preview_ticket from a preview shown in an EARLIER turn for the same change, else nothing is written.",
+        "description": "Record a NEW version of the user's own squad: the full fifteen after any transfers, plus captain, vice-captain and the four bench players in order. Money is derived, never supplied: players sold are valued by FPL's sell rule (purchase price plus half any rise, rounded down; falls in full), players bought cost their current price, free transfers are used first and extra transfers cost 4 points each (reported as hits). Illegal or unaffordable squads are refused with the reason. ALWAYS call with confirm=false first and show the user the preview (transfers, proceeds, cost, bank after, hits); call again with confirm=true ONLY when the user explicitly says to make the change. On the user's own team a preview that moves players comes back with its text written by code -- who goes out and in, the money, the free transfers, the predicted gain, then the Yes / No question -- and that text is shown to the user with the preview card as the reply, so write nothing of your own. A preview issues a ticket: confirm=true needs preview_ticket from a preview shown in an EARLIER turn for the same change, else nothing is written.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -211,7 +211,7 @@ tools_schema = [
             "score and a defence score from 1 (hardest) to 10 (easiest), ranked among every fixture "
             "the run has priced -- quote them as two scores, never one. Use for 'who does X play', 'how are "
             "Arsenal's next five fixtures', 'is this a good run'. Each fixture says whether it "
-            "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek. For EVERY club (no team), for a list of more than five clubs (teams) or for the clubs of the user's own players (my_players=true -- 'who do my players face') the answer is a table written by code: one row a club, one column a gameweek, each cell the opponent, home or away, and the fixture's two ratings in words, with each club's ratings added up over the span and the next deadline; its text is shown to the user as the reply, so write nothing of your own. Never call this once per club for more than five clubs -- ask for them in ONE call. A list of five clubs or fewer comes back as compact rows (team, gw, opponent, home, attacking, defensive) for you to answer from, the two-numbers rule stated once at the top. Fixtures beyond the gameweeks the model has rated are listed with a rating line 'scheduled but not rated yet' and their gameweek and date -- never call them not scheduled; for 'the next N gameweeks' pass horizon=N (up to 10). With a team, season_summary lists that club's known double and blank gameweeks across the whole loaded calendar (for triple captain or bench boost questions); an empty list means none are known yet."),
+            "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek. For EVERY club (no team), for a list of more than five clubs (teams) or for the clubs of the user's own players (my_players=true -- 'who do my players face') the answer is a table written by code: one row a club, one column a gameweek, each cell the opponent, home or away, and the fixture's two ratings in words, with each club's ratings added up over the span and the next deadline; its text is shown to the user as the reply, so write nothing of your own. Never call this once per club for more than five clubs -- ask for them in ONE call. The table for every club ends with the loaded calendar's double and blank gameweeks, so 'which clubs have a double gameweek coming up' is a call with no team. A list of five clubs or fewer comes back as compact rows (team, gw, opponent, home, attacking, defensive) for you to answer from, the two-numbers rule stated once at the top. Fixtures beyond the gameweeks the model has rated are listed with a rating line 'scheduled but not rated yet' and their gameweek and date -- never call them not scheduled; for 'the next N gameweeks' pass horizon=N (up to 10). With a team, season_summary lists that club's known double and blank gameweeks across the whole loaded calendar (for triple captain or bench boost questions); an empty list means none are known yet."),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -263,7 +263,10 @@ tools_schema = [
             "de-margined multi-book consensus for the live season -- descriptive only, never a "
             "forecast). With `team`, that club's "
             "row plus its results grouped by gameweek. A club with no result yet comes back with "
-            "nulls and a reason, not zeros. Says when the table is incomplete as of the cutoff."),
+            "nulls and a reason, not zeros. Says when the table is incomplete as of the cutoff. For 'the table after gameweek N' "
+            "pass after_gw=N (every result before gameweek N+1's first kickoff) instead of a date. Without `team` the whole "
+            "table's text is written by code -- the rows, the as-of line, nothing else -- and shown to the user as the reply, so "
+            "write nothing of your own."),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -273,7 +276,8 @@ tools_schema = [
                 "form_last_n": {"type": "integer",
                                 "description": "How many recent matches the form fields cover (default 5)"},
                 "include_odds_xpts": {"type": "boolean",
-                                      "description": "Include Bet365 odds-implied expected points for played matches (default true)"}
+                                      "description": "Include Bet365 odds-implied expected points for played matches (default true)"},
+                "after_gw": {"type": "integer", "description": "Optional: the table after this gameweek's matches ('after gameweek 10' is 10); not with as_of"}
             },
             "required": []
         }
@@ -391,6 +395,18 @@ tools_schema = [
         }
     },
     {
+        "name": "captain_pick",
+        "description": "The captain answer for the user's OWN line-up, written by code: the pick and his predicted points for the gameweek with and without the armband, the line-up's top five captain options (predicted points, likely range, chance of starting, chance of playing 60+ minutes, fixture, FPL's flag), what captaining the pick over the next option is worth, the vice-captain, and the biggest part of the pick's prediction. Its text is shown to the user as the reply, so write nothing of your own. Use it for EVERY captain or vice-captain question about the user's team: 'who should I captain', 'who gets the armband', 'X or Y as captain', 'X or Y for captain', 'should I captain X or Y', 'is Haaland the right captain' -- never compare_predictions or compare_players for these. Pass the players the user names in player_ids (ids from resolve_player; up to three of their own fifteen). Optional gw for another gameweek of the run's horizon (a planning view). A result that is an error or the no-squad note carries no code-built text: answer it yourself.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Optional: the players the user named for the armband (element ids, at most three)"},
+                "gw": {"type": "integer", "description": "Optional gameweek of the run's horizon (default: the next deadline's)"}
+            },
+            "required": []
+        }
+    },
+    {
         "name": "search_news",
         "description": ("Search the stored team news (FPL's official flags, BBC Sport, the clubs' own sites) for a player "
                         "or a club. Use it for injury, fitness, availability, suspension and team-news questions, and for "
@@ -437,6 +453,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_actual_points, get_my_points, get_prediction_history,
                          get_wildcard_gap)
 from model_tools import rank_players, review_my_squad         # Prompt R3: answers written by code (normal turns only)
+from model_tools import captain_pick                          # Prompt R3c: the captain answer, written by code (normal turns only)
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
@@ -512,7 +529,8 @@ DRAFT_TOOLS = [
 # fixture grid for every club or more than five. One club's fixtures, five clubs or fewer, a refusal and every draft-chat
 # result carry no text, so they still go to the model.
 DIRECT_TOOLS = frozenset({"explain_my_draft", "rank_players", "review_my_squad", "propose_transfers", "get_price_movements",
-                          "best_squad_from_scratch", "build_squad_from_scratch", "compare_players", "get_fixtures"})
+                          "best_squad_from_scratch", "build_squad_from_scratch", "compare_players", "get_fixtures",
+                          "captain_pick", "set_my_squad", "get_league_table"})       # Prompt R3c: three more (a preview's text; normal turns)
 
 
 def _draft_turn_now():
@@ -565,6 +583,7 @@ TOOL_PLAIN_PHRASES = {
     "build_squad_from_scratch": "a fresh squad build",
     "get_my_squad": "your squad record",
     "get_my_xi": "the line-up pick",
+    "captain_pick": "the captain pick",
     "explain_prediction": "the prediction breakdown",
     "compare_runs": "the run-to-run comparison",
     "compare_predictions": "the head-to-head breakdown",
@@ -958,6 +977,7 @@ def _usage_log(turn_id, usage, tool_names_replaced):
 available_functions = {
     "rank_players": rank_players,
     "review_my_squad": review_my_squad,
+    "captain_pick": captain_pick,
     "resolve_player": resolve_player,
     "get_player_card": get_player_card,
     "get_prediction": get_prediction,

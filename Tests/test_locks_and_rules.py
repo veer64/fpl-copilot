@@ -79,7 +79,7 @@ def test_the_only_consumer_of_the_tool_output_is_the_agent():
 def test_the_from_scratch_solver_is_named_for_what_it_does():
     import agent
     names = [t["name"] for t in agent.tools_schema]
-    assert "build_squad_from_scratch" in names and "optimise" not in names and len(names) == 26   # R3: 24 + rank_players, review_my_squad
+    assert "build_squad_from_scratch" in names and "optimise" not in names and len(names) == 27   # R3: 24 + rank_players, review_my_squad; R3c: + captain_pick
     schema = next(t for t in agent.tools_schema if t["name"] == "build_squad_from_scratch")
     assert schema["description"].startswith("Builds a brand-new 15 from scratch with a full £100m, ignoring the user's squad.")
     assert set(schema["input_schema"]["properties"]) >= {"lock_player_ids", "start_player_ids", "ban_player_ids", "budget", "gw"}

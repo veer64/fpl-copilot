@@ -155,7 +155,7 @@ def test_the_two_new_tools_are_registered_and_the_count_is_24():
     import agent
     names = {t["name"] for t in agent.tools_schema}
     assert {"get_prediction_history", "get_wildcard_gap"} <= names
-    assert len(agent.tools_schema) == 26 and len(agent.available_functions) == 26   # R3: 24 + rank_players, review_my_squad
+    assert len(agent.tools_schema) == 27 and len(agent.available_functions) == 27   # R3: 24 + rank_players, review_my_squad; R3c: + captain_pick
     assert set(agent.available_functions) == names
     gp = next(t for t in agent.tools_schema if t["name"] == "get_picks")
     assert "past" in gp["description"].lower()

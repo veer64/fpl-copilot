@@ -1669,7 +1669,7 @@ def get_my_xi(user_id: int = None, gw: int = None):
         return draft_tools.get_my_xi(_d, gw=gw)
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     try:
-        record = squad_store.read_active(_squad_owner(user_id))   # Prompt F1a: the active FPL team's record
+        record = _read_active(_squad_owner(user_id))   # Prompt F1a: the active FPL team's record; R3c: the call's connection
     except squad_store.NoSquadError:
         return _no_squad(user_id)
     except squad_store.SquadStateError as e:
@@ -1881,7 +1881,7 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
         out["preview_expires_at"] = ticket["expires_at"].isoformat()
         out["preview_expires_words"] = datewords.when_words(ticket["expires_at"])
         out["message"] = f"{out['message']} {squad_previews.ticket_sentence(ticket['id'])}"
-    return out
+    return _with_preview_text(out, active, captain_id, vice_id)          # Prompt R3c: a preview's text is written by code
 
 
 # ---------------------------------------------------------------- the solve
@@ -3973,7 +3973,7 @@ def _run_cutoff(run, cal, as_of, cal_note=None):
 
 
 def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
-                     include_odds_xpts: bool = True):
+                     include_odds_xpts: bool = True, after_gw: int = None):
     """The league table AS OF a cutoff, from match results already on the volume.
 
     The cutoff is the latest run's by default -- the deadline gameweek's first kickoff, derived
@@ -3987,6 +3987,10 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
     attributed as such, descriptive only and never a forecast. With `team`, that club's row and
     its results grouped by gameweek (a double is two entries). A club with no admitted result
     comes back null with a reason, not 0-0-0.
+
+    Prompt R3c (2026-11-16): after_gw=N is the table after gameweek N -- every result before GW N+1's first kickoff -- and on
+    a NORMAL turn the whole table is also WRITTEN BY CODE (`direct_reply`, _with_table_answer): the rows as ranked, the as-of
+    line, nothing else. One club's answer and a draft chat's turn are what they were.
     """
     import pandas as pd
     import league_table as lt
@@ -4006,8 +4010,13 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
     except Exception as e:                              # noqa: BLE001 -- labels degrade, table does not
         cal_note = f"the calendar could not be read ({type(e).__name__}: {str(e)[:120]})"
 
-    # -- the cutoff
-    cutoff, source, err = _run_cutoff(run, cal, as_of, cal_note)
+    # -- the cutoff (Prompt R3c: after_gw=N -> every result before GW N+1's first kickoff)
+    if after_gw is not None:
+        if as_of is not None:
+            return {"error": "pass as_of or after_gw, not both"}
+        cutoff, source, err = _after_gw_cutoff(after_gw, cal)
+    else:
+        cutoff, source, err = _run_cutoff(run, cal, as_of, cal_note)
     if err:
         return {"error": err}
 
@@ -4119,6 +4128,13 @@ def get_league_table(as_of: str = None, team: str = None, form_last_n: int = 5,
         pos = next((r["position"] for r in rows if r["team"] == resolved), None)
         out["form_detail"] = lt.form_detail(long, resolved, pos, include_odds_xpts,
                                             attribution=odds_meta)
+    if _draft_turn() is None and resolved is None:      # Prompt R3c: the whole table, written by code
+        latest_words = None
+        if len(known):
+            last = known["date_parsed"].max()
+            at = sorted({int(g) for g, d in zip(known_l["gw"], known_l["date_parsed"]) if d == last and g is not None and g == g})
+            latest_words = datewords.day_words(last) + (f" (GW{at[0]})" if len(at) == 1 else "")
+        return _with_table_answer(out, latest_words, after_gw=after_gw)
     return out
 
 
@@ -4893,9 +4909,9 @@ def _answer_pool(run):
     for r in _q("SELECT element, name, position, team, price_tenths FROM players_live"):
         e = int(r["element"])
         pool[e] = {"element": e, "name": web.get(e) or r["name"], "full_name": r["name"], "position": r["position"],
-                   "team": r["team"], "price_tenths": r["price_tenths"], "pts": {}, "start": {}}
+                   "team": r["team"], "price_tenths": r["price_tenths"], "pts": {}, "start": {}, "p60": {}}
     seen = set()
-    for r in _q("SELECT element, gw, e_points, p_start FROM model_predictions WHERE run_id = %s AND config = %s",
+    for r in _q("SELECT element, gw, e_points, p_start, p_60plus FROM model_predictions WHERE run_id = %s AND config = %s",
                 (run["run_id"], PRODUCTION_CONFIG)):
         e = int(r["element"])
         if e not in pool:
@@ -4903,6 +4919,7 @@ def _answer_pool(run):
         seen.add(e)
         pool[e]["pts"][int(r["gw"])] = float(r["e_points"] or 0.0)
         pool[e]["start"][int(r["gw"])] = None if r["p_start"] is None else float(r["p_start"])
+        pool[e]["p60"][int(r["gw"])] = None if r.get("p_60plus") is None else float(r["p_60plus"])
     return {e: r for e, r in pool.items() if e in seen}
 
 
@@ -5319,16 +5336,19 @@ def _with_squad_answer(out, roles=None, points=None):
         built, next_update, market_gw = _answer_frame(run) if run else (None, None, None)
         budget = cons.get("budget")
         notes = [str(out[k]) for k in ("note", "note_gw_started") if out.get(k)]
+        has_squad = _has_saved_squad(DEFAULT_USER_ID())
+        own = _own_xi_points(run, int(out["gw"])) if has_squad and run else None     # Prompt R3c: against the user's own XI
         ans = answers.best_squad(
             rows, int(out["gw"]), budget_tenths=1000 if budget is None else int(round(float(budget) * 10)),
             cal=_answer_calendar(), shorts=_club_short_names(), flags=_flags_for(ids), built=built, next_update=next_update,
-            market_gw=market_gw, has_squad=_has_saved_squad(DEFAULT_USER_ID()), planning_note=" ".join(notes) or None,
+            market_gw=market_gw, has_squad=has_squad, planning_note=" ".join(notes) or None,
             warning=out.get("forced_availability_warning"), forced=names("locked"), must_start=names("start"),
             banned=names("banned"),
-            prices_now={e: int(r["price_tenths"]) for e, r in live.items() if r.get("price_tenths") is not None})
+            prices_now={e: int(r["price_tenths"]) for e, r in live.items() if r.get("price_tenths") is not None},
+            own=None if own is None else (own["once"], own["doubled"]))
     except Exception as e:                              # noqa: BLE001 -- the build itself stands; only the code-built text is missing
         return {**out, "direct_reply_error": f"{type(e).__name__}: {str(e)[:200]}"}
-    return {**out, "direct_reply": ans["direct_reply"], "xi_points": ans["xi_points"], "spend": ans["spend"],
+    return {**out, "direct_reply": ans["direct_reply"], "xi_points": ans["xi_points"], "spend": ans["spend"], "own_xi": own,
             "note_reply": "this text has been shown to the user as the reply; the rows carry the player ids for a follow-up"}
 
 
@@ -5472,10 +5492,184 @@ def _with_fixture_grid(out, cal, wanted, players, now, run, mine=False):
                     cells[(c, g)] = None
         built, next_update, market_gw = _answer_frame(run)
         text = answers.fixture_grid(clubs, gws, cells, shorts=_club_short_names(), players=players, deadline=nc.countdown_line(now),
-                                    built=built, next_update=next_update, market_gw=market_gw, all_clubs=wanted is None, mine=mine)
+                                    built=built, next_update=next_update, market_gw=market_gw, all_clubs=wanted is None, mine=mine,
+                                    calendar_note=None if mine else answers.doubles_and_blanks(cal, clubs, gws[0] if gws else 1))
     except Exception as e:                              # noqa: BLE001 -- the fixtures themselves stand; only the code-built text is missing
         return {**out, "direct_reply_error": f"{type(e).__name__}: {str(e)[:200]}"}
     # the tool's own rows still travel (a follow-up reads them from the history), cut to the clubs asked for
     return {**out, "fixtures": rows, "teams_requested": clubs, "gameweeks": gws, "listed_gameweeks": gws, "clubs": clubs,
             "direct_reply": text,
             "note_reply": "this text has been shown to the user as the reply; for one club's fixtures in detail, ask for that club alone"}
+
+
+# ---------------------------------------------------------------- Prompt R3c (2026-11-16): the last model-written number answers
+# R3b's gate: all five slips were in text the model still wrote -- the captain answer (4) and a swap preview's text (1) -- and
+# the league-table answers added commentary their own table contradicted. On a NORMAL turn each is now written by answers.py
+# from the facts read here (agent.DIRECT_TOOLS). A draft chat's turn never reaches any of this.
+MAX_CAPTAIN_NAMED = 3
+
+
+@one_connection_per_call
+def captain_pick(player_ids: list = None, gw: int = None, user_id: int = None):
+    """Prompt R3c: the captain answer for the user's OWN line-up, written by code (answers.captain). The XI is the line-up
+    pick's (get_my_xi); the options are its starters ranked by predicted points for the gameweek, top five, each with his
+    likely range (the prediction tool's quantiles, read through the draft team's captain helper), his chance of starting and
+    of playing 60+ minutes, his fixture and FPL's flag; the margin between two options is the difference between their own
+    predicted points. `player_ids`: players the user named ("X or Y as captain"), each one of the user's fifteen."""
+    import answers
+    import draft_tools
+    if _draft_turn() is not None:
+        return {"error": R3_NOT_IN_DRAFT}
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
+    run = _latest_run()
+    if run is None:
+        return {"error": "no successful pipeline run in the database yet"}
+    raw = player_ids if isinstance(player_ids, (list, tuple)) else ([] if player_ids is None else [player_ids])
+    named = []
+    for x in raw:
+        e = _element_id(x)
+        if e is None:
+            return {"error": BAD_ELEMENT_ID}
+        if e not in named:
+            named.append(e)
+    if len(named) > MAX_CAPTAIN_NAMED:
+        return {"error": f"name at most {MAX_CAPTAIN_NAMED} players to weigh for the armband, got {len(named)}"}
+    xi = get_my_xi(user_id=user_id, gw=gw)
+    if not isinstance(xi, dict) or "xi" not in xi:
+        return xi                                       # no squad saved, or an error: the model says so
+    target = int(xi["gw"])
+    starters = [int(r["player_id"]) for r in xi["xi"]]
+    bench = [int(r["player_id"]) for r in xi["bench_in_order"]]
+    outside = [e for e in named if e not in starters and e not in bench]
+    if outside:
+        return {"error": f"player id(s) {outside} are not in the user's squad: the armband can only go to one of their own players",
+                "not_in_squad": outside}
+    pool = _answer_pool(run)
+    web = _web_names()
+    for r in list(xi["xi"]) + list(xi["bench_in_order"]):     # an owned player the build has no row for is still in the XI
+        e = int(r["player_id"])
+        if e not in pool:
+            pool[e] = {"element": e, "name": web.get(e) or r["name"], "full_name": r["name"], "position": r["position"],
+                       "team": r["team"], "price_tenths": None, "pts": {}, "start": {}, "p60": {}}
+    ids = list(dict.fromkeys(starters + named))
+    ranges = {e: draft_tools._captain_range(e, target) for e in ids}
+    parts = draft_tools._breakdowns(ids, target) or {}
+    shares = {}
+    for e in ids:
+        b = parts.get(e)
+        if b:
+            sh = draft_tools._points_share({"e_points": float(answers.hu((pool[e]["pts"] or {}).get(target) or 0.0)), "breakdown": b})
+            if sh:
+                shares[e] = sh
+    solver_captain = next((int(r["player_id"]) for r in xi["xi"] if r.get("role") == "CAPTAIN"), None)
+    built, next_update, market_gw = _answer_frame(run)
+    out = answers.captain(starters, target, pool=pool, ranges=ranges, shares=shares, cal=_answer_calendar(), shorts=_club_short_names(),
+                          flags=_flags_for(ids), built=built, next_update=next_update, market_gw=market_gw, named=named,
+                          solver_captain=solver_captain)
+    return {"direct_reply": out["direct_reply"], "gw": out["gw"], "captain_id": out["captain_id"], "vice_id": out["vice_id"],
+            "options": out["options"], "margin": out["margin"], "run_id": run["run_id"],
+            "line_up_captain_id": solver_captain, "xi_ids": starters, "to_change": squad_store.TO_CHANGE,
+            "note": "this text has been shown to the user as the reply; the options carry the player ids for a follow-up"}
+
+
+def _with_preview_text(out, active, captain_id, vice_id):
+    """Prompt R3c: a squad-change PREVIEW's result with `direct_reply` -- the text sent with the preview card, written by code
+    (answers.preview_text) from the preview's own change block, the active squad's purchase prices, today's prices and the
+    build's predictions. The card, the ticket and the confirm gate are untouched. A committed write, a refusal, a preview
+    with no transfer, or a failure here: the result as it is."""
+    ch = (out or {}).get("change") or {}
+    if not isinstance(out, dict) or "error" in out or not out.get("preview") or not ch.get("transfers"):
+        return out
+    try:
+        import answers
+        run = _latest_run()
+        lo, hi = _run_horizon(run)
+        gws = [g for g in range(int(out["gw"]), int(hi) + 1) if g >= int(lo)] if lo is not None and hi is not None else []
+        if not gws:
+            return out
+        pool = _answer_pool(run)
+        doc = active["squad_json"]
+        bought = {int(p["element"]): int(p["purchase_price"]) for p in doc["players"]}
+        ids = sorted({int(t[k]) for t in ch["transfers"] for k in ("out_id", "in_id") if t.get(k) is not None})
+        web = _web_names()
+        live = {int(r["element"]): r for r in _q("SELECT element, name, position, team, price_tenths FROM players_live "
+                                                  "WHERE element = ANY(%s)", (ids,))}
+        players = {e: {"name": web.get(e) or (live.get(e) or {}).get("name") or str(e), "team": (live.get(e) or {}).get("team"),
+                       "position": (live.get(e) or {}).get("position"), "bought": bought.get(e),
+                       "now": (live.get(e) or {}).get("price_tenths")} for e in ids}
+        roles = {int(p["element"]): str(p.get("role") or "").upper() for p in doc["players"]}
+        old_c = next((e for e, r in roles.items() if r in ("CAPTAIN", "C")), None)
+        old_v = next((e for e, r in roles.items() if r in ("VICE", "VC")), None)
+
+        def nm(e):
+            return web.get(int(e)) or next((p["name"] for p in doc["players"] if int(p["element"]) == int(e)), None) or \
+                (players.get(int(e)) or {}).get("name") or str(e)
+        moves = []
+        if captain_id is not None and old_c is not None and int(captain_id) != old_c:
+            moves.append(f"the armband moves from {nm(old_c)} to {nm(captain_id)}")
+        if vice_id is not None and old_v is not None and int(vice_id) != old_v:
+            moves.append(f"vice-captain moves from {nm(old_v)} to {nm(vice_id)}")
+        built, next_update, market_gw = _answer_frame(run)
+        text = answers.preview_text(ch, players, gws, pool=pool,
+                                    captain_change=("Also in this change: " + "; ".join(moves) + ".") if moves else None,
+                                    flags=_flags_for([int(t["in_id"]) for t in ch["transfers"]]), built=built,
+                                    next_update=next_update, market_gw=market_gw)
+    except Exception as e:                              # noqa: BLE001 -- the preview stands; only the code-built text is missing
+        return {**out, "direct_reply_error": f"{type(e).__name__}: {str(e)[:200]}"}
+    return {**out, "direct_reply": text}
+
+
+def _with_table_answer(out, latest_words, after_gw=None):
+    """Prompt R3c: a whole league table's result with `direct_reply` -- the table as the builder ranked it, the as-of line,
+    no commentary (answers.league_table). One club's answer, an empty table, or a failure here: the result as it is."""
+    if not isinstance(out, dict) or "error" in out or not out.get("table") or out.get("form_detail") is not None:
+        return out
+    try:
+        import answers
+        import league_table as lt
+        miss = (out.get("results_missing_before_cutoff") or {}).get("matches") or []
+        missing = [f"{m['home']} v {m['away']}, {m['date']}" + (f" (GW{m['gw']})" if m.get("gw") is not None else "") for m in miss]
+        a = out["as_of"]
+        src = "the date asked, read as UTC" if str(a["source"]).startswith("as_of, as given") else a["source"]
+        text = answers.league_table(out["table"], season=out["season"], as_of_words=a["cutoff_words"], source_words=src,
+                                    statement=a["statement"], n_matches=out["n_matches_in_table"], latest=latest_words,
+                                    missing=missing, season_note=out.get("season_note"), tiebreak=lt.TIEBREAK, after_gw=after_gw)
+    except Exception as e:                              # noqa: BLE001 -- the table stands; only the code-built text is missing
+        return {**out, "direct_reply_error": f"{type(e).__name__}: {str(e)[:200]}"}
+    return {**out, "direct_reply": text,
+            "note_reply": "this text has been shown to the user as the reply; for one club's results and form, ask for that club"}
+
+
+def _after_gw_cutoff(after_gw, cal):
+    """(cutoff, source sentence, error) for "the table after gameweek N": every result before GW N+1's first kickoff (the
+    as-of rule counts a result when its match finished before the cutoff DAY began)."""
+    import league_table as lt
+    n = _element_id(after_gw)
+    if n is None or isinstance(after_gw, bool) or not (1 <= n <= 38):
+        return None, None, f"after_gw must be a gameweek number from 1 to 38, got {after_gw!r}"
+    ko = lt.first_kickoff_by_gw(cal).get(n + 1) if cal is not None else None
+    if ko is None:
+        return None, None, (f"the calendar has no first kickoff for GW{n + 1}, so 'after GW{n}' cannot be placed; pass as_of as a "
+                            "date (YYYY-MM-DD) instead")
+    return ko, f"after GW{n}: every result before GW{n + 1}'s first kickoff, from the fixture calendar", None
+
+
+def _own_xi_points(run, gw):
+    """{once, doubled, player_ids, captain_id}: the points before the captain's double and with it of the user's OWN best XI
+    for `gw` -- the line-up pick's eleven and its captain, their points added from the build's prediction rows -- or None when
+    there is no line-up to read (no squad, an error, a failure): the best squad's answer then simply has no comparison line."""
+    try:
+        mine = get_my_xi(user_id=DEFAULT_USER_ID(), gw=int(gw))
+        if not isinstance(mine, dict) or not isinstance(mine.get("xi"), list) or not mine["xi"]:
+            return None
+        pool = _answer_pool(run)
+        g = int(gw)
+
+        def pts(e):
+            return float(((pool.get(int(e)) or {}).get("pts") or {}).get(g) or 0.0)
+        starters = [int(r["player_id"]) for r in mine["xi"]]
+        cap = next((int(r["player_id"]) for r in mine["xi"] if r.get("role") == "CAPTAIN"), None)
+        once = sum(pts(e) for e in starters)
+        return {"once": once, "doubled": once + (pts(cap) if cap is not None else 0.0), "player_ids": starters, "captain_id": cap}
+    except Exception:                                   # noqa: BLE001 -- the comparison line is optional
+        return None

@@ -1,0 +1,141 @@
+{
+ "what": "Prompt R3c (2026-11-16): every change to a NORMAL turn's tool list since fixture v7 (4eefdb0): one tool added (captain_pick, before search_news, which stays last) and six changed. Undoing the list on v8's tools gives v7's byte for byte (Tests/test_agent_payload_equivalence.py). A draft chat's turn keeps prompts/draft_frozen/tools.json.",
+ "changes": [
+  {
+   "tool": "captain_pick",
+   "why": "item 1: the captain answer, written by code (a new tool, before search_news)",
+   "added_at": 25,
+   "tool_json": {
+    "name": "captain_pick",
+    "description": "The captain answer for the user's OWN line-up, written by code: the pick and his predicted points for the gameweek with and without the armband, the line-up's top five captain options (predicted points, likely range, chance of starting, chance of playing 60+ minutes, fixture, FPL's flag), what captaining the pick over the next option is worth, the vice-captain, and the biggest part of the pick's prediction. Its text is shown to the user as the reply, so write nothing of your own. Use it for EVERY captain or vice-captain question about the user's team: 'who should I captain', 'who gets the armband', 'X or Y as captain', 'X or Y for captain', 'should I captain X or Y', 'is Haaland the right captain' -- never compare_predictions or compare_players for these. Pass the players the user names in player_ids (ids from resolve_player; up to three of their own fifteen). Optional gw for another gameweek of the run's horizon (a planning view). A result that is an error or the no-squad note carries no code-built text: answer it yourself.",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "player_ids": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "description": "Optional: the players the user named for the armband (element ids, at most three)"
+      },
+      "gw": {
+       "type": "integer",
+       "description": "Optional gameweek of the run's horizon (default: the next deadline's)"
+      }
+     },
+     "required": []
+    }
+   }
+  },
+  {
+   "tool": "compare_players",
+   "why": "item 1 (after the smoke): armband questions go to captain_pick",
+   "description": [
+    {
+     "old": "C",
+     "new": "Not for the armband: any captain or vice-captain question -- 'X or Y for captain', 'who should I captain', 'is X the right captain' -- goes to captain_pick, whose answer is written by code. C"
+    }
+   ]
+  },
+  {
+   "tool": "get_my_xi",
+   "why": "item 1: captain questions go to captain_pick",
+   "description": [
+    {
+     "old": "o should I captain', 'what is my best XI', 'should X or Y start'",
+     "new": "at is my best XI', 'should X or Y start'. For a captain or vice-captain question ('who should I captain', 'X or Y as captain') call captain_pick instead: its answer is written by code"
+    }
+   ]
+  },
+  {
+   "tool": "compare_predictions",
+   "why": "item 1 (after the smoke): armband questions go to captain_pick",
+   "description": [
+    {
+     "old": "St",
+     "new": "Not for the armband: any captain or vice-captain question -- 'X or Y for captain', 'who should I captain', 'is X the right captain' -- goes to captain_pick, whose answer is written by code. St"
+    }
+   ]
+  },
+  {
+   "tool": "set_my_squad",
+   "why": "item 2: a preview's text is written by code",
+   "description": [
+    {
+     "old": ". A ",
+     "new": ". On the user's own team a preview that moves players comes back with its text written by code -- who goes out and in, the money, the free transfers, the predicted gain, then the Yes / No question -- and that text is shown to the user with the preview card as the reply, so write nothing of your own. A "
+    }
+   ]
+  },
+  {
+   "tool": "get_fixtures",
+   "why": "R3b's open question: the all-clubs table ends with the calendar's doubles and blanks",
+   "description": [
+    {
+     "old": "l. A l",
+     "new": "l. The table for every club ends with the loaded calendar's double and blank gameweeks, so 'which clubs have a double gameweek coming up' is a call with no team. A l"
+    }
+   ]
+  },
+  {
+   "tool": "get_league_table",
+   "why": "item 3: the whole table is written by code; after_gw for 'after gameweek N'",
+   "description": [
+    {
+     "old": "f.",
+     "new": "f. For 'the table after gameweek N' pass after_gw=N (every result before gameweek N+1's first kickoff) instead of a date. Without `team` the whole table's text is written by code -- the rows, the as-of line, nothing else -- and shown to the user as the reply, so write nothing of your own."
+    }
+   ],
+   "input_schema": {
+    "old": {
+     "type": "object",
+     "properties": {
+      "as_of": {
+       "type": "string",
+       "description": "ISO timestamp cutoff (UTC); omit for the latest run's cutoff. as_of takes YYYY-MM-DD, or YYYY-MM-DDTHH:MM:SS for a moment inside a day, and nothing else: a slash date, a bare year or 'now' is refused rather than guessed at."
+      },
+      "team": {
+       "type": "string",
+       "description": "Club name; omit for the full table"
+      },
+      "form_last_n": {
+       "type": "integer",
+       "description": "How many recent matches the form fields cover (default 5)"
+      },
+      "include_odds_xpts": {
+       "type": "boolean",
+       "description": "Include Bet365 odds-implied expected points for played matches (default true)"
+      }
+     },
+     "required": []
+    },
+    "new": {
+     "type": "object",
+     "properties": {
+      "as_of": {
+       "type": "string",
+       "description": "ISO timestamp cutoff (UTC); omit for the latest run's cutoff. as_of takes YYYY-MM-DD, or YYYY-MM-DDTHH:MM:SS for a moment inside a day, and nothing else: a slash date, a bare year or 'now' is refused rather than guessed at."
+      },
+      "team": {
+       "type": "string",
+       "description": "Club name; omit for the full table"
+      },
+      "form_last_n": {
+       "type": "integer",
+       "description": "How many recent matches the form fields cover (default 5)"
+      },
+      "include_odds_xpts": {
+       "type": "boolean",
+       "description": "Include Bet365 odds-implied expected points for played matches (default true)"
+      },
+      "after_gw": {
+       "type": "integer",
+       "description": "Optional: the table after this gameweek's matches ('after gameweek 10' is 10); not with as_of"
+      }
+     },
+     "required": []
+    }
+   }
+  }
+ ]
+}

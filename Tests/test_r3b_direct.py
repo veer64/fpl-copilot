@@ -140,7 +140,8 @@ def test_e2_a_result_without_the_text_goes_back_to_the_model(ag, monkeypatch, to
 def test_e3_the_code_built_tools_their_schemas_and_their_functions_agree(ag, monkeypatch):
     import model_tools as mt
     assert ag.DIRECT_TOOLS == {"explain_my_draft", "rank_players", "review_my_squad", "propose_transfers", "get_price_movements",
-                               "best_squad_from_scratch", "build_squad_from_scratch", "compare_players", "get_fixtures"}
+                               "best_squad_from_scratch", "build_squad_from_scratch", "compare_players", "get_fixtures",
+                               "captain_pick", "set_my_squad", "get_league_table"}   # R3c: three more
     props = {t["name"]: t["input_schema"] for t in ag.tools_schema}
     assert set(props["compare_players"]["properties"]) == {"player_ids", "horizon"} and props["compare_players"]["required"] == ["player_ids"]
     assert props["compare_players"]["properties"]["player_ids"]["type"] == "array"
@@ -160,7 +161,7 @@ def test_e3_the_code_built_tools_their_schemas_and_their_functions_agree(ag, mon
     assert [pf._strip(t) for t in script.calls[0]["tools"]][:24] == [pf._strip(t) for t in ag.DRAFT_BASE_TOOLS]
     script = _script(ag, monkeypatch, [_reply()])
     ag.run_agent("hello", [], thread=None)
-    assert [t["name"] for t in script.calls[0]["tools"]] == [t["name"] for t in ag.tools_schema] and len(script.calls[0]["tools"]) == 26
+    assert [t["name"] for t in script.calls[0]["tools"]] == [t["name"] for t in ag.tools_schema] and len(script.calls[0]["tools"]) == 27   # R3c: + captain_pick
 
 
 def _club_calls(clubs, extra=None, **kw):
@@ -206,7 +207,7 @@ def test_e4b_five_clubs_run_six_gameweeks_of_one_club_run_and_a_draft_turn_is_ne
 
 def test_e5_the_routing_rules_are_the_normal_turns(ag):
     p = ag.SYSTEM_PROMPT
-    assert "# 1c. Seven answers are written by code, not by you" in p
+    assert "# 1c. Ten answers are written by code, not by you" in p   # R3c: was "Seven"
     for needle in ("`best_squad_from_scratch`", "`compare_players`", "`get_fixtures`", "`max_transfers`", "`my_players`"):
         assert needle in p[p.index("# 1c."):p.index("# 2. What you do not know")], needle
     assert "# 1c." not in ag.DRAFT_SYSTEM_PROMPT and "max_transfers" not in ag.DRAFT_SYSTEM_PROMPT
