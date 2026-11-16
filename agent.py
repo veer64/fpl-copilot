@@ -718,6 +718,15 @@ TOOL_NOT_RUN = "Not run."
 # Prompt R3d (2026-11-16): R3c's case 6 answered an injured player's comparison from two player cards (one run with an estimate
 # of its own); a second get_player_card in the same normal turn is not run and gets this note -- the comparison tool writes it.
 SECOND_CARD_NOTE = "For two or more players, use compare_players — it writes the comparison."
+# Prompt R3e (2026-11-16): R3d's case 6 run 3 answered "is Doku or Semenyo the better pick?" from ONE player card -- the
+# guard above stops only a second. On a normal turn whose user message reads as a comparison and names two or more
+# different players (comparison_guard.fires: the message's own names against the player list, or two players resolved in
+# the turn), a single-player lookup is not run until compare_players has run, and gets this note; the round counts toward
+# the round cap like any other. A draft chat's turn is never guarded.
+COMPARISON_NOTE = "This compares named players: call compare_players with every player's id — it writes the comparison, flags included."
+SINGLE_PLAYER_LOOKUPS = ("get_player_card", "get_prediction")
+GUARD_NAMES_TTL_S = 300.0
+_GUARD_NAMES = {"at": 0.0, "value": None}
 MAX_PREDICTION_CALLS = 10
 # Prompt R3b (2026-11-16): one response asking for more than MAX_FIXTURE_CLUBS clubs' fixtures one call at a time (R3's eval:
 # twelve single-club calls for "who do my players face", then a 1,700-token table written by hand): none is run, ONE app note
@@ -1163,6 +1172,41 @@ def _join_direct(texts):
     return "\n\n".join(out + [texts[-1]])
 
 
+def _guard_names():
+    """{folded name form: frozenset(element ids)} for every current player (players_live and FPL's web names, as
+    resolve_player reads them), for the comparison guard. Cached for five minutes, like resolve_player's web names."""
+    if _GUARD_NAMES["value"] is not None and time.time() - _GUARD_NAMES["at"] < GUARD_NAMES_TTL_S:
+        return _GUARD_NAMES["value"]
+    import comparison_guard
+    import model_tools
+    rows = model_tools._q("SELECT element, name FROM players_live")
+    web = model_tools._web_names()
+    value = comparison_guard.name_forms([(r["element"], r["name"], web.get(r["element"], "")) for r in rows])
+    _GUARD_NAMES.update(at=time.time(), value=value)
+    return value
+
+
+def _comparison_turn(st):
+    """Prompt R3e: (a) the turn's own user message reads as a comparison, (b) it names two or more different players --
+    the message's own names, or two players resolved in the turn -- and (c) compare_players has not run in this turn. The
+    player list is read only when (a) holds and fewer than two players are resolved; if it cannot be read, (b) rests on the
+    resolved players alone -- the turn never fails on the guard."""
+    import comparison_guard
+    if any(n == "compare_players" for n, _i, _r in st["turn_calls"]):
+        return False
+    message = turn_context.user_message()
+    if not comparison_guard.reads_as_comparison(message):
+        return False
+    resolved = comparison_guard.resolved_players(st["turn_calls"])
+    if len(resolved) >= 2:
+        return True
+    try:
+        forms = _guard_names()
+    except Exception:                                   # noqa: BLE001
+        forms = {}
+    return comparison_guard.fires(message, forms, resolved=resolved)
+
+
 def _run_tools(st):
     """Every tool_use block of the response, in order, under the failure contract; traced; kept for the fact check;
     search results kept for the citations. Returns the tool_result blocks (empty: no tool call in this response)."""
@@ -1187,6 +1231,12 @@ def _run_tools(st):
             tool_name = block.name
             tool_input = block.input
             tool_id = block.id
+            if tool_name in SINGLE_PLAYER_LOOKUPS and not _draft_turn_now() and _comparison_turn(st):
+                # Prompt R3e: a comparison of named players is compare_players'; its single-player lookups are not run
+                _say(f"  [{tool_name} not run: {tool_input}; the turn compares named players -- the app note points at compare_players]")
+                tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": COMPARISON_NOTE})
+                st["skipped_rounds"].append({"why": "comparison", "calls": 1, "tools": [tool_name]})
+                continue
             if (tool_name == "get_player_card" and not _draft_turn_now()
                     and any(n == "get_player_card" for n, _i, _r in st["turn_calls"])):
                 # Prompt R3d: one player card a turn; a second is not run and gets ONE app note (normal turns only)

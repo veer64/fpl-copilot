@@ -95,7 +95,9 @@ def test_g2_a_second_card_in_the_turn_is_not_run_and_gets_one_note(ag, monkeypat
     script = _script(ag, monkeypatch, [pf._Resp([_card(400, "toolu_a"), _card(397, "toolu_b")], "tool_use"),
                                        pf._Resp([pf._Block("tool_use", name="compare_players", input={"player_ids": [400, 397]}, id="toolu_c")],
                                                 "tool_use")])
-    answer, msgs = _turn(ag, engine, "Over the coming gameweeks, is Doku or Semenyo the better pick?", [])
+    # R3e: was "Over the coming gameweeks, is Doku or Semenyo the better pick?" -- a comparison, whose FIRST card R3e's guard
+    # now holds (test_r3e_comparison_guard.py E4); the second-card guard is tested on a message that is not a comparison
+    answer, msgs = _turn(ag, engine, "Tell me about Doku and Semenyo.", [])
     assert answer == "**Doku against Semenyo …**" and len(script.calls) == 2
     assert ag._calls == [("get_player_card", {"player_id": 400}), ("compare_players", {"player_ids": [400, 397]})]
     results = msgs[2]["content"]
@@ -108,7 +110,7 @@ def test_g2_a_second_card_in_the_turn_is_not_run_and_gets_one_note(ag, monkeypat
 def test_g2b_a_card_in_a_later_round_of_the_same_turn_is_not_run_either(ag, monkeypatch, engine):
     script = _script(ag, monkeypatch, [pf._Resp([_card(400, "toolu_a")], "tool_use"), pf._Resp([_card(397, "toolu_b")], "tool_use"),
                                        pf._Resp([pf._Block("text", text="Doku.")], "end_turn")])
-    answer, msgs = _turn(ag, engine, "Doku or Semenyo?", [])
+    answer, msgs = _turn(ag, engine, "Doku and Semenyo, please.", [])   # R3e: was "Doku or Semenyo?" (a comparison; see G2)
     assert answer == "Doku." and len(script.calls) == 3 and ag._calls == [("get_player_card", {"player_id": 400})]
     assert msgs[4]["content"][0]["content"] == NOTE
 

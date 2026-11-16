@@ -1,0 +1,39 @@
+{
+ "name": "r3e_setB_v1",
+ "written": "2026-11-16",
+ "purpose": "Prompt R3e, the final gate again under the owner's ship rule, after the comparison guard. Set D: R3c's three failing turns, exact wording and players, 3 runs each (R3d's D, unchanged). Set B: the same ten case types as R3, R3b, R3c and R3d, 3 runs each, with NEW wording and NEW named / IN players versus all four; case 2 names a number of gameweeks and no number of transfers; case 6's pair includes a flagged player (Rashford, injured on build 78). Every named / IN player has exactly ONE player-lookup match and each swap previews as legal (checked by the plan step on a probe user, before any model call). Set C: the guard's misfire probes and the two limit questions, one run each, gated on the zeros only.",
+ "runs_per_case": 3,
+ "placeholders": {"p1": "the first named player of case 6 (fit)", "p2": "the second (flagged)", "in8": "the player brought in in case 8", "out8": "the squad player he replaces", "in9": "the player brought in in case 9", "out9": "the squad player he replaces"},
+ "set_d": [
+  {"id": "D2", "path": "team", "what": "R3c case 2: no transfer cap, no 'as you asked', no hit", "turns": ["Using only my free transfers, what moves should I make across the next three gameweeks?"]},
+  {"id": "D6", "path": "team", "what": "R3c case 6: the code-built comparison, the flag shown", "turns": ["Over the coming gameweeks, is Doku or Semenyo the better pick?"]},
+  {"id": "D9", "path": "team", "what": "R3c case 9: a preview on the first turn; continue -> Yes / No, 0 writes; yes -> saved once", "turns": ["Sell Barry and buy Delap.", "continue", "yes"]}
+ ],
+ "cases": [
+  {"id": "B1", "path": "team", "what": "whole-squad review, next 3 gameweeks", "turns": ["How is each of my fifteen players expected to do over the next three gameweeks?"]},
+  {"id": "B2", "path": "team", "what": "a 3-gameweek transfer plan, no hits (gameweeks named, no number of transfers)", "turns": ["I don't want to take any hits. What transfers should I make for the next three gameweeks?"]},
+  {"id": "B3", "path": "team", "what": "top 8 forwards, next 4 gameweeks, table with price and fixtures", "turns": ["Top eight forwards by predicted points for the next four gameweeks, as a table with their prices and fixtures."]},
+  {"id": "B4", "path": "team", "what": "best possible squad for £100m", "turns": ["With £100m and no existing team, what's the best fifteen I could put together?"]},
+  {"id": "B5", "path": "team", "what": "captain this week and why", "turns": ["Captain choice for this gameweek: who should it be, and why?"]},
+  {"id": "B6", "path": "team", "what": "compare two named players, one flagged", "turns": ["{p1} or {p2}: which one should I go for over the coming weeks?"]},
+  {"id": "B7", "path": "team", "what": "which of my players may rise / fall in price", "turns": ["Will any of my players' prices move soon?"]},
+  {"id": "B8", "path": "team", "what": "swap preview then no -> 'No change made.', 0 writes", "turns": ["Ditch {out8} for {in8}.", "no"]},
+  {"id": "B9", "path": "team", "what": "swap preview then continue -> asks Yes / No, 0 writes; then yes -> saved once", "turns": ["Transfer {in9} in for {out9}.", "continue", "yes"]},
+  {"id": "B10", "path": "general", "what": "General mode: best-value defenders under £5.0m, next 5 gameweeks", "turns": ["Which sub-£5.0m defenders give the best value across the next five gameweeks?"]}
+ ],
+ "set_c": [
+  {"id": "C1", "path": "team", "what": "misfire probe: two players, no comparison word -- both halves answered", "turns": ["Is Salah fit, and when does Haaland play next?"]},
+  {"id": "C2", "path": "team", "what": "misfire probe: two players, no comparison word -- answered, either route", "turns": ["Tell me about Saka and Palmer."]},
+  {"id": "C3", "path": "team", "what": "misfire probe: 'or' with ONE player -- answered; the guard must not fire", "turns": ["Should I keep Mbeumo or sell him?"]},
+  {"id": "C4", "path": "team", "what": "the code-built comparison", "turns": ["Who's better value, Gabriel or Saliba?"]},
+  {"id": "C5", "path": "team", "what": "no cap", "turns": ["What transfers should I make over the next five gameweeks?"]},
+  {"id": "C6", "path": "team", "what": "a cap of 2, stated", "turns": ["Make two transfers for me this week."]}
+ ],
+ "players": {"p1": "Grealish", "p2": "Rashford", "in8": "Yarmoliuk", "out8": "Sangare", "in9": "Dunk", "out9": "Lindelof"},
+ "fallbacks": {"case 6": ["Sesko", "Ekitike"], "case 8 IN": ["Mehmeti", "Slater"], "case 9 IN": ["Mings", "Castagne"],
+               "rule": "used in this fixed order only when a name does not have a single match, or its swap does not preview as legal, on the laptop database; the plan file records which was used and why. Case 6's fallbacks are flagged players, as p2 is."},
+ "not_reused": {"r3": ["Declan Rice", "Dominik Szoboszlai", "Kudus", "Foden", "Van de Ven", "Collins", "Wirtz", "Eze", "Tavernier", "Neto", "Vuskovic", "Pinnock"],
+                "r3b": ["Bukayo Saka", "Cole Palmer", "Odegaard", "Gakpo", "De Cuyper", "Guehi", "Bruno Fernandes", "Morgan Rogers", "Gross", "Mitoma", "Saliba", "Kerkez"],
+                "r3c": ["Doku", "Semenyo", "Madueke", "Mbeumo", "Delap", "Barry", "Cherki", "Anderson", "Dewsbury-Hall", "Schade", "Zirkzee", "Thiago", "Isak"],
+                "r3d": ["Mateta", "Wissa", "Andrey Santos", "Grimes", "Ajer", "Bijol", "Tielemans", "Hudson-Odoi", "Yalcouye", "Dowell", "Kayode", "Dalot"]}
+}
