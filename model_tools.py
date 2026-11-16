@@ -920,6 +920,25 @@ def _web_names():
     return out
 
 
+def _from_users_words(ranked):
+    """Prompt R3f (2026-11-16): (the candidate, the words) when a lookup matched more than one player and the turn's own user
+    message names EXACTLY ONE of them by a fuller form (comparison_guard.named_one: the players_live name, FPL's web_name, the
+    web_name without its initial, the first and last word of a longer name; folded, whole words). R3e's Set B case 8, 3 runs of
+    3: "Ditch Ibrahim Sangare for Yarmoliuk." -- the model looked up "Sangare" and asked which. None outside a turn, on a draft
+    chat's turn, or when the message names none of them or more than one: nothing is ever guessed."""
+    if len(ranked) < 2 or _draft_turn() is not None:
+        return None
+    message = turn_context.user_message()
+    if not message:
+        return None
+    import comparison_guard
+    hit = comparison_guard.named_one(message, [(c["id"], c["second_name"], c["web_name"]) for _r, c in ranked])
+    if hit is None:
+        return None
+    element, words = hit
+    return next(c for _r, c in ranked if int(c["id"]) == int(element)), words
+
+
 def resolve_player(name: str, club: str = None):
     """Rank every current player the name could mean (player_names.rank_matches: the
     displayed name, then all words, then a 4+ letter prefix -- on accent-folded WORDS, so
@@ -956,6 +975,16 @@ def resolve_player(name: str, club: str = None):
                 where = ", ".join(sorted({rc[1]["team"] for rc in ranked}))
                 notes.append(f"found at {where}, not {resolved}")
 
+    resolved_from = None
+    hit = _from_users_words(ranked)                      # Prompt R3f: the user's own words name one of them
+    if hit is not None:
+        chosen, words = hit
+        top = ranked[0][0]
+        tied = [c for r, c in ranked if r == top]
+        if not (len(tied) == 1 and tied[0] is chosen):  # the user's player was not already the one answer
+            resolved_from = {"why": "resolved from the user's words", "words": words, "query": name, "candidates": len(ranked)}
+            ranked = [(top, chosen)] + [(r, c) for r, c in ranked if c is not chosen and r > top]
+
     total = len(ranked)
     best = ranked[0][0] if ranked else None
     n_best = sum(1 for r, _ in ranked if r == best)
@@ -970,6 +999,8 @@ def resolve_player(name: str, club: str = None):
         matches.append(_lead_with_availability(row, row["player_id"], flags))
     out = {"matches": matches, "total_matches": total, "truncated": total > RESOLVE_CAP,
            "ambiguous": n_best > 1, "note": None}
+    if resolved_from is not None:
+        out["resolved_from_message"] = resolved_from     # for the trace: which words of the user's message decided it
     if total == 0:
         out["suggestions"] = pn.close_names(name, cands)
         notes.append(f"no current player matches {name!r}"

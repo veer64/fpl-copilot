@@ -21,7 +21,7 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
 import payload_fixture as pf                                               # noqa: E402
 
 FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"     # what a DRAFT turn must still equal (R3: byte-identical)
-V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v9.json"          # Prompt R3d (2026-11-16): what a NORMAL turn sends now (v8 in R3c, v7 in R3b, v6 in R3)
+V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v10.json"         # Prompt R3f (2026-11-16): what a NORMAL turn sends now (v9 in R3d, v8 in R3c, v7 in R3b, v6 in R3)
 BASE_SYSTEM_PROMPT_SHA = "3acb1ee49f0dec5d8e58d31136c0ac3325b8cb083548621aa2c45cf757ae2fc5"    # 984a62a
 BASE_TOOLS_SHA = "30a8355ed3540b72cf2a5d45f912b123fd0e63f5df1063bc5dfefdab38a9136e"            # 984a62a, 24 tools
 DRAFT = {"user_id": 10001, "draft_key": 800_000_001}

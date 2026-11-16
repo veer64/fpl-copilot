@@ -1,0 +1,26 @@
+{
+ "name": "r3f_check_v1",
+ "written": "2026-11-16",
+ "purpose": "Prompt R3f, the SHORT targeted check after the two name-handling fixes (the owner's decision: no new full gate). T1 and T2 are R3e's two failures word for word, three runs each; T3 (P1-P4) one run each; D is R3c's three failing turns word for word, three runs each (regression); Set A is the 21 saved questions (regression). The runner's 'Set B' carries T1 / T2 and its 'Set C' carries P1-P4. Fixed wording, no fallbacks: the plan step checks each name's lookup answers as the check assumes (outside a turn) and dry-runs T1's swap on a probe user before any model call.",
+ "runs_per_case": 3,
+ "set_d": [
+  {"id": "D2", "path": "team", "what": "no transfer cap, no 'as you asked', no hit", "turns": ["Using only my free transfers, what moves should I make across the next three gameweeks?"]},
+  {"id": "D6", "path": "team", "what": "the code-built comparison, the flag shown", "turns": ["Over the coming gameweeks, is Doku or Semenyo the better pick?"]},
+  {"id": "D9", "path": "team", "what": "a preview on the first turn; continue -> Yes / No, 0 writes; yes -> saved once", "turns": ["Sell Barry and buy Delap.", "continue", "yes"]}
+ ],
+ "cases": [
+  {"id": "T1", "path": "team", "what": "a preview on the first turn (no 'which Sangaré?'); 'no' -> 'No change made.'; 0 writes", "turns": ["Ditch Ibrahim Sangare for Yarmoliuk.", "no"]},
+  {"id": "T2", "path": "team", "what": "Saka answered from the tools AND only 'which Palmer?' asked, in the same reply", "turns": ["Tell me about Saka and Palmer."]}
+ ],
+ "set_c": [
+  {"id": "P1", "path": "team", "what": "answered about Cole Palmer; no 'which Palmer?'", "turns": ["Is Cole Palmer worth buying?"]},
+  {"id": "P2", "path": "team", "what": "asks which Palmer (both named); nothing else needed", "turns": ["Tell me about Palmer."]},
+  {"id": "P3", "path": "team", "what": "the code-built comparison", "turns": ["Compare Alex Palmer and Verbruggen."]},
+  {"id": "P4", "path": "team", "what": "answered about Ibrahim Sangaré; no 'which Sangaré?'", "turns": ["How is Ibrahim Sangare doing this week?"]}
+ ],
+ "players": {},
+ "name_checks": [["Ibrahim Sangare", "resolved"], ["Sangare", "ambiguous"], ["Yarmoliuk", "resolved"], ["Saka", "resolved"],
+                 ["Palmer", "ambiguous"], ["Cole Palmer", "resolved"], ["Alex Palmer", "resolved"], ["Verbruggen", "resolved"],
+                 ["Doku", "resolved"], ["Semenyo", "resolved"], ["Barry", "resolved"], ["Delap", "resolved"]],
+ "swap": {"out": "Ibrahim Sangare", "in": "Yarmoliuk"}
+}

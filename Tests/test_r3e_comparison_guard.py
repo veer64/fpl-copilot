@@ -286,7 +286,10 @@ FIX = REPO / "Tests" / "fixtures"
 
 
 def test_e11_the_guard_is_code_only_the_request_is_v9_byte_for_byte(ag, monkeypatch):
-    v9 = json.loads((FIX / "agent_payloads_v9.json").read_text(encoding="utf-8"))
+    # R3f: the request of NOW is fixture v10 (R3f's routing sentence, Tests/test_agent_payload_equivalence.py); R3e's own claim
+    # -- the guard changed no request -- stays proved by the v9 / threads v5 records pinned below and the v9 tests. The guarded
+    # turn is compared with the request of now. Was: v9 = the v9 fixture, compared with tools_schema and SYSTEM_PROMPT.
+    v9 = json.loads((FIX / "agent_payloads_v10.json").read_text(encoding="utf-8"))
     assert [pf._strip(t) for t in ag.tools_schema] == v9["shared"]["tools"]
     assert "".join(b["text"] for b in v9["shared"]["system"]) == f"{v9['context_text']}\n\n{ag.SYSTEM_PROMPT}"
     sha = {n: hashlib.sha256((FIX / n).read_bytes()).hexdigest()[:16] for n in ("agent_payloads_v9.json", "agent_payloads_threads_v5.json")}

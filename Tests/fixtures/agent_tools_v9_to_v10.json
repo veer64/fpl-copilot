@@ -1,0 +1,15 @@
+{
+ "what": "Prompt R3f (2026-11-16): every change to a NORMAL turn's tool list since fixture v9 (c019bb5's request): one description changed (resolve_player); no tool added, removed or moved, no schema changed. Undoing the list on v10's tools gives v9's byte for byte (Tests/test_agent_payload_equivalence.py). A draft chat's turn keeps prompts/draft_frozen/tools.json.",
+ "changes": [
+  {
+   "tool": "resolve_player",
+   "why": "item 2: answer for every player that resolved; ask only which of the ambiguous ones the user means",
+   "description": [
+    {
+     "old": "e.",
+     "new": "e. When some of the names the user gives resolve and others are ambiguous, answer for every player that resolved and, in the same reply, ask only which of the ambiguous ones the user means."
+    }
+   ]
+  }
+ ]
+}

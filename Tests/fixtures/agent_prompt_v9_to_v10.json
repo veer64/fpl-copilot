@@ -1,0 +1,10 @@
+{
+ "what": "Prompt R3f (2026-11-16): every change to prompts/system_prompt.md, the NORMAL turn's prompt, since fixture v9 (d702cd5 = c019bb5's request). Undoing the list, newest first, gives v9's prompt byte for byte (Tests/test_agent_payload_equivalence.py). A draft chat's turn keeps prompts/draft_frozen/system_prompt.md.",
+ "changes": [
+  {
+   "why": "P1 item 2: answer what is clear, ask only what is not -- R3e's C2 asked which Palmer and said nothing about Saka",
+   "old": "A line-up question (\"how is my line-up doing\", \"who should I start\") is not a review: the line-up rules of section 1 still answer it.",
+   "new": "A line-up question (\"how is my line-up doing\", \"who should I start\") is not a review: the line-up rules of section 1 still answer it. When some of the names the user gives resolve and others are ambiguous, answer for every player that resolved and, in the same reply, ask only which of the ambiguous ones the user means."
+  }
+ ]
+}

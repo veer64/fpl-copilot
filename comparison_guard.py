@@ -50,19 +50,25 @@ def name_forms(players):
     return {k: frozenset(v) for k, v in out.items()}
 
 
-def _spans(text, forms):
+def _spans_words(text, forms):
+    """[(the matched words, their players)] -- the message's name spans, longest first, left to right, each word once."""
     toks = _fold(text).split()
     spans, i = [], 0
     while i < len(toks):
         for n in range(min(MAX_NAME_WORDS, len(toks) - i), 0, -1):
-            ids = forms.get(" ".join(toks[i:i + n]))
+            words = " ".join(toks[i:i + n])
+            ids = forms.get(words)
             if ids:
-                spans.append(ids)
+                spans.append((words, ids))
                 i += n
                 break
         else:
             i += 1
     return spans
+
+
+def _spans(text, forms):
+    return [ids for _w, ids in _spans_words(text, forms)]
 
 
 def players_named(text, forms):
@@ -87,6 +93,33 @@ def resolved_players(turn_calls):
         if matches and isinstance(matches[0], dict) and matches[0].get("player_id") is not None:
             out.add(int(matches[0]["player_id"]))
     return out
+
+
+def resolver_forms(players):
+    """Prompt R3f: name_forms, plus the first and last word of a players_live name of three words or more ("Gabriel Fernando
+    de Jesus" -> "gabriel jesus", "Bruno Borges Fernandes" -> "bruno fernandes") -- the fuller forms a user types."""
+    out = {k: set(v) for k, v in name_forms(players).items()}
+    for element, name, _web in players:
+        w = _fold(name).split()
+        if len(w) > 2:
+            out.setdefault(f"{w[0]} {w[-1]}", set()).add(int(element))
+    return {k: frozenset(v) for k, v in out.items()}
+
+
+def named_one(text, players):
+    """Prompt R3f: (element, the words) when the message names exactly ONE of `players` -- (element, players_live name,
+    web_name) triples, the candidates of one lookup -- by a form no other of them shares; else None. A form they share
+    ("sangare" for both Sangarés) names none of them; two different players named in full name neither."""
+    if not text:
+        return None
+    named = {}
+    for words, ids in _spans_words(text, resolver_forms(players)):
+        if len(ids) == 1:
+            named.setdefault(next(iter(ids)), words)
+    if len(named) != 1:
+        return None
+    (element, words), = named.items()
+    return element, words
 
 
 def fires(text, forms, resolved=()):
