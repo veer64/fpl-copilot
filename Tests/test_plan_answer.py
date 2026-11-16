@@ -67,7 +67,7 @@ def _result():
                           "xi": xi_rows, "bench_in_order": [], "predicted_xi_points": 60.75},
         "later_steps_indicative": [
             {"horizon_step": 1, "gw": 12, "hits": 0, "free_transfers": 2, "transfers": [_move(109, 117)], "captain": ROW[107][1]},
-            {"horizon_step": 2, "gw": 13, "hits": 1, "free_transfers": 1, "transfers": [_move(106, 122), _move(118, 119)], "captain": ROW[107][1]}],
+            {"horizon_step": 2, "gw": 13, "hits": 0, "free_transfers": 2, "transfers": [_move(106, 122), _move(118, 119)], "captain": ROW[107][1]}],
         "apply_with": {"player_ids": XI + BENCH, "captain_id": 107, "vice_id": 102, "bench_order_ids": BENCH, "gw": 11, "proposal_id": 501, "confirm": True},
     }
 
@@ -157,7 +157,7 @@ def test_t5_free_transfers_hits_and_the_bank_are_the_planners(pool_db):
     text = _text(_result())
     assert "Free transfers: 3 available, 2 used, 1 left. Hits: 0 (0 points). Bank: £0.4m before, £0.1m after." in text
     assert "Free transfers: 2 available, 1 used, 1 left. Hits: 0 (0 points)." in text            # GW12
-    assert "Free transfers: 1 available, 1 used, 0 left. Hits: 1 (4 points)." in text            # GW13: two moves, one paid
+    assert "Free transfers: 2 available, 2 used, 0 left. Hits: 0 (0 points)." in text            # GW13: the one left over plus the one earned (R3b: by FPL's rule, was "1 available ... Hits: 1" from a fixture no plan can produce)
     hit = _result()
     hit["this_deadline"].update(hits=1, hit_cost_points=4, free_transfers_before=1, free_transfers_after=0)
     t = _text(hit)

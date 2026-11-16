@@ -209,7 +209,7 @@ def test_f_words_the_planners_verdict_names_no_fixed_length():
 def test_f_prompt_the_normal_prompt_routes_and_points_at_each_fact_and_the_draft_prompt_is_untouched():
     import agent
     p, d = agent.SYSTEM_PROMPT, agent.DRAFT_SYSTEM_PROMPT
-    assert "# 1c. Four answers are written by code, not by you" in p and "# 1c." not in d
+    assert "# 1c. Seven answers are written by code, not by you" in p and "# 1c." not in d   # R3b: was "Four"
     assert p.split("\n")[10].startswith("- Every number you state") and p.split("\n")[:14] == d.split("\n")[:14]   # the head of the prompt is untouched
     for name in ("`rank_players`", "`review_my_squad`"):
         assert name in p and name not in d

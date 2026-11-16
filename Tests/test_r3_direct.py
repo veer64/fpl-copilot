@@ -129,7 +129,7 @@ def test_d3_the_new_tools_are_offered_on_normal_turns_only(ag, monkeypatch):
     ag.run_agent("hello", [], thread=None)
     names = [t["name"] for t in script.calls[0]["tools"]]
     assert names == [t["name"] for t in ag.tools_schema] and names[-3:] == ["rank_players", "review_my_squad", "search_news"] and len(names) == 26
-    assert script.calls[0]["system"][0]["text"].endswith(ag.SYSTEM_PROMPT) and "# 1c. Four answers are written by code" in ag.SYSTEM_PROMPT
+    assert script.calls[0]["system"][0]["text"].endswith(ag.SYSTEM_PROMPT) and "# 1c. Seven answers are written by code" in ag.SYSTEM_PROMPT   # R3b: was "Four"
     script = _script(ag, monkeypatch, [_reply()])
     ag.run_agent("hello", [], thread={"draft": DRAFT})
     draft_names = [t["name"] for t in script.calls[0]["tools"]]
@@ -146,7 +146,8 @@ def test_d3b_the_direct_tools_have_functions_phrases_and_matching_schemas(ag):
     import inspect
 
     import model_tools as mt
-    assert ag.DIRECT_TOOLS == {"explain_my_draft", "rank_players", "review_my_squad", "propose_transfers", "get_price_movements"}
+    assert ag.DIRECT_TOOLS == {"explain_my_draft", "rank_players", "review_my_squad", "propose_transfers", "get_price_movements",
+                               "best_squad_from_scratch", "build_squad_from_scratch", "compare_players", "get_fixtures"}   # R3b: four more (was five names)
     for name, fn in (("rank_players", mt.rank_players), ("review_my_squad", mt.review_my_squad), ("get_prediction", mt.get_prediction)):
         schema = next(t for t in ag.tools_schema if t["name"] == name)["input_schema"]
         params = set(inspect.signature(fn).parameters) - {"user_id"}

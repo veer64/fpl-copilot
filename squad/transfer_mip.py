@@ -181,6 +181,12 @@ DEFAULT_HORIZON = 6
 # decision-log row by the simulator.
 DEFAULT_DECAY = 0.45
 
+# max_transfers == 1 (Prompt R3b, 2026-11-16): two statements that are true of every plan
+# making ONE transfer are handed to the solver -- see build_and_solve. They remove no
+# feasible optimum; they are there because the exact solve without them took minutes.
+# A test solves both ways and compares the objectives (Tests/test_plan_max_transfers.py).
+ONE_TRANSFER_CUTS = True
+
 
 def build_and_solve(
     pool_by_gw,
@@ -198,6 +204,7 @@ def build_and_solve(
     force_hold=False,
     locked_elements=None,
     banned_elements=None,
+    max_transfers=None,
 ):
     """Solve the multi-gameweek transfer plan.
 
@@ -231,6 +238,12 @@ def build_and_solve(
                         if owned, never bought. Both default to none and are then
                         inert (no constraint emitted), so every existing solve is
                         unchanged. Added 2026-09-12 for the propose_transfers tool.
+
+    max_transfers     : the most transfers the WHOLE plan may make, added over every step
+                        (the opening fifteen and a wildcard step's moves are not counted,
+                        as they are not counted against free transfers). None (the default)
+                        emits no constraint, so every existing solve is unchanged. Added
+                        2026-11-16 (Prompt R3b) for a user who names a number of transfers.
 
     Returns (status, plan) where plan is a list of per-gameweek dicts; plan[0] also
     carries `objective` (the solved objective value) so callers can compare plans.
@@ -475,6 +488,61 @@ def build_and_solve(
     prob += ft[0] == free_transfers
     if force_hold:
         prob += used[0] == 0, "force_hold_step0"
+    if max_transfers is not None:
+        prob += pulp.lpSum(spend[t] for t in range(T)) <= int(max_transfers), "max_transfers_whole_plan"
+        if ONE_TRANSFER_CUTS and int(max_transfers) == 1 and not is_first_squad and wildcard_step is None:
+            # ONE transfer in the whole plan is one owned player out and one player of his
+            # position in, in the same gameweek, paid for by that sale and the bank alone. Said
+            # to the solver as a cut -- a player can be bought at step t only if an owned player
+            # of his position who funds him is sold at step t -- it changes no feasible plan and
+            # no optimum; without it the relaxation spreads the one transfer over many
+            # part-players against the money constraint, and the exact solve took two to five
+            # minutes on the live pools (measured 2026-11-16: horizon 3, 155 s; horizon 6, 291 s).
+            for j in players:
+                if j in owned:
+                    continue
+                for t in range(T):
+                    funders = [o for o in sorted(owned) if attrs[o]["position"] == attrs[j]["position"]
+                               and all(price[(j, u)] <= sellv[o] + bank for u in range(t, T))]
+                    prob += buy[(j, t)] <= pulp.lpSum(sell[(o, t)] for o in funders), f"one_transfer_{j}_{t}"
+            # ...and the one player bought is never a DOMINATED one: j is left out when another
+            # player k of his position costs no more, is predicted no fewer points (and no lower
+            # 60-minute chance, the tiebreak's input) in every gameweek of the plan, is available
+            # whenever j is, and can always be added under the three-per-club rule (his club has
+            # at most two owned players, or it is j's own club). Any one-transfer plan that buys
+            # j is then matched or beaten by the same plan buying k, so no optimum is lost;
+            # identical players keep the lower id. Locked players are never left out and banned
+            # players never count as k.
+            club_owned = {}
+            for o in owned:
+                club_owned[attrs[o]["team"]] = club_owned.get(attrs[o]["team"], 0) + 1
+            cand = [j for j in players if j not in owned and j not in banned]
+
+            def _vec(j):
+                return ([price[(j, u)] for u in range(T)], [pts[(j, u)] for u in range(T)],
+                        [p60[(j, u)] for u in range(T)], [available[(j, u)] for u in range(T)])
+
+            vec = {j: _vec(j) for j in cand}
+            by_pos = {}
+            for j in cand:
+                by_pos.setdefault(attrs[j]["position"], []).append(j)
+            for js in by_pos.values():
+                for j in js:
+                    if j in locked:
+                        continue
+                    pj, sj, qj, aj = vec[j]
+                    for k in js:
+                        if k == j:
+                            continue
+                        if club_owned.get(attrs[k]["team"], 0) > 2 and attrs[k]["team"] != attrs[j]["team"]:
+                            continue
+                        pk, sk, qk, ak = vec[k]
+                        if (all(a <= b for a, b in zip(pk, pj)) and all(a >= b for a, b in zip(sk, sj))
+                                and all(a >= b for a, b in zip(qk, qj)) and all(a or not b for a, b in zip(ak, aj))
+                                and ((pk, sk, qk, ak) != (pj, sj, qj, aj) or k < j)):
+                            for t in range(T):
+                                prob += pick[(j, t)] == 0, f"one_transfer_dominated_{j}_{t}"
+                            break
     for t in range(1, T):
         # ft[t] <= max(0, ft[t-1] - used[t-1]) + 1, with the max handled by the
         # hits term: when h hits are taken, used = ft + h at the optimum, so

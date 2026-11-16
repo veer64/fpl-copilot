@@ -1383,7 +1383,25 @@ def _quantile_block(rows):
     }
 
 
-def compare_players(player_id_a: int, player_id_b: int):
+def compare_players(player_id_a: int = None, player_id_b: int = None, player_ids: list = None, horizon: int = None,
+                    user_id: int = None):
+    """Two players under the production model: each side's figures and the verdict on the whole-range sum, as always.
+    Prompt R3b (2026-11-16): on a NORMAL turn the answer is also WRITTEN BY CODE -- two or more players (`player_ids`)
+    gameweek by gameweek over the span (`horizon` gameweeks from the next deadline's; none given: every gameweek the build
+    covers), returned as `direct_reply`, the turn's reply (_with_comparison). A draft chat's turn sends two ids and gets the
+    result it always had."""
+    normal = _draft_turn() is None
+    if normal:
+        ids, bad = _compare_ids(player_id_a, player_id_b, player_ids)
+        if bad:
+            return bad
+        if len(ids) > 2:                                 # three or more: the code-built table is the whole result
+            return _with_comparison(None, ids, horizon, user_id)
+        player_id_a, player_id_b = ids
+    elif player_id_a is None or player_id_b is None:     # a draft chat's schema requires both, as the signature did
+        gone = [n for n, v in (("player_id_a", player_id_a), ("player_id_b", player_id_b)) if v is None]
+        raise TypeError(f"{compare_players.__name__}() missing {len(gone)} required positional argument{'s' if len(gone) > 1 else ''}: "
+                        + " and ".join(repr(n) for n in gone))
     a, b = get_prediction(player_id_a), get_prediction(player_id_b)
     if "error" in a or "error" in b:
         return {"a": a, "b": b}
@@ -1425,7 +1443,8 @@ def compare_players(player_id_a: int, player_id_b: int):
         out["note_stale"] = (f"the first-gameweek figures are for GW{out['a']['first_gw']}, the gameweek these predictions "
                              f"were built for, which has been played; the next deadline is GW{nxt} -- for this week use "
                              f"the per-gameweek comparison or the single prediction with gw={nxt} (as the model saw it before GW{out['a']['first_gw']})")
-    return _with_meanings(_with_started_note(out, out["a"]["first_gw"]))
+    out = _with_meanings(_with_started_note(out, out["a"]["first_gw"]))
+    return _with_comparison(out, [int(player_id_a), int(player_id_b)], horizon, user_id) if normal else out
 
 
 
@@ -1553,7 +1572,8 @@ def get_best_squad(budget: float = None):
     if not isinstance(out, dict) or "error" in out:
         return out
     ids = [r["player_id"] for k in PICK_ROW_KEYS for r in (out.get(k) or []) if isinstance(r, dict) and r.get("player_id") is not None]
-    return _with_club_counts(_with_pick_basis(out, out.get("gw"), _fixture_counts(out.get("gw"), ids)))   # Friday gate R2; R3
+    out = _with_club_counts(_with_pick_basis(out, out.get("gw"), _fixture_counts(out.get("gw"), ids)))   # Friday gate R2; R3
+    return _with_squad_answer(out)                       # Prompt R3b: the fifteen written by code (a normal turn's reply)
 
 
 # -------------------------------------------------------------- my squad
@@ -2261,7 +2281,7 @@ def _load_pool(gw=None):
 # ------------------------------------------------------- the six-week MIP
 @one_connection_per_call
 def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player_ids: list = None,
-                      user_id: int = None, source: str = "chat"):
+                      user_id: int = None, source: str = "chat", max_transfers: int = None):
     """The six-week transfer plan for the user's OWN squad (transfer_mip via
     simulator.decide_gameweek_mip -- the production decision path; H=6,
     decay 0.45, HIT_COST 4; TWO real solves since 2026-09-18 -- the move plan and
@@ -2284,7 +2304,11 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     source: 'chat' (the agent; its tool schema has no such argument, so a
     user request is always 'chat') or 'proof' for a maintainer's verification
     run -- proof rows are marked so the track record never starts with
-    synthetic entries."""
+    synthetic entries.
+
+    max_transfers (Prompt R3b, 2026-11-16): the most transfers the WHOLE plan may make, across every gameweek of it --
+    the number a user names ("with two transfers"). It binds the move plan and the hold baseline alike; None (no number
+    named) is the plan this tool has always made."""
     _d = _draft_turn()                                   # Prompt W11c R1: in the user's draft chat, the best FREE swaps
     if _d is not None:
         import draft_tools
@@ -2292,6 +2316,9 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     user_id = DEFAULT_USER_ID() if user_id is None else user_id
     if source not in ("chat", "proof", "deadline_run"):
         return {"error": f"source must be chat | proof | deadline_run, got {source!r}"}
+    limit, bad = _plan_transfer_limit(max_transfers)
+    if bad:
+        return bad
     import db_write
     import simulator as sim
     from squad_state import sell_price
@@ -2368,10 +2395,13 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         team, transfers, step, eff_h, plan = sim.decide_gameweek_mip(
             df, current, state, pool0, prices_live, all_gws, mode="balanced", horizon=horizon,
             decay=DEFAULT_DECAY, cutoff=cutoff, locked_elements=lock or None,
-            banned_elements=ban or None, return_plan=True, hold_compare=True)
+            banned_elements=ban or None, return_plan=True, hold_compare=True, max_transfers=limit)
     except (RuntimeError, ValueError) as e:
         return {"error": f"the transfer MIP could not produce a plan: {e} (locks/bans infeasible or "
-                         "unaffordable?)", "locked": lock, "banned": ban}
+                         "unaffordable?)"
+                         + ("" if limit is None else f"; a limit of {limit} transfer{'' if limit == 1 else 's'} was set, and the "
+                                                     "players to keep in or leave out may need more than that"),
+                "locked": lock, "banned": ban, **({} if limit is None else {"max_transfers": limit})}
     solve_s = round(time.time() - t1, 1)
 
     # ---- apply through the SAME path set_my_squad uses (dry run, nothing written)
@@ -2483,7 +2513,8 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         bank_before=change["bank_before"], bank_after=change["bank_after"],
         captain=req["captain_id"], vice=req["vice_id"], predicted_xi_points=float(xi_pts),
         hold_applied=hold, solve_seconds=solve_s, git_sha=db_write.git_sha(),
-        note=("stale by one gameweek: predictions built for GW%d, plan from GW%d" % (cutoff, current)) if current != cutoff else "fresh predictions")
+        note=(("stale by one gameweek: predictions built for GW%d, plan from GW%d" % (cutoff, current)) if current != cutoff else "fresh predictions")
+        + ("" if limit is None else f"; at most {limit} transfer{'' if limit == 1 else 's'} across the whole plan (the user's limit)"))
     rows = [dict(horizon_step=0, gw=current, element_out=t["out"], name_out=t["out_name"],
                  element_in=t["in"], name_in=t["in_name"], sold_for=t["sold_for"],
                  bought_for=t["bought_for"], executable=True) for t in change["transfers"]]
@@ -2604,6 +2635,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "run_id": header["run_id"], "model_version": (_version(run, PRODUCTION_CONFIG) if run else None),
         "squad_version_id": record["version_id"],
         "horizon": horizon, "effective_horizon": int(eff_h), "decay": float(DEFAULT_DECAY),
+        **({} if limit is None else {"max_transfers": limit}),
         "locked": [names.get(e, str(e)) for e in lock], "banned": [names.get(e, str(e)) for e in ban],
         "solve_seconds": solve_s, "total_seconds": round(time.time() - t0, 1),
         "objective": round(float(step["objective"]), 3), "hold_applied": hold,
@@ -2810,7 +2842,12 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
     # suspended or doubtful is built in, and the result says so first; u / n were refused above.
     forced = list(dict.fromkeys([int(x) for x in (start_player_ids or [])] + [int(x) for x in (lock_player_ids or [])]))
     out = _with_pick_basis(out, cutoff, _fixture_counts(cutoff, [r["player_id"] for r in out["squad"]]))
-    return _with_club_counts(_with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), cutoff))))
+    out = _with_club_counts(_with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), cutoff))))
+    if _draft_turn() is not None:
+        return out
+    # Prompt R3b: the fifteen written by code -- the solver's own roles and bench order, the solve's unrounded points
+    return _with_squad_answer(out, roles=squad_store.roles_from_team(team),
+                              points={int(r["element"]): float(r["e_points"]) for _, r in team.iterrows()})
 
 
 def _check_squad_rules(lock, pool):
@@ -3745,8 +3782,15 @@ def _team_gw_rows(run_id, skel):
     return out, step_rows
 
 
-def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
+def get_fixtures(team: str = None, gw: int = None, horizon: int = None, teams: list = None, my_players: bool = False,
+                 user_id: int = None):
     """Fixtures with difficulty from OUR model, as TWO numbers -- not FPL's FDR.
+
+    Prompt R3b (2026-11-16): on a NORMAL turn a request for every club (no team), for a list of more than five (`teams`) or
+    for the clubs of the user's own fifteen (`my_players`) is answered with a grid WRITTEN BY CODE, returned as `direct_reply`
+    -- the turn's reply (_with_fixture_grid). One club, and a list of five or fewer, are results for the model, as before.
+    A draft chat's turn has neither argument and gets the result it always had. `horizon` not given: five fixtures, as
+    always -- except for the user's own players, whose answer is their NEXT fixture ("who do my players face").
 
     Difficulty is never one composite: attacking difficulty (how easy is it to score here) and
     defensive difficulty (how easy is a clean sheet) are reported separately, because they
@@ -3779,6 +3823,19 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
         resolved, err = _resolve_team(team, known)
         if err:
             return {"error": err, "known_teams": known}
+    normal = _draft_turn() is None
+    wanted, mine_players = None, None                    # Prompt R3b: the clubs of a several-club request (None: every club)
+    if normal and resolved is None and my_players:
+        mine_players, bad = _my_clubs(DEFAULT_USER_ID() if user_id is None else user_id)
+        if bad:
+            return bad
+        wanted = sorted(c for c in mine_players if c in known)
+        if horizon is None and gw is None:
+            horizon = 1                                  # "who do my players face": the next fixture, unless a span is asked for
+    elif normal and resolved is None and teams:
+        wanted, bad = _fixture_clubs(teams, known)
+        if bad:
+            return bad
     rows, step_rows = _team_gw_rows(run["run_id"], skel)
     if not rows:
         return {"error": f"build {run['run_id']} has no per-team fixture rows to price "
@@ -3788,11 +3845,14 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
     out = _run_meta(run)
     import now_context as nc                                        # the ONE clock (time batch, 2026-10-26): the block, the
     now = nc.clock()                                                # Now line and the fixture statuses read the same instant
-    out.update(ft.build(rows, cal, n_names, team=resolved, gw=gw, horizon=horizon,
+    out.update(ft.build(rows, cal, n_names, team=resolved, gw=gw, horizon=5 if horizon is None else horizon,
                         step_rows_by_gw=step_rows, skeleton_age_hours=age_h, now=now, results=_fixture_results()))
     listed = out.get("listed_gameweeks") or []
     note_gw = int(gw) if gw is not None else (listed[0] if listed else run.get("gw"))
-    return _with_fixture_words(_with_meanings(_with_started_note(out, note_gw)))
+    out = _with_fixture_words(_with_meanings(_with_started_note(out, note_gw)))
+    if normal and resolved is None:                      # Prompt R3b: every club, or several: the grid written by code
+        return _with_fixture_grid(out, cal, wanted, mine_players, now, run, mine=mine_players is not None)
+    return out
 
 
 def _fixture_results():
@@ -5198,3 +5258,224 @@ def _with_input_meanings(out):
         return out
     out["input_meanings"] = dict(INPUT_MEANINGS)
     return out
+
+
+# ---------------------------------------------------------------- Prompt R3b (2026-11-16): three more answers written by code
+# R3's gate left three number-heavy answers to the model, and every slip of its Set B sat in two of them: the best squad (its
+# own XI sum, a spend label on the wrong header, a (C) on the vice-captain) and the comparison ("the gap reverses", "80p
+# cheaper"); the one cut-off was a 20-club fixture table. On a NORMAL turn each is now written by answers.py from the facts
+# read here and returned as `direct_reply` (agent.DIRECT_TOOLS). A draft chat's turn never reaches any of this.
+MAX_PLAN_TRANSFERS = 15
+
+
+def _plan_transfer_limit(max_transfers):
+    """(the limit as an int or None, error dict) for propose_transfers' max_transfers."""
+    if max_transfers is None:
+        return None, None
+    try:
+        n = int(max_transfers)
+        whole = float(max_transfers) == n
+    except (TypeError, ValueError):
+        n, whole = 0, False
+    if isinstance(max_transfers, bool) or not whole or not (0 <= n <= MAX_PLAN_TRANSFERS):
+        return None, {"error": f"max_transfers must be a whole number from 0 to {MAX_PLAN_TRANSFERS}, got {max_transfers!r}"}
+    return n, None
+
+
+def _with_squad_answer(out, roles=None, points=None):
+    """A from-scratch squad build's result with `direct_reply` -- the fifteen written by code (answers.best_squad) from the
+    build's own rows: roles and bench order are the solver's (`roles` = {element: (role, bench_order)} when the rows do not
+    carry a bench order), each player's points are the solve's own (`points` = {element: unrounded} when the rows are
+    rounded), prices are the ones the solve used. An error, a past squad, a draft chat's turn, or a failure here: the result
+    as it is, for the model."""
+    if (_draft_turn() is not None or not isinstance(out, dict) or "error" in out or "direct_reply" in out or out.get("past")
+            or out.get("gw") is None):
+        return out
+    try:
+        import answers
+        rows_in = list(out.get("squad") or (list(out.get("xi") or []) + list(out.get("bench_in_order") or [])))
+        if len(rows_in) != 15:
+            return out
+        web = _web_names()
+        rows = []
+        for r in rows_in:
+            e = int(r["player_id"])
+            role, bo = (roles or {}).get(e, (r.get("role"), r.get("bench_order")))
+            rows.append({"element": e, "name": web.get(e) or r["name"], "position": r["position"], "team": r.get("team"),
+                         "price_tenths": int(round(float(r["price"]) * 10)),
+                         "points": (points or {}).get(e, r.get("e_points")), "role": role, "bench_order": bo})
+        ids = [r["element"] for r in rows]
+        shown = {r["element"]: r["name"] for r in rows}
+        live = {int(r["element"]): r for r in _q("SELECT element, name, price_tenths FROM players_live WHERE element = ANY(%s)", (ids,))}
+        cons = out.get("constraints") or {}
+
+        def names(key):
+            got = [int(x) for x in (cons.get(key) or [])]
+            miss = [e for e in got if e not in shown]
+            more = {int(r["element"]): r["name"] for r in _q("SELECT element, name FROM players_live WHERE element = ANY(%s)", (miss,))} if miss else {}
+            return [shown.get(e) or web.get(e) or more.get(e) or str(e) for e in got]
+
+        run = _latest_run()
+        built, next_update, market_gw = _answer_frame(run) if run else (None, None, None)
+        budget = cons.get("budget")
+        notes = [str(out[k]) for k in ("note", "note_gw_started") if out.get(k)]
+        ans = answers.best_squad(
+            rows, int(out["gw"]), budget_tenths=1000 if budget is None else int(round(float(budget) * 10)),
+            cal=_answer_calendar(), shorts=_club_short_names(), flags=_flags_for(ids), built=built, next_update=next_update,
+            market_gw=market_gw, has_squad=_has_saved_squad(DEFAULT_USER_ID()), planning_note=" ".join(notes) or None,
+            warning=out.get("forced_availability_warning"), forced=names("locked"), must_start=names("start"),
+            banned=names("banned"),
+            prices_now={e: int(r["price_tenths"]) for e, r in live.items() if r.get("price_tenths") is not None})
+    except Exception as e:                              # noqa: BLE001 -- the build itself stands; only the code-built text is missing
+        return {**out, "direct_reply_error": f"{type(e).__name__}: {str(e)[:200]}"}
+    return {**out, "direct_reply": ans["direct_reply"], "xi_points": ans["xi_points"], "spend": ans["spend"],
+            "note_reply": "this text has been shown to the user as the reply; the rows carry the player ids for a follow-up"}
+
+
+def _compare_ids(player_id_a, player_id_b, player_ids):
+    """(the distinct player ids to compare, in the order named; error dict). `player_ids` wins when given."""
+    import answers
+    raw = list(player_ids) if isinstance(player_ids, (list, tuple)) and player_ids else [player_id_a, player_id_b]
+    ids = []
+    for x in raw:
+        e = _element_id(x)
+        if e is None:
+            return None, {"error": BAD_ELEMENT_ID if x is not None else "two players are needed for a comparison: pass both player ids"}
+        if e not in ids:
+            ids.append(e)
+    if len(ids) < 2:
+        return None, {"error": "two different players are needed for a comparison"}
+    if len(ids) > answers.MAX_COMPARE:
+        return None, {"error": f"at most {answers.MAX_COMPARE} players can be compared at once, got {len(ids)}; for a longer list rank them instead"}
+    return ids, None
+
+
+def _with_comparison(out, ids, horizon, user_id):
+    """A comparison's result with `direct_reply` -- the players gameweek by gameweek over the span, written by code
+    (answers.compare) from the build's prediction rows. `out` = the two-player result as it has always been (None for three
+    or more: there the code-built table is the whole result). The span: `horizon` gameweeks from the next deadline's, or,
+    with none given, every gameweek the build covers from it. A player the build has no rows for, or a failure here: the
+    result as it is (two players) or an error (more), for the model."""
+    base = dict(out) if isinstance(out, dict) else None
+    try:
+        import answers
+        run = _latest_run()
+        if run is None:
+            return base if base is not None else {"error": "no successful pipeline run in the database yet"}
+        if horizon is None:
+            first = _current_gw()
+            lo, hi = _run_horizon(run)
+            if lo is None or hi is None or int(hi) < first:
+                raise RuntimeError(f"the predictions have no entry for the next deadline's GW{first} yet")
+            gws, clip = list(range(max(first, int(lo)), int(hi) + 1))[:answers.MAX_HORIZON], None
+        else:
+            gws, clip, err = _answer_span(run, horizon)
+            if err:
+                return err
+        pool = _answer_pool(run)
+        missing = [e for e in ids if e not in pool]
+        if missing:
+            if base is not None:
+                return base
+            return {"error": f"this update has no prediction for player id(s) {missing}; they cannot be compared", "player_ids": ids}
+        built, next_update, market_gw = _answer_frame(run)
+        user_id = DEFAULT_USER_ID() if user_id is None else user_id
+        ans = answers.compare([pool[e] for e in ids], gws, cal=_answer_calendar(), shorts=_club_short_names(), flags=_flags_for(ids),
+                              built=built, next_update=next_update, market_gw=market_gw, clip=clip,
+                              has_squad=_has_saved_squad(user_id))
+    except Exception as e:                              # noqa: BLE001 -- the comparison itself stands; only the code-built text is missing
+        if base is not None:
+            return {**base, "direct_reply_error": f"{type(e).__name__}: {str(e)[:200]}"}
+        return {"error": f"the comparison could not be built: {type(e).__name__}: {str(e)[:200]}"}
+    return {**(base or {}), "direct_reply": ans["direct_reply"],
+            "comparison": {"gameweeks": ans["gameweeks"], "players": ans["players"], "ahead_player_id": ans["ahead"]},
+            "run_id": run["run_id"],
+            "note_reply": "this text has been shown to the user as the reply; it covers comparison.gameweeks, counted from the "
+                          "next deadline's gameweek"}
+
+
+def _fixture_clubs(teams, known):
+    """(the clubs a several-club fixture request names, in the calendar's spelling and A-Z; error dict)."""
+    if not isinstance(teams, (list, tuple)) or not teams:
+        return None, {"error": "teams must be a list of club names"}
+    out = []
+    for t in teams:
+        resolved, err = _resolve_team(t, known)
+        if err or resolved is None:
+            return None, {"error": err or f"{t!r} is not a club name", "known_teams": known}
+        if resolved not in out:
+            out.append(resolved)
+    return sorted(out), None
+
+
+def _my_clubs(user_id):
+    """({club: "Raya (GK), Saliba (DEF)"} for the user's saved fifteen, None) -- or (None, the no-squad result / an error)."""
+    try:
+        record = _read_active(_squad_owner(user_id))
+    except squad_store.NoSquadError:
+        return None, _no_squad(user_id)
+    except squad_store.SquadStateError as e:
+        return None, {"error": str(e)}
+    ids = [int(p["element"]) for p in record["squad_json"]["players"]]
+    live = {int(r["element"]): r for r in _q("SELECT element, name, position, team FROM players_live WHERE element = ANY(%s)", (ids,))}
+    web = _web_names()
+    order = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
+    by = {}
+    for p in record["squad_json"]["players"]:
+        e = int(p["element"])
+        r = live.get(e) or {}
+        club = r.get("team") or p.get("team")
+        if not club:
+            continue
+        by.setdefault(str(club), []).append((order.get(r.get("position") or p.get("position"), 9), web.get(e) or r.get("name") or p.get("name") or str(e),
+                                             r.get("position") or p.get("position") or "?"))
+    return {c: ", ".join(f"{n} ({pos})" for _o, n, pos in sorted(v)) for c, v in by.items()}, None
+
+
+def _with_fixture_grid(out, cal, wanted, players, now, run, mine=False):
+    """The all-clubs fixture result as a code-built grid (answers.fixture_grid): one row a club, one column a gameweek, each
+    cell the opponent, home or away, and the fixture's two ratings in words. `wanted` = the clubs asked for (None: every
+    club); five clubs or fewer (and not the user's own players) stay a result for the model, as before. `out` is the tool's
+    own compact result, so the grid's facts are exactly the rows the model used to get."""
+    if not isinstance(out, dict) or "error" in out or not out.get("compact"):
+        return out
+    try:
+        import answers
+        import fixtures_tool as ft
+        import now_context as nc
+        clubs = sorted({k[0] for k in cal}) if wanted is None else sorted(wanted)
+        rows = [r for r in out.get("fixtures") or [] if isinstance(r, dict) and r.get("team") in set(clubs)]
+        if wanted is not None and not mine and len(clubs) < answers.GRID_MIN_CLUBS:
+            listed = sorted({int(r["gw"]) for r in rows if r.get("gw") is not None})
+            return {**out, "fixtures": rows, "teams_requested": clubs, "gameweeks": listed, "listed_gameweeks": listed}
+        gws = sorted({int(r["gw"]) for r in rows if r.get("gw") is not None})
+        cells = {}
+        for r in rows:
+            key = (r["team"], int(r["gw"]))
+            if r.get("blank") or r.get("opponent") is None:
+                cells.setdefault(key, "blank")
+                continue
+            if not isinstance(cells.get(key), list):
+                cells[key] = []
+            cells[key].append({"opponent": r["opponent"], "home": bool(r["home"]), "attack": r.get("attack_score"),
+                               "defence": r.get("defence_score"), "status": r.get("status"), "kickoff_day": r.get("kickoff_day")})
+        for c in clubs:
+            for g in gws:
+                if (c, g) in cells:
+                    continue
+                fx = cal.get((c, g)) or []
+                if not fx:
+                    cells[(c, g)] = "blank"
+                elif all(ft.fixture_status(f.get("kickoff"), now) in ("played", "in progress") for f in fx):
+                    cells[(c, g)] = "played"
+                else:
+                    cells[(c, g)] = None
+        built, next_update, market_gw = _answer_frame(run)
+        text = answers.fixture_grid(clubs, gws, cells, shorts=_club_short_names(), players=players, deadline=nc.countdown_line(now),
+                                    built=built, next_update=next_update, market_gw=market_gw, all_clubs=wanted is None, mine=mine)
+    except Exception as e:                              # noqa: BLE001 -- the fixtures themselves stand; only the code-built text is missing
+        return {**out, "direct_reply_error": f"{type(e).__name__}: {str(e)[:200]}"}
+    # the tool's own rows still travel (a follow-up reads them from the history), cut to the clubs asked for
+    return {**out, "fixtures": rows, "teams_requested": clubs, "gameweeks": gws, "listed_gameweeks": gws, "clubs": clubs,
+            "direct_reply": text,
+            "note_reply": "this text has been shown to the user as the reply; for one club's fixtures in detail, ask for that club alone"}

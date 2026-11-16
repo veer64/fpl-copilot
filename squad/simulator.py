@@ -398,7 +398,8 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
                         mode="balanced", horizon=DEFAULT_HORIZON,
                         decay=DEFAULT_DECAY, wildcard=False, hit_bar=None,
                         bench_boost_gw=None, cutoff=None, locked_elements=None,
-                        banned_elements=None, return_plan=False, hold_compare=False):
+                        banned_elements=None, return_plan=False, hold_compare=False,
+                        max_transfers=None):
     """Plan `horizon` gameweeks ahead with the transfer MIP, return this week's move.
 
     Rolling horizon: the solver produces a plan for GW..GW+horizon-1, but only the
@@ -433,6 +434,11 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
     None. The result rides on plan[0] as hold_objective / hold_margin (move minus
     hold) / hold_plan / hold_team / hold_solved / hold_status; the tuple shape is
     unchanged. Off by default, so the backtest is bit-identical.
+
+    max_transfers (2026-11-16, Prompt R3b; default None) is the most transfers the
+    whole plan may make, passed to every solve here -- the move plan and both hold
+    solves -- so the hold baseline is held to the same limit. None emits no
+    constraint: the backtest is bit-identical.
     """
     # Every gameweek in the plan is read from ONE cutoff. That is the whole
     # point: gameweek k+3 as seen from k, not gameweek k+3 as seen from k+3.
@@ -484,6 +490,7 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
         bench_boost_step=bb_step,
         locked_elements=locked_elements,
         banned_elements=banned_elements,
+        max_transfers=max_transfers,
     )
     if plan is None:
         raise RuntimeError(f"GW{gw}: transfer MIP returned {status}")
@@ -496,7 +503,7 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
             pools, current_squad=state.elements, purchase_prices=purchase_prices,
             bank=state.bank, free_transfers=state.free_transfers, mode=mode, decay=decay,
             wildcard_step=None, hit_bar=hit_bar, bench_boost_step=bb_step, force_hold=True,
-            locked_elements=locked_elements, banned_elements=banned_elements)
+            locked_elements=locked_elements, banned_elements=banned_elements, max_transfers=max_transfers)
         if plan_h is not None:
             margin = float(step["objective"]) - float(plan_h[0]["objective"])
             if margin < HOLD_PREFERENCE_EPS:
@@ -537,7 +544,7 @@ def decide_gameweek_mip(season_df, gw, state, pool, prices, all_gws,
                 pools, current_squad=state.elements, purchase_prices=purchase_prices,
                 bank=state.bank, free_transfers=state.free_transfers, mode=mode, decay=decay,
                 wildcard_step=None, hit_bar=hit_bar, bench_boost_step=bb_step, force_hold=True,
-                locked_elements=locked_elements, banned_elements=banned_elements)
+                locked_elements=locked_elements, banned_elements=banned_elements, max_transfers=max_transfers)
             step["hold_seconds"] = round(time.time() - _t_hold, 2)
             step["hold_status"] = status_c
             step["hold_solved"] = True

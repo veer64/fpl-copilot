@@ -45,14 +45,14 @@ tools_schema = [
     },
     {
         "name": "compare_players",
-        "description": "Compare two players under the production model over the latest run's six-gameweek horizon: the horizon sum (the verdict's basis) and the figures for the run's FIRST gameweek (first_gw -- between deadlines that is the gameweek just played, not the next one; note_stale says so). This is the route for comparing two players over the coming weeks ('who's better over the next six weeks'): each side carries the player's FPL status word and chance of playing with the gameweek it is for, so the comparison needs no player card. For 'X or Y this week' prefer compare_predictions, which defaults to the next deadline's gameweek and names the terms behind the gap. Whatever you quote, name its gameweek. available=false means the player cannot play for his club; lead with availability_note.",
+        "description": "Compare two or more players under the production model, written by code: a table with each player's predicted points and fixture gameweek by gameweek, each total, who is ahead and by how much, how the gap moves across the span, the price difference in £m, each player's chance of starting and FPL's flags. Its text is shown to the user as the reply, so write nothing of your own. Pass every player's id in player_ids (two to six, from resolve_player) and, when the user names a number of gameweeks, horizon ('over the next 3 gameweeks' is 3); with no horizon it covers every gameweek the latest update covers from the next deadline's -- the six-gameweek horizon. This is the route for comparing two players over the coming weeks ('who's better over the next six weeks', 'how do X and Y compare'): it carries each player's FPL flag, so the comparison needs no player card. For 'X or Y this week' prefer compare_predictions, which defaults to the next deadline's gameweek and names the terms behind the gap. A result that is an error or carries no code-built text is yours to answer from: whatever you quote, name its gameweek; available=false means the player cannot play for his club; lead with availability_note.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "player_id_a": {"type": "integer"},
-                "player_id_b": {"type": "integer"}
+                "player_ids": {"type": "array", "items": {"type": "integer"}, "description": "The players' FPL element ids, two to six, in the order the user named them"},
+                "horizon": {"type": "integer", "description": "Optional: how many gameweeks to compare over, counted from the next deadline's gameweek, 1 to 8 ('the next 3 gameweeks' is 3). Omit for every gameweek the latest update covers"}
             },
-            "required": ["player_id_a", "player_id_b"]
+            "required": ["player_ids"]
         }
     },
     {
@@ -69,7 +69,7 @@ tools_schema = [
     },
     {
         "name": "best_squad_from_scratch",
-        "description": "The best brand-new 15 from scratch with a full £100m, ignoring the user's squad. For the user's own squad use propose_transfers or get_my_xi. No gw argument: this is the NEXT DEADLINE's squad only. For 'the best squad for gameweek N' use build_squad_from_scratch with gw=N (or get_picks with gw=N): any gameweek inside the run's range can be solved, so never say a gameweek is out of range unless a tool returned error_kind too_far_ahead. Never call this when the user's own squad is the subject ('given what I already own', 'improve my team', 'the best I could get from here'), not even as a benchmark beside propose_transfers. At the default full budget this is the stored production solve (instant); a custom budget runs the real optimiser (takes seconds).",
+        "description": "The best brand-new 15 from scratch with a full £100m, ignoring the user's squad. For the user's own squad use propose_transfers or get_my_xi. No gw argument: this is the NEXT DEADLINE's squad only. For 'the best squad for gameweek N' use build_squad_from_scratch with gw=N (or get_picks with gw=N): any gameweek inside the run's range can be solved, so never say a gameweek is out of range unless a tool returned error_kind too_far_ahead. Never call this when the user's own squad is the subject ('given what I already own', 'improve my team', 'the best I could get from here'), not even as a benchmark beside propose_transfers. At the default full budget this is the stored production solve (instant); a custom budget runs the real optimiser (takes seconds). Its answer is written by code -- the fifteen by position with each player's price, predicted points, fixture and FPL flag, the captain, the vice-captain and the bench in order, the starting XI's total both ways, and the spend for the XI, the fifteen and the bank -- and that text is shown to the user as the reply, so write nothing of your own. A refusal or an error carries no such text: report it yourself.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -80,7 +80,7 @@ tools_schema = [
     },
     {
         "name": "build_squad_from_scratch",
-        "description": "Builds a brand-new 15 from scratch with a full £100m, ignoring the user's squad. Also the tool for 'the best squad for gameweek N' (pass gw=N; constraints are optional) and for any from-scratch request with a constraint -- 'ban player X from the squad', 'force X in', 'without Y' -- even when an id looks wrong: pass it and let the tool refuse, it names the problem. Constraints: force players in, ban players, or change the budget; a real MIP solve that takes seconds and returns the fifteen, the XI, the captain and the vice. For the user's own squad ('my team', 'my line-up', 'given what I own'), use propose_transfers or get_my_xi instead -- never this, and never as a benchmark beside them. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and only a player FPL lists as unavailable or not in the squad (status u or n, `available: false` on his card: he has left the club) cannot be locked (ban him instead); an injured -- even at 0% -- suspended or doubtful player the user forces in IS built in, and the result then opens with forced_availability_warning -- quote it first, then the squad, and never say this build will refuse a player without calling it. start_player_ids must START: when the user forces players in they expect them in the line-up, so pass them here (not only as locks) unless the user says squad only; they are locked into the squad as well, and the same refusals apply.",
+        "description": "Builds a brand-new 15 from scratch with a full £100m, ignoring the user's squad. Also the tool for 'the best squad for gameweek N' (pass gw=N; constraints are optional) and for any from-scratch request with a constraint -- 'ban player X from the squad', 'force X in', 'without Y' -- even when an id looks wrong: pass it and let the tool refuse, it names the problem. Constraints: force players in, ban players, or change the budget; a real MIP solve that takes seconds and returns the fifteen, the XI, the captain and the vice. For the user's own squad ('my team', 'my line-up', 'given what I own'), use propose_transfers or get_my_xi instead -- never this, and never as a benchmark beside them. Optional gw solves a chosen gameweek of the run's horizon instead of the next deadline's; that answer is a planning view and carries a note saying so. An id that matches no player is refused, and only a player FPL lists as unavailable or not in the squad (status u or n, `available: false` on his card: he has left the club) cannot be locked (ban him instead); an injured -- even at 0% -- suspended or doubtful player the user forces in IS built in, and the result then opens with forced_availability_warning -- quote it first, then the squad, and never say this build will refuse a player without calling it. start_player_ids must START: when the user forces players in they expect them in the line-up, so pass them here (not only as locks) unless the user says squad only; they are locked into the squad as well, and the same refusals apply. Its answer is written by code -- the fifteen by position with each player's price, predicted points, fixture and FPL flag, the captain, the vice-captain and the bench in order, the starting XI's total both ways, and the spend for the XI, the fifteen and the bank -- and that text is shown to the user as the reply, so write nothing of your own. A refusal or an error carries no such text: report it yourself.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -158,13 +158,14 @@ tools_schema = [
     },
     {
         "name": "propose_transfers",
-        "description": "The transfer plan for the user's OWN squad, written by code: the moves for the next deadline (what each player sells for and costs, free transfers used and left, hits, the bank after, the line-up's total after the moves), the moves pencilled in for the following gameweeks, each move's predicted gain, and the comparison with making no transfer this gameweek. Its text is shown to the user as the reply, so write nothing of your own. Use it for 'what transfers should I make', 'the best I can get from what I own', 'plan my next 3 gameweeks'. It takes twenty to sixty seconds and occasionally longer: call it in the same turn -- never ask the user's permission to run it. 'Should I roll my free transfer?' is answered by calling this tool. Optional lock_player_ids (must be in the squad: kept if owned, bought if not) and ban_player_ids (must not be: sold if owned, never bought) answer 'best plan given I am keeping X and refusing Y'. Every plan is checked through the same legality and money rules as set_my_squad and saved with a proposal_id. It is a PROPOSAL, nothing is written: when the user then asks to make the moves, pass that result's apply_with to set_my_squad (confirm=false to preview). If the response carries bug=true or an error there is no code-built text: say so plainly and do not present the proposal as advice. An id that matches no player is refused, and only a player FPL lists as unavailable or not in the squad (status u or n, `available: false` on his card: he has left the club) cannot be locked (ban him instead); an injured, suspended or doubtful player the user names IS locked in, and the plan then opens with the forced_availability_warning.",
+        "description": "The transfer plan for the user's OWN squad, written by code: the moves for the next deadline (what each player sells for and costs, free transfers used and left, hits, the bank after, the line-up's total after the moves), the moves pencilled in for the following gameweeks, each move's predicted gain, and the comparison with making no transfer this gameweek. Its text is shown to the user as the reply, so write nothing of your own. Use it for 'what transfers should I make', 'the best I can get from what I own', 'plan my next 3 gameweeks'. It takes twenty to sixty seconds and occasionally longer: call it in the same turn -- never ask the user's permission to run it. 'Should I roll my free transfer?' is answered by calling this tool. Optional max_transfers is the most transfers the whole plan may make, across all its gameweeks: pass it whenever the user names a number of transfers ('with two transfers', 'using one transfer', 'no more than three moves') and omit it otherwise; the plan then states the limit in its first lines. Optional lock_player_ids (must be in the squad: kept if owned, bought if not) and ban_player_ids (must not be: sold if owned, never bought) answer 'best plan given I am keeping X and refusing Y'. Every plan is checked through the same legality and money rules as set_my_squad and saved with a proposal_id. It is a PROPOSAL, nothing is written: when the user then asks to make the moves, pass that result's apply_with to set_my_squad (confirm=false to preview). If the response carries bug=true or an error there is no code-built text: say so plainly and do not present the proposal as advice. An id that matches no player is refused, and only a player FPL lists as unavailable or not in the squad (status u or n, `available: false` on his card: he has left the club) cannot be locked (ban him instead); an injured, suspended or doubtful player the user names IS locked in, and the plan then opens with the forced_availability_warning.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "horizon": {"type": "integer", "description": "Gameweeks to plan over, counted from the next deadline's gameweek: 1 to 6 (default 6). 'The next 3 gameweeks' is 3"},
                 "lock_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that must be in the squad"},
-                "ban_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that must not be in the squad"}
+                "ban_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that must not be in the squad"},
+                "max_transfers": {"type": "integer", "description": "Optional: the most transfers the whole plan may make, across all its gameweeks -- the number the user names ('with two transfers' is 2). Omit when the user names none"}
             },
             "required": []
         }
@@ -210,11 +211,13 @@ tools_schema = [
             "score and a defence score from 1 (hardest) to 10 (easiest), ranked among every fixture "
             "the run has priced -- quote them as two scores, never one. Use for 'who does X play', 'how are "
             "Arsenal's next five fixtures', 'is this a good run'. Each fixture says whether it "
-            "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek; with no team the answer is compact rows (team, gw, opponent, home, attacking, defensive) and the two-numbers rule is stated once at the top. Fixtures beyond the gameweeks the model has rated are listed with a rating line 'scheduled but not rated yet' and their gameweek and date -- never call them not scheduled; for 'the next N gameweeks' pass horizon=N (up to 10). With a team, season_summary lists that club's known double and blank gameweeks across the whole loaded calendar (for triple captain or bench boost questions); an empty list means none are known yet."),
+            "is market-priced or pure Dixon-Coles, and flags a runaway strength. A gameweek the calendar does not cover is an error with error_kind out_of_range naming the range it does cover, which is not the same thing as blank_gameweek. For EVERY club (no team), for a list of more than five clubs (teams) or for the clubs of the user's own players (my_players=true -- 'who do my players face') the answer is a table written by code: one row a club, one column a gameweek, each cell the opponent, home or away, and the fixture's two ratings in words, with each club's ratings added up over the span and the next deadline; its text is shown to the user as the reply, so write nothing of your own. Never call this once per club for more than five clubs -- ask for them in ONE call. A list of five clubs or fewer comes back as compact rows (team, gw, opponent, home, attacking, defensive) for you to answer from, the two-numbers rule stated once at the top. Fixtures beyond the gameweeks the model has rated are listed with a rating line 'scheduled but not rated yet' and their gameweek and date -- never call them not scheduled; for 'the next N gameweeks' pass horizon=N (up to 10). With a team, season_summary lists that club's known double and blank gameweeks across the whole loaded calendar (for triple captain or bench boost questions); an empty list means none are known yet."),
         "input_schema": {
             "type": "object",
             "properties": {
                 "team": {"type": "string", "description": "Club name; omit for all 20 clubs"},
+                "teams": {"type": "array", "items": {"type": "string"}, "description": "Several club names in ONE call (instead of team): more than five gives the code-built table"},
+                "my_players": {"type": "boolean", "description": "true: the clubs of the user's own fifteen, with their players named, as the code-built table ('who do my players face'). It covers their next fixture unless gw or horizon is given. Needs a saved squad"},
                 "gw": {"type": "integer", "description": "One gameweek; omit to use horizon"},
                 "horizon": {"type": "integer",
                             "description": "How many fixtures still to come to list, counted from the clock (default 5): a kicked-off match is not among them"}
@@ -505,7 +508,11 @@ DRAFT_TOOLS = [
 # Prompt R3: on a normal turn four more answers are written by code -- the ranking, the whole-squad review, the transfer plan
 # and a squad's price moves. A tool's result ends the turn only when it carries "direct_reply" (an error, a bug, General mode's
 # market movers and every draft-chat result do not), so each of these still answers the model when it has no text.
-DIRECT_TOOLS = frozenset({"explain_my_draft", "rank_players", "review_my_squad", "propose_transfers", "get_price_movements"})
+# Prompt R3b (2026-11-16): three more -- the best squad from scratch (both build tools), the comparison of players, and the
+# fixture grid for every club or more than five. One club's fixtures, five clubs or fewer, a refusal and every draft-chat
+# result carry no text, so they still go to the model.
+DIRECT_TOOLS = frozenset({"explain_my_draft", "rank_players", "review_my_squad", "propose_transfers", "get_price_movements",
+                          "best_squad_from_scratch", "build_squad_from_scratch", "compare_players", "get_fixtures"})
 
 
 def _draft_turn_now():
@@ -690,6 +697,12 @@ CUT_ROUND_NOTE = "Your last request was cut off — ask for fewer players at onc
 CUT_ROUND_NOTE_DRAFT = "Your last request was cut off — ask for fewer players at once"
 TOOL_NOT_RUN = "Not run."
 MAX_PREDICTION_CALLS = 10
+# Prompt R3b (2026-11-16): one response asking for more than MAX_FIXTURE_CLUBS clubs' fixtures one call at a time (R3's eval:
+# twelve single-club calls for "who do my players face", then a 1,700-token table written by hand): none is run, ONE app note
+# says to ask once -- the several-club request is answered by the code-built grid. A normal turn's guard, like the one above.
+FIXTURE_FAN_OUT_NOTE = ("That is more than five clubs — ask for them in ONE get_fixtures call: no team for every club, "
+                        "teams=[...] for a list of clubs, or my_players=true for the user's own players")
+MAX_FIXTURE_CLUBS = 5
 
 
 def _cut_off(response):
@@ -1103,6 +1116,11 @@ def _skipped_round(st):
         return "cut"
     if not _draft_turn_now() and sum(1 for b in uses if getattr(b, "name", None) == "get_prediction") > MAX_PREDICTION_CALLS:
         return "fan_out"
+    if not _draft_turn_now():                            # Prompt R3b: more than five clubs' fixtures, one call a club
+        clubs = {str((getattr(b, "input", None) or {}).get("team")).strip().lower() for b in uses
+                 if getattr(b, "name", None) == "get_fixtures" and isinstance(getattr(b, "input", None), dict) and b.input.get("team")}
+        if len(clubs) > MAX_FIXTURE_CLUBS:
+            return "fixtures_fan_out"
     return None
 
 
@@ -1129,7 +1147,7 @@ def _run_tools(st):
     direct = None
     skip = _skipped_round(st)
     if skip:                                            # Prompt R3: run none of it; ONE app note; the model continues
-        note = CUT_ROUND_NOTE_DRAFT if _draft_turn_now() else CUT_ROUND_NOTE
+        note = CUT_ROUND_NOTE_DRAFT if _draft_turn_now() else (FIXTURE_FAN_OUT_NOTE if skip == "fixtures_fan_out" else CUT_ROUND_NOTE)
         names = []
         for block in st["response"].content:
             if block.type == "tool_use":

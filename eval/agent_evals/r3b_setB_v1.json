@@ -1,0 +1,23 @@
+{
+ "name": "r3b_setB_v1",
+ "written": "2026-11-16",
+ "purpose": "Prompt R3b, the fresh gate, Set B: 10 cases x 3 runs on the laptop, graded by hand under the owner's 13 Nov standard (number standard v2). The same ten case types as eval/agent_evals/r3_setB_v1.json, with NEW wording and NEW named / IN players; every named / IN player has exactly ONE player-lookup match and each swap previews as legal (checked by the plan step on a probe user, before any model call).",
+ "runs_per_case": 3,
+ "placeholders": {"p1": "the first named player of case 6", "p2": "the second", "in8": "the player brought in in case 8", "out8": "the squad player he replaces", "in9": "the player brought in in case 9", "out9": "the squad player he replaces"},
+ "cases": [
+  {"id": "B1", "path": "team", "what": "whole-squad review, next 3 gameweeks", "turns": ["Go through my whole team for the coming three gameweeks, one player at a time."]},
+  {"id": "B2", "path": "team", "what": "a 3-gameweek transfer plan using free transfers", "turns": ["Plan my transfers for the next three gameweeks using the free transfers I've got."]},
+  {"id": "B3", "path": "team", "what": "top 8 forwards, next 4 gameweeks, table with price and fixtures", "turns": ["Which eight forwards score best over the next four gameweeks? Put them in a table with their prices and fixtures."]},
+  {"id": "B4", "path": "team", "what": "best possible squad for £100m", "turns": ["If I tore it all up, what is the best fifteen that £100m can buy right now?"]},
+  {"id": "B5", "path": "team", "what": "captain this week and why", "turns": ["Who's my best captain for this gameweek, and what makes him the pick?"]},
+  {"id": "B6", "path": "team", "what": "compare two named players", "turns": ["How do {p1} and {p2} stack up against each other over the weeks ahead?"]},
+  {"id": "B7", "path": "team", "what": "which of my players may rise / fall in price", "turns": ["Is anyone in my squad near a price change, up or down?"]},
+  {"id": "B8", "path": "team", "what": "swap preview then no -> 'No change made.', 0 writes", "turns": ["Swap {out8} out for {in8}.", "no"]},
+  {"id": "B9", "path": "team", "what": "swap preview then continue -> asks Yes / No, 0 writes; then yes -> saved once", "turns": ["Replace {out9} with {in9}, please.", "continue", "yes"]},
+  {"id": "B10", "path": "general", "what": "General mode: best-value defenders under £5.0m, next 5 gameweeks", "turns": ["Which defenders costing less than £5.0m give the most points for their price over the next five gameweeks?"]}
+ ],
+ "players": {"p1": "Bukayo Saka", "p2": "Cole Palmer", "in8": "Odegaard", "out8": "Gakpo", "in9": "De Cuyper", "out9": "Guehi"},
+ "fallbacks": {"case 6": ["Bruno Fernandes", "Morgan Rogers"], "case 8 IN": ["Gross", "Mitoma"], "case 9 IN": ["Saliba", "Kerkez"],
+               "rule": "used in this fixed order only when a name does not have a single match, or its swap does not preview as legal, on the laptop database; the plan file records which was used and why"},
+ "not_reused_from_r3": ["Declan Rice", "Dominik Szoboszlai", "Kudus", "Foden", "Van de Ven", "Collins", "Wirtz", "Eze", "Tavernier", "Neto", "Vuskovic", "Pinnock"]
+}

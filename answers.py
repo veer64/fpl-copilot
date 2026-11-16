@@ -6,11 +6,14 @@ sums it added itself; the whole-squad review was too long for one reply; and fac
 price figure read as "toward a fall", the hold baseline described as covering three gameweeks). The rule applied here is
 W11's: when the model reaches for a number, supply the fact; number-dense answers belong in code.
 
-Four answers are built here. Each is delivered as the reply itself (agent.DIRECT_TOOLS: the model only routes):
-  rank    -- the true top N over the WHOLE player pool                    (model_tools.rank_players)
-  review  -- the user's own fifteen                                       (model_tools.review_my_squad)
-  plan    -- the transfer plan, from the planner's own result             (model_tools.propose_transfers)
-  prices  -- the squad's price moves and the selling rule per player      (model_tools.get_price_movements)
+Seven answers are built here. Each is delivered as the reply itself (agent.DIRECT_TOOLS: the model only routes):
+  rank          -- the true top N over the WHOLE player pool                    (model_tools.rank_players)
+  review        -- the user's own fifteen                                       (model_tools.review_my_squad)
+  plan          -- the transfer plan, from the planner's own result             (model_tools.propose_transfers)
+  prices        -- the squad's price moves and the selling rule per player      (model_tools.get_price_movements)
+  best_squad    -- a whole fifteen from the build's own solve (Prompt R3b)      (model_tools.get_best_squad / optimise)
+  compare       -- two or more players, gameweek by gameweek (Prompt R3b)       (model_tools.compare_players)
+  fixture_grid  -- club x gameweek, for all clubs or more than five (R3b)       (model_tools.get_fixtures)
 
 PURE: no database, no file, no clock, no model. model_tools.py reads the facts and calls these builders. Every number in a
 reply is a fact handed in, or one sum / difference / quotient / rank of such facts, rounded half-up here; every builder ends
@@ -29,6 +32,7 @@ PLAN_FOLLOW_UP = "Want me to preview any of these moves?"
 PRICE_FOLLOW_UP = "Want me to look at a replacement for any of them?"
 MAX_HORIZON = 8                      # what a caller may ask for; the answer covers the gameweeks that have predictions and says so
 MAX_N, DEFAULT_N = 20, 10
+MAX_FREE_TRANSFERS = 5               # FPL banks at most five free transfers (== squad_state.MAX_FREE_TRANSFERS; a test pins the pair)
 DEFAULT_REVIEW_HORIZON = 3
 WEAK_BAND_TENTHS = 5                 # "for their price": within £0.5m either way
 WEAK_MIN_START = 0.5                 # USER DECISION 16 Nov: ranked only against likely starters (>= 50% for the next gameweek)
@@ -85,10 +89,10 @@ def built_words(dt):
     return f"{dt:%a} {dt.day} {dt:%b} {dt:%Y}, {dt:%H:%M} UTC"
 
 
-def freshness_line(built, next_update):
+def freshness_line(built, next_update, what="Predictions"):
     """The line every code-built prediction answer carries: when the predictions were built and when the next update is due
-    (`next_update` in the words the other tools use; None when the schedule has none)."""
-    line = f"Predictions from the update of {built_words(built)}."
+    (`next_update` in the words the other tools use; None when the schedule has none). `what`: "Ratings" for the fixture grid."""
+    line = f"{what} from the update of {built_words(built)}."
     return f"{line} Next update: {next_update}." if next_update else line
 
 
@@ -358,14 +362,18 @@ def review(squad, pool, gws, *, lineup, bank_tenths, free_transfers, cal=None, s
 # ---- 3. plan: the transfer plan, from the planner's own result ----------------------------------------------------------------
 
 def plan_steps(res):
-    """[{gw, transfers, hits, hit_points, ft_before, ft_after}] for the deadline gameweek and each later one of the plan."""
+    """[{gw, transfers, hits, hit_points, ft_before, ft_used, ft_after}] for the deadline gameweek and each later one of the plan.
+    The deadline gameweek's free transfers are the planner's own (the squad's record). A pencilled-in gameweek's are derived
+    by FPL's rule from the gameweek before it -- what was left, plus the one every gameweek earns, at most MAX_FREE_TRANSFERS
+    (Prompt R3b: the planner's own counter is only exact in a gameweek where it limits the moves; a gameweek with no move
+    read "0 available")."""
     td = res["this_deadline"]
     n0 = len(td.get("transfers") or [])
     steps = [{"gw": int(res["gw"]), "transfers": list(td.get("transfers") or []), "hits": int(td.get("hits") or 0),
               "hit_points": int(td.get("hit_cost_points") or 0), "ft_before": int(td["free_transfers_before"]),
               "ft_used": min(n0, int(td["free_transfers_before"])), "ft_after": int(td["free_transfers_after"])}]
     for s in res.get("later_steps_indicative") or []:
-        n, ft = len(s.get("transfers") or []), int(s.get("free_transfers") or 0)
+        n, ft = len(s.get("transfers") or []), min(MAX_FREE_TRANSFERS, steps[-1]["ft_after"] + 1)
         steps.append({"gw": int(s["gw"]), "transfers": list(s.get("transfers") or []), "hits": int(s.get("hits") or 0),
                       "hit_points": 4 * int(s.get("hits") or 0), "ft_before": ft, "ft_used": min(n, ft), "ft_after": max(0, ft - n)})
     return steps
@@ -400,10 +408,19 @@ def plan(res, pool, *, flags=None, built=None, next_update=None, market_gw=None,
         return f"{nm(e)} ({r.get('position') or fallback_pos or '?'}, {r.get('team') or fallback_team or '?'})"
 
     n0 = len(steps[0]["transfers"])
+    most = res.get("max_transfers")                      # Prompt R3b: the most transfers the whole plan may make, when the user named a number
+    most = None if most is None else int(most)
+    limit = "" if most is None else (", making no transfers" if most == 0 else f", using at most {plural(most, 'transfer')}")
     if n0:
-        out = [f"**Transfer plan for {span_words(gws)}: {plural(n0, 'transfer')} for the GW{first} deadline, {plural(steps[0]['hits'], 'hit')}.**"]
+        out = [f"**Transfer plan for {span_words(gws)}{limit}: {plural(n0, 'transfer')} for the GW{first} deadline, {plural(steps[0]['hits'], 'hit')}.**"]
     else:
-        out = [f"**Transfer plan for {span_words(gws)}: no transfer for the GW{first} deadline.**"]
+        out = [f"**Transfer plan for {span_words(gws)}{limit}: no transfer for the GW{first} deadline.**"]
+    if most == 0:
+        out.append("Making no transfers across the whole plan, as you asked.")
+    elif most is not None:
+        made = [sum(1 for t in s["transfers"] if t.get("in_id") is not None) for s in steps]
+        split = "" if k == 1 else f" ({made[0]} for the GW{first} deadline, {sum(made[1:])} pencilled in for later gameweeks)"
+        out.append(f"Using at most {plural(most, 'transfer')} across the whole plan, as you asked: the plan makes {sum(made)}{split}.")
     if res.get("forced_availability_warning"):
         out.append(str(res["forced_availability_warning"]))
     if built is not None:
@@ -452,8 +469,9 @@ def plan(res, pool, *, flags=None, built=None, next_update=None, market_gw=None,
         out.append("**Against making no transfer:** this comparison is withheld this week. A club's team-strength estimate has run off "
                    "inside these gameweeks, so the gap cannot be measured honestly.")
     elif n0 and hc.get("gap_objective") is not None and hc.get("gap_this_gw") is not None:
+        within = "" if most is None else f", within the same limit of {plural(most, 'transfer')}"
         out.append(f"**Against making no transfer this gameweek only** (the same 15 kept for GW{first}; later gameweeks still free to "
-                   f"transfer): this plan's line-up scores {hu(hc['move_predicted_xi_points']):.2f} predicted points for GW{first} against "
+                   f"transfer{within}): this plan's line-up scores {hu(hc['move_predicted_xi_points']):.2f} predicted points for GW{first} against "
                    f"{hu(hc['hold_predicted_xi_points']):.2f} without the moves ({signed(hc['gap_this_gw'])}, captain counted twice in "
                    f"both). On the plan's weighted total over {gw_label(gws)}, where each later gameweek counts for less, it is "
                    f"{signed(hc['gap_objective'])}.")
@@ -554,4 +572,351 @@ def prices(players, sell_price, *, seen_from, seen_to, readings):
             out.append(f"- {r['name']} {verb} from {money(r['then'])} to {money(r['now'])}: his sell price "
                        + (f"stayed at {money(r['sells'])}." if same else f"went from {money(r['sells_then'])} to {money(r['sells'])}."))
     out += ["", PRICE_FOLLOW_UP]
+    return "\n".join(out)
+
+
+# ---- Prompt R3b (2026-11-16): three more answers written by code --------------------------------------------------------------
+# R3's gate (eval/reports/r3_answers.md): all six slips of Set B sat in the two number-heavy answers the model still wrote --
+# the best squad (its own XI sum, "(£99.9m spent)" on the XI's header, a (C) on the vice-captain, a price band nobody
+# filtered by) and the comparison ("the gap reverses", "80p cheaper") -- and the one cut-off was a 20-club fixture table.
+#   best_squad    -- a whole fifteen from the build's own solve              (model_tools.get_best_squad / optimise)
+#   compare       -- two or more players, gameweek by gameweek               (model_tools.compare_players)
+#   fixture_grid  -- club x gameweek for all clubs, or more than five        (model_tools.get_fixtures)
+
+BEST_FOLLOW_UP = "Want me to explain any of these picks?"
+BEST_FOLLOW_UP_SQUAD = "Want me to explain any of these picks, or compare any of them with your players?"
+COMPARE_FOLLOW_UP = "Want me to check either of them against your squad?"
+COMPARE_FOLLOW_UP_MANY = "Want me to check any of them against your squad?"
+COMPARE_FOLLOW_UP_NO_SQUAD = "Want me to compare either of them with anyone else?"      # General mode: no squad to check against
+COMPARE_FOLLOW_UP_NO_SQUAD_MANY = "Want me to compare any of them with anyone else?"
+GRID_FOLLOW_UP = "Want me to rank the best players from any of these clubs?"
+GRID_FOLLOW_UP_MINE = "Want me to review your squad over these gameweeks?"
+ROUNDING_NOTE = ("Totals are added from the unrounded predictions, so a total can differ by 0.01 from its rounded figures added up.")
+PICK_BASIS = ("The build picks the fifteen with the most predicted points that FPL's squad rules and the budget allow. "
+              "No other reasons are available.")
+ANYONE_CAN_WIN = "Any Premier League side can beat anyone."
+MAX_COMPARE = 6
+GRID_MIN_CLUBS = 6                   # a request for more than 5 clubs is answered with the code-built grid
+# a fixture's rating is the tenth it sits in among every fixture the update rated (1 hardest .. 10 easiest); the word is its fifth
+DIFFICULTY_WORDS = {1: "very hard", 2: "very hard", 3: "hard", 4: "hard", 5: "middling", 6: "middling", 7: "easy", 8: "easy",
+                    9: "very easy", 10: "very easy"}
+DIFFICULTY_LEGEND = "1–2 very hard, 3–4 hard, 5–6 middling, 7–8 easy, 9–10 very easy"
+
+
+def money_gap(tenths):
+    """A price difference as a bare amount: 8 -> "£0.8m"."""
+    return f"£{abs(int(tenths)) / 10:.1f}m"
+
+
+def squad_mark(role, bench_order=None):
+    """" (C)", " (VC)", " (bench 2)" -- the solver's own role for a player, as the squad review writes it."""
+    if role in ("CAPTAIN", "VICE", "start"):
+        return {"CAPTAIN": " (C)", "VICE": " (VC)", "start": ""}[role]
+    return f" (bench {int(bench_order)})" if bench_order is not None else " (bench)"
+
+
+# ---- 5. best squad: a whole fifteen from the build's own solve ------------------------------------------------------------
+
+def best_squad(rows, gw, *, budget_tenths, cal=None, shorts=None, flags=None, built=None, next_update=None, market_gw=None,
+               has_squad=False, planning_note=None, warning=None, forced=(), must_start=(), banned=(), prices_now=None):
+    """The best-squad answer. rows = the solver's fifteen, each {"element", "name", "position", "team", "price_tenths" (the
+    price the solve used), "points" (his predicted points for `gw`, the solve's own row), "role" (CAPTAIN / VICE / start /
+    bench), "bench_order"} -- roles and bench order are the solver's, never re-derived. Every total here is one sum of those
+    rows: the XI's points both ways, and the spend of the XI, the bench and the fifteen against the budget the solve was
+    given. forced / must_start / banned = the names the user asked for; prices_now = {element: today's price in tenths}, for
+    the line that says which prices have moved since the solve."""
+    gw = int(gw)
+    rows = [dict(r) for r in rows]
+    label = f"GW{gw}"
+    xi = [r for r in rows if r["role"] != "bench"]
+    bench = sorted((r for r in rows if r["role"] == "bench"), key=lambda r: (r.get("bench_order") is None, r.get("bench_order") or 0))
+    cap = next((r for r in rows if r["role"] == "CAPTAIN"), None)
+    vice = next((r for r in rows if r["role"] == "VICE"), None)
+    once = hu(sum(float(r["points"] or 0.0) for r in xi))
+    doubled = hu(sum(float(r["points"] or 0.0) for r in xi) + (float(cap["points"] or 0.0) if cap else 0.0))
+    xi_cost, bench_cost = sum(int(r["price_tenths"]) for r in xi), sum(int(r["price_tenths"]) for r in bench)
+    total_cost = xi_cost + bench_cost
+    left = int(budget_tenths) - total_cost
+    out = [f"**Best 15 from scratch for {label} on a {money(budget_tenths)} budget: the starting XI is predicted {doubled:.2f} points "
+           f"with the captain's points counted twice, {once:.2f} before that.**"]
+    if warning:
+        out.append(str(warning))
+    if planning_note:
+        out.append(str(planning_note))
+    if built is not None:
+        out.append(freshness_line(built, next_update))
+    data = []
+    for pos, title in SECTIONS:
+        grp = [r for r in xi if r["position"] == pos] + [r for r in bench if r["position"] == pos]
+        grp.sort(key=lambda r: (r["role"] == "bench", (r.get("bench_order") or 0) if r["role"] == "bench" else 0,
+                                -hu(r["points"] or 0.0), _name(r), int(r["element"])))
+        if not grp:
+            continue
+        table = []
+        for r in grp:
+            fx = fixtures_cell(cal, shorts, r["team"], [gw])
+            flag = flag_text((flags or {}).get(int(r["element"])))
+            table.append([_name(r) + squad_mark(r["role"], r.get("bench_order")), r["team"], money(r["price_tenths"]),
+                          f"{hu(r['points'] or 0.0):.2f}", fx, flag])
+            data.append({"player_id": int(r["element"]), "name": _name(r), "position": pos, "team": r["team"], "role": r["role"],
+                         "bench_order": r.get("bench_order"), "price": round(int(r["price_tenths"]) / 10, 1),
+                         "predicted_points": float(hu(r["points"] or 0.0)), "fixtures": fx, "flag": flag or None})
+        out += ["", f"**{title}**"] + _table(["Player", "Club", "Price", f"Predicted points {label}", f"Fixtures {label}", "Flag"], table)
+    line = (f"**Line-up for {label}:** the (C), (VC) and bench marks above are the build's own. "
+            f"Captain {_name(cap) if cap else '—'}, vice-captain {_name(vice) if vice else '—'}; bench in order: "
+            f"{', '.join(_name(r) for r in bench)}. The starting XI: {doubled:.2f} predicted points with the captain's points counted "
+            f"twice, {once:.2f} before that.")
+    spend = (f"**Spend:** the starting XI costs {money(xi_cost)} and the bench {money(bench_cost)}; all 15 cost {money(total_cost)}, "
+             f"which leaves {money(left)} of the {money(budget_tenths)} budget in the bank.")
+    out += ["", line, spend]
+    asked = []
+    if forced:
+        asked.append(f"Put in as you asked: {', '.join(str(x) for x in forced)}"
+                     + (f" (to start: {', '.join(str(x) for x in must_start)})." if must_start else "."))
+    if banned:
+        asked.append(f"Left out as you asked: {', '.join(str(x) for x in banned)}.")
+    if asked:
+        out.append(" ".join(asked))
+    moved = [(r, int(prices_now[int(r["element"])])) for r in rows
+             if prices_now and prices_now.get(int(r["element"])) is not None and int(prices_now[int(r["element"])]) != int(r["price_tenths"])]
+    if moved:
+        out.append("Prices are the ones the build used. Since then: "
+                   + "; ".join(f"{_name(r)} is now {money(now)}" for r, now in moved) + ".")
+    shown = sum(hu(r["points"] or 0.0) for r in xi)
+    out += ["", f"Each pick's basis is his predicted points for {label}. {PICK_BASIS}"]
+    if shown != once:
+        out.append(ROUNDING_NOTE)
+    ll = later_line([gw], market_gw, what="these picks")
+    if ll:
+        out.append(ll)
+    out += [BONUS_NOTE, "", BEST_FOLLOW_UP_SQUAD if has_squad else BEST_FOLLOW_UP]
+    return {"direct_reply": "\n".join(out), "gw": gw, "players": data,
+            "xi_points": {"captain_counted_twice": float(doubled), "before_that": float(once)},
+            "spend": {"xi": round(xi_cost / 10, 1), "bench": round(bench_cost / 10, 1), "all_15": round(total_cost / 10, 1),
+                      "bank": round(left / 10, 1), "budget": round(int(budget_tenths) / 10, 1)}}
+
+
+# ---- 6. compare: two or more players, gameweek by gameweek ---------------------------------------------------------------------
+
+def gap_trend(first, last):
+    """How the gap between two players moves from the span's first gameweek to its last. first / last = one player's shown
+    points minus the other's in that gameweek (the same order both times). "reverses": the other player is ahead at the end;
+    "level": the gap is the same size; "widens" / "narrows": it is larger / smaller (a gap that opens from level widens, one
+    that closes to level narrows)."""
+    first, last = Decimal(first), Decimal(last)
+    if (first > 0 > last) or (first < 0 < last):
+        return "reverses"
+    if abs(first) == abs(last):
+        return "level"
+    return "widens" if abs(last) > abs(first) else "narrows"
+
+
+def _ahead_words(d, a, b):
+    """Who is ahead for a difference d = a's points minus b's: "Rice ahead by 0.75" / "level"."""
+    d = Decimal(d)
+    return "level" if d == 0 else f"{a if d > 0 else b} ahead by {abs(d):.2f}"
+
+
+def compare(players, gws, *, cal=None, shorts=None, flags=None, built=None, next_update=None, market_gw=None, clip=None,
+            has_squad=True):
+    """The comparison answer. players = two or more pool rows ({"element", "name", "position", "team", "price_tenths", "pts",
+    "start"}) in the order the user named them. Every figure is a pool row's own number at 2 dp half-up, or one sum /
+    difference of shown figures: each player's total over `gws` (a gameweek he has no row for -- a blank -- adds nothing),
+    the gap between totals, each gameweek's gap, the price difference, and how the gap moves from the first gameweek to the
+    last (gap_trend). The table's columns run from the highest total to the lowest (level totals: the order named)."""
+    gws = list(gws)
+    label = gw_label(gws)
+    rows = []
+    for i, p in enumerate(players):
+        cells = {g: hu((p.get("pts") or {}).get(g) or 0.0) for g in gws}
+        rows.append({**p, "named": i, "cells": cells, "total": points_over(p.get("pts") or {}, gws)})
+    rows.sort(key=lambda r: (-r["total"], r["named"]))
+    lead, two = rows[0], len(rows) == 2
+    names = [_name(r) for r in rows]
+
+    def gap_words(a, b):
+        d = a["total"] - b["total"]
+        return f"{_name(a)} and {_name(b)} are level" if d == 0 else f"{_name(a)} is ahead of {_name(b)} by {d:.2f}"
+
+    totals = ", ".join(f"{_name(r)} {r['total']:.2f}" for r in rows)
+    if two:
+        d = lead["total"] - rows[1]["total"]
+        verdict = "They are level." if d == 0 else f"{names[0]} is ahead by {d:.2f}."
+        head = f"**{names[0]} against {names[1]} on predicted points, {span_words(gws)}: {totals}. {verdict}**"
+    else:
+        head = (f"**{len(rows)} players on predicted points, {span_words(gws)}, highest total first: {totals}. "
+                + "; ".join(gap_words(lead, r) for r in rows[1:]) + ".**")
+    out = [head] + ([clip] if clip else []) + ([freshness_line(built, next_update)] if built is not None else [])
+    flagged = [f"{_name(r)}: {flag_text((flags or {}).get(int(r['element'])))}" for r in rows if (flags or {}).get(int(r["element"]))]
+    none_flagged = "Neither is flagged by FPL." if two else "None of them is flagged by FPL."
+    out.append(("Flags: " + "; ".join(flagged) + ".") if flagged else none_flagged)
+    out.append("")
+    table = []
+    for g in gws:
+        cells = []
+        for r in rows:
+            fx = fixtures_cell(cal, shorts, r["team"], [g]) if cal is not None else None
+            cells.append(f"{r['cells'][g]:.2f}" + (f" — {fx}" if fx else ""))
+        best = max(r["cells"][g] for r in rows)
+        top = [_name(r) for r in rows if r["cells"][g] == best]
+        if two:
+            last = _ahead_words(rows[0]["cells"][g] - rows[1]["cells"][g], names[0], names[1])
+            last = last.replace(" ahead by ", " by ")
+        else:
+            last = top[0] if len(top) == 1 else " and ".join(top) + " level"
+        table.append([f"GW{g}"] + cells + [last])
+    if two:
+        d = lead["total"] - rows[1]["total"]
+        end = "level" if d == 0 else f"{names[0]} by {d:.2f}"
+    else:
+        tops = [_name(r) for r in rows if r["total"] == lead["total"]]
+        end = tops[0] if len(tops) == 1 else " and ".join(tops) + " level"
+    table.append([f"**Total {label}**"] + [f"**{r['total']:.2f}**" for r in rows] + [end])
+    out += _table(["Gameweek"] + [f"{_name(r)} ({r['team']}, {r['position']})" for r in rows] + ["Ahead" if two else "Most"], table)
+    out.append("")
+    # the gap, gameweek by gameweek, and how it moves across the span -- each other player against the leader
+    if len(gws) > 1:
+        for r in rows[1:]:
+            first, last = lead["cells"][gws[0]] - r["cells"][gws[0]], lead["cells"][gws[-1]] - r["cells"][gws[-1]]
+            n_a = sum(1 for g in gws if lead["cells"][g] > r["cells"][g])
+            n_b = sum(1 for g in gws if lead["cells"][g] < r["cells"][g])
+            n_l = len(gws) - n_a - n_b
+            counts = (f"{_name(lead)} has the higher figure in {n_a} of the {len(gws)} gameweeks, {_name(r)} in {n_b}"
+                      + (f", and they are level in {n_l}" if n_l else "") + ".")
+            word = {"reverses": "reverses", "level": "stays level", "widens": "widens", "narrows": "narrows"}[gap_trend(first, last)]
+            out.append(f"**The gap ({_name(lead)} and {_name(r)}):** {counts} From GW{gws[0]} to GW{gws[-1]} it {word}: "
+                       f"{_ahead_words(first, _name(lead), _name(r))} in GW{gws[0]}, {_ahead_words(last, _name(lead), _name(r))} in "
+                       f"GW{gws[-1]} (the first and the last gameweek compared).")
+    priced = [r for r in rows if r.get("price_tenths") is not None]
+    if len(priced) == len(rows):
+        if two:
+            pd_ = int(rows[0]["price_tenths"]) - int(rows[1]["price_tenths"])
+            each = f"{names[0]} {money(rows[0]['price_tenths'])}, {names[1]} {money(rows[1]['price_tenths'])}"
+            out.append(f"**Price:** {each}: " + ("they cost the same." if pd_ == 0 else
+                                                 f"{names[1] if pd_ > 0 else names[0]} is {money_gap(pd_)} cheaper."))
+        else:
+            bits = [f"{names[0]} {money(lead['price_tenths'])}"]
+            for r in rows[1:]:
+                pd_ = int(r["price_tenths"]) - int(lead["price_tenths"])
+                rel = "the same price" if pd_ == 0 else f"{money_gap(pd_)} {'cheaper' if pd_ < 0 else 'more expensive'} than {names[0]}"
+                bits.append(f"{_name(r)} {money(r['price_tenths'])} ({rel})")
+            out.append("**Price:** " + "; ".join(bits) + ".")
+    starts = [(r, pct_words((r.get("start") or {}).get(gws[0]))) for r in rows]
+    if all(s for _, s in starts):
+        out.append(f"**Chance of starting GW{gws[0]}:** " + ", ".join(f"{_name(r)} {s}" for r, s in starts) + ".")
+    if any(sum(r["cells"].values(), Decimal("0.00")) != r["total"] for r in rows):
+        out.append(ROUNDING_NOTE)
+    ll = later_line(gws, market_gw, what="these")
+    if ll:
+        out.append(ll)
+    follow = ((COMPARE_FOLLOW_UP if two else COMPARE_FOLLOW_UP_MANY) if has_squad
+              else (COMPARE_FOLLOW_UP_NO_SQUAD if two else COMPARE_FOLLOW_UP_NO_SQUAD_MANY))
+    out += [BONUS_NOTE, "", follow]
+    data = [{"player_id": int(r["element"]), "name": _name(r), "position": r["position"], "team": r["team"],
+             "price": None if r.get("price_tenths") is None else round(int(r["price_tenths"]) / 10, 1),
+             "predicted_points_total": float(r["total"]), "predicted_points_by_gw": {int(g): float(v) for g, v in r["cells"].items()},
+             "flag": flag_text((flags or {}).get(int(r["element"]))) or None} for r in rows]
+    return {"direct_reply": "\n".join(out), "gameweeks": gws, "players": data,
+            "ahead": None if lead["total"] == rows[1]["total"] else int(lead["element"])}
+
+
+# ---- 7. fixture grid: club x gameweek ---------------------------------------------------------------------------------------
+
+def gws_words(gws):
+    """"GW11–15" for a run of gameweeks, "GW11, GW12, GW14" when one is missing from the run."""
+    gws = list(gws)
+    return gw_label(gws) if gws == list(range(gws[0], gws[-1] + 1)) else ", ".join(f"GW{g}" for g in gws)
+
+
+def difficulty_words(attack, defence):
+    """One fixture's two ratings in words: "scoring easy (8), clean sheet middling (5)"."""
+    return f"scoring {DIFFICULTY_WORDS[int(attack)]} ({int(attack)}), clean sheet {DIFFICULTY_WORDS[int(defence)]} ({int(defence)})"
+
+
+def grid_cell(entry, shorts=None, with_day=False):
+    """One club's cell for one gameweek. entry = "blank" (no fixture in the calendar), "played" (kicked off already), None
+    (a fixture exists but is not among the ones asked for), or the gameweek's fixtures as a list of {"opponent", "home",
+    "attack", "defence", "status", "kickoff_day"} -- two for a double, whose ratings are the gameweek's and are said once."""
+    if entry == "blank":
+        return "no fixture"
+    if entry == "played":
+        return "already played"
+    if not entry:
+        return "—"
+    opps = " + ".join(f"{(shorts or {}).get(f['opponent']) or f['opponent']} ({'H' if f['home'] else 'A'})"
+                      + (f", {f['kickoff_day']}" if with_day and f.get("kickoff_day") else "") for f in entry)
+    if any(f.get("status") in ("played", "in progress") for f in entry):
+        return f"{opps}: {entry[0]['status']}"
+    a, d = entry[0].get("attack"), entry[0].get("defence")
+    if a is None or d is None:
+        return f"{opps}: not rated yet"
+    return f"{opps}: {difficulty_words(a, d)}" + (" (the two fixtures together)" if len(entry) > 1 else "")
+
+
+def _run_order(sums, n=3):
+    """(highest, lowest) lists of (club, sum) -- three each, plus any club level with the third; every club once, highest
+    first, when there are fewer than eight."""
+    ranked = sorted(sums.items(), key=lambda kv: (-kv[1], kv[0]))
+    if len(ranked) < 8:
+        return ranked, None
+    top = [kv for kv in ranked if kv[1] >= ranked[n - 1][1]]
+    low = sorted((kv for kv in ranked if kv[1] <= ranked[-n][1]), key=lambda kv: (kv[1], kv[0]))
+    return top, low
+
+
+def fixture_grid(clubs, gws, cells, *, shorts=None, players=None, deadline=None, built=None, next_update=None, market_gw=None,
+                 all_clubs=True, mine=False):
+    """The fixture grid: one row a club, one column a gameweek. cells = {(club, gw): entry} (grid_cell); players = {club:
+    "Raya (GK), Saliba (DEF)"} for the user's own players (the "Your players" column); deadline = the next-deadline line as
+    the clock helper writes it. Under the table, each club's scoring ratings and clean-sheet ratings are added up over the
+    gameweeks shown -- two separate sums, never one -- and the highest and lowest runs are named."""
+    clubs, gws = list(clubs), list(gws)
+    one = len(gws) == 1
+    span_ = f"{gws_words(gws)} ({plural(len(gws), 'gameweek')})"
+    if mine:
+        head = f"**Your players' fixtures, {span_}: the {plural(len(clubs), 'club')} in your squad.**"
+    elif all_clubs:
+        head = f"**Fixtures for all {len(clubs)} clubs, {span_}.**"
+    else:
+        head = f"**Fixtures for {plural(len(clubs), 'club')}, {span_}.**"
+    out = [head] + ([f"{deadline}."] if deadline else [])
+    if built is not None:
+        out.append(freshness_line(built, next_update, what="Ratings"))
+    out.append("")
+    table = []
+    for c in clubs:
+        table.append([c] + ([players.get(c) or "—"] if players is not None else [])
+                     + [grid_cell(cells.get((c, g)), shorts, with_day=one) for g in gws])
+    out += _table(["Club"] + (["Your players"] if players is not None else []) + [f"GW{g}" for g in gws], table)
+    out += ["", "How to read a cell: the opponent (H = at home, A = away), then two separate ratings of that fixture for the club "
+                "in the row: how easy it is to score in, and how easy a clean sheet is. Each is the tenth the fixture sits in among "
+                f"every fixture this update rated, 1 (hardest) to 10 (easiest): {DIFFICULTY_LEGEND}. The two often disagree and "
+                "are never merged into one."]
+    shown = [cells.get((c, g)) for c in clubs for g in gws]
+    if any(e is None for e in shown):
+        out.append("A dash: the club has a fixture that gameweek, beyond the number of fixtures asked for.")
+    rated = {(c, g): e for (c, g), e in cells.items() if isinstance(e, list) and e and e[0].get("attack") is not None
+             and e[0].get("defence") is not None and not any(f.get("status") in ("played", "in progress") for f in e)}
+    rated_gws = sorted({g for (_c, g) in rated})
+    unrated_gws = [g for g in gws if any(isinstance(cells.get((c, g)), list) and cells.get((c, g)) and (c, g) not in rated
+                                         and not any(f.get("status") in ("played", "in progress") for f in cells[(c, g)]) for c in clubs)]
+    if rated and len(rated_gws) > 1 and len(clubs) > 1:
+        att = {c: sum(int(rated[(c, g)][0]["attack"]) for g in gws if (c, g) in rated) for c in clubs}
+        dfn = {c: sum(int(rated[(c, g)][0]["defence"]) for g in gws if (c, g) in rated) for c in clubs}
+        over = gws_words(rated_gws)
+
+        def run(sums):
+            top, low = _run_order(sums)
+            listed = ", ".join(f"{c} {v}" for c, v in top)
+            return f"highest {listed}; lowest {', '.join(f'{c} {v}' for c, v in low)}" if low else f"highest first: {listed}"
+
+        out += ["", f"**Runs over {over}** (each club's ratings added up over those gameweeks; a gameweek with no fixture adds nothing):",
+                f"- Scoring ratings: {run(att)}.", f"- Clean-sheet ratings: {run(dfn)}."]
+    if unrated_gws:
+        out.append(f"{', '.join(f'GW{g}' for g in unrated_gws)}: scheduled but not rated yet; this update rates "
+                   f"{gws_words(rated_gws) if rated_gws else 'no gameweek'} only. That is a missing rating, not an easy fixture.")
+    ll = later_line([g for g in gws if g in rated_gws], market_gw, what="these ratings") if rated_gws else None
+    if ll:
+        out.append(ll)
+    out += [ANYONE_CAN_WIN, "", GRID_FOLLOW_UP_MINE if mine else GRID_FOLLOW_UP]
     return "\n".join(out)

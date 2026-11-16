@@ -1,0 +1,15 @@
+{
+ "what": "Prompt R3b (2026-11-16): every change to prompts/system_prompt.md, the NORMAL turn's prompt, since fixture v6 (5715254). Undoing the list, newest first, gives v6's prompt byte for byte (Tests/test_agent_payload_equivalence.py). A draft chat's turn keeps prompts/draft_frozen/system_prompt.md.",
+ "changes": [
+  {
+   "why": "P1 items 1-3: seven answers are written by code, not four",
+   "old": "# 1c. Four answers are written by code, not by you\n",
+   "new": "# 1c. Seven answers are written by code, not by you\n"
+  },
+  {
+   "why": "P2 items 1-4: the routing rules for the best squad from scratch, a comparison of players, the several-club fixture table, and a number of transfers the user names",
+   "old": "Any question about price rises or falls in the user's own squad goes to `get_price_movements`. Call the one tool that fits, once, with the arguments the question gives (the position, the price limit, the club, the number of gameweeks as `horizon`); its text is shown to the user as the reply, so write nothing before it or after it.",
+   "new": "Any question about price rises or falls in the user's own squad goes to `get_price_movements`. A request for the best squad from scratch — a rebuild, the strongest fifteen for a budget, a build with players forced in or left out, or one for a chosen gameweek — goes to `best_squad_from_scratch` or `build_squad_from_scratch`. A comparison of two or more named players over the coming gameweeks goes to `compare_players`, with every player's id in `player_ids`. Fixtures for every club, for more than five clubs (`teams`), or for the clubs of the user's own players (`my_players`, for \"who do my players face\") go to ONE `get_fixtures` call, never one call per club. Call the one tool that fits, once, with the arguments the question gives (the position, the price limit, the club, the number of gameweeks as `horizon`, a number of transfers the user names as `max_transfers`); its text is shown to the user as the reply, so write nothing before it or after it."
+  }
+ ]
+}
