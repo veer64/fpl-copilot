@@ -793,8 +793,8 @@ def forced_availability_warning(forced, flags):
             continue
         detail = f["chance_words"] or (f"FPL as of {_as_of_words(f['as_of'])}" if _as_of_words(f["as_of"]) else "")
         note = f" (FPL's note: {f['news']})" if f["news"] else ""
-        lines.append(f"{f['name']} is in because you forced him in, but FPL lists him as {f['status_word']}: "
-                     f"{detail}{note}. The squad is built around him as you asked.")
+        lines.append(f"{f['name']} is in the squad as a forced pick, but FPL lists him as {f['status_word']}: "
+                     f"{detail}{note}. The squad is built with him in it.")
     return " ".join(lines) or None
 
 
@@ -2319,6 +2319,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     limit, bad = _plan_transfer_limit(max_transfers)
     if bad:
         return bad
+    limit, limit_check = _checked_transfer_limit(limit, source)      # Prompt R3d: only a limit the user's own words name
     import db_write
     import simulator as sim
     from squad_state import sell_price
@@ -2636,6 +2637,7 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "squad_version_id": record["version_id"],
         "horizon": horizon, "effective_horizon": int(eff_h), "decay": float(DEFAULT_DECAY),
         **({} if limit is None else {"max_transfers": limit}),
+        **({} if limit_check is None else {"limit_check": limit_check}),    # Prompt R3d: for the trace; not in the text
         "locked": [names.get(e, str(e)) for e in lock], "banned": [names.get(e, str(e)) for e in ban],
         "solve_seconds": solve_s, "total_seconds": round(time.time() - t0, 1),
         "objective": round(float(step["objective"]), 3), "hold_applied": hold,
@@ -5673,3 +5675,14 @@ def _own_xi_points(run, gw):
         return {"once": once, "doubled": once + (pts(cap) if cap is not None else 0.0), "player_ids": starters, "captain_id": cap}
     except Exception:                                   # noqa: BLE001 -- the comparison line is optional
         return None
+
+
+# ---------------------------------------------------------------- Prompt R3d (2026-11-16): the user's own words, checked by code
+def _checked_transfer_limit(asked, source):
+    """(the transfer limit to apply, the note for the trace). In a chat turn the limit must be one the turn's own user message
+    names (answers.verified_transfer_limit); a maintainer's run, a deadline run and a call outside a turn are honoured as given."""
+    import answers
+    message = turn_context.user_message()
+    if source != "chat" or message is None:
+        return asked, None
+    return answers.verified_transfer_limit(message, asked)

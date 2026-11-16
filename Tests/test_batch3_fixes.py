@@ -103,8 +103,8 @@ def test_with_flags_leaves_an_error_alone(fake_live):
 def test_the_forced_warning_names_player_status_chance_news_date_and_the_build(fake_live):
     flags = mt._flags_for([379, 398, 55, 12])
     w = mt.forced_availability_warning([379], flags)
-    assert w.startswith("Alexander Isak is in because you forced him in, but FPL lists him as doubtful")
-    for part in ("chance of playing in GW6: 75%", "FPL as of Tue 29 Sep 2026", "Thigh injury", "The squad is built around him as you asked."):
+    assert w.startswith("Alexander Isak is in the squad as a forced pick, but FPL lists him as doubtful")   # R3d: was "is in because you forced him in"
+    for part in ("chance of playing in GW6: 75%", "FPL as of Tue 29 Sep 2026", "Thigh injury", "The squad is built with him in it."):   # R3d: was "... around him as you asked."
         assert part in w, part
     assert "suspended" in mt.forced_availability_warning([398], flags)
     assert mt.forced_availability_warning([12], flags) is None                # fit: no warning

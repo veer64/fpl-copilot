@@ -1,0 +1,20 @@
+{
+ "what": "Prompt R3d (2026-11-16): every change to prompts/system_prompt.md, the NORMAL turn's prompt, since fixture v8 (52f5510). Undoing the list, newest first, gives v8's prompt byte for byte (Tests/test_agent_payload_equivalence.py). A draft chat's turn keeps prompts/draft_frozen/system_prompt.md.",
+ "changes": [
+  {
+   "why": "P1 item 2: every comparison of named players goes to the code-built comparison, injured or flagged players included",
+   "old": "A comparison of two or more named players over the coming gameweeks goes to `compare_players`, with every player's id in `player_ids`.",
+   "new": "Any question comparing two or more named players — \"X or Y\", \"who is the better pick\", \"how do they stack up\" — goes to `compare_players` with every player's id in `player_ids`, injured or flagged players included (its answer shows the flag first); never compare players from their player cards."
+  },
+  {
+   "why": "P2 item 3: a swap instruction is previewed at once",
+   "old": "A squad-change preview from `set_my_squad` comes back with its text written by code and shown with the preview card.",
+   "new": "A squad-change preview from `set_my_squad` comes back with its text written by code and shown with the preview card. Any message naming a player to take out and a player to bring in — sell / buy, swap, replace, \"X out, Y in\", \"bring in X for Y\" — is an instruction: resolve both and preview it with `set_my_squad` at once, never argue or ask first; the code-built preview shows the predicted gain, so a poor move is visible there."
+  },
+  {
+   "why": "P3 item 1: a number of gameweeks is never a number of transfers",
+   "old": "a number of transfers the user names as `max_transfers`)",
+   "new": "a number of transfers the user names as `max_transfers` — a number of gameweeks is `horizon`, never `max_transfers`)"
+  }
+ ]
+}

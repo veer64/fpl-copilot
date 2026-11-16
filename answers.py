@@ -483,8 +483,8 @@ def plan(res, pool, *, flags=None, built=None, next_update=None, market_gw=None,
                    "beside it (from the move until the plan sells him again, or the end of the plan). It compares the two players only; "
                    "it is not the change in your line-up's total.")
     if res.get("locked") or res.get("banned"):
-        out.append(" ".join(([f"Kept as you asked: {', '.join(str(x) for x in res['locked'])}."] if res.get("locked") else [])
-                            + ([f"Left out as you asked: {', '.join(str(x) for x in res['banned'])}."] if res.get("banned") else [])))
+        out.append(" ".join(([f"Kept in the squad: {', '.join(str(x) for x in res['locked'])}."] if res.get("locked") else [])
+                            + ([f"Left out: {', '.join(str(x) for x in res['banned'])}."] if res.get("banned") else [])))
     ids = list(dict.fromkeys(int(t[key]) for s in steps for t in s["transfers"] for key in ("out_id", "in_id") if t.get(key) is not None))
     flagged = [f"{nm(e)}: {flag_text((flags or {}).get(e))}" for e in ids if (flags or {}).get(e)]
     if flagged:
@@ -675,10 +675,10 @@ def best_squad(rows, gw, *, budget_tenths, cal=None, shorts=None, flags=None, bu
     out += ["", line, spend] + ([own_xi_line(doubled, own[0], own[1], gw)] if own else [])
     asked = []
     if forced:
-        asked.append(f"Put in as you asked: {', '.join(str(x) for x in forced)}"
+        asked.append(f"Forced in: {', '.join(str(x) for x in forced)}"
                      + (f" (to start: {', '.join(str(x) for x in must_start)})." if must_start else "."))
     if banned:
-        asked.append(f"Left out as you asked: {', '.join(str(x) for x in banned)}.")
+        asked.append(f"Left out: {', '.join(str(x) for x in banned)}.")
     if asked:
         out.append(" ".join(asked))
     moved = [(r, int(prices_now[int(r["element"])])) for r in rows
@@ -1163,3 +1163,61 @@ def own_xi_line(best_doubled, own_once, own_doubled, gw):
     rel = (f"{abs(d):.2f} fewer than" if d > 0 else (f"{abs(d):.2f} more than" if d < 0 else "the same as"))
     return (f"**Against your own squad:** the best XI from your 15 for GW{int(gw)} is predicted {hu(own_doubled):.2f} points with the "
             f"captain's points counted twice ({hu(own_once):.2f} before that): {rel} this squad's XI.")
+
+
+# ---- Prompt R3d (2026-11-16): the number of transfers a user's own words name ------------------------------------------------
+# R3c's case 2: "Using only my free transfers, what moves should I make across the next three gameweeks?" -- the model passed
+# max_transfers=3 (the three gameweeks) three times out of three, and the plan stopped at 3 moves. Code now reads the user's own
+# message, as the confirm gate reads a yes: a limit is applied only when the message names a number of transfers. Numbers of
+# gameweeks, prices, gameweek labels, dates, squad counts and points hits never count.
+
+TRANSFER_NUMBER_WORDS = {"zero": 0, "one": 1, "single": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+                         "nine": 9, "ten": 10}
+TRANSFER_NOUNS = frozenset({"transfer", "transfers", "move", "moves", "swap", "swaps", "change", "changes"})
+TRANSFER_FILLER = frozenset({"free", "more", "extra", "additional", "new", "of", "my", "your", "the"})
+GAMEWEEK_WORDS = frozenset({"gw", "gameweek", "gameweeks", "week", "weeks", "round"})
+_TOKENS = r"gw\s*\d+|£\s*\d+(?:\.\d+)?m?|\d+(?:\.\d+)?m\b|\d+|[a-z']+"
+
+
+def transfers_named(text):
+    """The numbers of transfers `text` names, in order: a number (digits, or a word from one to ten, or "single") followed --
+    with at most three filler words between ("free", "of my", ...) -- by transfer(s), move(s), swap(s) or change(s). "two
+    transfers" -> [2]; "a single move" -> [1]; "next three gameweeks", "£100m", "GW11", "gameweek 12", "15 players", "a 4-point
+    hit" -> []. Pure."""
+    import re
+    t = str(text or "").lower().replace("-", " ").replace("_", " ")
+    words = re.findall(_TOKENS, t)
+    out = []
+    for i, w in enumerate(words):
+        if w.isdigit():
+            n = int(w)
+        elif w in TRANSFER_NUMBER_WORDS:
+            n = TRANSFER_NUMBER_WORDS[w]
+        else:
+            continue
+        if i > 0 and words[i - 1] in GAMEWEEK_WORDS:            # "gameweek 12 transfers": a label, not a count
+            continue
+        j = i + 1
+        while j < len(words) and words[j] in TRANSFER_FILLER and j - i <= 3:
+            j += 1
+        if j < len(words) and words[j] in TRANSFER_NOUNS:
+            out.append(n)
+    return out
+
+
+def verified_transfer_limit(text, asked):
+    """(the limit to apply, the note for the trace) for a plan whose call carried max_transfers=`asked` (None: not passed), in a
+    turn whose own user message is `text`. A message that names no number of transfers: no limit, whatever was passed. One that
+    names a number: the passed value when it is that number (or the total of several), else the user's number when there is one;
+    the user's number when nothing was passed. The note is None when nothing was asked and nothing named."""
+    named = transfers_named(text)
+    if not named:
+        return None, (None if asked is None else {"asked": asked, "named": [], "applied": None, "why": "not named"})
+    if asked is None:
+        v = named[0] if len(named) == 1 else sum(named)
+        return v, {"asked": None, "named": named, "applied": v, "why": "named, not passed"}
+    if asked in named or asked == sum(named):
+        return asked, {"asked": asked, "named": named, "applied": asked, "why": "named"}
+    if len(named) == 1:
+        return named[0], {"asked": asked, "named": named, "applied": named[0], "why": "corrected"}
+    return None, {"asked": asked, "named": named, "applied": None, "why": "not named"}

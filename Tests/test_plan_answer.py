@@ -214,7 +214,7 @@ def test_t9_kept_left_out_warning_and_flags(pool_db):
     res = {"forced_availability_warning": f"{ROW[106][1]} is flagged doubtful by FPL; he was kept in because you asked.", **res}
     text = _text(res)
     assert text.split("\n")[1] == res["forced_availability_warning"]
-    assert f"Kept as you asked: {ROW[107][1]}. Left out as you asked: {ROW[130][1]}, {ROW[140][1]}." in text
+    assert f"Kept in the squad: {ROW[107][1]}. Left out: {ROW[130][1]}, {ROW[140][1]}." in text
     assert (f'Flags: {ROW[106][1]}: Doubtful — FPL: "Knock - 75% chance of playing" (as of Wed 11 Nov); '
             f'{ROW[109][1]}: Doubtful — FPL: 50% chance of playing (as of Wed 11 Nov).') in text      # every flagged player of a move
     assert "Flags:" not in _text({**_result(), "this_deadline": {**_result()["this_deadline"], "transfers": [_move(116, 108, sold=7.3)]},

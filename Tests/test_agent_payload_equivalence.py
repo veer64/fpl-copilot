@@ -18,13 +18,16 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
 
 import payload_fixture as pf                               # noqa: E402
 
-FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v8.json"   # v8 (2026-11-16, Prompt R3c): a NORMAL turn -- v7 plus the written lists (captain_pick added, four tools changed, three prompt changes)
+FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v9.json"   # v9 (2026-11-16, Prompt R3d): a NORMAL turn -- v8 plus the written lists (four tool descriptions, three prompt changes)
+V8 = REPO / "Tests" / "fixtures" / "agent_payloads_v8.json"        # v8 (2026-11-16, Prompt R3c): a NORMAL turn -- v7 plus the written lists (captain_pick added, four tools changed, three prompt changes)
 V7 = REPO / "Tests" / "fixtures" / "agent_payloads_v7.json"        # v7 (2026-11-16, Prompt R3b): a NORMAL turn -- v6 plus the written lists (five tool descriptions / schemas, two prompt changes); a draft turn still equals v5 (Tests/test_draft_payload.py)
 V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v6.json"        # v6 (2026-11-16, Prompt R3): max_tokens 2,048, two code-built tools, three tool descriptions, the written list of prompt changes
 PROMPT_CHANGES_V7 = REPO / "Tests" / "fixtures" / "agent_prompt_v6_to_v7.json"   # the written list: every prompt change of R3b, old -> new
 TOOL_CHANGES_V7 = REPO / "Tests" / "fixtures" / "agent_tools_v6_to_v7.json"      # the written list: every tool change of R3b, old -> new
 PROMPT_CHANGES_V8 = REPO / "Tests" / "fixtures" / "agent_prompt_v7_to_v8.json"   # the written list: every prompt change of R3c, old -> new
 TOOL_CHANGES_V8 = REPO / "Tests" / "fixtures" / "agent_tools_v7_to_v8.json"      # the written list: every tool change of R3c, old -> new
+PROMPT_CHANGES_V9 = REPO / "Tests" / "fixtures" / "agent_prompt_v8_to_v9.json"   # the written list: every prompt change of R3d, old -> new
+TOOL_CHANGES_V9 = REPO / "Tests" / "fixtures" / "agent_tools_v8_to_v9.json"      # the written list: every tool change of R3d, old -> new
 V5 = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"        # v5 (2026-10-27, Prompt E): set_my_squad's ticket sentence + preview_ticket; v4 lives on the parked branch agent-sonnet5
 PROMPT_CHANGES = REPO / "Tests" / "fixtures" / "agent_prompt_v5_to_v6.json"   # the written list: every prompt change of R3, old -> new
 V1 = REPO / "Tests" / "fixtures" / "agent_payloads_v1.json"
@@ -171,7 +174,7 @@ R3C_CHANGED_TOOLS = ["get_my_xi", "set_my_squad", "get_league_table", "get_fixtu
 
 
 def test_v8_is_v7_with_the_written_lists_of_changes_and_nothing_else():
-    v7, v8 = json.loads(V7.read_text(encoding="utf-8")), _fixture()
+    v7, v8 = json.loads(V7.read_text(encoding="utf-8")), json.loads(V8.read_text(encoding="utf-8"))   # R3d: v8 is a record now (was _fixture())
     prompt_changes = json.loads(PROMPT_CHANGES_V8.read_text(encoding="utf-8"))["changes"]
     tool_changes = json.loads(TOOL_CHANGES_V8.read_text(encoding="utf-8"))["changes"]
     tools = json.loads(json.dumps(v8["shared"]["tools"]))
@@ -205,15 +208,48 @@ def test_v8_is_v7_with_the_written_lists_of_changes_and_nothing_else():
     assert [t["name"] for t in v8["shared"]["tools"]][-2:] == ["captain_pick", "search_news"]
 
 
-def test_v8s_prompt_and_v5s_prompt_are_the_two_prompt_files(monkeypatch):
-    """R3c: was test_v7s_prompt_and_v5s_prompt_are_the_two_prompt_files (R3b), before that the v6 one -- the NORMAL turn's
-    fixture is v8 now."""
+# ---- Prompt R3d (2026-11-16): v9 is v8 plus two WRITTEN lists, and nothing else ----------------------------------------------------
+# The brief: "fixture v9 for normal turns; the test rebuilds v8 by undoing a written list of every change". The lists:
+# Tests/fixtures/agent_tools_v8_to_v9.json (four descriptions: compare_players, get_player_card, set_my_squad, propose_transfers;
+# no tool added, removed or moved, no schema changed) and Tests/fixtures/agent_prompt_v8_to_v9.json (three prompt changes).
+R3D_CHANGED_TOOLS = ["compare_players", "get_player_card", "set_my_squad", "propose_transfers"]
+
+
+def test_v9_is_v8_with_the_written_lists_of_changes_and_nothing_else():
+    v8, v9 = json.loads(V8.read_text(encoding="utf-8")), _fixture()
+    prompt_changes = json.loads(PROMPT_CHANGES_V9.read_text(encoding="utf-8"))["changes"]
+    tool_changes = json.loads(TOOL_CHANGES_V9.read_text(encoding="utf-8"))["changes"]
+    tools = json.loads(json.dumps(v9["shared"]["tools"]))
+    assert sorted(c["tool"] for c in tool_changes) == sorted(R3D_CHANGED_TOOLS) and not any("input_schema" in c for c in tool_changes)
+    for ch in tool_changes:
+        tool = next(t for t in tools if t["name"] == ch["tool"])
+        for d in reversed(ch["description"]):
+            assert tool["description"].count(d["new"]) == 1 and d["old"] != d["new"], ch["tool"]
+            tool["description"] = tool["description"].replace(d["new"], d["old"])
+    text = v9["shared"]["system"][0]["text"]
+    for ch in reversed(prompt_changes):
+        assert text.count(ch["new"]) == 1 and ch["old"] != ch["new"], ch["why"]
+        text = text.replace(ch["new"], ch["old"])
+    assert len(prompt_changes) == 3 and len(v8["shared"]["system"]) == len(v9["shared"]["system"]) == 1
+    rebuilt = {**v9, "shared": {**v9["shared"], "tools": tools, "system": [{**v9["shared"]["system"][0], "text": text}]}}
+    labels = ("built_at", "agent_head")
+    a = json.dumps({k: v for k, v in rebuilt.items() if k not in labels}, sort_keys=True, ensure_ascii=False)
+    b = json.dumps({k: v for k, v in v8.items() if k not in labels}, sort_keys=True, ensure_ascii=False)
+    assert a.encode("utf-8") == b.encode("utf-8")
+    t8, t9 = {t["name"]: t for t in v8["shared"]["tools"]}, {t["name"]: t for t in v9["shared"]["tools"]}
+    assert [t["name"] for t in v8["shared"]["tools"]] == [t["name"] for t in v9["shared"]["tools"]]
+    assert sorted(n for n in t8 if t8[n] != t9[n]) == sorted(R3D_CHANGED_TOOLS)
+
+
+def test_v9s_prompt_and_v5s_prompt_are_the_two_prompt_files(monkeypatch):
+    """R3d: was test_v8s_prompt_and_v5s_prompt_are_the_two_prompt_files (R3c; v7 in R3b, v6 in R3) -- the NORMAL turn's
+    fixture is v9 now."""
     ag = _agent(monkeypatch)
-    v5, v8 = json.loads(V5.read_text(encoding="utf-8")), _fixture()
-    assert "".join(b["text"] for b in v8["shared"]["system"]) == f"{v8['context_text']}\n\n{ag.SYSTEM_PROMPT}"
+    v5, v9 = json.loads(V5.read_text(encoding="utf-8")), _fixture()
+    assert "".join(b["text"] for b in v9["shared"]["system"]) == f"{v9['context_text']}\n\n{ag.SYSTEM_PROMPT}"
     assert "".join(b["text"] for b in v5["shared"]["system"]) == f"{v5['context_text']}\n\n{ag.DRAFT_SYSTEM_PROMPT}"   # the frozen copy
     assert v5["shared"]["tools"] == [pf._strip(t) for t in ag.DRAFT_BASE_TOOLS]                                       # the frozen tools
-    assert v8["shared"]["tools"] == [pf._strip(t) for t in ag.tools_schema]
+    assert v9["shared"]["tools"] == [pf._strip(t) for t in ag.tools_schema]
 
 
 def test_the_normalizer_treats_a_string_and_its_single_text_block_alike():

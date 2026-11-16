@@ -1,0 +1,35 @@
+{
+ "name": "r3d_setB_v1",
+ "written": "2026-11-16",
+ "purpose": "Prompt R3d, the final gate under the owner's ship rule. Set D: R3c's three failing turns, exact wording and players, 3 runs each. Set B: the same ten case types as R3, R3b and R3c, 3 runs each, with NEW wording and NEW named / IN players versus all three; case 2 names a number of gameweeks and no number of transfers. Every named / IN player has exactly ONE player-lookup match and each swap previews as legal (checked by the plan step on a probe user, before any model call). Set C: three questions, one run each, gated on the zeros only.",
+ "runs_per_case": 3,
+ "placeholders": {"p1": "the first named player of case 6", "p2": "the second", "in8": "the player brought in in case 8", "out8": "the squad player he replaces", "in9": "the player brought in in case 9", "out9": "the squad player he replaces"},
+ "set_d": [
+  {"id": "D2", "path": "team", "what": "R3c case 2: no transfer cap, no 'as you asked', no hit", "turns": ["Using only my free transfers, what moves should I make across the next three gameweeks?"]},
+  {"id": "D6", "path": "team", "what": "R3c case 6: the code-built comparison, the flag shown, no model-written estimate", "turns": ["Over the coming gameweeks, is Doku or Semenyo the better pick?"]},
+  {"id": "D9", "path": "team", "what": "R3c case 9: a preview on the first turn; continue -> Yes / No, 0 writes; yes -> saved once", "turns": ["Sell Barry and buy Delap.", "continue", "yes"]}
+ ],
+ "cases": [
+  {"id": "B1", "path": "team", "what": "whole-squad review, next 3 gameweeks", "turns": ["Rate each player in my squad over the next three gameweeks."]},
+  {"id": "B2", "path": "team", "what": "a 3-gameweek transfer plan using free transfers (gameweeks named, no number of transfers)", "turns": ["Which transfers should I make over the next three gameweeks without taking a hit?"]},
+  {"id": "B3", "path": "team", "what": "top 8 forwards, next 4 gameweeks, table with price and fixtures", "turns": ["Give me the eight highest-scoring forwards for the next four gameweeks, with their prices and fixtures in a table."]},
+  {"id": "B4", "path": "team", "what": "best possible squad for £100m", "turns": ["From scratch with a £100m budget, which fifteen players score the most?"]},
+  {"id": "B5", "path": "team", "what": "captain this week and why", "turns": ["Which of my players should be captain this gameweek, and why?"]},
+  {"id": "B6", "path": "team", "what": "compare two named players", "turns": ["Who's the better pick over the next few gameweeks, {p1} or {p2}?"]},
+  {"id": "B7", "path": "team", "what": "which of my players may rise / fall in price", "turns": ["Are any of my players about to change price?"]},
+  {"id": "B8", "path": "team", "what": "swap preview then no -> 'No change made.', 0 writes", "turns": ["Bring in {in8} for {out8}.", "no"]},
+  {"id": "B9", "path": "team", "what": "swap preview then continue -> asks Yes / No, 0 writes; then yes -> saved once", "turns": ["{out9} out, {in9} in.", "continue", "yes"]},
+  {"id": "B10", "path": "general", "what": "General mode: best-value defenders under £5.0m, next 5 gameweeks", "turns": ["Best value defenders under £5.0m for the next five gameweeks, please."]}
+ ],
+ "set_c": [
+  {"id": "C1", "path": "team", "what": "no cap", "turns": ["What transfers should I make over the next five gameweeks?"]},
+  {"id": "C2", "path": "team", "what": "a cap of 2, stated", "turns": ["Make two transfers for me this week."]},
+  {"id": "C3", "path": "team", "what": "the code-built comparison, the injury shown", "turns": ["Compare Saka and Haaland."]}
+ ],
+ "players": {"p1": "Mateta", "p2": "Wissa", "in8": "Andrey Santos", "out8": "Grimes", "in9": "Ajer", "out9": "Bijol"},
+ "fallbacks": {"case 6": ["Tielemans", "Hudson-Odoi"], "case 8 IN": ["Yalcouye", "Dowell"], "case 9 IN": ["Kayode", "Dalot"],
+               "rule": "used in this fixed order only when a name does not have a single match, or its swap does not preview as legal, on the laptop database; the plan file records which was used and why"},
+ "not_reused": {"r3": ["Declan Rice", "Dominik Szoboszlai", "Kudus", "Foden", "Van de Ven", "Collins", "Wirtz", "Eze", "Tavernier", "Neto", "Vuskovic", "Pinnock"],
+                "r3b": ["Bukayo Saka", "Cole Palmer", "Odegaard", "Gakpo", "De Cuyper", "Guehi", "Bruno Fernandes", "Morgan Rogers", "Gross", "Mitoma", "Saliba", "Kerkez"],
+                "r3c": ["Doku", "Semenyo", "Madueke", "Mbeumo", "Delap", "Barry", "Cherki", "Anderson", "Dewsbury-Hall", "Schade", "Zirkzee", "Thiago", "Isak"]}
+}

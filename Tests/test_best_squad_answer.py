@@ -175,7 +175,7 @@ def test_s7_forced_left_out_warning_and_planning_note_are_carried(pool_db):
     lines = text.split("\n")
     assert lines[0].startswith("**Best 15 from scratch for GW13 on a £100.0m budget: ")
     assert lines[1] == out["forced_availability_warning"] and lines[2] == out["note"]
-    assert f"Put in as you asked: {ROW[121][1]}, {ROW[107][1]} (to start: {ROW[107][1]}). Left out as you asked: {ROW[108][1]}." in text
+    assert f"Forced in: {ROW[121][1]}, {ROW[107][1]} (to start: {ROW[107][1]}). Left out: {ROW[108][1]}." in text
     assert ("GW13 is a longer-range estimate from team strengths, with no odds, lineups or team news yet, so these picks will move "
             "before then.") in text
     bravo = [r for _h, body in seed.tables(text) for r in body if r[1] == "Bravo"]

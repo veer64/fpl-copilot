@@ -1,0 +1,45 @@
+{
+ "what": "Prompt R3d (2026-11-16): every change to a NORMAL turn's tool list since fixture v8 (52f5510): four descriptions changed; no tool added, removed or moved, no schema changed. Undoing the list on v9's tools gives v8's byte for byte (Tests/test_agent_payload_equivalence.py). A draft chat's turn keeps prompts/draft_frozen/tools.json.",
+ "changes": [
+  {
+   "tool": "get_player_card",
+   "why": "item 2: for two or more players use compare_players; a second card in the turn is not run",
+   "description": [
+    {
+     "old": "e.",
+     "new": "e. For two or more named players use compare_players: it writes the comparison, and a second player card in the same turn is not run."
+    }
+   ]
+  },
+  {
+   "tool": "compare_players",
+   "why": "item 2: leads with what it is for -- any comparison of named players, injured or flagged included; the armband second",
+   "description": [
+    {
+     "old": "Not for the armband: any captain or vice-captain question -- 'X or Y for captain', 'who should I captain', 'is X the right captain' -- goes to captain_pick, whose answer is written by code. Compare two or mor",
+     "new": "THE tool for any question comparing two or more named players -- 'X or Y', 'who is the better pick', 'how do they stack up', 'X vs Y over the next N gameweeks' -- injured, doubtful or flagged players included: its answer shows FPL's flag first and each player's own figures, so never answer such a question from player cards. Not for the armband: any captain or vice-captain question -- 'X or Y for captain', 'who should I captain', 'is X the right captain' -- goes to captain_pick, whose answer is written by code. It compares th"
+    }
+   ]
+  },
+  {
+   "tool": "propose_transfers",
+   "why": "item 1: a number of gameweeks is not a number of transfers; the app checks the user's own words",
+   "description": [
+    {
+     "old": "s. Opt",
+     "new": "s. A number of gameweeks is not a number of transfers ('the next three gameweeks' is horizon=3, never max_transfers=3), and the app checks the user's own words: a limit they did not state is ignored. Opt"
+    }
+   ]
+  },
+  {
+   "tool": "set_my_squad",
+   "why": "item 3: a swap instruction is previewed at once, never argued or asked first",
+   "description": [
+    {
+     "old": "AL",
+     "new": "Any message naming a player to take out and a player to bring in ('sell X and buy Y', 'swap X for Y', 'replace X with Y', 'X out, Y in', 'bring in Y for X') is an instruction: resolve both, then preview it at once with confirm=false -- never argue or ask first; the preview shows the predicted gain, so a poor move is visible there. AL"
+    }
+   ]
+  }
+ ]
+}

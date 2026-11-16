@@ -21,13 +21,16 @@ _CURRENT = contextvars.ContextVar("fpl_turn", default=None)
 # the turn that just closed so the caller can read it after run_agent returned.
 _RECORD = contextvars.ContextVar("fpl_turn_record", default=None)
 _LAST = contextvars.ContextVar("fpl_turn_last", default=None)
+# Prompt R3d (2026-11-16): the turn's own user message, so code can check the model's reading of the user's words (a transfer
+# limit is applied only when the message names one). Kept apart from the turn dict, which callers compare whole.
+_MESSAGE = contextvars.ContextVar("fpl_turn_user_message", default=None)
 
 
 def clock():
     return datetime.now(timezone.utc)
 
 
-def begin(turn_id=None, started_at=None, thread_id=None, draft=None, consent=None):
+def begin(turn_id=None, started_at=None, thread_id=None, draft=None, consent=None, user_message=None):
     """Open a turn (closing any earlier one in this context). Returns {"turn_id", "started_at"} (+ "thread_id" when the
     turn belongs to a stored thread; + "draft" -- {"user_id", "draft_key"} -- when it is the user's draft chat, Prompt W11:
     the squad tools then read and write the draft; + "consent" -- a preview ticket id -- Prompt X1: ONLY confirm_gate sets
@@ -42,7 +45,13 @@ def begin(turn_id=None, started_at=None, thread_id=None, draft=None, consent=Non
     _CURRENT.set(turn)
     _RECORD.set({})
     _LAST.set(None)
+    _MESSAGE.set(None if user_message is None else str(user_message))
     return dict(turn)
+
+
+def user_message():
+    """The open turn's own user message (agent._begin_turn passes it), or None -- outside a turn, or a turn opened without it."""
+    return _MESSAGE.get()
 
 
 def note(**fields):
@@ -66,6 +75,7 @@ def current():
 
 def end():
     _CURRENT.set(None)
+    _MESSAGE.set(None)
     rec = _RECORD.get()
     _RECORD.set(None)
     _LAST.set(dict(rec) if rec else None)
