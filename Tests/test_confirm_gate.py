@@ -33,6 +33,9 @@ YES_VARIANTS = ["Yes", "yes", "yes please", "Yes please!", "go ahead", "do it", 
 ASK_VARIANTS = ["hmm", "maybe", "what about Salah instead?", "", "keep it", "why?", "how much would that cost?",
                 "is that a good idea?", "yes but what about Salah", "\U0001F44D"]
 NO_MORE_VARIANTS = ["no, bring in Salah instead", "not sure, what about Palmer?", "no — make Saka captain"]
+# Prompt R1 (2026-11-14): the cut-off line invites "continue" -- with a preview open that must NEVER commit
+CONTINUE_VARIANTS = ["continue", "Continue", "continue.", "Continue please", "please continue", "go on", "Go on!",
+                     "carry on", "Carry on please", "the rest", "The rest please", "more", "More."]
 
 
 # ---- the classifier (pure) -----------------------------------------------------------------------------------------------
@@ -55,6 +58,11 @@ def test_unclear_answers_ask(text):
 @pytest.mark.parametrize("text", NO_MORE_VARIANTS)
 def test_a_no_with_more_is_never_a_yes(text):
     assert cg.classify(text) == "no_more"
+
+
+@pytest.mark.parametrize("text", CONTINUE_VARIANTS)
+def test_r1_continue_is_never_a_yes_it_asks(text):
+    assert cg.classify(text) == "ask"
 
 
 def test_the_model_reads_a_note_the_user_does_not():
@@ -165,6 +173,20 @@ def test_an_unclear_answer_writes_nothing_and_asks(tool, db, text):
     assert yes[0].startswith("Done") and _versions(db)[0] == n0[0] + 1
 
 
+@pytest.mark.parametrize("text", ["continue", "go on", "carry on", "the rest", "more"])
+def test_r1_continue_with_a_preview_open_writes_nothing_and_asks(tool, db, text):
+    n0 = _versions(db)
+    pv = _preview(tool)
+    out = cg.answer_turn(text, [], None)
+    turn_context.end()
+    assert out is not None and out[0] == "Shall I make this change? Yes or No"
+    row = _ticket_row(db, pv["preview_ticket"])
+    assert _versions(db) == n0 and row["used_at"] is None and row["cancelled_at"] is None   # still open: a Yes can follow
+    yes = cg.answer_turn("yes", [], None)
+    turn_context.end()
+    assert yes[0].startswith("Done") and _versions(db)[0] == n0[0] + 1
+
+
 @pytest.mark.parametrize("text", NO_MORE_VARIANTS)
 def test_a_no_with_more_cancels_and_leaves_the_rest_to_the_model(tool, db, text):
     n0 = _versions(db)
@@ -253,7 +275,8 @@ class _NoModel:
         raise AssertionError("the model must not be called for a preview answer")
 
 
-@pytest.mark.parametrize("text,reply", [("No", "No change made."), ("hmm", "Shall I make this change? Yes or No")])
+@pytest.mark.parametrize("text,reply", [("No", "No change made."), ("hmm", "Shall I make this change? Yes or No"),
+                                        ("continue", "Shall I make this change? Yes or No")])     # R1: continue
 def test_run_agent_answers_a_preview_reply_without_the_model(tool, db, monkeypatch, text, reply):
     import agent
     fake = _NoModel()

@@ -224,6 +224,14 @@ def _chip_weeks(history, names):
     return {int(c["event"]) for c in (history.get("chips") or []) if c.get("name") in names and c.get("event") is not None}
 
 
+def chips_played(history):
+    """Prompt R3 item 6: [{"event", "name"}] of every chip FPL's history lists, by gameweek -- what the team-score refresh and
+    the import store so the free-transfer count can follow derive_free_transfers' rule between imports."""
+    rows = [{"event": int(c["event"]), "name": str(c.get("name"))} for c in ((history or {}).get("chips") or [])
+            if c.get("event") is not None and c.get("name")]
+    return sorted(rows, key=lambda c: (c["event"], c["name"]))
+
+
 def _latest_buys(transfers, freehit_weeks, up_to_gw):
     """{element: element_in_cost} of the latest transfer that brought each player in, up to `up_to_gw`; free-hit weeks'
     transfers are ignored (that squad reverted)."""
@@ -396,12 +404,28 @@ def team_summary(raw):
             "updated_after_gw": int(last["event"]) if last else None}
 
 
+def chips_summary(raw):
+    """Prompt R3 item 6: {"chips", "chips_through_gw"} from responses already fetched -- every chip FPL's history lists, and the
+    latest gameweek whose deadline had passed when it was read (fetch_team's `latest_gw`; None when not known, and then
+    nothing is stored). Stored beside the score summary (fpl_teams), never part of team_summary's card."""
+    return {"chips": chips_played(raw.get("history") or {}), "chips_through_gw": _int(raw.get("latest_gw"))}
+
+
 def fetch_summary(fpl_team_id, get=None):
     """The weekly job's read: the bootstrap (cached BOOTSTRAP_TTL_S) and ONE request, entry/{id}/history/ -- no names (the
     import stored them; write_summary keeps them). Raises FplNotFound / FplUnavailable."""
     boot = bootstrap(get=get)
     history = fetch_json(f"entry/{int(fpl_team_id)}/history/", get=get)
-    return team_summary({"entry": {}, "history": history, "bootstrap": boot})
+    raw = {"entry": {}, "history": history, "bootstrap": boot, "latest_gw": started_gw(boot)}
+    return {**team_summary(raw), **chips_summary(raw)}      # R3 item 6: the chips this same history lists, stored with the scores
+
+
+def started_gw(boot, now=None):
+    """The latest gameweek whose deadline has passed (None before the first, or when the bootstrap carries no deadlines)."""
+    try:
+        return gameweeks(boot, now or clock())[0]
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def upcoming_events(boot, now=None, limit=4):

@@ -247,15 +247,21 @@ def test_the_penalty_sentence_does_not_call_the_player_a_taker_and_invented_fact
 
 # ================================================================ F7
 def test_the_transfer_summary_says_the_plan_covers_up_to_six_gameweeks():
+    """Prompt R3 (2026-11-16): the summary names the gameweeks THIS plan covers (was the fixed "This plan covers up to six
+    gameweeks; check back each week.", echoed under a three-gameweek plan: digest M24); the prompt no longer asks for that
+    sentence on a normal turn (the plan is written by code), and the frozen draft prompt still carries it."""
     s = mt._transfer_summary(7, {"n_transfers": 1, "hits": 0, "transfers": [{"out_name": "A", "in_name": "B"}]},
-                             {"gap_objective": 1.2, "gap_this_gw": 0.4, "refused": False}, 2)
+                             {"gap_objective": 1.2, "gap_this_gw": 0.4, "refused": False}, 2, span="GW7–9 (3 gameweeks)")
     assert s.startswith("For GW7: 1 transfer, 0 hits (A out, B in)")
-    assert s.endswith("This plan covers up to six gameweeks; check back each week.")
-    hold = mt._transfer_summary(7, {"n_transfers": 0, "hits": 0, "transfers": []}, {"gap_objective": 0.0, "gap_this_gw": 0.0, "refused": False}, 1)
-    assert hold.startswith("For GW7: hold, no transfer") and "This plan covers up to six gameweeks; check back each week." in hold
+    assert s.endswith("This plan covers GW7–9 (3 gameweeks); check back each week.")          # was: "... up to six gameweeks; ..."
+    hold = mt._transfer_summary(7, {"n_transfers": 0, "hits": 0, "transfers": []}, {"gap_objective": 0.0, "gap_this_gw": 0.0, "refused": False}, 1,
+                                span="GW7–12 (6 gameweeks)")
+    assert hold.startswith("For GW7: hold, no transfer") and "This plan covers GW7–12 (6 gameweeks); check back each week." in hold
     import inspect
     assert '"summary_plain": _transfer_summary(' in inspect.getsource(mt.propose_transfers)
-    assert "This plan covers up to six gameweeks; check back each week." in PROMPT
+    assert "This plan covers up to six gameweeks; check back each week." not in PROMPT           # was: in PROMPT
+    import agent
+    assert "This plan covers up to six gameweeks; check back each week." in agent.DRAFT_SYSTEM_PROMPT
 
 
 # ================================================================ F5

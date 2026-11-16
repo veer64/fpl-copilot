@@ -18,7 +18,9 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
 
 import payload_fixture as pf                               # noqa: E402
 
-FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"   # v5 (2026-10-27, Prompt E): set_my_squad's ticket sentence + preview_ticket; v4 lives on the parked branch agent-sonnet5
+FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v6.json"   # v6 (2026-11-16, Prompt R3): a NORMAL turn -- max_tokens 2,048, two code-built tools, three tool descriptions, the written list of prompt changes; a draft turn still equals v5 (Tests/test_draft_payload.py)
+V5 = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"        # v5 (2026-10-27, Prompt E): set_my_squad's ticket sentence + preview_ticket; v4 lives on the parked branch agent-sonnet5
+PROMPT_CHANGES = REPO / "Tests" / "fixtures" / "agent_prompt_v5_to_v6.json"   # the written list: every prompt change of R3, old -> new
 V1 = REPO / "Tests" / "fixtures" / "agent_payloads_v1.json"
 V2 = REPO / "Tests" / "fixtures" / "agent_payloads_v2.json"
 V3 = REPO / "Tests" / "fixtures" / "agent_payloads_v3.json"        # v3 (2026-10-26): the countdown line beside the Now line
@@ -46,13 +48,73 @@ def test_the_fixture_describes_the_core_set():
     assert doc["n_core"] == len(doc["first_calls"]) == 109
     assert len(doc["tool_turn"]["calls"]) == 3
     assert sorted(doc["shared"]) == ["max_tokens", "model", "system", "tools"]
-    assert doc["shared"]["model"] == "claude-sonnet-4-6" and doc["shared"]["max_tokens"] == 1024
+    assert doc["shared"]["model"] == "claude-sonnet-4-6" and doc["shared"]["max_tokens"] == 2048   # R3: was 1,024 (v5)
     # v2: the clock is pinned beside the block, the block carries no clock line, the Now line is its own field
     assert doc["frozen_now"] and doc["now_line"].startswith("- Now: ")
     assert pf.now_from_context(doc["context_text"]) is None and "- Now:" not in doc["context_text"]
     assert pf.now_from_context(doc["now_line"]).strftime("%Y-%m-%dT%H:%M:00Z") == doc["frozen_now"]
     assert doc["countdown_line"].startswith("Next deadline: GW") and " UTC — in " in doc["countdown_line"]
-    assert V1.exists() and V2.exists() and V3.exists()     # the earlier records are kept
+    assert V1.exists() and V2.exists() and V3.exists() and V5.exists()     # the earlier records are kept
+
+
+# ---- Prompt R3 (2026-11-16): v6 is v5 plus a WRITTEN list, and nothing else ---------------------------------------------------------
+# The brief: "a test proves v6 differs from v5 ONLY by the new tools, the get_prediction schema and max_tokens". The owner
+# accepted (checkpoint (d) 2, and "go" change 1) that the list is longer and must be written down: the two new tools; the
+# descriptions / schemas of get_prediction, propose_transfers and get_price_movements; max_tokens; and the prompt changes of
+# Tests/fixtures/agent_prompt_v5_to_v6.json. This test rebuilds v5 from v6 by undoing exactly that list.
+R3_NEW_TOOLS = ["rank_players", "review_my_squad"]
+R3_CHANGED_TOOLS = ["get_prediction", "propose_transfers", "get_price_movements"]
+
+
+def test_v6_is_v5_with_the_written_list_of_changes_and_nothing_else():
+    v5, v6 = json.loads(V5.read_text(encoding="utf-8")), _fixture()
+    changes = json.loads(PROMPT_CHANGES.read_text(encoding="utf-8"))["changes"]
+    # 1. everything that is not `shared` (the 109 questions' messages, the tool turn, the clock, the context block) is v5's
+    labels = ("built_at", "agent_head", "shared")
+    assert {k: v for k, v in v6.items() if k not in labels} == {k: v for k, v in v5.items() if k not in labels}
+    assert sorted(v6["shared"]) == sorted(v5["shared"]) == ["max_tokens", "model", "system", "tools"]
+    assert v6["shared"]["model"] == v5["shared"]["model"]
+    # 2. max_tokens
+    assert (v5["shared"]["max_tokens"], v6["shared"]["max_tokens"]) == (1024, 2048)
+    # 3. the tools: two appended, three changed, the other 21 identical and in the same order
+    t5, t6 = v5["shared"]["tools"], v6["shared"]["tools"]
+    assert [t["name"] for t in t6 if t["name"] not in R3_NEW_TOOLS] == [t["name"] for t in t5]
+    assert [t["name"] for t in t6][-3:] == R3_NEW_TOOLS + ["search_news"]         # inserted before the last tool, which stays last
+    t6 = [t for t in t6 if t["name"] not in R3_NEW_TOOLS]
+    differing = [a["name"] for a, b in zip(t5, t6) if a != b]
+    assert differing == R3_CHANGED_TOOLS
+    for name in R3_CHANGED_TOOLS:
+        a, b = next(t for t in t5 if t["name"] == name), next(t for t in t6 if t["name"] == name)
+        assert set(a) == set(b) == {"name", "description", "input_schema"} and a["description"] != b["description"]
+        assert a["input_schema"]["required"] == b["input_schema"]["required"]
+    old_pred = next(t for t in t5 if t["name"] == "get_prediction")["input_schema"]["properties"]
+    new_pred = next(t for t in t6 if t["name"] == "get_prediction")["input_schema"]["properties"]
+    assert {k: v for k, v in new_pred.items() if k != "horizon"} == old_pred and "horizon" in new_pred    # the schema: + horizon
+    for name in ("propose_transfers", "get_price_movements"):                # same arguments; a description of one of them reworded
+        a, b = next(t for t in t5 if t["name"] == name), next(t for t in t6 if t["name"] == name)
+        assert set(a["input_schema"]["properties"]) == set(b["input_schema"]["properties"])
+        assert {k: v.get("type") for k, v in a["input_schema"]["properties"].items()} == \
+            {k: v.get("type") for k, v in b["input_schema"]["properties"].items()}
+    # 4. the system prompt: undo the written list, newest change first, each exactly once -> v5's text byte for byte
+    s5, s6 = "".join(b["text"] for b in v5["shared"]["system"]), "".join(b["text"] for b in v6["shared"]["system"])
+    assert len(v5["shared"]["system"]) == len(v6["shared"]["system"]) == 1
+    text = s6
+    for ch in reversed(changes):
+        assert text.count(ch["new"]) == 1, ch["why"]
+        text = text.replace(ch["new"], ch["old"])
+    assert text == s5
+    for ch in changes:
+        assert s5.count(ch["old"]) == 1 and ch["old"] != ch["new"], ch["why"]
+    assert len(changes) == 9
+
+
+def test_v6s_prompt_and_v5s_prompt_are_the_two_prompt_files(monkeypatch):
+    ag = _agent(monkeypatch)
+    v5, v6 = json.loads(V5.read_text(encoding="utf-8")), _fixture()
+    assert "".join(b["text"] for b in v6["shared"]["system"]) == f"{v6['context_text']}\n\n{ag.SYSTEM_PROMPT}"
+    assert "".join(b["text"] for b in v5["shared"]["system"]) == f"{v5['context_text']}\n\n{ag.DRAFT_SYSTEM_PROMPT}"   # the frozen copy
+    assert v5["shared"]["tools"] == [pf._strip(t) for t in ag.DRAFT_BASE_TOOLS]                                       # the frozen tools
+    assert v6["shared"]["tools"] == [pf._strip(t) for t in ag.tools_schema]
 
 
 def test_the_normalizer_treats_a_string_and_its_single_text_block_alike():

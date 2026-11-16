@@ -452,8 +452,10 @@ def player_rows_missing_team_or_position(out):
     return missing
 
 
-def _transfer_summary(current, change, hold_comparison, free_before):
-    """The plain first line of a transfer plan, ending with the fixed six-gameweek sentence (F7)."""
+def _transfer_summary(current, change, hold_comparison, free_before, span=None):
+    """The plain first line of a transfer plan. Prompt R3: it ends by naming the gameweeks THIS plan covers (`span`, e.g.
+    "GW11-13 (3 gameweeks)") -- the fixed "up to six gameweeks" sentence was echoed under three-gameweek plans -- and the hold
+    comparison says what it is: against making no transfer this gameweek only."""
     n = int(change.get("n_transfers") or 0)
     if n == 0:
         head = f"For GW{int(current)}: hold, no transfer"
@@ -465,11 +467,12 @@ def _transfer_summary(current, change, hold_comparison, free_before):
     if hold_comparison and not hold_comparison.get("refused"):
         g6, g1 = hold_comparison.get("gap_objective"), hold_comparison.get("gap_this_gw")
         if g6 is not None and g1 is not None:
-            parts.append(f"Against holding: {g6:+.2f} over the next six gameweeks (weighted towards the nearer ones), "
-                         f"{g1:+.2f} for this deadline alone.")
+            parts.append(f"Against making no transfer this gameweek only: {g6:+.2f} on the plan's weighted total"
+                         + (f" over {span.split(' (')[0]}" if span else "") + " (later gameweeks count for less), "
+                         f"{g1:+.2f} predicted line-up points for this deadline alone.")
     elif hold_comparison and hold_comparison.get("refused"):
         parts.append("The hold-versus-move gap is withheld this week.")
-    parts.append("This plan covers up to six gameweeks; check back each week.")
+    parts.append(f"This plan covers {span}; check back each week." if span else "Check back each week.")
     return " ".join(parts)
 
 
@@ -1234,12 +1237,21 @@ def _with_cs_points(row, position):
     return out
 
 
-def get_prediction(player_id: int, gw: int = None):
+def get_prediction(player_id: int, gw: int = None, horizon: int = None):
     """The production model's view of one player: the target gw if given,
-    else every gameweek in the latest run's six-week horizon."""
+    else every gameweek the latest run covers. Prompt R3: horizon = the next N gameweeks counted from the next deadline's
+    gameweek -- only those gameweeks' rows come back and `span` carries their sum, labelled with its gameweeks (the model
+    added gameweeks up itself and got it wrong: digest W2, W5, W6); without horizon the answer is what it always was."""
     run = _latest_run()
     if run is None:
         return {"error": "no successful pipeline run in the database yet"}
+    span_gws, span_clip = None, None
+    if horizon is not None:
+        if gw is not None:
+            return {"error": "pass gw (one gameweek) or the number of gameweeks to total, not both"}
+        span_gws, span_clip, bad = _answer_span(run, horizon)
+        if bad:
+            return bad
     cols = _prediction_columns(_table_columns("model_predictions"))
     sql = ("SELECT " + ", ".join(cols)
            + " FROM model_predictions"
@@ -1254,6 +1266,8 @@ def get_prediction(player_id: int, gw: int = None):
         if outside:
             return outside
     rows = _q(sql + " ORDER BY gw", tuple(params))
+    if span_gws is not None:
+        rows = [r for r in rows if int(r["gw"]) in span_gws]
     if not rows:
         return {"error": f"no prediction rows for player {player_id} in build "
                          f"{run['run_id']} (not in the player pool for that gameweek)"}
@@ -1283,10 +1297,13 @@ def get_prediction(player_id: int, gw: int = None):
     out["predictions"] = [_with_cs_points({k: (float(v) if isinstance(v, float) else v)
                                            for k, v in r.items()
                                            if k not in PRED_INTERNAL_COLS and k != "team"}, position) for r in rows]
-    out["horizon_e_points_sum"] = round(sum(r["e_points"] or 0 for r in rows), 2)
+    if span_gws is None:
+        out["horizon_e_points_sum"] = round(sum(r["e_points"] or 0 for r in rows), 2)
+    else:
+        out["span"] = _prediction_span(rows, span_gws, span_clip)        # Prompt R3: the sum for exactly the gameweeks asked
     out["quantiles"] = _quantile_block(rows)
-    _with_started_note(out, rows[0].get("gw") if gw is None else None)   # the first row is the build's own gameweek
-    return _with_meanings(_lead_with_availability(out, player_id, _availability_for([player_id])))
+    _with_started_note(out, rows[0].get("gw") if gw is None and span_gws is None else None)   # the first row is the build's own gameweek
+    return _with_prediction_words(_with_meanings(_lead_with_availability(out, player_id, _availability_for([player_id]))))
 
 
 def _quantile_block(rows):
@@ -1536,7 +1553,7 @@ def get_best_squad(budget: float = None):
     if not isinstance(out, dict) or "error" in out:
         return out
     ids = [r["player_id"] for k in PICK_ROW_KEYS for r in (out.get(k) or []) if isinstance(r, dict) and r.get("player_id") is not None]
-    return _with_pick_basis(out, out.get("gw"), _fixture_counts(out.get("gw"), ids))   # Friday gate R2
+    return _with_club_counts(_with_pick_basis(out, out.get("gw"), _fixture_counts(out.get("gw"), ids)))   # Friday gate R2; R3
 
 
 # -------------------------------------------------------------- my squad
@@ -2119,7 +2136,7 @@ def explain_prediction(player_id: int, gw: int = None, run_id: int = None):
     note = _stale_note(target, cutoff, built)
     if note:
         out["note_stale"] = note
-    return _plain_first(_plain_leads_with_availability(out), EXPLAIN_DETAIL)
+    return _with_input_meanings(_plain_first(_plain_leads_with_availability(out), EXPLAIN_DETAIL))
 
 
 def compare_runs(player_id: int, gw: int, run_id_a: int, run_id_b: int):
@@ -2189,7 +2206,7 @@ def compare_predictions(player_id_a: int, player_id_b: int, gw: int = None):
     note = _stale_note(target, cutoff, built)
     if note:
         out["note_stale"] = note
-    return _with_meanings(_plain_first(out, COMPARE_DETAIL))
+    return _with_input_meanings(_with_meanings(_plain_first(out, COMPARE_DETAIL)))
 
 
 def _frame_built(cutoff):
@@ -2544,9 +2561,9 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     elif gap_obj is None:
         hold_comparison["verdict"] = "no hold baseline: the hold plan could not be computed"
     else:
-        hold_comparison["verdict"] = (
-            f"moving scores {gap_obj:+.3f} on the six-week objective against holding"
-            if gap_obj else "moving and holding score the same on the six-week objective")
+        hold_comparison["verdict"] = (                              # Prompt R3: the plan's own length, never "six-week"
+            f"moving scores {gap_obj:+.3f} on the plan's weighted total against making no transfer this gameweek"
+            if gap_obj else "moving and making no transfer this gameweek score the same on the plan's weighted total")
 
     # The rolled-transfer offer: only when the recommendation IS to hold, and
     # never while the detector fires -- that exploration is priced on precisely
@@ -2578,7 +2595,8 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
     for st in later:
         st["transfers"] = [_transfer_row_meta(t, t_meta) for t in st["transfers"]]
     out = {
-        "summary_plain": _transfer_summary(current, change, hold_comparison, change["free_transfers_before"]),
+        "summary_plain": _transfer_summary(current, change, hold_comparison, change["free_transfers_before"],
+                                           span=_plan_span_words(current, int(eff_h))),
         "proposal_id": proposal_id, "source": source,
         "wait_note": "two full plans are computed (the move plan and the hold baseline): typically twenty to sixty seconds, occasionally longer",
         "gw": current, "path": header["note"], "predictions_as_of_cutoff_gw": cutoff,
@@ -2612,7 +2630,8 @@ def propose_transfers(horizon: int = 6, lock_player_ids: list = None, ban_player
         "apply_with": {**req, "gw": current, "proposal_id": proposal_id, "confirm": True},
     }
     forced = list(dict.fromkeys(int(x) for x in (lock_player_ids or [])))      # batch 3 F1: kept / bought as the user asked
-    return _with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), current)))
+    out = _with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), current)))
+    return _with_plan_answer(out) if source == "chat" else out             # Prompt R3: the plan's text is written by code
 
 
 def _check_lock_ban(lock, ban, pool_elements=None):
@@ -2791,7 +2810,7 @@ def optimise(lock_player_ids: list = None, ban_player_ids: list = None,
     # suspended or doubtful is built in, and the result says so first; u / n were refused above.
     forced = list(dict.fromkeys([int(x) for x in (start_player_ids or [])] + [int(x) for x in (lock_player_ids or [])]))
     out = _with_pick_basis(out, cutoff, _fixture_counts(cutoff, [r["player_id"] for r in out["squad"]]))
-    return _with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), cutoff)))
+    return _with_club_counts(_with_flags(_with_meanings(_with_started_note(_with_forced_warning(out, forced), cutoff))))
 
 
 def _check_squad_rules(lock, pool):
@@ -3773,7 +3792,7 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = 5):
                         step_rows_by_gw=step_rows, skeleton_age_hours=age_h, now=now, results=_fixture_results()))
     listed = out.get("listed_gameweeks") or []
     note_gw = int(gw) if gw is not None else (listed[0] if listed else run.get("gw"))
-    return _with_meanings(_with_started_note(out, note_gw))
+    return _with_fixture_words(_with_meanings(_with_started_note(out, note_gw)))
 
 
 def _fixture_results():
@@ -3830,7 +3849,9 @@ def get_price_movements(window_days: int = 7, user_id: int = None, include_squad
     if include_squad and squad is None and "error" not in out:
         out["my_squad_unavailable"] = ("no active squad version, so only market movers are "
                                        "shown -- selling prices need your purchase prices")
-    return out
+    if isinstance(out.get("fpl_price_change_percent"), dict):                # Prompt R3 (M18): which way FPL's figure points
+        out["fpl_price_change_percent"]["sign"] = PRICE_FIGURE_SIGN
+    return _with_price_answer(out, squad, window_days) if squad else out    # Prompt R3: a squad's answer is written by code
 
 
 # ---------------------------------------------------------------- league table (as-of)
@@ -4792,3 +4813,388 @@ def get_wildcard_gap(user_id: int = None):
                           "condition clears.")
         out["condition"] = degraded
     return _with_flags(_with_meanings(_with_started_note(out, current)))
+
+
+# ---------------------------------------------------------------- Prompt R3 (2026-11-16): answers written by code
+# Rankings, the whole-squad review, the transfer plan and a squad's price moves are number-dense answers the model kept getting
+# wrong by hand (eval/reports/r3_evidence_digest.md): partial lists called "the best", 32-45 single-player lookups in one
+# response, self-sorted tables, self-added sums, facts given the wrong meaning. On a NORMAL chat turn each of the four is
+# written by answers.py from the facts read here and returned as `direct_reply` -- the text IS the reply (agent.DIRECT_TOOLS:
+# the model only routes). A draft chat's turn never reaches any of this: its tools are the ones it has always had.
+R3_NOT_IN_DRAFT = "this answer is for a saved team or General mode, not the draft chat"
+
+
+def _answer_pool(run):
+    """{element: {element, name, position, team, price_tenths, pts: {gw: e_points}, start: {gw: p_start}}} -- EVERY player the
+    build has predictions for (model_predictions, the rows get_prediction reads), with today's price, club and position
+    (players_live) and the name FPL shows (the full name when the snapshot archive cannot be read)."""
+    web = _web_names()
+    pool = {}
+    for r in _q("SELECT element, name, position, team, price_tenths FROM players_live"):
+        e = int(r["element"])
+        pool[e] = {"element": e, "name": web.get(e) or r["name"], "full_name": r["name"], "position": r["position"],
+                   "team": r["team"], "price_tenths": r["price_tenths"], "pts": {}, "start": {}}
+    seen = set()
+    for r in _q("SELECT element, gw, e_points, p_start FROM model_predictions WHERE run_id = %s AND config = %s",
+                (run["run_id"], PRODUCTION_CONFIG)):
+        e = int(r["element"])
+        if e not in pool:
+            continue
+        seen.add(e)
+        pool[e]["pts"][int(r["gw"])] = float(r["e_points"] or 0.0)
+        pool[e]["start"][int(r["gw"])] = None if r["p_start"] is None else float(r["p_start"])
+    return {e: r for e, r in pool.items() if e in seen}
+
+
+def _answer_calendar():
+    """{(club, gw): [fixture, ...]} from the forward skeleton -- the calendar the fixture list reads -- or None when it cannot
+    be read: a missing file must read "not known", never "no fixture"."""
+    try:
+        import pandas as pd
+        import fixtures_tool as ft
+        cal, n_names = ft.calendar(df=pd.read_parquet(ft.SKELETON, columns=ft.SKELETON_COLS))
+        return cal if (cal and n_names) else None
+    except Exception:                                   # noqa: BLE001 -- the fixtures column then says so
+        return None
+
+
+def _answer_span(run, horizon):
+    """(gws, clip sentence, error dict): the gameweeks a code-built answer covers, counted from the next deadline's gameweek
+    and clipped to the gameweeks the build has predictions for."""
+    import answers
+    try:
+        h = int(horizon)
+    except (TypeError, ValueError):
+        h = 0
+    if isinstance(horizon, bool) or not (1 <= h <= answers.MAX_HORIZON):
+        return None, None, {"error": f"the number of gameweeks must be a whole number from 1 to {answers.MAX_HORIZON}, got {horizon!r}"}
+    try:
+        first = _current_gw()
+    except RuntimeError as e:
+        return None, None, {"error": str(e)}
+    lo, hi = _run_horizon(run)
+    if lo is None or hi is None:
+        return None, None, {"error": f"build {run['run_id']} has no prediction rows; nothing can be ranked"}
+    gws, clip = answers.span(first, h, lo, hi)
+    if not gws:
+        return None, None, {"error": f"the predictions cover GW{lo}-{hi} and have no entry for the next deadline's GW{first} yet"}
+    return gws, clip, None
+
+
+def _answer_frame(run):
+    """(when the predictions were built, the next update in the other tools' words, the build's own gameweek)."""
+    return datewords.to_datetime(run["finished_at"]), (_next_run() or {}).get("words"), int(run["gw"])
+
+
+def _has_saved_squad(user_id):
+    try:
+        _read_active(_squad_owner(user_id))
+        return True
+    except Exception:                                   # noqa: BLE001 -- no squad, or a record the store refuses: no squad to check against
+        return False
+
+
+def _tenths(price, name):
+    """(a price in £m as tenths, error): 4.9 -> 49. None stays None."""
+    if price is None:
+        return None, None
+    try:
+        v = float(price)
+    except (TypeError, ValueError):
+        return None, {"error": f"{name} must be a price in £m such as 5.0, got {price!r}"}
+    if isinstance(price, bool) or not (0 < v < 30):
+        return None, {"error": f"{name} must be a price in £m such as 5.0, got {price!r}"}
+    return int(round(v * 10)), None
+
+
+@one_connection_per_call
+def rank_players(position: str = "any", min_price: float = None, max_price: float = None, horizon: int = 1,
+                 sort: str = "points", n: int = 10, club: str = None, user_id: int = None):
+    """Prompt R3: the true top N over the WHOLE player pool by predicted points (or predicted points per £1m) for a position,
+    a price range, a club and a span of gameweeks, written by code (answers.rank). `direct_reply` is the turn's reply. A bad
+    argument, an unknown club or a build with no predictions for the next deadline comes back as an error for the model."""
+    import answers
+    import player_names as pn
+    if _draft_turn() is not None:
+        return {"error": R3_NOT_IN_DRAFT}
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
+    run = _latest_run()
+    if run is None:
+        return {"error": "no successful pipeline run in the database yet"}
+    word = pn.norm(str(position or "any"))
+    code = "any" if word in ("any", "all", "") else _POSITION_BY_WORD.get(word)
+    if code is None:
+        return {"error": f"position {position!r} is not one of GK, DEF, MID, FWD or any"}
+    if sort not in ("points", "value"):
+        return {"error": f"sort must be 'points' or 'value', got {sort!r}"}
+    try:
+        n_int = int(n)
+    except (TypeError, ValueError):
+        n_int = 0
+    if isinstance(n, bool) or not (1 <= n_int <= answers.MAX_N):
+        return {"error": f"n must be a whole number from 1 to {answers.MAX_N}, got {n!r}"}
+    lo_t, err = _tenths(min_price, "min_price")
+    if err:
+        return err
+    hi_t, err = _tenths(max_price, "max_price")
+    if err:
+        return err
+    if lo_t is not None and hi_t is not None and lo_t > hi_t:
+        return {"error": f"min_price {min_price} is above max_price {max_price}"}
+    gws, clip, err = _answer_span(run, horizon)
+    if err:
+        return err
+    pool = _answer_pool(run)
+    resolved = None
+    if club is not None and str(club).strip():
+        known = sorted({r["team"] for r in pool.values() if r["team"]})
+        resolved, cerr = _resolve_team(club, known)
+        if cerr:
+            return {"error": cerr if " matches [" in cerr else f"no club matches {club!r}: {cerr}", "known_clubs": known}
+    built, next_update, market_gw = _answer_frame(run)
+    same = [int(r["price_tenths"]) for r in pool.values() if r.get("price_tenths") is not None
+            and (code == "any" or r["position"] == code) and (resolved is None or r["team"] == resolved)]
+    unrated = sum(1 for r in _q("SELECT element, position, team, price_tenths FROM players_live WHERE price_tenths IS NOT NULL")
+                  if int(r["element"]) not in pool and (code == "any" or r["position"] == code)
+                  and (resolved is None or r["team"] == resolved)
+                  and (lo_t is None or int(r["price_tenths"]) >= lo_t) and (hi_t is None or int(r["price_tenths"]) <= hi_t))
+    out = answers.rank(pool, gws, position=code, sort=sort, n=n_int, club=resolved, min_tenths=lo_t, max_tenths=hi_t,
+                       cal=_answer_calendar(), shorts=_club_short_names(), flags=_flags_for(list(pool)), built=built,
+                       next_update=next_update, market_gw=market_gw, clip=clip, has_squad=_has_saved_squad(user_id),
+                       cheapest=min(same) if same else None, unrated=unrated)
+    return {"direct_reply": out["direct_reply"], "ranked": out["pool_size"], "ranked_by": out["ranked_by"],
+            "gameweeks": out["gameweeks"], "rows": out["rows"], "run_id": run["run_id"],
+            "note": "this text has been shown to the user as the reply; the rows carry the player ids for a follow-up"}
+
+
+@one_connection_per_call
+def review_my_squad(horizon: int = 3, user_id: int = None):
+    """Prompt R3: the review of the user's OWN fifteen, written by code (answers.review) -- every player by position with his
+    price, sell price, predicted points over the span, chance of starting, fixtures and FPL flag; the line-up pick's total;
+    the bank and free transfers; the three players lowest for their price. `direct_reply` is the turn's reply. No saved squad
+    -> the usual "no squad saved yet" result for the model; real teams only (never the draft chat)."""
+    import answers
+    if _draft_turn() is not None:
+        return {"error": R3_NOT_IN_DRAFT}
+    user_id = DEFAULT_USER_ID() if user_id is None else user_id
+    sq = get_my_squad(user_id=user_id)
+    if not isinstance(sq, dict) or "recorded_xi" not in sq:
+        return sq                                       # an error, or the no-squad note: the model says so
+    run = _latest_run()
+    if run is None:
+        return {"error": "no successful pipeline run in the database yet"}
+    gws, clip, err = _answer_span(run, horizon)
+    if err:
+        return err
+    xi = get_my_xi(user_id=user_id)
+    if not isinstance(xi, dict) or "xi" not in xi:
+        return xi
+    if int(xi["gw"]) != gws[0]:
+        return {"error": f"the line-up pick is for GW{xi['gw']} but the review starts at GW{gws[0]}; no review written"}
+    rows = list(sq["recorded_xi"]) + list(sq["recorded_bench_in_order"])
+    squad = [{"element": int(r["player_id"]), "sell_tenths": None if r.get("sell_price") is None else int(round(float(r["sell_price"]) * 10))}
+             for r in rows]
+    lineup_rows = list(xi["xi"]) + list(xi["bench_in_order"])
+    lineup = {"roles": {int(r["player_id"]): (r["role"], r.get("bench_order")) for r in lineup_rows},
+              "xi_points": xi["predicted_xi_points"]}
+    pool = _answer_pool(run)
+    web = _web_names()
+    for r in rows:                                      # an owned player the build has no rows for is still one of the fifteen
+        e = int(r["player_id"])
+        if e not in pool:
+            pool[e] = {"element": e, "name": web.get(e) or r["name"], "full_name": r["name"], "position": r["position"],
+                       "team": r["team"], "price_tenths": None if r.get("current_price") is None else int(round(float(r["current_price"]) * 10)),
+                       "pts": {}, "start": {}}
+    built, next_update, market_gw = _answer_frame(run)
+    if sq.get("free_transfers_now") is None or sq.get("bank") is None:
+        return {"error": "the squad record has no bank or free-transfer count for the next deadline; no review written"}
+    out = answers.review(squad, pool, gws, lineup=lineup, bank_tenths=int(round(float(sq["bank"]) * 10)),
+                         free_transfers=sq["free_transfers_now"], cal=_answer_calendar(), shorts=_club_short_names(),
+                         flags=_flags_for([p["element"] for p in squad]), built=built, next_update=next_update,
+                         market_gw=market_gw, clip=clip)
+    return {"direct_reply": out["direct_reply"], "gameweeks": out["gameweeks"], "players": out["players"], "lineup": out["lineup"],
+            "weakest_for_price": out["weakest_for_price"], "bank": sq["bank"], "free_transfers_now": sq["free_transfers_now"],
+            "squad_version_id": sq.get("version_id"), "run_id": run["run_id"], "to_change": squad_store.TO_CHANGE,
+            "note": "this text has been shown to the user as the reply; the rows carry the player ids for a follow-up"}
+
+
+def _with_plan_answer(out):
+    """Prompt R3: a transfer plan's result with `direct_reply` -- the plan written by code (answers.plan) from the planner's
+    own numbers plus each move's predicted gain from the build's prediction rows. A result that is an error, a bug or a refusal
+    of the tool itself is returned as it is (the model reports it); a failure here leaves the result without the text, so the
+    model answers from the result as it always did."""
+    if not isinstance(out, dict) or "error" in out or out.get("bug") or "this_deadline" not in out:
+        return out
+    try:
+        import answers
+        run = _run_by_id(out["run_id"]) if out.get("run_id") is not None else _latest_run()
+        pool = _answer_pool(run)
+        ids = [int(t[k]) for s in ([out["this_deadline"]] + list(out.get("later_steps_indicative") or []))
+               for t in (s.get("transfers") or []) for k in ("out_id", "in_id") if t.get(k) is not None]
+        built, next_update, market_gw = _answer_frame(run)
+        text = answers.plan(out, pool, flags=_flags_for(ids), built=built, next_update=next_update, market_gw=market_gw,
+                            names=_web_names())
+    except Exception as e:                              # noqa: BLE001 -- the plan itself stands; only the code-built text is missing
+        return {**out, "direct_reply_error": f"{type(e).__name__}: {str(e)[:200]}"}
+    return {**out, "direct_reply": text}
+
+
+def _with_price_answer(out, squad, window_days):
+    """Prompt R3: a squad's price movements with `direct_reply` -- per player FPL's own progress figure in words, what was
+    paid, the price now, the sell price and what one more rise or one fall would change (answers.prices; the selling rule is
+    squad_state.sell_price, the one implementation). No squad block, an error, or a failure here: the result as it is."""
+    if not isinstance(out, dict) or "error" in out or not isinstance(out.get("my_squad"), dict):
+        return out
+    try:
+        import answers
+        import prices_tool as pt
+        from squad_state import sell_price
+        first, _last, _inside = pt.bracket(window_days)
+        then = pt.read_snapshot(first[1]) if first else {}
+        web = _web_names()
+        bought = {int(p["element"]): int(p["purchase_price"]) for p in squad.get("players", [])}
+        players = []
+        for r in out["my_squad"]["players"]:
+            e = int(r["player_id"])
+            was = (then.get(e) or {}).get("now_cost")
+            players.append({"element": e, "name": web.get(e) or r.get("name") or str(e), "position": r.get("position") or "?",
+                            "bought": bought[e], "now": None if r.get("price_unknown") else int(round(float(r["price_now"]) * 10)),
+                            "then": None if was is None else int(was), "pct": r.get("fpl_price_change_percent")})
+        obs = out["observation"]
+        text = answers.prices(players, sell_price, seen_from=obs["observed_from_words"], seen_to=obs["observed_to_words"],
+                              readings=obs["snapshots_in_window"])
+    except Exception as e:                              # noqa: BLE001 -- the movements stand; only the code-built text is missing
+        return {**out, "direct_reply_error": f"{type(e).__name__}: {str(e)[:200]}"}
+    return {**out, "direct_reply": text}
+
+
+# ---- Prompt R3, item 8: ready words and labelled facts on a NORMAL turn's results (a draft chat's results are untouched) ----------
+# Each one answers a measured slip (eval/reports/r3_evidence_digest.md): a number the model re-rounded ("around 40%"), a fixture
+# score read off the wrong club or the wrong venue, a 9 called "the easiest tenth", an expected-goals rate called a shot rate,
+# a club's three starters placed in one position, FPL's +50.6 read as "toward a fall".
+PRICE_FIGURE_SIGN = "above zero is progress toward a RISE in price; below zero is progress toward a FALL"
+INPUT_MEANINGS = {
+    "npxg90": "expected goals per 90 minutes, penalties not counted -- an expected-goals rate, never a shot count or a shot rate",
+    "xa90": "expected assists per 90 minutes",
+    "minutes_frac": "the share of a full match he is expected to play",
+    "fixture_scale_cal": "how much this fixture raises or lowers his scoring rate (1.0 is an average fixture)",
+    "e_pen_goals": "expected goals from penalties",
+}
+TENTH_WORDS = {10: "the easiest tenth", 9: "the second-easiest tenth", 8: "the third-easiest tenth",
+               3: "the third-hardest tenth", 2: "the second-hardest tenth", 1: "the hardest tenth"}
+
+
+def _plan_span_words(first, k):
+    import answers
+    return answers.span_words(list(range(int(first), int(first) + int(k))))
+
+
+def _prediction_span(rows, gws, clip):
+    """get_prediction's `span`: the sum over exactly the gameweeks asked (half-up, 2 dp), labelled with them."""
+    import answers
+    have = {int(r["gw"]) for r in rows}
+    total = answers.hu(sum(float(r["e_points"] or 0.0) for r in rows))
+    out = {"gameweeks": list(gws), "label": answers.gw_label(gws), "predicted_points": float(total),
+           "words": f"{total:.2f} predicted points over {answers.span_words(gws)}"}
+    missing = [g for g in gws if g not in have]
+    if missing:
+        out["no_prediction_row_for"] = missing
+        out["words"] += f" ({', '.join(f'GW{g}' for g in missing)} has no prediction row and adds nothing)"
+    if clip:
+        out["clipped"] = clip
+    return out
+
+
+def _range_number(v):
+    f = float(v)
+    return str(int(f)) if f == int(f) else f"{f:.2f}"
+
+
+def _with_prediction_words(out):
+    """A prediction answer with `in_words` on every gameweek row (the figure at 2 dp and each chance as a whole percentage,
+    the one rounding) and `range_words` on every likely range (low end / middle / top; a manufactured low end is not given)."""
+    import answers
+    if _draft_turn() is not None or not isinstance(out, dict) or "error" in out:
+        return out
+    for r in out.get("predictions") or []:
+        if not isinstance(r, dict) or r.get("gw") is None:
+            continue
+        bits = [f"GW{int(r['gw'])}: {answers.hu(r.get('e_points') or 0.0):.2f} predicted points"]
+        for key, what in (("p_start", "chance of starting"), ("p_60plus", "chance of playing 60 minutes or more"),
+                          ("p_cs", "chance of a clean sheet")):
+            if r.get(key) is not None:
+                bits.append(f"{answers.pct_words(r[key])} {what}")
+        r["in_words"] = "; ".join(bits)
+    for q in ((out.get("quantiles") or {}).get("per_gw") or []):
+        if not isinstance(q, dict) or q.get("p50") is None:
+            continue
+        g = f"GW{int(q['gw'])}"
+        if q.get("one_sided_bar"):
+            q["range_words"] = (f"{g}: the low end and the middle are both {_range_number(q['p50'])}; only the top of the range, "
+                                f"{_range_number(q['p90'])}, carries a signal")
+        elif q.get("p10_unusable"):
+            q["range_words"] = (f"{g}: middle {_range_number(q['p50'])}, top {_range_number(q['p90'])}; the low end cannot be trusted "
+                                "for this fixture")
+        else:
+            q["range_words"] = f"{g}: low end {_range_number(q['p10'])}, middle {_range_number(q['p50'])}, top {_range_number(q['p90'])}"
+    return out
+
+
+def _tenth_words(score):
+    return None if score is None else (TENTH_WORDS.get(int(score)) or f"a middle tenth ({int(score)} of 10)")
+
+
+def _fixture_in_words(team, gw, opponent, home, attack, defence):
+    """One fixture from ONE club's side: who is at home, and that club's two scores each with the tenth it sits in."""
+    s = f"GW{int(gw)}: {team} {'at home to' if home else 'away at'} {opponent}"
+    if attack is not None and defence is not None:
+        s += (f"; {team}'s attack score {int(attack)} of 10 ({_tenth_words(attack)} for scoring), "
+              f"{team}'s defence score {int(defence)} of 10 ({_tenth_words(defence)} for a clean sheet)")
+    return s
+
+
+def _with_fixture_words(out):
+    """A fixture list with `in_words` on every fixture: whose scores they are, home or away, the tenth each score sits in."""
+    if _draft_turn() is not None or not isinstance(out, dict) or "error" in out:
+        return out
+    for row in out.get("fixtures") or []:
+        if not isinstance(row, dict):
+            continue
+        if isinstance(row.get("fixtures"), list):               # one club: a block per gameweek
+            for f in row["fixtures"]:
+                if isinstance(f, dict) and f.get("opponent") is not None and f.get("home") is not None:
+                    d = f.get("difficulty") or {}
+                    f["in_words"] = _fixture_in_words(row.get("team"), row.get("gw"), f["opponent"], f["home"],
+                                                      (d.get("attacking") or {}).get("score"), (d.get("defensive") or {}).get("score"))
+        elif row.get("opponent") is not None and row.get("home") is not None:   # all clubs: one compact row per fixture
+            row["in_words"] = _fixture_in_words(row.get("team"), row.get("gw"), row["opponent"], row["home"],
+                                                row.get("attack_score"), row.get("defence_score"))
+    return out
+
+
+def _with_club_counts(out):
+    """A squad build's result with `clubs`: each club's players in that squad, with position and whether he starts, the club
+    with most players first -- so a sentence about a club's players is read, never counted by eye."""
+    if _draft_turn() is not None or not isinstance(out, dict) or "error" in out or "clubs" in out:
+        return out
+    by, seen = {}, set()
+    for k in PICK_ROW_KEYS:
+        for r in out.get(k) or []:
+            if not isinstance(r, dict) or not r.get("team") or not r.get("name") or r.get("player_id") in seen:
+                continue
+            seen.add(r.get("player_id"))
+            by.setdefault(str(r["team"]), []).append(r)
+    if not by:
+        return out
+    out["clubs"] = [{"club": t, "players": len(v),
+                     "who": ", ".join(f"{r['name']} ({r.get('position')}, {'bench' if r.get('role') == 'bench' else 'starts'})" for r in v)}
+                    for t, v in sorted(by.items(), key=lambda kv: (-len(kv[1]), kv[0]))]
+    return out
+
+
+def _with_input_meanings(out):
+    """A breakdown with `input_meanings`: what each input of its lines is, in plain words."""
+    if _draft_turn() is not None or not isinstance(out, dict) or "error" in out:
+        return out
+    out["input_meanings"] = dict(INPUT_MEANINGS)
+    return out

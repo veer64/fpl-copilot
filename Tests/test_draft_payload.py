@@ -20,7 +20,8 @@ for p in (str(REPO), str(REPO / "squad"), str(REPO / "eval")):
 
 import payload_fixture as pf                                               # noqa: E402
 
-FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"
+FIXTURE = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"     # what a DRAFT turn must still equal (R3: byte-identical)
+V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v6.json"          # Prompt R3 (2026-11-16): what a NORMAL turn sends now
 BASE_SYSTEM_PROMPT_SHA = "3acb1ee49f0dec5d8e58d31136c0ac3325b8cb083548621aa2c45cf757ae2fc5"    # 984a62a
 BASE_TOOLS_SHA = "30a8355ed3540b72cf2a5d45f912b123fd0e63f5df1063bc5dfefdab38a9136e"            # 984a62a, 24 tools
 DRAFT = {"user_id": 10001, "draft_key": 800_000_001}
@@ -62,17 +63,21 @@ def _strip_draft(req, block):
 
 
 def test_1_the_prompt_tools_and_model_are_unchanged_since_984a62a(monkeypatch):
+    """Prompt R3: the pins are the SAME two sha256 values; what they pin is now the DRAFT turn's frozen prompt and tools
+    (was ag.SYSTEM_PROMPT / ag.tools_schema, which are the normal turn's and changed with R3)."""
     ag = _agent(monkeypatch)
-    assert hashlib.sha256(ag.SYSTEM_PROMPT.encode("utf-8")).hexdigest() == BASE_SYSTEM_PROMPT_SHA
-    tools = json.dumps(ag.tools_schema, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    assert hashlib.sha256(tools).hexdigest() == BASE_TOOLS_SHA and len(ag.tools_schema) == 24
+    assert hashlib.sha256(ag.DRAFT_SYSTEM_PROMPT.encode("utf-8")).hexdigest() == BASE_SYSTEM_PROMPT_SHA
+    tools = json.dumps(ag.DRAFT_BASE_TOOLS, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    assert hashlib.sha256(tools).hexdigest() == BASE_TOOLS_SHA and len(ag.DRAFT_BASE_TOOLS) == 24
     assert ag.AGENT_MODEL == "claude-sonnet-4-6"
-    assert "draft" not in ag.SYSTEM_PROMPT.lower()                         # the draft wording lives in its own file only
+    assert "draft" not in ag.DRAFT_SYSTEM_PROMPT.lower() and "draft" not in ag.SYSTEM_PROMPT.lower()   # the draft wording lives in its own file only
+    assert ag.SYSTEM_PROMPT != ag.DRAFT_SYSTEM_PROMPT and len(ag.tools_schema) == 26                    # the normal turn's moved (R3)
 
 
 def test_2_ordinary_thread_turns_equal_fixture_v5(monkeypatch):
+    """Prompt R3: an ordinary (non-draft) thread turn equals fixture v6 (was v5; v6 = v5 + the written list)."""
     ag = _agent(monkeypatch)
-    doc = _fixture()
+    doc = json.loads(V6.read_text(encoding="utf-8"))
     item = doc["first_calls"][0]
     for thread in ({}, {"thread_id": "th_plain", "user_id": 10001, "max_turns": 10},
                    {"thread_id": "th_team", "user_id": 10001, "max_turns": 10, "turn_id": "t" * 32}):
@@ -113,11 +118,13 @@ def test_4_the_draft_wording_is_the_reviewed_file_and_names_no_numbers_beyond_th
 
 
 def test_5_the_reply_cap_is_2048_on_a_draft_turn_and_1024_on_every_other_at_both_request_sites(monkeypatch):
+    """Prompt R1 / R3: the cap is 2,048 on EVERY turn now (was 1,024 off the draft); the name is kept for the history."""
     import inspect
     import turn_context
     ag = _agent(monkeypatch)
-    assert _fixture()["shared"]["max_tokens"] == 1024                   # v5: every non-draft turn (test_2)
-    assert ag._max_tokens() == 1024
+    assert json.loads(V6.read_text(encoding="utf-8"))["shared"]["max_tokens"] == 2048   # v6: every non-draft turn (test_2); was 1,024 (v5)
+    assert _fixture()["shared"]["max_tokens"] == 1024                   # v5, the record a draft turn is compared with (test_3)
+    assert ag._max_tokens() == 2048                                     # R3 (was 1,024)
     turn_context.begin("t" * 32, thread_id="th_draft", draft=DRAFT)
     try:
         assert ag._max_tokens() == 2048
@@ -125,7 +132,7 @@ def test_5_the_reply_cap_is_2048_on_a_draft_turn_and_1024_on_every_other_at_both
         turn_context.end()
     turn_context.begin("u" * 32, thread_id="th_plain")
     try:
-        assert ag._max_tokens() == 1024
+        assert ag._max_tokens() == 2048                                 # R3 (was 1,024)
     finally:
         turn_context.end()
     for fn in (ag._call_model, ag._send_back):

@@ -32,12 +32,13 @@ tools_schema = [
     },
     {
         "name": "get_prediction",
-        "description": "The production model's predicted points for a player: one target gameweek if gw is given, else the whole six-gameweek horizon of the latest run. Includes e_points, expected minutes, start probability, and the provenance: `built` says when the run was built and what it knew, `next_run_expected` when the next run lands -- quote both and tell the user when to check back. available=false means the player cannot play for his club; lead with availability_note. A gameweek outside the run's range comes back as an error with error_kind: already_played, too_far_ahead or invalid_gw.",
+        "description": "The production model's predicted points for a player: one target gameweek if gw is given, else every gameweek the latest run covers. For 'the next N gameweeks' pass horizon=N: the answer's `span` is then the total for exactly those gameweeks, counted from the next deadline's gameweek and labelled with them -- quote it, never add gameweeks up yourself. Each gameweek's row carries `in_words` (its figures and percentages ready to quote) and each likely range `range_words`. Includes e_points, expected minutes, start probability, and the provenance: `built` says when the run was built and what it knew, `next_run_expected` when the next run lands -- quote both and tell the user when to check back. available=false means the player cannot play for his club; lead with availability_note. A gameweek outside the run's range comes back as an error with error_kind: already_played, too_far_ahead or invalid_gw. For a list or ranking of players use rank_players, never this tool once per player.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "player_id": {"type": "integer", "description": "The player's FPL element id"},
-                "gw": {"type": "integer", "description": "Optional target gameweek"}
+                "gw": {"type": "integer", "description": "Optional target gameweek"},
+                "horizon": {"type": "integer", "description": "Optional: how many gameweeks to total, counted from the next deadline's gameweek, 1 to 8 ('the next 3 gameweeks' is 3). Omit for every gameweek the run covers"}
             },
             "required": ["player_id"]
         }
@@ -157,11 +158,11 @@ tools_schema = [
     },
     {
         "name": "propose_transfers",
-        "description": "The six-week transfer plan for the user's OWN squad from the production model: what to sell and buy for the next deadline (with sell prices under FPL's rule, purchase prices, hits, bank after, and the XI/captain after the move), plus the following gameweeks' indicative moves. Two real optimiser solves (the move plan, and the HOLD BASELINE that says what doing nothing scores over the same horizon): it typically takes twenty to sixty seconds and occasionally longer: say in one clause that it takes a moment and call it in the same turn -- never ask the user's permission to run it. 'Should I roll my free transfer?' is answered by calling this tool. The result carries hold_comparison: report the hold total, the move total and the gap. If hold_comparison.refused is true, give its refusal instead of the gap and do not reconstruct the gap from the two objectives yourself -- it is withheld because it is biased, not because it is missing. Optional lock_player_ids (must be in the squad: kept if owned, bought if not) and ban_player_ids (must not be: sold if owned, never bought) answer 'best plan given I am keeping X and refusing Y'. Every proposal is checked through the same legality and money rules as set_my_squad and saved with a proposal_id. It is a PROPOSAL, not an application: to make it, pass apply_with to set_my_squad (confirm=false to preview, confirm=true only when the user explicitly says so). If the response carries bug=true, say so plainly and do not present the proposal as advice. An id that matches no player is refused, and only a player FPL lists as unavailable or not in the squad (status u or n, `available: false` on his card: he has left the club) cannot be locked (ban him instead); an injured, suspended or doubtful player the user names IS locked in, and the result then opens with forced_availability_warning -- quote it first.",
+        "description": "The transfer plan for the user's OWN squad, written by code: the moves for the next deadline (what each player sells for and costs, free transfers used and left, hits, the bank after, the line-up's total after the moves), the moves pencilled in for the following gameweeks, each move's predicted gain, and the comparison with making no transfer this gameweek. Its text is shown to the user as the reply, so write nothing of your own. Use it for 'what transfers should I make', 'the best I can get from what I own', 'plan my next 3 gameweeks'. It takes twenty to sixty seconds and occasionally longer: call it in the same turn -- never ask the user's permission to run it. 'Should I roll my free transfer?' is answered by calling this tool. Optional lock_player_ids (must be in the squad: kept if owned, bought if not) and ban_player_ids (must not be: sold if owned, never bought) answer 'best plan given I am keeping X and refusing Y'. Every plan is checked through the same legality and money rules as set_my_squad and saved with a proposal_id. It is a PROPOSAL, nothing is written: when the user then asks to make the moves, pass that result's apply_with to set_my_squad (confirm=false to preview). If the response carries bug=true or an error there is no code-built text: say so plainly and do not present the proposal as advice. An id that matches no player is refused, and only a player FPL lists as unavailable or not in the squad (status u or n, `available: false` on his card: he has left the club) cannot be locked (ban him instead); an injured, suspended or doubtful player the user names IS locked in, and the plan then opens with the forced_availability_warning.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "horizon": {"type": "integer", "description": "Gameweeks to plan over, 1 to 6 (default 6)"},
+                "horizon": {"type": "integer", "description": "Gameweeks to plan over, counted from the next deadline's gameweek: 1 to 6 (default 6). 'The next 3 gameweeks' is 3"},
                 "lock_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that must be in the squad"},
                 "ban_player_ids": {"type": "array", "items": {"type": "integer"}, "description": "Element ids that must not be in the squad"}
             },
@@ -224,10 +225,15 @@ tools_schema = [
     {
         "name": "get_price_movements",
         "description": (
-            "Risers and fallers from the stored price snapshots, and what each of the user's own "
-            "players would SELL for now under the asymmetric rule (a rise is shared with FPL -- "
-            "you get half rounded down; a fall is yours in full). Use for 'who is rising', 'can I afford X'; "
-            "for what the user's squad is worth (its sell value and bank) use get_my_squad. It reports what HAS happened: it cannot say "
+            "Price moves from the stored price snapshots. With the user's squad saved and include_squad true (the default), "
+            "the answer is about THEIR 15 and is written by code: for each player FPL's own price-change progress figure in words "
+            "(toward a rise / toward a fall), what was paid, the price now, what he sells for under FPL's rule (a rise is shared "
+            "with FPL: half, rounded down; a fall is yours in full), and what one more rise or one fall would change. Its text is "
+            "shown to the user as the reply, so write nothing of your own. Use that for 'are any of my players close to a price "
+            "change', 'price rises and falls in my squad', 'what do my players sell for'. For the wider market ('who is rising', "
+            "'the biggest fallers this week') pass include_squad=false and answer from the risers and fallers it returns. For "
+            "'can I afford X', preview the swap with set_my_squad; for what the squad is worth (its sell value and bank) use "
+            "get_my_squad. It reports what HAS happened: it cannot say "
             "whether a price will change next, and a recent rise is not evidence of the next one."),
         "input_schema": {
             "type": "object",
@@ -235,7 +241,7 @@ tools_schema = [
                 "window_days": {"type": "integer",
                                 "description": "Look back this many days (default 7)"},
                 "include_squad": {"type": "boolean",
-                                  "description": "Include the user's own selling prices (default true)"}
+                                  "description": "true (default): the code-built answer about the user's own 15. false: the market's risers and fallers only, for you to answer from"}
             },
             "required": []
         }
@@ -351,6 +357,36 @@ tools_schema = [
             "required": []
         }
     },
+    # Prompt R3 (2026-11-16): two answers written by code and delivered as the reply (DIRECT_TOOLS). Normal turns only: a draft
+    # chat's turn sends the frozen 24 tools (DRAFT_BASE_TOOLS). search_news stays the last tool.
+    {
+        "name": "rank_players",
+        "description": "The ranked list for ANY question that asks for the best, top, highest-scoring or best-value players: the true top N over the WHOLE player pool by predicted points, or by predicted points per £1m, for a position, a price range, a club and a span of gameweeks. Use it for 'top 8 forwards', 'best defenders under £5.0m', 'best-value midfielders', 'who are the best picks this week', 'rank the Arsenal players'. Code reads every player's predictions, adds each one up over the span, sorts them and writes the answer; its text is shown to the user as the reply, so write nothing of your own. Never build a ranking yourself from list_players and get_prediction: they cannot see the whole pool in order.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "position": {"type": "string", "enum": ["GK", "DEF", "MID", "FWD", "any"], "description": "The position to rank; 'any' ranks all positions together (default any)"},
+                "min_price": {"type": "number", "description": "Lowest price INCLUDED, in £m: '£6.0m or more' is 6.0. Omit for no lower limit"},
+                "max_price": {"type": "number", "description": "Highest price INCLUDED, in £m: '£5.0m or less' is 5.0; 'under £5.0m' is 4.9. Omit for no upper limit"},
+                "horizon": {"type": "integer", "description": "How many gameweeks to add up, counted from the next deadline's gameweek: 1 to 8 (default 1 = this gameweek only). 'The next 4 gameweeks' is 4"},
+                "sort": {"type": "string", "enum": ["points", "value"], "description": "points = total predicted points over the span (default); value = those points per £1m of today's price ('best value', 'value for money')"},
+                "n": {"type": "integer", "description": "How many players to list, 1 to 20 (default 10)"},
+                "club": {"type": "string", "description": "Optional: rank one club's players only"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "review_my_squad",
+        "description": "The review of the user's OWN fifteen, written by code: every player grouped by position with his price, what he sells for, his predicted points over the span, his chance of starting, his fixtures and any FPL flag; the best line-up's total; the bank and free transfers; and the three players who rank lowest for their price. Use it for any request to go through, review, assess or rate the whole squad ('review my team', 'go through my squad', 'who is worth keeping and who is a worry', 'how does my squad look for the next 3 gameweeks'). Its text is shown to the user as the reply, so write nothing of your own. Never write a whole-squad review yourself from single-player lookups. For one player, a line-up question or a transfer question, use the other tools.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "horizon": {"type": "integer", "description": "How many gameweeks to add up, counted from the next deadline's gameweek: 1 to 8 (default 3)"}
+            },
+            "required": []
+        }
+    },
     {
         "name": "search_news",
         "description": ("Search the stored team news (FPL's official flags, BBC Sport, the clubs' own sites) for a player "
@@ -382,6 +418,7 @@ tools_schema = [
     }
 ]
 
+import json
 import os
 import sys
 from dotenv import load_dotenv
@@ -396,6 +433,7 @@ from model_tools import (list_players, resolve_player, get_player_card,
                          get_price_movements, get_league_table, get_match_stats,
                          get_actual_points, get_my_points, get_prediction_history,
                          get_wildcard_gap)
+from model_tools import rank_players, review_my_squad         # Prompt R3: answers written by code (normal turns only)
 import uuid
 from news_search import search_news as _search_news, cited_ids, citation_violations, record_citation_check, render_citations
 from numeric_grounding import check as numeric_check, record_numeric_check
@@ -430,11 +468,18 @@ SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
 # chat ONLY; never in the system prompt, the tools or the stored history, so every other turn sends the same bytes (payload v5).
 DRAFT_MODE_PATH = Path(__file__).resolve().parent / "prompts" / "draft_mode.md"
 DRAFT_MODE_TEXT = DRAFT_MODE_PATH.read_text(encoding="utf-8").strip()
+# Prompt R3 (2026-11-16): a draft chat's turn sends EXACTLY what it sent before R3 -- the system prompt and the 24 tool
+# definitions of 8f61ff7, frozen as files and pinned by their sha256 (Tests/test_draft_payload.py). The prompt above
+# (SYSTEM_PROMPT) and tools_schema are the NORMAL turn's: they route rankings, squad reviews, transfer plans and a squad's price
+# moves to answers written by code, which a draft chat does not have.
+DRAFT_FROZEN_DIR = Path(__file__).resolve().parent / "prompts" / "draft_frozen"
+DRAFT_SYSTEM_PROMPT = (DRAFT_FROZEN_DIR / "system_prompt.md").read_text(encoding="utf-8")
+DRAFT_BASE_TOOLS = json.loads((DRAFT_FROZEN_DIR / "tools.json").read_text(encoding="utf-8"))
 
 # The model every turn is sent to; one name, so the usage log (below) and the call agree.
 AGENT_MODEL = "claude-sonnet-4-6"
 
-# Prompt W11g G1 (2026-11-13): ONE extra tool on a draft chat's turns only -- every other request keeps the 24 tools of v5.
+# Prompt W11g G1 (2026-11-13): ONE extra tool on a draft chat's turns only, after the 24 tools of v5 (R3: DRAFT_BASE_TOOLS).
 # explain_my_draft's text is written by code and IS the reply (DIRECT_TOOLS): the model routes to it and writes nothing.
 DRAFT_TOOLS = [
     {
@@ -457,7 +502,10 @@ DRAFT_TOOLS = [
         }
     },
 ]
-DIRECT_TOOLS = frozenset({"explain_my_draft"})
+# Prompt R3: on a normal turn four more answers are written by code -- the ranking, the whole-squad review, the transfer plan
+# and a squad's price moves. A tool's result ends the turn only when it carries "direct_reply" (an error, a bug, General mode's
+# market movers and every draft-chat result do not), so each of these still answers the model when it has no text.
+DIRECT_TOOLS = frozenset({"explain_my_draft", "rank_players", "review_my_squad", "propose_transfers", "get_price_movements"})
 
 
 def _draft_turn_now():
@@ -465,8 +513,9 @@ def _draft_turn_now():
 
 
 def _turn_tools():
-    """The turn's tool list: tools_schema, plus DRAFT_TOOLS on a draft chat's turn (W11g G1)."""
-    return tools_schema + DRAFT_TOOLS if _draft_turn_now() else tools_schema
+    """The turn's tool list: tools_schema on a normal turn; on a draft chat's turn the frozen 24 tools plus DRAFT_TOOLS
+    (W11g G1; R3: the draft request is byte-identical to before)."""
+    return DRAFT_BASE_TOOLS + DRAFT_TOOLS if _draft_turn_now() else tools_schema
 
 
 def _say(text):
@@ -479,9 +528,11 @@ def _say(text):
         print(str(text).encode(enc, errors="replace").decode(enc, errors="replace"))
 
 # Prompt W11f V2 (2026-11-13): the reply cap. A draft chat's fifteen-player walkthrough needs ~1,000-1,200 tokens and was cut
-# off at 1,024, so a draft turn's requests (the call and the send-back) get 2,048. Every other turn keeps 1,024 and sends
-# exactly the same bytes (payload v5, Tests/test_draft_payload.py).
-MAX_TOKENS = 1024
+# off at 1,024, so a draft turn's requests (the call and the send-back) get 2,048.
+# Prompt R1 / R3 (2026-11-16): normal turns were cut off at 1,024 too (W11f: 21 of 1,290 saved non-draft replies ended
+# mid-sentence -- squads, plans, lists, tables), so EVERY turn gets 2,048 (payload v6); a reply that still stops at the cap is
+# trimmed to complete markdown and ends with CUT_OFF_LINE (_fact_check_start, _finish).
+MAX_TOKENS = 2048
 DRAFT_MAX_TOKENS = 2048
 
 
@@ -523,6 +574,8 @@ TOOL_PLAIN_PHRASES = {
     "get_wildcard_gap": "the wildcard comparison",
     "search_news": "the news search",
     "explain_my_draft": "the draft explanation",
+    "rank_players": "the player ranking",
+    "review_my_squad": "the squad review",
 }
 _TOOL_NAME_RE = re.compile(r"`?\b(" + "|".join(sorted(TOOL_PLAIN_PHRASES, key=len, reverse=True))
                            + r")\b(\(\))?`?")
@@ -543,7 +596,7 @@ STATUS_LETTER_WORDS = {"a": "available", "d": "doubtful", "i": "injured", "s": "
                        "n": "not in squad"}
 _STATUS_COLON_RE = re.compile(r"\b(status|flag)(\s*[:=]\s*)([`'\"]?)([adisun])\3(?![\w%'`\"])", re.I)
 _STATUS_SPACE_RE = re.compile(r"\b(status)(\s+)([`'\"]?)([adisun])\3(?=\s*(?:[(),.;:|]|$))", re.I | re.M)
-_HORIZON_RE = re.compile(r"\b((?:[A-Za-z]+|\d+)-gameweek\s+)?horizons?\b", re.I)
+_HORIZON_RE = re.compile(r"\b((?:[A-Za-z]+|\d+)-(?:game)?week\s+)?horizons?\b", re.I)   # R3: "six-week horizon" keeps its own count
 _XPTS_RE = re.compile(r"\bxpts\b", re.I)
 _SOLVE_NOUN_RE = re.compile(r"\b(a|the|this|that|real|fresh|new|second|full|same|one|chip-optimal|optimal)\s+solve(s?)\b", re.I)
 _SOLVED_RE = re.compile(r"\b(re-)?solved(?=\s+(?:in|for|with|using|at|on)\b)", re.I)
@@ -576,7 +629,7 @@ def plain_words(text):
     def horizon(m):
         if m.group(1):
             return m.group(1) + "plan"
-        return _cap_like("six-gameweek plan", m.group(0))
+        return _cap_like("plan", m.group(0))            # R3: was "six-gameweek plan", whatever the plan's length
     text, k = _HORIZON_RE.subn(horizon, text)
     n += k
 
@@ -619,6 +672,84 @@ GUARD_REPLY = "I couldn't finish that answer. Please ask again."
 MAX_TOOL_ROUNDS = 12
 ROUND_CAP_REPLY = "I couldn't finish that answer within the step limit. Please ask a narrower question."
 
+# Prompt R1 (2026-11-14), brought over by R3: a reply that stops at the reply cap (stop_reason max_tokens) -- the final answer
+# or the send-back's rewrite -- is trimmed to its last complete paragraph / list item / table row (trim_cut_reply) and ends with
+# this line on its own; the history keeps exactly what the user was shown. The trace carries stop_reason / truncated.
+CUT_OFF_LINE = '(I had to stop there. Reply "continue" for the rest.)'
+_FENCE_RE = re.compile(r"(?m)^[ \t]*```")
+_TABLE_SEP_RE = re.compile(r"^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
+_SENTENCE_END_RE = re.compile(r"[.!?](?:[*_)\"'\u2019\u201d]*)(?=\s|$)")
+
+# Prompt R3 (2026-11-16): a tool round the model cannot have. (1) A response the reply cap stopped INSIDE a tool round (R1's
+# eval: a fan-out of 32-45 single-player lookups, cut): none of its calls is run -- a cut call is never run -- and the turn does
+# NOT end there (R1's rule ended it with the step-limit reply: a non-answer). (2) A response asking for more than
+# MAX_PREDICTION_CALLS get_prediction calls (a ranking by hand): none is run. Either way ONE app note goes back in place of the
+# results and the model continues; the round counts toward MAX_TOOL_ROUNDS like any other. The fan-out guard and the note's
+# pointer to rank_players are a normal turn's; a draft chat has no rank_players, so its cut round gets the note without it.
+CUT_ROUND_NOTE = "Your last request was cut off — ask for fewer players at once, or use rank_players"
+CUT_ROUND_NOTE_DRAFT = "Your last request was cut off — ask for fewer players at once"
+TOOL_NOT_RUN = "Not run."
+MAX_PREDICTION_CALLS = 10
+
+
+def _cut_off(response):
+    """True when this response stopped at the reply cap."""
+    return getattr(response, "stop_reason", None) == "max_tokens"
+
+
+def trim_cut_reply(text):
+    """The text of a reply stopped at the reply cap, trimmed to complete markdown (Prompt R1). Pure:
+    - an unclosed code fence goes, with everything after it;
+    - the last line -- the one being written when the cap hit -- goes (a cut exactly at a line end loses nothing);
+    - then, from the end: blank lines, headings, a table header + separator with no row under them, a lead-in line ending
+      in ":" whose content was lost, and a bare rule or bullet;
+    - nothing complete left: the text up to its last complete sentence; no sentence either: "".
+    """
+    t = str(text or "")
+    fences = [m.start() for m in _FENCE_RE.finditer(t)]
+    if len(fences) % 2 == 1:
+        t = t[:fences[-1]]
+    lines = t.split("\n")
+    if not t.endswith("\n"):
+        lines = lines[:-1]
+    while lines:
+        s = lines[-1].strip()
+        if not s or s.startswith("#") or s in ("---", "***", "___", "-", "*", "+", "|") or s.rstrip("*_ ").endswith(":"):
+            lines.pop()
+            continue
+        if _TABLE_SEP_RE.match(s):
+            lines.pop()
+            if lines:
+                lines.pop()
+            continue
+        break
+    kept = "\n".join(lines).strip()
+    if kept:
+        return kept
+    ends = list(_SENTENCE_END_RE.finditer(t))
+    return t[:ends[-1].end()].strip() if ends else ""
+
+
+# Prompt R3 (digest M2): the send-back's rewrite sometimes opens by answering the automatic check -- "Here is the corrected
+# version with only those two fixes applied:" -- words for a reader who saw a first version; the user never did. A FIRST line
+# of the rewrite that is not a line of the original answer, speaks of a correction and is a short lead-in is dropped by code
+# (with a rule line right under it); everything else of the rewrite is delivered as written.
+_REWRITE_LEAD_RE = re.compile(r"\b(correct(?:ed|ion|ions)?|fix(?:es|ed)?|revis(?:ed|ion)|updated?|amended|rewritten|rewrite)\b", re.I)
+
+
+def drop_rewrite_lead_in(rewrite, original):
+    """(the rewrite without a lead-in that answers the automatic check, whether one was dropped). Pure."""
+    lines = str(rewrite or "").split("\n")
+    first = lines[0].strip() if lines else ""
+    was = {ln.strip() for ln in str(original or "").split("\n")}
+    if (not first or first in was or len(first) > 200 or first.startswith(("#", "|", "-", "*", ">"))
+            or not first.endswith((":", ".")) or not _REWRITE_LEAD_RE.search(first)):
+        return rewrite, False
+    rest = lines[1:]
+    while rest and rest[0].strip() in ("", "---", "***", "___"):
+        rest.pop(0)
+    return ("\n".join(rest), True) if rest else (rewrite, False)
+
 
 def _system_for_turn(now=None):
     """The system prompt for one turn: the "now" context block (the gameweek state, the run schedule,
@@ -627,12 +758,13 @@ def _system_for_turn(now=None):
     block carries no "- Now:" line: that line rides on the turn's user message (_messages_for_request), so
     this text is byte-identical from one minute to the next and the cache serves it. If the block cannot
     be built at all the prompt goes alone: a turn must never die for want of a date line."""
+    prompt = DRAFT_SYSTEM_PROMPT if _draft_turn_now() else SYSTEM_PROMPT    # R3: a draft turn keeps the prompt it had
     try:
         block = context_block(now)
     except Exception as e:                           # noqa: BLE001 -- the block is help, not a dependency
         _say(f"  [context block not built: {type(e).__name__}: {str(e)[:200]}]")
-        return SYSTEM_PROMPT
-    return f"{block}\n\n{SYSTEM_PROMPT}" if block else SYSTEM_PROMPT
+        return prompt
+    return f"{block}\n\n{prompt}" if block else prompt
 
 
 # Prompt caching (2026-10-19). Three breakpoints per request, in the order the API caches a prefix: the last tool
@@ -811,6 +943,8 @@ def _usage_log(turn_id, usage, tool_names_replaced):
 
 
 available_functions = {
+    "rank_players": rank_players,
+    "review_my_squad": review_my_squad,
     "resolve_player": resolve_player,
     "get_player_card": get_player_card,
     "get_prediction": get_prediction,
@@ -900,6 +1034,8 @@ def _begin_turn(user_message, messages=None, engine="loop", thread=None):
             "response": None, "tool_results": None, "direct_text": None,
             "raw": None, "info": None, "res": None, "fc_span": None, "delivered": None, "sb": None, "t0": None,
             "text2": None, "reply": None, "rendered": None,
+            "cut": None, "rewrite_cut": None,       # Prompt R1: {"note": bool} when the delivered text was cut at the reply cap
+            "skipped_rounds": [],                    # Prompt R3: tool rounds answered with the app note instead of being run
             "thread_id": thread.get("thread_id"), "max_turns": thread.get("max_turns")}
 
 
@@ -947,10 +1083,42 @@ def _final_text_block(st):
     else None: the response's tool calls, if any, run next."""
     response = st["response"]
     if response.stop_reason != "tool_use":
+        if _cut_off(response) and any(getattr(b, "type", None) == "tool_use" for b in response.content):
+            return None                                 # Prompt R3: a cut tool round is not an answer -- the app note, then on
         for block in response.content:
             if block.type == "text":
                 return block
     return None
+
+
+def _skipped_round(st):
+    """Prompt R3: why NONE of this response's tool calls is run -- "cut" (the reply cap stopped the response inside a tool
+    round) or "fan_out" (more than MAX_PREDICTION_CALLS get_prediction calls in one response; a normal turn's guard) -- or
+    None when they run."""
+    response = st["response"]
+    uses = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
+    if not uses:
+        return None
+    if _cut_off(response):
+        return "cut"
+    if not _draft_turn_now() and sum(1 for b in uses if getattr(b, "name", None) == "get_prediction") > MAX_PREDICTION_CALLS:
+        return "fan_out"
+    return None
+
+
+def _join_direct(texts):
+    """One reply from the code-built texts of one response: a single text as it is; several joined in order, an earlier
+    text's closing question dropped when the last text ends with the same one."""
+    if len(texts) == 1:
+        return texts[0]
+    last = texts[-1].rstrip().split("\n")[-1]
+    out = []
+    for t in texts[:-1]:
+        lines = t.rstrip().split("\n")
+        if lines and lines[-1] == last:
+            lines = lines[:-1]
+        out.append("\n".join(lines).rstrip())
+    return "\n\n".join(out + [texts[-1]])
 
 
 def _run_tools(st):
@@ -959,6 +1127,19 @@ def _run_tools(st):
     trace = st["trace"]
     tool_results = []
     direct = None
+    skip = _skipped_round(st)
+    if skip:                                            # Prompt R3: run none of it; ONE app note; the model continues
+        note = CUT_ROUND_NOTE_DRAFT if _draft_turn_now() else CUT_ROUND_NOTE
+        names = []
+        for block in st["response"].content:
+            if block.type == "tool_use":
+                names.append(str(getattr(block, "name", "?")))
+                tool_results.append({"type": "tool_result", "tool_use_id": block.id,
+                                     "content": note if len(tool_results) == 0 else TOOL_NOT_RUN})
+        _say(f"  [tool round not run ({skip}): {len(names)} call(s) answered with the app note; turn {st['turn_id']} continues]")
+        st["skipped_rounds"].append({"why": skip, "calls": len(names), "tools": sorted(set(names))})
+        return {"tool_results": tool_results, "direct_text": None}
+    directs = []
     for block in st["response"].content:
         if block.type == "tool_use":
             tool_name = block.name
@@ -979,12 +1160,15 @@ def _run_tools(st):
                 _say(f"  [tool error: {tool_name}: {str(result['error'])[:200]}]")
             if tool_name in DIRECT_TOOLS and isinstance(result, dict) and isinstance(result.get("direct_reply"), str):
                 direct = result["direct_reply"]                         # W11g G1: this text IS the reply
+                directs.append(direct)
 
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tool_id,
                 "content": str(result)
             })
+    if len(directs) > 1 and not _draft_turn_now():      # Prompt R3: several code-built answers in one response -> all of them
+        direct = _join_direct(directs)
     return {"tool_results": tool_results, "direct_text": direct}
 
 
@@ -998,10 +1182,12 @@ def _direct(st):
     _numeric_check(turn_id, text, st["messages"])
     LAST_FACT_CHECK.clear()
     LAST_FACT_CHECK.update(outcome="direct", facts_checked=0, mismatches=[], sent_back=False, original=text, delivered=text)
+    stop = str(getattr(st.get("response"), "stop_reason", None))
     LAST_TURN.clear()
-    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0, direct=True, **usage)
+    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0, direct=True, stop_reason=stop,
+                     truncated=False, skipped_rounds=list(st.get("skipped_rounds") or []), **usage)
     _usage_log(turn_id, usage, 0)
-    st["trace"].end(text)
+    st["trace"].end(text, stop_reason=stop, truncated=False)
     _note_turn(st, text)
     return {"rendered": text}
 
@@ -1020,10 +1206,12 @@ def _round_cap(st):
           f"fixed reply; tool calls not run: {pending}]")
     st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": ROUND_CAP_REPLY}]}
     cap = {"rounds": st["rounds"], "pending_tools": pending}
+    stop = str(getattr(response, "stop_reason", None))
     LAST_TURN.clear()
-    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0, round_cap=cap, **usage)
+    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=0, plain_words_replaced=0, round_cap=cap, stop_reason=stop,
+                     truncated=_cut_off(response), skipped_rounds=list(st.get("skipped_rounds") or []), **usage)
     _usage_log(turn_id, usage, 0)
-    st["trace"].end(ROUND_CAP_REPLY, round_cap=cap)
+    st["trace"].end(ROUND_CAP_REPLY, round_cap=cap, stop_reason=stop, truncated=_cut_off(response))
     _note_turn(st)
     return {"rendered": ROUND_CAP_REPLY}
 
@@ -1065,7 +1253,16 @@ def _loop_guard(st):
 # [_send_back -> [_recheck] -> _send_back_done] -> _fact_check_end.
 
 def _fact_check_start(st, raw):
-    """The first check of `raw` against this turn's tool rows (a crash in the check never takes the reply down)."""
+    """The first check of `raw` against this turn's tool rows (a crash in the check never takes the reply down).
+    Prompt R1: a reply stopped at the reply cap is trimmed first (trim_cut_reply; nothing complete left -> the round-cap
+    reply) and the history's last message becomes that text alone."""
+    cut = None
+    if _cut_off(st["response"]):
+        kept = trim_cut_reply(raw)
+        cut = {"note": bool(kept)}
+        raw = kept or ROUND_CAP_REPLY
+        st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": raw}]}
+        _say(f"  [cut off: the reply stopped at the reply cap ({_max_tokens()} tokens); trimmed to {len(raw)} characters]")
     info = {"facts_checked": 0, "mismatches": [], "sent_back": False, "outcome": "clean", "note": None,
             "rewrite_mismatches": None, "extra_usd": None, "extra_seconds": None, "error": None}
     delivered = raw
@@ -1076,7 +1273,7 @@ def _fact_check_start(st, raw):
     except Exception as e:  # noqa: BLE001 -- the check must never take the reply down
         res = None
         info.update(outcome="check_error", error=f"{type(e).__name__}: {str(e)[:200]}")
-    return {"raw": raw, "info": info, "res": res, "fc_span": fc_span, "delivered": delivered}
+    return {"raw": raw, "info": info, "res": res, "fc_span": fc_span, "delivered": delivered, "cut": cut}
 
 
 def _needs_send_back(st):
@@ -1094,6 +1291,7 @@ def _send_back(st):
     sb = {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "model": None, "seen_usage": False}
     t0 = time.time()
     text2, reply = None, None
+    rewrite_cut, rewrite_edited = False, False
     try:
         request = {"model": AGENT_MODEL, "max_tokens": _max_tokens(),
                    "system": _system_for_request(st["system"]),
@@ -1107,6 +1305,12 @@ def _send_back(st):
         _tally_usage(st["usage"], reply)
         blocks = list(getattr(reply, "content", None) or [])
         text2 = next((b.text for b in blocks if getattr(b, "type", None) == "text" and getattr(b, "text", "")), None)
+        if text2 and _cut_off(reply):                               # Prompt R1: the rewrite stopped at the reply cap
+            text2 = trim_cut_reply(text2) or None
+            rewrite_cut = rewrite_edited = True
+        if text2:                                                   # Prompt R3 (M2): a lead-in that answers the check goes
+            text2, dropped = drop_rewrite_lead_in(text2, st["raw"])
+            rewrite_edited = rewrite_edited or dropped
         if any(getattr(b, "type", None) == "tool_use" for b in blocks):
             info["outcome"] = "tool_call_in_rewrite"
             text2 = None
@@ -1118,7 +1322,7 @@ def _send_back(st):
             raise                                        # the eval runner's cap must reach the runner
         info.update(outcome="sendback_failed", error=f"{type(e).__name__}: {str(e)[:200]}")
         text2 = None
-    return {"sb": sb, "t0": t0, "text2": text2, "reply": reply}
+    return {"sb": sb, "t0": t0, "text2": text2, "reply": reply, "rewrite_cut": rewrite_cut, "rewrite_edited": rewrite_edited}
 
 
 def _has_rewrite(st):
@@ -1134,12 +1338,17 @@ def _recheck(st):
         res2 = fact_check.check(text2, st["turn_calls"])
         info.update(rewrite_mismatches=res2["mismatches"], outcome="still_wrong" if res2["mismatches"] else "fixed")
         delivered = text2
-        st["messages"][-1] = {"role": "assistant", "content": reply.content}
+        if st.get("rewrite_edited"):                                # R1 / R3: the trimmed or lead-in-free rewrite, as delivered
+            st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": text2}]}
+        else:
+            st["messages"][-1] = {"role": "assistant", "content": reply.content}
+        cut = {"note": True} if st.get("rewrite_cut") else None
     except Exception as e:  # noqa: BLE001 -- a failed send-back delivers the original
         if type(e).__name__ == "BudgetExceeded":
             raise
         info.update(outcome="sendback_failed", error=f"{type(e).__name__}: {str(e)[:200]}")
-    return {"delivered": delivered}
+        return {"delivered": delivered}
+    return {"delivered": delivered, "cut": cut}
 
 
 def _send_back_done(st):
@@ -1179,22 +1388,30 @@ def _fact_checked(st, raw):
 
 
 def _finish(st, raw):
-    """The reply path: the checks (log only), the plain-words locks, the citations, the usage row."""
+    """The reply path: the checks (log only), the plain-words locks, the citations, the usage row. Prompt R1: a reply cut at
+    the reply cap ends with CUT_OFF_LINE on its own line, and the history keeps exactly that text."""
     turn_id, usage = st["turn_id"], st["usage"]
+    cut = st.get("cut")
+    shown = f"{raw.rstrip()}\n\n{CUT_OFF_LINE}" if cut and cut.get("note") else raw
+    if cut:
+        st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": shown}]}
+    from_rewrite = st.get("text2") is not None and st.get("delivered") == st.get("text2")
+    stop = str(getattr(st.get("reply") if from_rewrite else st.get("response"), "stop_reason", None))
     _citation_check(turn_id, raw, st["returned_ids"])
     seen = st["messages"]
     if (turn_context.current() or {}).get("draft") is not None:   # Prompt W11: the draft wording rides on the request (the
         seen = seen + [{"role": "user", "content": DRAFT_MODE_TEXT}]   # first text block); the check sees what the model saw
     _numeric_check(turn_id, raw, seen)                             # log only; never alters the reply
-    plain, n_names = replace_tool_names(raw)                       # Part 4b lock: tool names -> plain phrases
+    plain, n_names = replace_tool_names(shown)                     # Part 4b lock: tool names -> plain phrases
     plain, n_words = plain_words(plain)                            # batch 3 F6: status letters, horizon, xPts
     rendered = render_citations(plain, st["returned_results"])     # Part C: [1], [2] + Sources
     if rendered != raw:
         _say(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
     LAST_TURN.clear()
-    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, **usage)
+    LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, stop_reason=stop,
+                     truncated=bool(cut), skipped_rounds=list(st.get("skipped_rounds") or []), **usage)
     _usage_log(turn_id, usage, n_names)
-    st["trace"].end(rendered)
+    st["trace"].end(rendered, stop_reason=stop, truncated=bool(cut))
     _note_turn(st, raw)                                            # Prompt W4: the Chat page's structured fields
     return {"rendered": rendered}
 

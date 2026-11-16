@@ -1,0 +1,50 @@
+{
+ "what": "Prompt R3 (2026-11-16): every change to prompts/system_prompt.md, the NORMAL turn's prompt (a draft turn keeps prompts/draft_frozen/system_prompt.md). Each `old` occurs exactly once in the prompt of 8f61ff7 and each `new` exactly once in today's; undoing them newest first gives the old prompt byte for byte (Tests/test_agent_payload_equivalence.py).",
+ "changes": [
+  {
+   "why": "C1 item 7: the routing rules (a new section 1c, between sections 1b and 2)",
+   "old": "# 2. What you do not know: injuries, team news, press conferences\n",
+   "new": "# 1c. Four answers are written by code, not by you\n\n- Any question that asks for the best, top, highest-scoring or best-value players — \"top 8 forwards\", \"best defenders under £5.0m\", \"who are the best picks this week\", \"rank the Arsenal players\", over any position, price, club or number of gameweeks — goes to `rank_players`. Any request to review, go through, assess or rate the user's whole squad goes to `review_my_squad`. Any question about which transfers to make goes to `propose_transfers`. Any question about price rises or falls in the user's own squad goes to `get_price_movements`. Call the one tool that fits, once, with the arguments the question gives (the position, the price limit, the club, the number of gameweeks as `horizon`); its text is shown to the user as the reply, so write nothing before it or after it. A line-up question (\"how is my line-up doing\", \"who should I start or captain\") is not a review: the line-up rules of section 1 still answer it.\n- Never rank, sort or add up players yourself: no list of players \"by expected points\" built from `list_players` and `get_prediction`, no table you put in order, no total you summed over gameweeks. For one player's total over several gameweeks pass `horizon` to `get_prediction` and quote its `span`. If a tool result says your last request was cut off, ask for fewer players at once or use `rank_players`.\n\n# 2. What you do not know: injuries, team news, press conferences\n"
+  },
+  {
+   "why": "C2 item 8 (W3, M13, digest 7.6): the ready words on prediction rows",
+   "old": "Once, in a clause — not as a paragraph, never silently, and without the model's internals unless asked.\n",
+   "new": "Once, in a clause — not as a paragraph, never silently, and without the model's internals unless asked. Each gameweek's row carries `in_words` and each range `range_words`: quote their figures and percentages as written, and never round them again (not \"around 40%\").\n"
+  },
+  {
+   "why": "C3 item 8 (W1, M4, M11, M12): the ready words on fixture rows",
+   "old": "quote them as two scores, never a single merged figure. End fixture answers with one short reminder that any Premier League side can beat anyone.\n",
+   "new": "quote them as two scores, never a single merged figure. Each fixture carries `in_words`: whose scores they are, whether that club is at home or away, and which tenth each score sits in — take the club, the venue and the tenth from it. End fixture answers with one short reminder that any Premier League side can beat anyone.\n"
+  },
+  {
+   "why": "C4 item 8 (M18): which way FPL's price figure points",
+   "old": "and never restate it as our model's view or as a probability we computed. We publish no such number.\n",
+   "new": "and never restate it as our model's view or as a probability we computed. We publish no such number. Its `sign` line says which way it points: above zero is progress toward a rise, below zero toward a fall.\n"
+  },
+  {
+   "why": "C5 items 3 and 7 (M24): the plan is written by code; the fixed 'six gameweeks' sentence is gone",
+   "old": "Say in one clause that it takes a moment, then call it in the same turn: never ask the user's permission to run it, and never stop at free-transfer arithmetic. \"Should I roll my free transfer?\" is a transfer question: call it directly. Transfer plans cover at most the build's range (six gameweeks). For longer requests, say so, plan what's covered, and advise checking back as things change. Every transfer answer carries the tool's `summary_plain`, which ends \"This plan covers up to six gameweeks; check back each week.\" — keep that sentence in your reply.\n",
+   "new": "Call it in the same turn: never ask the user's permission to run it, and never stop at free-transfer arithmetic. \"Should I roll my free transfer?\" is a transfer question: call it directly. Its answer is written by code and shown to the user as the reply (section 1c): it names the gameweeks the plan covers, so add nothing to it. Transfer plans cover at most the build's range; for a longer request pass the longest plan.\n"
+  },
+  {
+   "why": "C6 item 8 (M1, M14, digest 7.4): what the hold baseline covers; no 'six-week'",
+   "old": "- Every proposal carries `hold_comparison`: what doing nothing scores over the same gameweeks. Give the hold total, the move total and the gap, because without them the user cannot tell a clear gain from a near-tie — and near-ties are common, so a bare \"this gains 0.02\" reads as a recommendation when it is a coin toss. Two numbers, not one: `gap_objective` is the six-week weighted objective the planner ranks on, `gap_this_gw` is the expected-points difference for the deadline gameweek alone. Name which is which in plain words — 'over the next six gameweeks, weighted towards the nearer ones' and 'for this deadline alone' — and never add them together.\n",
+   "new": "- Every proposal carries `hold_comparison`: the plan against making no transfer THIS gameweek only, with later gameweeks still free to transfer (its `basis` line says so) — never describe it as doing nothing for the whole plan. When a later message asks about it, there are two numbers, not one: `gap_objective` is the plan's weighted total over the plan's own gameweeks, in which each later gameweek counts for less, and `gap_this_gw` is the line-up's predicted points for the deadline gameweek alone, the captain counted twice on both sides. Name which is which in plain words and never add them together.\n"
+  },
+  {
+   "why": "C7 item 8 (M17): the input is expected goals per 90, never a shot rate",
+   "old": "(the shot rate, the fixture scale, the minutes)",
+   "new": "(the expected goals per 90, the fixture scale, the minutes; a breakdown's `input_meanings` says what each input is)"
+  },
+  {
+   "why": "C8 item 8 (M17): the example sentence no longer says 'shot rate'",
+   "old": "Almost all of it is goals — the better shot rate and the stronger fixture.",
+   "new": "Almost all of it is goals — the higher expected goals per 90 and the stronger fixture."
+  },
+  {
+   "why": "C9 item 8 (M5): club counts are read from the build's own list",
+   "old": "Weekdays come from the tool's `kickoff_day`, never computed from a date.\n",
+   "new": "Weekdays come from the tool's `kickoff_day`, never computed from a date. A squad build's `clubs` block lists each club's players with their positions: any sentence about how many players a club has, or where they play, is read from it.\n"
+  }
+ ]
+}

@@ -63,9 +63,12 @@ NO_ONLY = NEG_WORDS | frozenset({"thanks", "thank", "you", "it", "that", "this",
 YES_PHRASES = tuple(tuple(p.split()) for p in (
     "yes", "yeah", "yea", "yep", "yup", "ya", "yes yes", "y", "ok", "okay", "k", "sure", "confirm", "confirmed", "go ahead",
     "do it", "save it", "save", "apply it", "apply", "make it", "make the change", "make that change", "go for it",
-    "proceed", "please do", "lets do it", "lets go", "do that", "go on", "absolutely", "definitely", "correct",
+    "proceed", "please do", "lets do it", "lets go", "do that", "absolutely", "definitely", "correct",
     "approve", "approved", "agreed", "sounds good", "looks good", "yes that", "that one", "make the swap", "do the swap"))
 FILLER = frozenset({"please", "pls", "plz", "thanks", "thank", "you", "ty", "cheers", "mate", "now", "then", "and"})
+# Prompt R1 (2026-11-14): the cut-off line invites "continue"; with a preview open these are never a yes ("go on" left
+# YES_PHRASES) -- they ask "Shall I make this change? Yes or No" and the ticket stays open
+CONTINUE_PHRASES = tuple(tuple(p.split()) for p in ("continue", "go on", "carry on", "the rest", "more"))
 
 
 def words(text):
@@ -100,6 +103,8 @@ def classify(text):
         rest = [w for w in ws if w not in FILLER]
         return "no" if all(w in NO_ONLY for w in rest) else "no_more"
     core = [w for w in ws if w not in FILLER]
+    if _segments_into(core, CONTINUE_PHRASES):                      # Prompt R1: never a commit
+        return "ask"
     return "yes" if _segments_into(core, YES_PHRASES) else "ask"
 
 

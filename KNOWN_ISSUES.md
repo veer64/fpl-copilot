@@ -1705,6 +1705,18 @@ with an in-sim chip -- the reference configuration plays three (Wildcard 1 at GW
 The live product's own roll-forward (`squad_store.free_transfers_at`) has the same chip-week gap and is NOT
 touched here (production; handled separately).
 
+**The live roll-forward, 2026-11-16 (Prompt R3 item 6, branch `r3-answers`; not deployed until that branch ships):**
+`squad_store.free_transfers_at` now follows the live import's rule for an IMPORTED team: a gameweek in which
+the team played a Wildcard or a Free Hit, between the stored version's gameweek and the one asked, earns no
+free transfer. The chips come from data already stored -- `user_fpl_teams.chips_json` / `chips_through_gw`
+(two nullable columns, added by `fpl_teams.ensure_schema`), written by the import and by the 6-hourly
+team-score refresh from the `entry/{id}/history/` response each already reads; `squad_store.read_active`
+hands them to the count as `chip_weeks`. No FPL request at chat time. A team whose chips were never stored,
+and every squad that is not an imported team's (users 1, 9001, 9002), count exactly as before. Guard:
+`Tests/test_free_transfers_chips.py` (the rule; equality with `fpl_import.derive_free_transfers` gameweek by
+gameweek; the import, the refresh job and the column guard). What it does NOT know: transfers the user made
+in FPL since the last import -- the stored squad is stale then anyway, and a Refresh re-derives everything.
+
 ### What was wrong
 
 On a chip week the simulator spent no banked transfer (`free_before = n_transfers`, no

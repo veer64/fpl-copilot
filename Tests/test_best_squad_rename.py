@@ -13,7 +13,7 @@ for p in (str(REPO), str(REPO / "squad")):
 def test_the_best_squad_tool_is_named_for_what_it_does():
     import agent
     names = [t["name"] for t in agent.tools_schema]
-    assert "best_squad_from_scratch" in names and "get_best_squad" not in names and len(names) == 24
+    assert "best_squad_from_scratch" in names and "get_best_squad" not in names and len(names) == 26   # R3: 24 + rank_players, review_my_squad
     schema = next(t for t in agent.tools_schema if t["name"] == "best_squad_from_scratch")
     assert schema["description"].startswith("The best brand-new 15 from scratch with a full £100m, ignoring the user's squad. "
                                             "For the user's own squad use propose_transfers or get_my_xi.")

@@ -95,6 +95,13 @@ class TurnState(TypedDict, total=False):
     direct_text: _T
     # the loop's block / text_block: the text the fact check reads, read by the edges
     text_block: _T
+    # Prompt R1: the delivered text was cut at the reply cap ({"note": bool}) / the send-back's rewrite was; Prompt R3: the
+    # rewrite was trimmed or lost a lead-in (the history keeps the delivered text), and the tool rounds answered with the app
+    # note instead of being run
+    cut: _T
+    rewrite_cut: _T
+    rewrite_edited: _T
+    skipped_rounds: _T
 
 
 def _timed(name, fn):

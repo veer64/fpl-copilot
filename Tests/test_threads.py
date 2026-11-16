@@ -44,7 +44,9 @@ from test_tracing import FakeLangfuse, UNREACHABLE                       # noqa:
 
 KEY = "test-threads-key"
 V5 = REPO / "Tests" / "fixtures" / "agent_payloads_v5.json"
-FIX3 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v1.json"
+V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v6.json"               # Prompt R3 (2026-11-16): a normal turn's requests now
+FIX3_V1 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v1.json"
+FIX3 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v2.json"     # R3: v1 with max_tokens 2,048, the normal prompt and its 26 tools (v1 kept)
 PY = sys.executable
 
 
@@ -184,7 +186,7 @@ def test_t1_a_stored_thread_sends_the_bytes_of_prompt_a_and_fixture_v5(tdb, monk
     importlib.reload(ag)
     import agent_graph
     import threads
-    doc = json.loads(V5.read_text(encoding="utf-8"))
+    doc = json.loads(V6.read_text(encoding="utf-8"))                   # R3: v6 = v5 + the written list (was V5)
     _pin(ag, monkeypatch, doc["context_text"], pf.parse_now(doc["frozen_now"]), pf.TOOL_RESULTS)
     cases = [("tool_turn", doc["tool_turn"]["question"], pf.tool_turn)] + [(i["id"], i["question"], pf.reply_only) for i in doc["first_calls"]]
     print(f"T1 v5 cases: count={len(cases)} first={cases[0][0]} last={cases[-1][0]}")
@@ -224,6 +226,24 @@ def test_t1_the_three_turn_fixture_from_langgraph_a_is_sent_byte_for_byte_by_a_s
         assert answer == fx["replies"][fx["turns"].index(t)]
     assert raw == fx["raw_requests"], "the 3-turn thread's requests differ from langgraph-a's"
     assert _norm(_history("t1-three-turns")) == fx["history_after"]
+
+
+def test_t1_threads_fixture_v2_is_v1_with_the_normal_turns_cap_prompt_and_tools_and_nothing_else():
+    """Prompt R3: the 3-turn fixture's v2 differs from v1 only in max_tokens, the system prompt and the tool list of each
+    request -- the same three things fixture v6 differs from v5 in; every message, reply and the stored history are v1's."""
+    v1, v2 = json.loads(FIX3_V1.read_text(encoding="utf-8")), json.loads(FIX3.read_text(encoding="utf-8"))
+    v6, v5 = json.loads(V6.read_text(encoding="utf-8")), json.loads(V5.read_text(encoding="utf-8"))
+    same = [k for k in v1 if k not in ("version", "raw_requests", "normalized_requests")]
+    assert {k: v2[k] for k in same} == {k: v1[k] for k in same} and len(v2["raw_requests"]) == len(v1["raw_requests"]) == 6
+    old_prompt = "".join(b["text"] for b in v5["shared"]["system"])[len(v5["context_text"]):]
+    new_prompt = "".join(b["text"] for b in v6["shared"]["system"])[len(v6["context_text"]):]
+    for a, b in zip(v1["raw_requests"], v2["raw_requests"]):
+        ra, rb = json.loads(a), json.loads(b)
+        assert list(ra) == list(rb) and ra["messages"] == rb["messages"] and ra["model"] == rb["model"]
+        assert (ra["max_tokens"], rb["max_tokens"]) == (1024, 2048)
+        assert ra["system"][0]["text"] == v1["context_text"] + old_prompt and rb["system"][0]["text"] == v1["context_text"] + new_prompt
+        assert [pf._strip(t) for t in ra["tools"]] == v5["shared"]["tools"] and [pf._strip(t) for t in rb["tools"]] == v6["shared"]["tools"]
+    assert v2["normalized_requests"] == [pf.normalize_request(json.loads(x)) for x in v2["raw_requests"]]
 
 
 # ---- T2 isolation ---------------------------------------------------------------------------------------------------

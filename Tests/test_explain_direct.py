@@ -119,11 +119,13 @@ def test_2_the_tool_is_offered_on_draft_turns_only(ag, monkeypatch):
     script = _script(ag, monkeypatch, [_reply()])
     ag.run_agent("hello", [], thread={"draft": DRAFT})
     draft_tools_sent = script.calls[0]["tools"]
-    assert [t["name"] for t in draft_tools_sent] == [t["name"] for t in ag.tools_schema] + ["explain_my_draft"]
+    # Prompt R3: a draft turn's first 24 tools are the FROZEN ones (was ag.tools_schema, which is the normal turn's now)
+    assert [t["name"] for t in draft_tools_sent] == [t["name"] for t in ag.DRAFT_BASE_TOOLS] + ["explain_my_draft"]
+    assert draft_tools_sent[:-1] == [pf._strip(t) for t in ag.DRAFT_BASE_TOOLS] and len(ag.DRAFT_BASE_TOOLS) == 24
     assert draft_tools_sent[-1] == pf._strip(ag.DRAFT_TOOLS[0])
     script = _script(ag, monkeypatch, [_reply()])
     ag.run_agent("hello", [], thread=None)
-    assert [t["name"] for t in script.calls[0]["tools"]] == [t["name"] for t in ag.tools_schema] and len(ag.tools_schema) == 24
+    assert [t["name"] for t in script.calls[0]["tools"]] == [t["name"] for t in ag.tools_schema] and len(ag.tools_schema) == 26   # R3: was 24
 
 
 def test_2b_outside_a_draft_turn_the_tool_does_not_exist(ag, monkeypatch):

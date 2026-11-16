@@ -469,10 +469,51 @@ def read_active(user_id=None, conn=None):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(ACTIVE_SQL, (user_id,))
             rows = cur.fetchall()
+        weeks = _chip_weeks(conn, user_id) if rows else None
     finally:
         if own:
             conn.close()
-    return active_from_rows(rows, user_id)
+    rec = active_from_rows(rows, user_id)
+    if weeks is not None:
+        rec["chip_weeks"] = weeks                        # Prompt R3 item 6: free_transfers_at reads them
+    return rec
+
+
+# Prompt R3 item 6 (2026-11-16): an IMPORTED team's Wildcard / Free Hit weeks, from the chips its user_fpl_teams row stores
+# (written by the import and by the team-score refresh from FPL's history; no FPL request here). The keys of imported teams
+# start at fpl_teams.FIRST_SQUAD_KEY; every other squad owner (users 1, 9001, 9002, a draft) has no row and no extra read.
+FIRST_IMPORTED_SQUAD_KEY = 900_000_001                  # = fpl_teams.FIRST_SQUAD_KEY (fpl_teams imports this module)
+CHIP_KEEPS_TRANSFERS = ("wildcard", "freehit")          # = fpl_import.CHIP_KEEPS_TRANSFERS
+_CHIPS_COLUMN = set()                                   # the databases known to have user_fpl_teams.chips_json
+
+
+def _chip_weeks(conn, squad_key):
+    """The gameweeks in which the imported team behind `squad_key` played a Wildcard or a Free Hit -- [] when it played
+    none -- or None when the key is not an imported team's, the chips column does not exist yet, or no chips were ever
+    stored for it (the count then follows the old rule: one free transfer per gameweek)."""
+    try:
+        key = int(squad_key)
+    except (TypeError, ValueError):
+        return None
+    if key < FIRST_IMPORTED_SQUAD_KEY:
+        return None
+    with conn.cursor() as cur:
+        db = (conn.info.host, conn.info.port, conn.info.dbname)
+        if db not in _CHIPS_COLUMN:
+            cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+                        "AND table_name = 'user_fpl_teams' AND column_name = 'chips_json'")
+            if cur.fetchone() is None:
+                return None
+            _CHIPS_COLUMN.add(db)
+        cur.execute("SELECT chips_json FROM user_fpl_teams WHERE squad_key = %s", (key,))
+        row = cur.fetchone()
+    chips = row[0] if row else None
+    if chips is None:
+        return None
+    if isinstance(chips, (str, bytes)):
+        chips = json.loads(chips)
+    return sorted({int(c["event"]) for c in chips if isinstance(c, dict) and c.get("name") in CHIP_KEEPS_TRANSFERS
+                   and c.get("event") is not None})
 
 
 ROLES_MEANING = ("the roles recorded WITH this version (captain, vice, XI, bench order) -- a record "
@@ -494,8 +535,14 @@ def free_transfers_at(record, gw):
     Decision 1 of 2026-09-12 (Logs/squad_state_log.md section 10): a lazy
     derivation cannot go stale because nothing has to run; the one thing it
     depends on is that version.gw means the deadline the version was set for,
-    which write paths enforce (set_my_squad refuses any other gw). Chips are
-    not modelled yet (a wildcard week would spend nothing).
+    which write paths enforce (set_my_squad refuses any other gw).
+
+    Prompt R3 item 6 (2026-11-16): a gameweek in which the team played a
+    Wildcard or a Free Hit keeps the bank and EARNS NONE -- the live import's
+    rule (fpl_import.derive_free_transfers). The record carries those
+    gameweeks as `chip_weeks` when it is an imported team's and its chips are
+    stored (read_active); each one between the version's gw and G is not
+    counted. No `chip_weeks`: the count is what it always was.
 
     Raises ValueError for a gw earlier than the version's -- there is no
     "count at a gameweek before the squad existed" to return.
@@ -504,7 +551,9 @@ def free_transfers_at(record, gw):
     if not _is_int(gw) or gw < k:
         raise ValueError(f"free transfers are defined from the version's gw {k} onward, got gw {gw!r}")
     stored = int(record["squad_json"]["free_transfers"])
-    return min(MAX_FREE_TRANSFERS, stored + (gw - k))
+    chip_weeks = {int(g) for g in (record.get("chip_weeks") or [])}
+    earned = sum(1 for g in range(k, gw) if g not in chip_weeks)
+    return min(MAX_FREE_TRANSFERS, stored + earned)
 
 
 def _dt(x):

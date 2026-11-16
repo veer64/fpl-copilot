@@ -151,9 +151,9 @@ def test_the_roll_question_calls_the_planner_without_asking_permission():
     ("(status: i, 0%)", "(status: injured, 0%)"),
     ("his status 's'.", "his status 'suspended'."),
     ("Status: S", "Status: suspended"),
-    ("over this horizon.", "over this six-gameweek plan."),
+    ("over this horizon.", "over this plan."),                 # R3: was "over this six-gameweek plan." (a plan of any length)
     ("the full five-gameweek horizon in raw terms", "the full five-gameweek plan in raw terms"),
-    ("Horizon totals", "Six-gameweek plan totals"),
+    ("Horizon totals", "Plan totals"),                         # R3: was "Six-gameweek plan totals"
     ("| Player | Club | Price | xPts |", "| Player | Club | Price | Expected points |"),
     ("Haaland (6.63 xPts)", "Haaland (6.63 expected points)"),
     ("a real solve using the model", "a real build using the model"),

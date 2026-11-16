@@ -49,4 +49,4 @@ def test_build_squad_from_scratch_claims_the_specific_gameweek_wording():
 
 def test_get_picks_still_takes_gw_and_the_spec_tools_are_unchanged():
     assert "gw" in TOOLS["get_picks"]["input_schema"]["properties"]
-    assert len(agent.tools_schema) == 24
+    assert len(agent.tools_schema) == 26                    # R3: 24 + rank_players, review_my_squad

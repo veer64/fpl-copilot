@@ -49,7 +49,11 @@ def test_the_instructions_ask_for_items_on_a_wrong_count():
 
 # ------------------------------------------------------------------ J7
 def test_every_required_sentence_is_in_its_source_and_in_the_allowed_facts():
-    prompt = (REPO / "prompts" / "system_prompt.md").read_text(encoding="utf-8")
+    # Prompt R3 (2026-11-16): the prompt is two files now -- the normal turn's and the draft turn's frozen copy. The judge's
+    # list is unchanged; its "This plan covers up to six gameweeks" sentence is the frozen prompt's (a normal turn's transfer
+    # plan is written by code and names its own gameweeks). Was: the one prompt file.
+    prompt = ((REPO / "prompts" / "system_prompt.md").read_text(encoding="utf-8")
+              + (REPO / "prompts" / "draft_frozen" / "system_prompt.md").read_text(encoding="utf-8"))
     for src, s in RJ.REQUIRED_SENTENCES:
         text = prompt if src == "prompt" else (REPO / src).read_text(encoding="utf-8")
         assert s in text, (src, s)

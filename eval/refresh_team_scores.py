@@ -42,8 +42,14 @@ def run(force=False, get=None, conn=None, log=None):
     boot = fpl_import.bootstrap(get=get)
     latest = fpl_import.latest_finished_gw(boot)
     out["latest_finished_gw"] = latest
+    # Prompt R3 item 6: the history this job reads also lists the chips played. A team whose stored chips do not reach the
+    # latest gameweek whose deadline has passed (or were never stored) is read once more, so a Wildcard / Free Hit week is
+    # known before the next deadline's free transfers are counted; otherwise the skip rule is what it was.
+    started = fpl_import.started_gw(boot)
+    marks = fpl_teams.chip_marks(conn=conn) if started is not None else {}
     for fid, have_gw in teams:
-        if not force and latest is not None and have_gw is not None and have_gw >= latest:
+        chips_stale = started is not None and (marks.get(fid) is None or marks[fid] < started)
+        if not force and latest is not None and have_gw is not None and have_gw >= latest and not chips_stale:
             out["skipped"].append(fid)
             continue
         try:

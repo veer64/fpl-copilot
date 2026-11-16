@@ -1,0 +1,22 @@
+{
+ "name": "r3_setB_v1",
+ "written": "2026-11-16",
+ "purpose": "Prompt R3 Part 2, Set B: 10 cases x 3 runs on the laptop, graded by hand under the owner's 13 Nov standard (number standard v2). New wording; every named / IN player has exactly ONE player-lookup match (checked by the plan step, before any model call).",
+ "runs_per_case": 3,
+ "placeholders": {"p1": "the first named player of case 6", "p2": "the second", "in8": "the player brought in in case 8", "out8": "the squad player he replaces", "in9": "the player brought in in case 9", "out9": "the squad player he replaces"},
+ "cases": [
+  {"id": "B1", "path": "team", "what": "whole-squad review, next 3 gameweeks", "turns": ["Give me a full review of my squad for the next three gameweeks, player by player."]},
+  {"id": "B2", "path": "team", "what": "a 3-gameweek transfer plan using free transfers", "turns": ["What transfers should I make over the next 3 gameweeks with the free transfers I have?"]},
+  {"id": "B3", "path": "team", "what": "top 8 forwards, next 4 gameweeks, table with price and fixtures", "turns": ["Show me a table of the eight best forwards for the next four gameweeks, with price and fixtures."]},
+  {"id": "B4", "path": "team", "what": "best possible squad for £100m", "turns": ["Starting from scratch with £100m, what's the strongest squad I could pick?"]},
+  {"id": "B5", "path": "team", "what": "captain this week and why", "turns": ["Who should get the armband this gameweek, and why him?"]},
+  {"id": "B6", "path": "team", "what": "compare two named players", "turns": ["How do {p1} and {p2} compare over the coming gameweeks?"]},
+  {"id": "B7", "path": "team", "what": "which of my players may rise / fall in price", "turns": ["Are any of my players close to a price rise or a price drop?"]},
+  {"id": "B8", "path": "team", "what": "swap preview then no -> 'No change made.', 0 writes", "turns": ["Bring in {in8} for {out8}.", "no"]},
+  {"id": "B9", "path": "team", "what": "swap preview then continue -> asks Yes / No, 0 writes; then yes -> saved once", "turns": ["I want {in9} instead of {out9}.", "continue", "yes"]},
+  {"id": "B10", "path": "general", "what": "General mode: best-value defenders under £5.0m, next 5 gameweeks", "turns": ["Which defenders under £5.0m are the best value over the next 5 gameweeks?"]}
+ ],
+ "players": {"p1": "Declan Rice", "p2": "Dominik Szoboszlai", "in8": "Kudus", "out8": "Foden", "in9": "Van de Ven", "out9": "Collins"},
+ "fallbacks": {"case 6": ["Wirtz", "Eze"], "case 8 IN": ["Tavernier", "Neto"], "case 9 IN": ["Vuskovic", "Pinnock"],
+               "rule": "used in this fixed order only when a name no longer has a single match, or its swap no longer previews as legal, on the refreshed laptop database; the plan file records which was used and why"}
+}

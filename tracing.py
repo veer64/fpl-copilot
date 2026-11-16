@@ -536,9 +536,10 @@ class Turn:
             _STATE["turn"] = None
 
     @_guarded
-    def end(self, reply, guard=None, round_cap=None):
+    def end(self, reply, guard=None, round_cap=None, stop_reason=None, truncated=None):
         """The reply as delivered (the loop guard's fixed reply with `guard` = {stop_reason, block_types}; the round cap's
-        with `round_cap` = {rounds, pending_tools}: metadata round_cap=true -- Prompt P6)."""
+        with `round_cap` = {rounds, pending_tools}: metadata round_cap=true -- Prompt P6). Prompt R1: the turn's
+        stop_reason and truncated (the reply was cut at the reply cap) when given."""
         if self.ended:
             return
         self._finish()
@@ -552,6 +553,10 @@ class Turn:
             if round_cap:
                 meta.update(round_cap=True, round_cap_rounds=int(round_cap.get("rounds") or 0),
                             round_cap_pending_tools=[str(t) for t in (round_cap.get("pending_tools") or [])])
+            if stop_reason is not None:
+                meta["stop_reason"] = str(stop_reason)
+            if truncated is not None:
+                meta["truncated"] = bool(truncated)
             self.root.update(output=mask(reply), metadata=meta)
             self.root.end()
 

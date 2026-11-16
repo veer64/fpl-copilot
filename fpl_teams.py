@@ -29,6 +29,7 @@ gameweek by FPL's bootstrap flags and the team's points in it), updated_after_gw
 summary_updated_at, last_used_at (set whenever a chat opens with that team: activate). Stored at import from the responses the
 import already fetched (fpl_import.team_summary: entry + history + bootstrap; no extra request), on refresh, and by the
 weekly job (history only, ONE request per distinct team, every user's row of it). team_cards() is what GET /me/teams returns."""
+import json
 import os
 from datetime import datetime, timezone
 
@@ -88,6 +89,20 @@ DO $$ BEGIN
 END $$;
 """
 
+# Prompt R3 item 6 (2026-11-16): the chips FPL's history lists for the team, and the latest gameweek whose deadline had passed
+# when that history was read -- stored by the import and by the team-score refresh (the request it already makes), read by
+# squad_store.read_active so a Wildcard / Free Hit week earns no free transfer between imports. Added only when missing.
+CHIPS_DDL = """
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = current_schema() AND table_name = 'user_fpl_teams' AND column_name = 'chips_through_gw') THEN
+        ALTER TABLE user_fpl_teams
+            ADD COLUMN IF NOT EXISTS chips_json       JSONB,
+            ADD COLUMN IF NOT EXISTS chips_through_gw INT;
+    END IF;
+END $$;
+"""
+
 PUBLIC_COLS = ("fpl_team_id", "label", "is_active", "last_imported_gw")
 CARD_COLS = PUBLIC_COLS + SUMMARY_COLS + ("created_at", "last_imported_at")       # GET /me/teams (Prompt W3)
 _TIMES = ("summary_updated_at", "last_used_at", "created_at", "last_imported_at")
@@ -120,6 +135,7 @@ def ensure_schema(conn=None):
         with conn.cursor() as cur:
             cur.execute(DDL)
             cur.execute(SUMMARY_DDL)
+            cur.execute(CHIPS_DDL)
         conn.commit()
         _SCHEMA_READY.add(_db_key())
     finally:
@@ -258,13 +274,19 @@ def deactivate(user_id, conn=None):
 
 _SUMMARY_SET = ("entry_name = COALESCE(%(entry_name)s, entry_name), manager_name = COALESCE(%(manager_name)s, manager_name), "
                 "total_points = %(total_points)s, overall_rank = %(overall_rank)s, last_gw = %(last_gw)s, "
-                "last_gw_points = %(last_gw_points)s, updated_after_gw = %(updated_after_gw)s, summary_updated_at = now()")
+                "last_gw_points = %(last_gw_points)s, updated_after_gw = %(updated_after_gw)s, summary_updated_at = now(), "
+                "chips_json = COALESCE(%(chips_json)s::jsonb, chips_json), "
+                "chips_through_gw = COALESCE(%(chips_through_gw)s, chips_through_gw)")      # R3 item 6: kept when a summary has none
 
 
 def _summary_params(summary):
     s = dict(summary or {})
-    return {k: s.get(k) for k in ("entry_name", "manager_name", "total_points", "overall_rank", "last_gw", "last_gw_points",
-                                  "updated_after_gw")}
+    out = {k: s.get(k) for k in ("entry_name", "manager_name", "total_points", "overall_rank", "last_gw", "last_gw_points",
+                                 "updated_after_gw")}
+    known = s.get("chips") is not None and s.get("chips_through_gw") is not None          # R3 item 6: both or neither
+    out["chips_json"] = json.dumps(s["chips"]) if known else None
+    out["chips_through_gw"] = int(s["chips_through_gw"]) if known else None
+    return out
 
 
 def write_summary(fpl_team_id, summary, conn=None, user_id=None):
@@ -310,6 +332,24 @@ def all_team_ids(conn=None):
 
 
 
+def chip_marks(conn=None):
+    """Prompt R3 item 6: {fpl_team_id: the OLDEST chips_through_gw among its rows, None when any row has none} -- how far each
+    team's stored chips reach, for the team-score refresh."""
+    own = conn is None
+    if own:
+        conn = db_write.connect()
+    try:
+        _ready(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT fpl_team_id, CASE WHEN bool_or(chips_through_gw IS NULL) THEN NULL ELSE min(chips_through_gw) END "
+                        "FROM user_fpl_teams GROUP BY fpl_team_id")
+            return {int(r[0]): (None if r[1] is None else int(r[1])) for r in cur.fetchall()}
+    finally:
+        if own:
+            conn.rollback()
+            conn.close()
+
+
 def _season():
     import model_tools
     return model_tools._season_label()                 # the label every squad reader uses (squad_store.read_versions)
@@ -323,7 +363,7 @@ def _fetch_and_build(fpl_team_id, get=None):
     held = [int(p["element"]) for p in raw["picks"][raw["picks_gw"]].get("picks", [])]
     meta = fpl_import.players_live_meta(held)
     doc, info = fpl_import.build(raw, meta, _season())
-    return doc, info, fpl_import.team_summary(raw)
+    return doc, info, {**fpl_import.team_summary(raw), **fpl_import.chips_summary(raw)}    # R3 item 6: the chips too
 
 
 def _note(fpl_team_id, info):
@@ -358,9 +398,10 @@ def add_team(user_id, fpl_team_id, label=None, get=None):
                 raise TooManyTeams(str(MAX_TEAMS))
             cur.execute("INSERT INTO user_fpl_teams (user_id, fpl_team_id, label, is_active, last_imported_at, last_imported_gw, "
                         "entry_name, manager_name, total_points, overall_rank, last_gw, last_gw_points, updated_after_gw, "
-                        "summary_updated_at) VALUES (%(uid)s, %(fid)s, %(name)s, %(active)s, now(), %(gw)s, %(entry_name)s, "
-                        "%(manager_name)s, %(total_points)s, %(overall_rank)s, %(last_gw)s, %(last_gw_points)s, "
-                        "%(updated_after_gw)s, now()) RETURNING squad_key",
+                        "summary_updated_at, chips_json, chips_through_gw) VALUES (%(uid)s, %(fid)s, %(name)s, %(active)s, now(), "
+                        "%(gw)s, %(entry_name)s, %(manager_name)s, %(total_points)s, %(overall_rank)s, %(last_gw)s, "
+                        "%(last_gw_points)s, %(updated_after_gw)s, now(), %(chips_json)s::jsonb, %(chips_through_gw)s) "
+                        "RETURNING squad_key",
                         {**_summary_params(summary), "uid": uid, "fid": fid, "name": name, "active": not have,
                          "gw": info["version_gw"]})
             key = cur.fetchone()[0]
