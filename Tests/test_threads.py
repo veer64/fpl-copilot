@@ -48,13 +48,15 @@ V6 = REPO / "Tests" / "fixtures" / "agent_payloads_v6.json"               # Prom
 V7 = REPO / "Tests" / "fixtures" / "agent_payloads_v7.json"               # Prompt R3b (2026-11-16): a normal turn's requests then (a record)
 V8 = REPO / "Tests" / "fixtures" / "agent_payloads_v8.json"               # Prompt R3c (2026-11-16): a normal turn's requests then (a record)
 V9 = REPO / "Tests" / "fixtures" / "agent_payloads_v9.json"               # Prompt R3d (2026-11-16): a normal turn's requests then (a record)
-V10 = REPO / "Tests" / "fixtures" / "agent_payloads_v10.json"             # Prompt R3f (2026-11-16): a normal turn's requests now
+V10 = REPO / "Tests" / "fixtures" / "agent_payloads_v10.json"             # Prompt R3f (2026-11-16): a normal turn's requests then (a record)
+V11 = REPO / "Tests" / "fixtures" / "agent_payloads_v11.json"             # Prompt R3g (2026-11-17): a normal turn's requests now
 FIX3_V1 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v1.json"
 FIX3_V2 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v2.json"  # R3: v1 with max_tokens 2,048, the normal prompt and its 26 tools (v1 kept)
 FIX3_V3 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v3.json"  # R3b: v2 with the normal prompt and tools of v7 (v2 kept)
 FIX3_V4 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v4.json"  # R3c: v3 with the normal prompt and tools of v8 (v3 kept)
 FIX3_V5 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v5.json"  # R3d: v4 with the normal prompt and tools of v9 (v4 kept)
-FIX3 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v6.json"     # R3f: v5 with the normal prompt and tools as they are now (v5 kept)
+FIX3_V6 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v6.json"  # R3f: v5 with the normal prompt and tools of v10 (v5 kept)
+FIX3 = REPO / "Tests" / "fixtures" / "agent_payloads_threads_v7.json"     # R3g: v6 with the normal prompt as it is now (v6 kept)
 PY = sys.executable
 
 
@@ -194,7 +196,7 @@ def test_t1_a_stored_thread_sends_the_bytes_of_prompt_a_and_fixture_v5(tdb, monk
     importlib.reload(ag)
     import agent_graph
     import threads
-    doc = json.loads(V10.read_text(encoding="utf-8"))                  # R3f: v10 = v9 + the written lists (V9 in R3d, V8 in R3c, V7 in R3b, V6 in R3; before, V5)
+    doc = json.loads(V11.read_text(encoding="utf-8"))                  # R3g: v11 = v10 + one prompt sentence (V10 in R3f, V9 in R3d, V8 in R3c, V7 in R3b, V6 in R3; before, V5)
     _pin(ag, monkeypatch, doc["context_text"], pf.parse_now(doc["frozen_now"]), pf.TOOL_RESULTS)
     cases = [("tool_turn", doc["tool_turn"]["question"], pf.tool_turn)] + [(i["id"], i["question"], pf.reply_only) for i in doc["first_calls"]]
     print(f"T1 v5 cases: count={len(cases)} first={cases[0][0]} last={cases[-1][0]}")
@@ -318,7 +320,7 @@ def test_t1_threads_fixture_v5_is_v4_with_fixture_v9s_prompt_and_tools_and_nothi
 def test_t1_threads_fixture_v6_is_v5_with_fixture_v10s_prompt_and_tools_and_nothing_else():
     """Prompt R3f: the 3-turn fixture's v6 differs from v5 only in the system prompt and the tool list of each request -- the
     two things fixture v10 differs from v9 in; max_tokens, every message, reply and the stored history are v5's."""
-    v5, v6 = json.loads(FIX3_V5.read_text(encoding="utf-8")), json.loads(FIX3.read_text(encoding="utf-8"))
+    v5, v6 = json.loads(FIX3_V5.read_text(encoding="utf-8")), json.loads(FIX3_V6.read_text(encoding="utf-8"))   # R3g: v6 is a record now (was FIX3)
     v10, v9 = json.loads(V10.read_text(encoding="utf-8")), json.loads(V9.read_text(encoding="utf-8"))
     same = [k for k in v5 if k not in ("version", "raw_requests", "normalized_requests", "rebuilt_for")]
     assert {k: v6[k] for k in same} == {k: v5[k] for k in same} and len(v6["raw_requests"]) == len(v5["raw_requests"]) == 6
@@ -333,6 +335,25 @@ def test_t1_threads_fixture_v6_is_v5_with_fixture_v10s_prompt_and_tools_and_noth
         assert ra["system"][0]["text"] == v5["context_text"] + old_prompt and rb["system"][0]["text"] == v5["context_text"] + new_prompt
         assert [pf._strip(t) for t in ra["tools"]] == v9["shared"]["tools"] and [pf._strip(t) for t in rb["tools"]] == v10["shared"]["tools"]
     assert v6["normalized_requests"] == [pf.normalize_request(json.loads(x)) for x in v6["raw_requests"]]
+
+
+def test_t1_threads_fixture_v7_is_v6_with_fixture_v11s_prompt_and_nothing_else():
+    """Prompt R3g: the 3-turn fixture's v7 differs from v6 only in the system prompt of each request -- the one thing fixture
+    v11 differs from v10 in; the tools, max_tokens, every message, reply and the stored history are v6's."""
+    v6, v7 = json.loads(FIX3_V6.read_text(encoding="utf-8")), json.loads(FIX3.read_text(encoding="utf-8"))
+    v11, v10 = json.loads(V11.read_text(encoding="utf-8")), json.loads(V10.read_text(encoding="utf-8"))
+    same = [k for k in v6 if k not in ("version", "raw_requests", "normalized_requests", "rebuilt_for")]
+    assert {k: v7[k] for k in same} == {k: v6[k] for k in same} and len(v7["raw_requests"]) == len(v6["raw_requests"]) == 6
+    assert (v6["version"], v7["version"]) == ("threads_v6", "threads_v7")
+    old_prompt = "".join(b["text"] for b in v10["shared"]["system"])[len(v10["context_text"]):]
+    new_prompt = "".join(b["text"] for b in v11["shared"]["system"])[len(v11["context_text"]):]
+    assert old_prompt != new_prompt
+    for a, b in zip(v6["raw_requests"], v7["raw_requests"]):
+        ra, rb = json.loads(a), json.loads(b)
+        assert list(ra) == list(rb) and ra["messages"] == rb["messages"] and ra["model"] == rb["model"] and ra["tools"] == rb["tools"]
+        assert ra["max_tokens"] == rb["max_tokens"] == 2048
+        assert ra["system"][0]["text"] == v6["context_text"] + old_prompt and rb["system"][0]["text"] == v6["context_text"] + new_prompt
+    assert v7["normalized_requests"] == [pf.normalize_request(json.loads(x)) for x in v7["raw_requests"]]
 
 
 # ---- T2 isolation ---------------------------------------------------------------------------------------------------
