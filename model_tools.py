@@ -4024,6 +4024,7 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = None, teams: l
         if err:
             return {"error": err, "known_teams": known}
     normal = _draft_turn() is None
+    horizon, horizon_check = _fixture_horizon(horizon)   # Prompt F1 D: a number of gameweeks the user's own words name
     wanted, mine_players = None, None                    # Prompt R3b: the clubs of a several-club request (None: every club)
     if normal and resolved is None and my_players:
         mine_players, bad = _my_clubs(DEFAULT_USER_ID() if user_id is None else user_id)
@@ -4051,8 +4052,24 @@ def get_fixtures(team: str = None, gw: int = None, horizon: int = None, teams: l
     note_gw = int(gw) if gw is not None else (listed[0] if listed else run.get("gw"))
     out = _with_fixture_words(_with_meanings(_with_started_note(out, note_gw)))
     if normal and resolved is None:                      # Prompt R3b: every club, or several: the grid written by code
-        return _with_fixture_grid(out, cal, wanted, mine_players, now, run, mine=mine_players is not None)
+        out = _with_fixture_grid(out, cal, wanted, mine_players, now, run, mine=mine_players is not None)
+    if horizon_check is not None and isinstance(out, dict):
+        out["horizon_check"] = horizon_check             # for the trace: what the model passed, what the user's words named
     return out
+
+
+def _fixture_horizon(horizon):
+    """Prompt F1 D (2026-11-18): (the horizon to apply, the note for the trace). In a normal chat turn the number of gameweeks
+    the turn's own user message names wins (answers.verified_fixture_horizon: R3f's A16, "the next four" answered with the
+    default five); a message that names none keeps the model's value or the default, as before. Outside a turn and on a draft
+    chat's turn the argument is honoured as given."""
+    if _draft_turn() is not None:
+        return horizon, None
+    message = turn_context.user_message()
+    if message is None:
+        return horizon, None
+    import answers
+    return answers.verified_fixture_horizon(message, horizon)
 
 
 def _fixture_results():

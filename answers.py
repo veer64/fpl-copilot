@@ -1221,3 +1221,60 @@ def verified_transfer_limit(text, asked):
     if len(named) == 1:
         return named[0], {"asked": asked, "named": named, "applied": named[0], "why": "corrected"}
     return None, {"asked": asked, "named": named, "applied": None, "why": "not named"}
+
+
+# ---- Prompt F1 (2026-11-18): the number of gameweeks a user's own words name, for the fixture grid ----------------------------
+# R3f's A16: "Who has the easiest run of games for the next four?" -- get_fixtures was called with no horizon and the grid showed
+# its default five gameweeks. Code reads the count from the user's message, as it reads a transfer limit: "next N" (digits, or a
+# word from one to ten) and "N gameweeks / weeks / games / fixtures". A gameweek label ("GW12", "gameweek 12"), a point in time
+# ("in two weeks"), a rank ("top 5") and a count of anything else ("next 5 midfielders", "2 transfers") never count.
+
+GAMEWEEK_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+FIXTURE_COUNT_NOUNS = frozenset({"gw", "gws", "gameweek", "gameweeks", "week", "weeks", "game", "games", "match", "matches",
+                                 "fixture", "fixtures", "round", "rounds"})
+NEXT_WORDS = frozenset({"next", "coming", "upcoming", "following"})
+# a word that may follow "next N" when N is the count of gameweeks itself ("for the next four?", "next 3 for Arsenal")
+AFTER_NEXT_COUNT = frozenset({"for", "and", "or", "please", "to", "of", "with", "from", "starting", "then", "in", "at", "so", "is",
+                              "are", "do", "does", "look", "looks", "looking", "who", "which", "what", "ahead"})
+POINT_IN_TIME_WORDS = frozenset({"in", "after"})
+RANK_WORDS = frozenset({"top", "best", "worst", "bottom", "first", "last"})
+
+
+def gameweeks_named(text):
+    """The numbers of gameweeks `text` names, in order, each once: "next four" -> [4]; "next 3 gameweeks" -> [3]; "next two weeks"
+    -> [2]; "Arsenal's next 3 fixtures" -> [3]; "fixtures", "GW12 fixtures", "in two weeks", "top 5 fixtures", "next 5
+    midfielders" -> []. Pure."""
+    import re
+    t = str(text or "").lower().replace("-", " ").replace("_", " ")
+    words = re.findall(_TOKENS, t)
+    out = []
+    for i, w in enumerate(words):
+        n = int(w) if w.isdigit() else GAMEWEEK_NUMBER_WORDS.get(w)
+        if not n:
+            continue
+        prev = words[i - 1] if i > 0 else None
+        nxt = words[i + 1] if i + 1 < len(words) else None
+        if prev in GAMEWEEK_WORDS:                               # "gameweek 12 fixtures": a label, not a count
+            continue
+        if prev in NEXT_WORDS:
+            ok = nxt is None or nxt in FIXTURE_COUNT_NOUNS or nxt in AFTER_NEXT_COUNT
+        else:
+            ok = nxt in FIXTURE_COUNT_NOUNS and prev not in POINT_IN_TIME_WORDS and prev not in RANK_WORDS
+        if ok and n not in out:
+            out.append(n)
+    return out
+
+
+def verified_fixture_horizon(text, asked):
+    """(the horizon to apply, the note for the trace) for a get_fixtures call that carried horizon=`asked` (None: not passed), in
+    a turn whose own user message is `text`. Names no number of gameweeks: `asked`, as today (None: the tool's default), and no
+    note. Names one: that number -- the model's when it is the same, "corrected" when it is not, "named, not passed" when none was
+    passed. Names several: the model's."""
+    named = gameweeks_named(text)
+    if not named:
+        return asked, None
+    if len(named) > 1:
+        return asked, {"asked": asked, "named": named, "applied": asked, "why": "several named"}
+    n = named[0]
+    why = "named, not passed" if asked is None else ("named" if int(asked) == n else "corrected")
+    return n, {"asked": asked, "named": named, "applied": n, "why": why}
