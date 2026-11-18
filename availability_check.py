@@ -24,7 +24,7 @@ MONTHS = {"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june":
 _MONTH = (r"(?:January|February|March|April|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|"
           r"Sept|Sep|Oct|Nov|Dec|May)")
 _DATE_DM = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(" + _MONTH + r")\b")
-_DATE_MD = re.compile(r"\b(" + _MONTH + r")\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?!\s*(?:%|points|pts|games|weeks|days))")
+_DATE_MD = re.compile(r"\b(" + _MONTH + r")\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?!:\d)(?!\s*(?:%|points|pts|games|weeks|days))")
 _DATE_ISO = re.compile(r"\b20\d\d-(\d{2})-(\d{2})\b")
 _MONTH_WORD = re.compile(r"\b(" + _MONTH + r")\b")
 _MAY_OK = re.compile(r"\b(?:in|by|until|till|before|after|from|of|early|mid|late|end|start|since|around|into|through)[\s-]+May\b|\bMay\s+\d")
@@ -115,6 +115,84 @@ def unsourced(text, c):
     return [(k, key, w) for k, key, w in timings(text) if key not in c[k]]
 
 
+# ---- Prompt F2b (2026-11-18): sourced for THAT player only --------------------------------------------------------------------
+# F2's gate, E3 runs 1 and 2 ("Is Semenyo worth keeping?"): "...puts his earliest possible return somewhere around mid-to-late
+# December" was left in because the turn's news carried an unrelated Man City line, "Three Premier League games in December moved
+# for TV coverage". A return timing now counts as sourced only when it is in FPL's own news for that player (his flag's text, its
+# as-of day, the gameweek his chance is for) or in a source sentence that names him (with that report's own date) -- every kind of
+# timing, matched after normalising ("Dec" = "December", "03 Jan" = "3 January"). One exception, for gameweeks only: a sentence
+# about the model's own predictions ("the model gives him 0% through GW11-16") names the prediction window, not a return.
+MODEL_WORDS = re.compile(r"\b(?:the model|our model|model's|predict\w*|expected points|chance of starting|forecast\w*)\b", re.I)
+
+
+def _date_of(text):
+    """A report's own date as a timing key: '2026-10-23' or 'Fri 23 Oct 2026' -> (23, 10); None when unreadable."""
+    for kind, key, _w in timings(str(text or "")):
+        if kind == "date":
+            return key
+    return None
+
+
+def player_corpus(fpl_texts, report_sentences, report_dates=(), model_gws=()):
+    """What sources a timing for ONE player: FPL's own words for him (`fpl_texts`: his news, its as-of day, the chance's
+    gameweek), the source sentences that name him (`report_sentences`) and those reports' own dates; plus `model_gws` -- the
+    turn's prediction gameweeks -- only when the caller passes them for a sentence about the model's predictions."""
+    c = {"gw": set(), "date": set(), "month": set(), "anchor": set()}
+    for text in list(fpl_texts or ()) + list(report_sentences or ()):
+        for kind, key, _w in timings(text):
+            c[kind].add(key)
+            if kind == "date":
+                c["month"].add(key[1])
+    for d in report_dates or ():
+        key = d if isinstance(d, tuple) else _date_of(d)
+        if key:
+            c["date"].add(key)
+            c["month"].add(key[1])                       # the report's own month ("reported in late October")
+    c["gw"].update(int(g) for g in model_gws or ())
+    return c
+
+
+def window_range(sentence, gws):
+    """True when the sentence names the turn's whole prediction window as a range ("Across GW11-16, the total is ...")."""
+    gws = [int(g) for g in gws or ()]
+    if not gws:
+        return False
+    lo, hi = min(gws), max(gws)
+    return any(m.group(2) and int(m.group(1)) == lo and int(m.group(2)) == hi for m in _GW.finditer(str(sentence or "")))
+
+
+def _season_index(month):
+    """A month's place in a football season, July first: Oct < Nov < Dec < Jan."""
+    return (int(month) - 7) % 12
+
+
+def is_past(kind, key, today=None, next_gw=None):
+    """True for a timing before now -- a month before this one, a date before today, a gameweek before the next deadline's -- which
+    can never be a return timing ("reported in late October", "since 21 Oct", "before the GW9 match")."""
+    if kind == "gw" and next_gw is not None:
+        return int(key) < int(next_gw)
+    if today is None:
+        return False
+    day, month = today
+    if kind == "month":
+        return _season_index(key) < _season_index(month)
+    if kind == "date":
+        d, m = key
+        return _season_index(m) < _season_index(month) or (m == month and d < day)
+    return False
+
+
+def name_sentences(text, name_words):
+    """The sentences of a source text that name the player (his name words), verbatim, the search tag dropped."""
+    words = {w for w in name_words if w}
+    out = []
+    for s in re.split(r"(?<=[.!?])\s+|\n+", str(text or "")):
+        s = _SOURCE_TAG.sub("", s.strip()).strip()
+        if s and set(_fold(s).split()) & words:
+            out.append(s)
+    return out
+
+
 # ---- the supply ----------------------------------------------------------------------------------------------------------------
 def report_sentence(text, headline, name_words):
     """A news report's own words about the player's absence: the first sentence of its text that names him and speaks of an
@@ -164,10 +242,12 @@ _PREFIX = re.compile(r"^(\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)*)")
 _EMPH = re.compile(r"^((?:\*\*|\*|__|_)*)(.*?)((?:\*\*|\*|__|_)*)$", re.S)
 
 
-def check(reply, names, absent, c, lines):
+def check(reply, names, absent, c, lines, today=None, next_gw=None):
     """(the reply to send, the replacements). `names(sentence)` -> the player ids the sentence names (exactly-one matches only);
-    `absent` -- the ids FPL flags; `c` -- the turn's corpus; `lines(element, sentence)` -> his availability line. Table rows and
-    code are left alone; a sentence whose players are none of them absent is left alone."""
+    `absent` -- the ids FPL flags; `c` -- the turn's corpus, or (Prompt F2b) `c(element, sentence)` -> that player's own corpus
+    for that sentence; `lines(element, sentence)` -> his availability line; (Prompt F2b) `today` (day, month) and `next_gw`: a
+    timing before now is no return timing. Table rows and code are left alone; a sentence whose players are none of them absent
+    is left alone."""
     out_lines, replaced = [], []
     topic, topic_para, para, fence = set(), -1, 0, False
     for raw_line in str(reply or "").split("\n"):
@@ -205,7 +285,7 @@ def check(reply, names, absent, c, lines):
             hit = next((e for e in sorted(subject) if e in absent), None)
             new = sent
             if hit is not None and _CUE.search(sent):
-                bad = unsourced(sent, c)
+                bad = [t for t in unsourced(sent, c(hit, sent) if callable(c) else c) if not is_past(t[0], t[1], today, next_gw)]
                 if bad:
                     em = _EMPH.match(sent.rstrip())
                     lead, core, tail = em.group(1), em.group(2), em.group(3)

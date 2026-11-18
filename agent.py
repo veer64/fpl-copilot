@@ -1306,16 +1306,50 @@ def availability_line_for(element, results=(), prefer=()):
                                 datewords.day_words(f.get("updated_at")), _report_for(f, list(results), prefer))
 
 
-def _source_words(turn_calls, extra=()):
-    """The source's own words in the turn's tool results: every FPL news text and every news headline and text."""
-    out = list(extra)
+FPL_FLAG_KEYS = ("news", "chance_words", "as_of_words", "flag_dates", "availability_note", "availability_line")
+_PRED_ROW_RE = re.compile(r"'gw': (\d{1,2}), 'horizon_step': (\d{1,2})")
+
+
+def _prediction_window(turn_calls):
+    """Prompt F2b: (the gameweeks the turn's prediction rows cover, the next deadline's gameweek -- horizon_step 0), read from the
+    rows themselves, never from free text ("knows results through GW10"); (set(), FPL's chance gameweek or None) without rows."""
+    gws, nxt = set(), None
+    for _n, _i, r in turn_calls:
+        for g, step in _PRED_ROW_RE.findall(str(r)):
+            gws.add(int(g))
+            if int(step) == 0:
+                nxt = int(g) if nxt is None else min(nxt, int(g))
+    if nxt is None and gws:
+        nxt = min(gws)
+    if nxt is None:
+        found = [int(g) for _n, _i, r in turn_calls for g in re.findall(r"'chance_gameweek': (\d{1,2})", str(r))]
+        nxt = min(found) if found else None
+    return gws, nxt
+
+
+def _fpl_texts_for(element, turn_calls):
+    """Prompt F2b: FPL's own words for one player in the turn's tool results -- his availability block (news, the chance's
+    gameweek, the as-of day, the flag's dates), never his predictions or anyone else's text."""
+    out = []
+
+    def take(d):
+        av_block = d.get("availability") if isinstance(d.get("availability"), dict) else {}
+        for src in (d, av_block):
+            for k in FPL_FLAG_KEYS:
+                v = src.get(k)
+                if v:
+                    out.append(v if isinstance(v, str) else str(v))
+            g = src.get("chance_gameweek")
+            if isinstance(g, int):
+                out.append(f"GW{g}")
 
     def walk(x):
         if isinstance(x, dict):
+            pid = x.get("player_id", x.get("element"))
+            if isinstance(pid, int) and int(pid) == int(element):
+                take(x)
             for k, v in x.items():
-                if k in ("news", "headline", "text", "availability_note") and isinstance(v, str):
-                    out.append(v)
-                else:
+                if k not in ("prediction", "predictions"):
                     walk(v)
         elif isinstance(x, (list, tuple)):
             for v in x:
@@ -1352,13 +1386,34 @@ def _availability_checked(st, raw):
             return raw, []
         results = list(st.get("returned_results") or [])
         cited = av.markers(raw)
-        c = av.corpus(" ".join(str(r) for _n, _i, r in st["turn_calls"]),
-                      _source_words(st["turn_calls"], [flags[e]["news"] for e in named_absent if flags[e].get("news")]))
+        model_gws, next_gw = _prediction_window(st["turn_calls"])   # the predictions' own gameweeks; step 0 = the next deadline's
+        now = st.get("now") or now_context.clock()
+        cache = {}
+
+        def sources(element, sentence):
+            """Prompt F2b: what sources a timing for THIS player -- FPL's own words for him and the source sentences naming him."""
+            if element not in cache:
+                import datewords
+                f = flags.get(element) or {}
+                words = _name_words(f)
+                fpl = [f.get("news") or "", datewords.day_words(f.get("updated_at")) or ""] + _fpl_texts_for(element, st["turn_calls"])
+                if next_gw is not None:                  # FPL's chance of playing is for the next round, by definition
+                    fpl.append(f"GW{next_gw}")
+                said, dates = [], []
+                for r in results:
+                    s = av.name_sentences(f"{r.get('headline') or ''}\n{r.get('text') or ''}", words)
+                    if s:
+                        said += s
+                        dates += [r.get("date"), r.get("date_words")]
+                cache[element] = (fpl, said, dates)
+            fpl, said, dates = cache[element]
+            about_model = av.MODEL_WORDS.search(sentence) or av.window_range(sentence, model_gws)
+            return av.player_corpus(fpl, said, dates, model_gws if about_model else ())
 
         def lines(element, sentence):
             mine = av.markers(sentence)
             return availability_line_for(element, results, prefer=list(mine) + [x for x in cited if x not in mine])
-        return av.check(raw, names, absent, c, lines)
+        return av.check(raw, names, absent, sources, lines, today=(now.day, now.month), next_gw=next_gw)
     except Exception as e:                              # noqa: BLE001 -- the check never takes the reply down
         _say(f"  [availability check skipped: {type(e).__name__}: {str(e)[:200]}]")
         return raw, []
