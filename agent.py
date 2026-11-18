@@ -725,6 +725,13 @@ SECOND_CARD_NOTE = "For two or more players, use compare_players — it writes t
 # the round cap like any other. A draft chat's turn is never guarded.
 COMPARISON_NOTE = "This compares named players: call compare_players with every player's id — it writes the comparison, flags included."
 SINGLE_PLAYER_LOOKUPS = ("get_player_card", "get_prediction")
+# Prompt F1 B (2026-11-18): while the turn holds a name unsettled (model_tools.resolve_player: an ambiguous lookup of a name the
+# user wrote), a call carrying one of its candidates' ids -- or an id no tool result has given -- is not run; its result names
+# the candidates and says to ask (model_tools.unsettled_note). set_my_squad checks its incoming players itself.
+PLAYER_ID_FIELDS = ("player_id", "player_ids", "player_id_a", "player_id_b", "lock_player_ids", "start_player_ids", "ban_player_ids")
+UNSETTLED_EXEMPT = ("resolve_player", "set_my_squad", "captain_pick")
+_KNOWN_ID_RE = re.compile(r"'(?:\w*_)?(?:player_id|element|id)(?:_\w+)?': (\d+)")
+_KNOWN_IDS_RE = re.compile(r"'\w*(?:player_ids|elements|_ids)': \[([0-9, ]*)\]")
 GUARD_NAMES_TTL_S = 300.0
 _GUARD_NAMES = {"at": 0.0, "value": None}
 MAX_PREDICTION_CALLS = 10
@@ -1056,9 +1063,12 @@ def _begin_turn(user_message, messages=None, engine="loop", thread=None):
     question_index = len(messages) - 1               # the turn's question: the clock line rides on it at send time
     turn_id = thread.get("turn_id") or uuid.uuid4().hex   # Piece 7: one id per reply, for citation_checks (W7b: a stored
                                                      # thread's turn brings the id its pending chat_messages row was written under)
+    view, view_q = trim_turns(messages, question_index, thread.get("max_turns"))   # Prompt F1: the questions the request carries
+    earlier = [m["content"] for m in view[:view_q] if m.get("role") == "user" and isinstance(m.get("content"), str)]
     turn_context.begin(turn_id, thread_id=thread.get("thread_id"),    # Prompt E: the loop's channel; tools read it, the model cannot set it
                        draft=thread.get("draft"),                      # Prompt W11: the draft chat's turn (None otherwise)
-                       user_message=user_message)                      # Prompt R3d: code checks the model's reading of these words
+                       user_message=user_message,                      # Prompt R3d: code checks the model's reading of these words
+                       earlier_messages=earlier)                       # Prompt F1: and the user's words earlier in the chat
     trace = tracing.start_turn(turn_id, user_message, engine=engine,  # Prompt L: one Langfuse trace per turn (no-op when off)
                                session_id=thread.get("thread_id"), user_id=thread.get("user_id"))
     now = now_context.clock()                        # ONE instant per turn: the block's lines and the Now line agree
@@ -1207,6 +1217,60 @@ def _comparison_turn(st):
     return comparison_guard.fires(message, forms, resolved=resolved)
 
 
+def _input_player_ids(tool_input):
+    ids = set()
+    for k in PLAYER_ID_FIELDS:
+        v = tool_input.get(k)
+        for x in (v if isinstance(v, (list, tuple)) else [v]):
+            if (isinstance(x, int) and not isinstance(x, bool)) or (isinstance(x, str) and x.strip().isdigit()):
+                ids.add(int(x))
+    return ids
+
+
+def _known_player_ids(st):
+    """Every player id a tool result has given: this turn's results and the tool results the chat's history carries."""
+    texts = [str(r) for _n, _i, r in st["turn_calls"]]
+    for m in st["messages"]:
+        if m.get("role") == "user" and isinstance(m.get("content"), list):
+            texts += [b["content"] for b in m["content"]
+                      if isinstance(b, dict) and b.get("type") == "tool_result" and isinstance(b.get("content"), str)]
+    ids = set()
+    for t in texts:
+        ids |= {int(x) for x in _KNOWN_ID_RE.findall(t)}
+        for group in _KNOWN_IDS_RE.findall(t):
+            ids |= {int(x) for x in group.replace(" ", "").split(",") if x}
+    return ids
+
+
+def _unsettled_call(st, tool_name, tool_input):
+    """Prompt F1 B: the unsettled name this call is held for, or None. Normal turns only (the caller checks). resolve_player
+    is checked inside the lookup; set_my_squad checks its incoming players itself; captain_pick takes only players of the user's
+    own fifteen (it refuses any other), so the squad says which one is meant."""
+    held = turn_context.unsettled()
+    if not held or not isinstance(tool_input, dict) or tool_name in UNSETTLED_EXEMPT:
+        return None
+    if tool_name == "search_news":
+        import model_tools
+        import player_names as pn
+        words = model_tools._users_words() or set()
+        for text in list(tool_input.get("players") or []) + [tool_input.get("query") or ""]:
+            toks = pn.norm(text).split()
+            new = {t for t in toks if t not in words}
+            for entry in held.values():
+                if new & entry["name_words"] or (set(toks) & entry["own_words"] and new & entry["team_words"]):
+                    return entry
+        return None
+    ids = _input_player_ids(tool_input)
+    if not ids:
+        return None
+    for entry in held.values():
+        if ids & entry["ids"]:
+            return entry
+    if ids - _known_player_ids(st):                      # an id no tool has given, while a name is unsettled: a guess
+        return next(iter(held.values()))
+    return None
+
+
 def _run_tools(st):
     """Every tool_use block of the response, in order, under the failure contract; traced; kept for the fact check;
     search results kept for the citations. Returns the tool_result blocks (empty: no tool call in this response)."""
@@ -1231,6 +1295,14 @@ def _run_tools(st):
             tool_name = block.name
             tool_input = block.input
             tool_id = block.id
+            held = None if _draft_turn_now() else _unsettled_call(st, tool_name, tool_input)
+            if held is not None:
+                # Prompt F1 B: the user has not said which player the name means; the call is not run, the note says ask
+                import model_tools
+                _say(f"  [{tool_name} not run: {tool_input}; {held['name']!r} is unsettled -- the app note says to ask the user]")
+                tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": model_tools.unsettled_note(held)})
+                st["skipped_rounds"].append({"why": "unsettled", "calls": 1, "tools": [tool_name]})
+                continue
             if tool_name in SINGLE_PLAYER_LOOKUPS and not _draft_turn_now() and _comparison_turn(st):
                 # Prompt R3e: a comparison of named players is compare_players'; its single-player lookups are not run
                 _say(f"  [{tool_name} not run: {tool_input}; the turn compares named players -- the app note points at compare_players]")

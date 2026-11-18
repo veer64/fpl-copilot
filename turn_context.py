@@ -24,13 +24,18 @@ _LAST = contextvars.ContextVar("fpl_turn_last", default=None)
 # Prompt R3d (2026-11-16): the turn's own user message, so code can check the model's reading of the user's words (a transfer
 # limit is applied only when the message names one). Kept apart from the turn dict, which callers compare whole.
 _MESSAGE = contextvars.ContextVar("fpl_turn_user_message", default=None)
+# Prompt F1 (2026-11-18): the user questions the request carries BEFORE this one (the user's own words earlier in the chat), and
+# the names the turn holds unsettled -- {folded name: {"name", "ids", "candidates", "name_words", "team_words"}}, written by
+# model_tools.resolve_player when a name the user wrote is ambiguous, read by the agent's guard and by set_my_squad.
+_EARLIER = contextvars.ContextVar("fpl_turn_earlier_messages", default=())
+_UNSETTLED = contextvars.ContextVar("fpl_turn_unsettled", default=None)
 
 
 def clock():
     return datetime.now(timezone.utc)
 
 
-def begin(turn_id=None, started_at=None, thread_id=None, draft=None, consent=None, user_message=None):
+def begin(turn_id=None, started_at=None, thread_id=None, draft=None, consent=None, user_message=None, earlier_messages=None):
     """Open a turn (closing any earlier one in this context). Returns {"turn_id", "started_at"} (+ "thread_id" when the
     turn belongs to a stored thread; + "draft" -- {"user_id", "draft_key"} -- when it is the user's draft chat, Prompt W11:
     the squad tools then read and write the draft; + "consent" -- a preview ticket id -- Prompt X1: ONLY confirm_gate sets
@@ -46,12 +51,39 @@ def begin(turn_id=None, started_at=None, thread_id=None, draft=None, consent=Non
     _RECORD.set({})
     _LAST.set(None)
     _MESSAGE.set(None if user_message is None else str(user_message))
+    _EARLIER.set(tuple(str(m) for m in (earlier_messages or ()) if m is not None))
+    _UNSETTLED.set({})
     return dict(turn)
 
 
 def user_message():
     """The open turn's own user message (agent._begin_turn passes it), or None -- outside a turn, or a turn opened without it."""
     return _MESSAGE.get()
+
+
+def earlier_messages():
+    """Prompt F1: the user questions the request carries before the open turn's own (a tuple; empty outside a turn)."""
+    return _EARLIER.get()
+
+
+def unsettled():
+    """Prompt F1: the names the open turn holds unsettled ({} outside a turn) -- a copy of the mapping."""
+    held = _UNSETTLED.get()
+    return dict(held) if held else {}
+
+
+def hold(key, entry):
+    """Prompt F1: hold a name unsettled for the rest of the open turn (a no-op outside a turn)."""
+    held = _UNSETTLED.get()
+    if held is not None:
+        held[key] = entry
+
+
+def settle(key):
+    """Prompt F1: the user's own words settled the name -- it is no longer held."""
+    held = _UNSETTLED.get()
+    if held:
+        held.pop(key, None)
 
 
 def note(**fields):
@@ -76,6 +108,8 @@ def current():
 def end():
     _CURRENT.set(None)
     _MESSAGE.set(None)
+    _EARLIER.set(())
+    _UNSETTLED.set(None)
     rec = _RECORD.get()
     _RECORD.set(None)
     _LAST.set(dict(rec) if rec else None)

@@ -122,6 +122,38 @@ def named_one(text, players):
     return element, words
 
 
+def words_of(*texts):
+    """Prompt F1 (2026-11-18): every folded word of `texts` -- the user's own words, as a set."""
+    out = set()
+    for t in texts:
+        out.update(_fold(t).split())
+    return out
+
+
+# Prompt F1: a short reply that picks one of an ambiguous name's players ("Cole", "the Chelsea one", "Leeds", "the keeper") is
+# made of that player's own words once these are set aside.
+REPLY_FILLER = frozenset({"the", "one", "a", "i", "mean", "meant", "please", "pls", "him", "guy", "player", "yes", "yeah", "yep",
+                          "sorry", "it", "is", "its", "s", "that", "who", "plays", "playing", "for", "at", "from", "of", "ok",
+                          "okay", "oh"})
+REPLY_MAX_WORDS = 6
+
+
+def reply_names_one(text, candidates):
+    """Prompt F1: (element, the words) when a SHORT message -- REPLY_MAX_WORDS words or fewer -- is made, filler aside, only of
+    words of ONE of `candidates` = (element, his folded words: name, web name, club, position); else None. "Cole" after "which
+    Palmer?" -> Cole Palmer; "Palmer?" (both) and "Tell me about Palmer." (not a reply) -> None."""
+    toks = _fold(text).split()
+    if not toks or len(toks) > REPLY_MAX_WORDS:
+        return None
+    content = [t for t in toks if t not in REPLY_FILLER]
+    if not content:
+        return None
+    hits = {int(e) for e, words in candidates if set(content) <= set(words)}
+    if len(hits) != 1:
+        return None
+    return hits.pop(), " ".join(content)
+
+
 def fires(text, forms, resolved=()):
     """(a) the message reads as a comparison and (b) it names two or more different players -- by the message's own names, or
     by the players resolved in the turn. (c), compare_players not yet run, is the agent's to check."""

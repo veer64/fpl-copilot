@@ -933,10 +933,163 @@ def _from_users_words(ranked):
         return None
     import comparison_guard
     hit = comparison_guard.named_one(message, [(c["id"], c["second_name"], c["web_name"]) for _r, c in ranked])
+    if hit is None:                                      # Prompt F1: a short reply made of one candidate's own words ("Cole")
+        hit = comparison_guard.reply_names_one(message, [(c["id"], _reply_words(c)) for _r, c in ranked])
     if hit is None:
         return None
     element, words = hit
     return next(c for _r, c in ranked if int(c["id"]) == int(element)), words
+
+
+# ---- Prompt F1 B (2026-11-18): the ambiguous-name lock --------------------------------------------------------------------------
+# R3g's T2 run 2 (C:\dev\fpl-backups\r3g_files\trace_run2.json), "Tell me about Saka and Palmer.": the lookup of "Palmer" was
+# ambiguous; the model wrote "I'll assume you mean Cole Palmer", guessed id 448 (Dan Burn), then looked up "Cole Palmer" with club
+# "Chelsea" -- words the user never wrote -- got ONE match and answered about him. Now an ambiguous lookup of a name the user
+# wrote holds it unsettled for the rest of the turn (turn_context.hold); a lookup whose one answer rests on words the user did not
+# write returns the ambiguous answer of the user's own words; the agent's guard and set_my_squad refuse a call for one of its
+# candidates. The user's own words settle it: this message naming him in full (_from_users_words), a short reply ("Cole"), or a
+# lookup whose every word -- and club -- the user wrote, in this message or earlier in the chat.
+UNSETTLED_NOTE = ("Not run: the user has not said which {name} they mean — {who}. Ask the user which one they mean, and answer "
+                  "the rest of their question meanwhile.")
+
+
+def _users_words():
+    """The folded words of the turn's own user message and of the earlier user messages its request carries; None outside a
+    chat turn and on a draft chat's turn."""
+    if _draft_turn() is not None:
+        return None
+    message = turn_context.user_message()
+    if message is None:
+        return None
+    import comparison_guard
+    return comparison_guard.words_of(message, *turn_context.earlier_messages())
+
+
+def _reply_words(c):
+    """A lookup candidate's own words for a short reply: his name and FPL web name, his club, his position."""
+    import player_names as pn
+    _web, words = pn.name_words(c)
+    words = set(words) | set(pn.norm(c.get("team")).split())
+    for w in POSITION_WORDS.get((c.get("row") or {}).get("position"), ()):
+        words |= set(pn.norm(w).split())
+    return words
+
+
+def _ambiguous(ranked):
+    return bool(ranked) and sum(1 for r, _c in ranked if r == ranked[0][0]) > 1
+
+
+def _club_in_words(club_team, words):
+    """True when the user's words name the club: its stored name, FPL's short name or an alias."""
+    import player_names as pn
+    forms = {pn.norm(club_team), pn.norm((_club_short_names() or {}).get(club_team))}
+    forms |= {pn.norm(k) for k, v in FIXTURE_TEAM_ALIASES.items() if v == club_team}
+    return any(f and set(f.split()) <= words for f in forms)
+
+
+def _own_words_for(c, words):
+    """The words of this player's names that the user wrote, in name order ("Cole Palmer" and the user's "Palmer" -> "palmer")."""
+    import player_names as pn
+    out = []
+    for w in pn.norm(c.get("second_name")).split() + pn.norm(c.get("web_name")).split():
+        if w in words and w not in out:
+            out.append(w)
+    return " ".join(out)
+
+
+def _unsettled_lookup(name, club, club_team, cands, ranked0, ranked):
+    """(the ranked matches to answer with, the trace note) when this lookup's ONE answer rests on words the user did not write
+    and the user's own words for him are ambiguous: (1) he is a candidate of a name the turn holds unsettled; (2) the words of
+    his names the user did write match several players (him among them) and the message names none of them in full; (3) only
+    a club the user did not name picked him. Else None -- an answer the user's words give, or one no word of theirs touches."""
+    words = _users_words()
+    if words is None or not ranked or _ambiguous(ranked):
+        return None
+    chosen = ranked[0][1]
+    import player_names as pn
+    unwritten = [w for w in pn.norm(name).split() if w not in words]
+    club_unwritten = club_team is not None and not _club_in_words(club_team, words)
+    if not unwritten and not club_unwritten:
+        return None
+    note = {"why": "the lookup used words the user did not write -- ask the user which one they mean", "query": name,
+            "unwritten": unwritten}
+    if club_unwritten:
+        note["club"] = club
+    for key, entry in turn_context.unsettled().items():
+        if int(chosen["id"]) in entry["ids"]:
+            held = pn.rank_matches(key, cands)
+            if _ambiguous(held):
+                return held, {**note, "user_wrote": key}
+    mine = _own_words_for(chosen, words)
+    if mine:
+        theirs = pn.rank_matches(mine, cands)
+        if _ambiguous(theirs) and any(c is chosen for _r, c in theirs) and _from_users_words(theirs) is None:
+            return theirs, {**note, "user_wrote": mine}
+    if (club_unwritten and _ambiguous(ranked0) and any(c is chosen for _r, c in ranked0)
+            and _from_users_words(ranked0) is None):
+        return ranked0, {**note, "user_wrote": pn.norm(name)}
+    return None
+
+
+def _unsettled_entry(display, ranked):
+    """What the turn holds for an unsettled name: every candidate's id, the candidates to name (best rank first), and the words
+    of their names and clubs beyond the name itself (search_news under them is a guess at one)."""
+    import player_names as pn
+    best = ranked[0][0]
+    own = set(pn.norm(display).split())
+    name_words, team_words, rows = set(), set(), []
+    for r, c in ranked:
+        name_words |= pn.name_words(c)[1]
+        team_words |= set(pn.norm(c.get("team")).split())
+        row = c["row"]
+        rows.append({"player_id": int(c["id"]), "name": row["name"], "team": row["team"], "position": row["position"],
+                     "price": (row.get("price_tenths") or 0) / 10, "best": r == best})
+    return {"name": display, "ids": frozenset(int(c["id"]) for _r, c in ranked), "candidates": rows,
+            "own_words": frozenset(own), "name_words": frozenset(name_words - own), "team_words": frozenset(team_words)}
+
+
+def _hold_or_settle(name, ranked, out, swapped):
+    """After a lookup on a normal chat turn: an ambiguous answer for a name the user wrote is held unsettled; a single answer
+    the user's own words gave settles the name he was a candidate of."""
+    words = _users_words()
+    if words is None or not ranked:
+        return
+    import player_names as pn
+    if out.get("ambiguous"):
+        key = swapped["user_wrote"] if swapped else pn.norm(name)
+        if key and all(w in words for w in key.split()) and key not in turn_context.unsettled():
+            turn_context.hold(key, _unsettled_entry(key.title() if swapped else name, ranked))
+        return
+    if swapped is None:
+        chosen = int(ranked[0][1]["id"])
+        for key, entry in turn_context.unsettled().items():
+            if chosen in entry["ids"]:
+                turn_context.settle(key)
+
+
+def unsettled_note(entry):
+    """The tool result for a call held while its name is unsettled: the candidates (best rank first), and ask."""
+    rows = entry["candidates"]
+    best = [r for r in rows if r.get("best")] or rows
+    shown = best[:RESOLVE_CAP]
+    who = "; ".join(f"{r['name']} ({r['team']}, {r['position']}, £{r['price']:.1f}m)" for r in shown)
+    more = len(rows) - len(shown)
+    if more > 0:
+        who += f"; {more} other player{'s' if more != 1 else ''} also match{'' if more != 1 else 'es'} the name"
+    return UNSETTLED_NOTE.format(name=entry["name"], who=who)
+
+
+def _held_incoming(player_ids, kept_ids):
+    """set_my_squad's refusal when a player coming IN is a candidate of a name the turn holds unsettled; a player kept is never
+    held. None otherwise (outside a turn, a draft chat's turn, nothing held)."""
+    held = turn_context.unsettled()
+    if not held:
+        return None
+    incoming = {int(e) for e in (player_ids or []) if isinstance(e, int)} - {int(e) for e in kept_ids}
+    for entry in held.values():
+        if incoming & entry["ids"]:
+            return {"error": unsettled_note(entry), "unsettled_name": entry["name"]}
+    return None
 
 
 def resolve_player(name: str, club: str = None):
@@ -961,6 +1114,7 @@ def resolve_player(name: str, club: str = None):
               "first_name": "", "second_name": r["name"], "team": r["team"],
               "short": "", "row": r} for r in rows]
     ranked = pn.rank_matches(name, cands)
+    ranked0, club_team = ranked, None                    # Prompt F1: the name's own matches, before the club preference
 
     notes = []
     if club:
@@ -968,6 +1122,7 @@ def resolve_player(name: str, club: str = None):
         if err:
             notes.append(f"the club you named was not used: {err}")
         elif ranked:
+            club_team = resolved
             at_club = [rc for rc in ranked if rc[1]["team"] == resolved]
             if at_club:
                 ranked = at_club
@@ -984,6 +1139,12 @@ def resolve_player(name: str, club: str = None):
         if not (len(tied) == 1 and tied[0] is chosen):  # the user's player was not already the one answer
             resolved_from = {"why": "resolved from the user's words", "words": words, "query": name, "candidates": len(ranked)}
             ranked = [(top, chosen)] + [(r, c) for r, c in ranked if c is not chosen and r > top]
+    swapped = None
+    if hit is None:                                      # Prompt F1 B: an answer resting on words the user did not write
+        swap = _unsettled_lookup(name, club, club_team, cands, ranked0, ranked)
+        if swap is not None:
+            ranked, swapped = swap
+            notes = []                                   # the user's own words' answer, as that lookup gives it
 
     total = len(ranked)
     best = ranked[0][0] if ranked else None
@@ -1017,6 +1178,9 @@ def resolve_player(name: str, club: str = None):
     if total > RESOLVE_CAP:
         notes.append(f"{total} players match; the closest {RESOLVE_CAP} are listed")
     out["note"] = "; ".join(notes) or None
+    if swapped is not None:
+        out["unsettled_lookup"] = swapped                # for the trace and the model: whose words were not the user's
+    _hold_or_settle(name, ranked, out, swapped)          # Prompt F1 B: the turn's unsettled names
     _d = _draft_turn()                                   # Prompt W11b: in a draft chat the player going OUT is one of its 15
     if _d is not None:
         import draft_tools
@@ -1823,6 +1987,9 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
         return _no_squad(user_id)
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
+    held = _held_incoming(player_ids, [p["element"] for p in active["squad_json"]["players"]])
+    if held is not None:                                     # Prompt F1 B: the user has not said which player comes in
+        return held
     try:
         current = _current_gw()
     except RuntimeError as e:
