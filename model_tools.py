@@ -5290,10 +5290,35 @@ def rank_players(position: str = "any", min_price: float = None, max_price: floa
     out = answers.rank(pool, gws, position=code, sort=sort, n=n_int, club=resolved, min_tenths=lo_t, max_tenths=hi_t,
                        cal=_answer_calendar(), shorts=_club_short_names(), flags=_flags_for(list(pool)), built=built,
                        next_update=next_update, market_gw=market_gw, clip=clip, has_squad=_has_saved_squad(user_id),
-                       cheapest=min(same) if same else None, unrated=unrated)
-    return {"direct_reply": out["direct_reply"], "ranked": out["pool_size"], "ranked_by": out["ranked_by"],
-            "gameweeks": out["gameweeks"], "rows": out["rows"], "run_id": run["run_id"],
-            "note": "this text has been shown to the user as the reply; the rows carry the player ids for a follow-up"}
+                       cheapest=min(same) if same else None, unrated=unrated, named=_one_player_named())
+    res = {"direct_reply": out["direct_reply"], "ranked": out["pool_size"], "ranked_by": out["ranked_by"],
+           "gameweeks": out["gameweeks"], "rows": out["rows"], "run_id": run["run_id"],
+           "note": "this text has been shown to the user as the reply; the rows carry the player ids for a follow-up"}
+    if out.get("named_player"):
+        res["named_player"] = out["named_player"]          # Prompt F2c: for the trace
+    return res
+
+
+def _one_player_named():
+    """Prompt F2c (2026-11-18): the ONE player the turn's own user message names -- whole-word name forms, as the comparison
+    guard reads them (players_live's name, FPL's web name, the web name without its initial) -- or None: none named, several, a
+    form several players share, outside a turn or on a draft chat's turn. F2b's gate: "Is Haaland worth his price?" got the
+    value top 10 of forwards, which left Haaland out of the reply altogether."""
+    if _draft_turn() is not None:
+        return None
+    message = turn_context.user_message()
+    if not message:
+        return None
+    try:
+        import comparison_guard
+        web = _web_names()
+        forms = comparison_guard.name_forms([(r["element"], r["name"], web.get(r["element"], ""))
+                                             for r in _q("SELECT element, name FROM players_live")])
+        named = {ids for _w, ids in comparison_guard._spans_words(message, forms)}
+        minimal = [s for s in named if not any(o < s for o in named)]
+        return next(iter(minimal[0])) if len(minimal) == 1 and len(minimal[0]) == 1 else None
+    except Exception:                                    # noqa: BLE001 -- the ranking never fails on this
+        return None
 
 
 @one_connection_per_call

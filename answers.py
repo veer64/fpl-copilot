@@ -211,12 +211,33 @@ def rank_rows(pool, gws, position="any", sort="points", club=None, min_tenths=No
     return rows
 
 
+def named_line(named, rows, pool, gws, sort, who, label):
+    """Prompt F2c (2026-11-18): the line for the ONE player the user's message names when the listed top N leaves him out --
+    "**Haaland** (Man City): £15.8m, 7.15 predicted points GW11, 0.45 per £1m — #24 of 79 forwards." -- his own row and his rank
+    among every player ranked; a player the filters left out is said to be outside them; None when the build has no prediction
+    for him."""
+    e = int(named)
+    for i, r in enumerate(rows, 1):
+        if int(r["element"]) == e:
+            per = f", {r['value']:.2f} per £1m" if sort == "value" else ""
+            return (f"**{_name(r)}** ({r['team']}): {money(r['price_tenths'])}, {r['total']:.2f} predicted points {label}{per} — "
+                    f"#{i} of {len(rows)} {who}.")
+    me = (pool or {}).get(e)
+    if not me or me.get("price_tenths") is None:
+        return None
+    total = float(points_over(me["pts"], gws))
+    per = f", {total / (int(me['price_tenths']) / 10):.2f} per £1m" if sort == "value" else ""
+    return (f"**{_name(me)}** ({me['team']}, {me['position']}): {money(me['price_tenths'])}, {total:.2f} predicted points {label}{per} — "
+            f"not among the {who} ranked here.")
+
+
 def rank(pool, gws, *, position="any", sort="points", n=DEFAULT_N, club=None, min_tenths=None, max_tenths=None, cal=None,
          shorts=None, flags=None, built=None, next_update=None, market_gw=None, clip=None, has_squad=True, cheapest=None,
-         unrated=0):
+         unrated=0, named=None):
     """The ranking answer: {"direct_reply": the text, "rows": the listed players as data, ...}. `cheapest` = the lowest price
     (tenths) at that position / club, for the sentence an empty result needs; `unrated` = how many players FPL lists through
-    the same filters that this build has no prediction for (they cannot be ranked, and the answer says so)."""
+    the same filters that this build has no prediction for (they cannot be ranked, and the answer says so). Prompt F2c: `named`
+    = the one player the user's message names; when the listed top N leaves him out, his own row and rank follow the table."""
     rows = rank_rows(pool, gws, position, sort, club, min_tenths, max_tenths)
     who = rank_who(position, club, min_tenths, max_tenths)
     by = "predicted points per £1m" if sort == "value" else "predicted points"
@@ -244,6 +265,11 @@ def rank(pool, gws, *, position="any", sort="points", n=DEFAULT_N, club=None, mi
                      "price": round(int(r["price_tenths"]) / 10, 1), "predicted_points": float(r["total"]),
                      **({"points_per_million": float(r["value"])} if sort == "value" else {}), "fixtures": fx, "flag": flag or None})
     out += _table(cols, table)
+    mine = None
+    if named is not None and all(int(r["element"]) != int(named) for r in top):
+        mine = named_line(named, rows, pool, gws, sort, who, label)
+        if mine:
+            out += ["", mine]
     if sort == "value":
         how = (f"Ranked by predicted points per £1m of today's price (the points for {label} divided by the price); level values go to the "
                "player with more points, then the cheaper one.")
@@ -259,7 +285,10 @@ def rank(pool, gws, *, position="any", sort="points", n=DEFAULT_N, club=None, mi
     if ll:
         out.append(ll)
     out += [BONUS_NOTE, "", RANK_FOLLOW_UP if has_squad else RANK_FOLLOW_UP_NO_SQUAD]
-    return {"direct_reply": "\n".join(out), "ranked_by": by, "gameweeks": list(gws), "pool_size": len(rows), "rows": data}
+    res = {"direct_reply": "\n".join(out), "ranked_by": by, "gameweeks": list(gws), "pool_size": len(rows), "rows": data}
+    if mine:
+        res["named_player"] = {"player_id": int(named), "line": mine}
+    return res
 
 
 # ---- 2. review: the user's own fifteen ------------------------------------------------------------------------------------
