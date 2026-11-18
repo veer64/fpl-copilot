@@ -536,10 +536,11 @@ class Turn:
             _STATE["turn"] = None
 
     @_guarded
-    def end(self, reply, guard=None, round_cap=None, stop_reason=None, truncated=None):
+    def end(self, reply, guard=None, round_cap=None, stop_reason=None, truncated=None, availability_replacements=None):
         """The reply as delivered (the loop guard's fixed reply with `guard` = {stop_reason, block_types}; the round cap's
         with `round_cap` = {rounds, pending_tools}: metadata round_cap=true -- Prompt P6). Prompt R1: the turn's
-        stop_reason and truncated (the reply was cut at the reply cap) when given."""
+        stop_reason and truncated (the reply was cut at the reply cap) when given. Prompt F2 E: the sentences the return-date
+        check replaced, when there were any (how many, whose)."""
         if self.ended:
             return
         self._finish()
@@ -557,6 +558,9 @@ class Turn:
                 meta["stop_reason"] = str(stop_reason)
             if truncated is not None:
                 meta["truncated"] = bool(truncated)
+            if availability_replacements:
+                meta["availability_replacements"] = len(availability_replacements)
+                meta["availability_replaced_players"] = [int(r.get("element") or 0) for r in availability_replacements]
             self.root.update(output=mask(reply), metadata=meta)
             self.root.end()
 

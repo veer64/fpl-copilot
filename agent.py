@@ -915,8 +915,45 @@ def _exc_text(e):
 # A lookup so we can call the right Python function by name,
 # once Claude tells us which tool it wants
 def search_news(query, players=None, clubs=None):
-    """The agent-facing search (news_search.py): the server sets as_of = now; no other parameter is exposed."""
-    return _search_news(query, players or [], clubs or [])
+    """The agent-facing search (news_search.py): the server sets as_of = now; no other parameter is exposed. Prompt F2 E: for a
+    requested player FPL flags, the result also carries his availability line -- FPL's words and day, and the first result's own
+    sentence about him with its date (availability_lines)."""
+    out = _search_news(query, players or [], clubs or [])
+    return _with_availability_lines(out, players or [])
+
+
+AVAILABILITY_LINES_NOTE = ("the source's own words and dates for each flagged player: quote them; a reported duration is not a "
+                           "return date")
+
+
+def _with_availability_lines(out, players):
+    """Prompt F2 E: search_news' result with availability_lines {requested name: line} for the requested players FPL flags (a
+    normal turn only; a name several players share, or one that cannot be read, gets none)."""
+    if not isinstance(out, dict) or not players or _draft_turn_now():
+        return out
+    try:
+        import comparison_guard
+        import player_names as pn
+        forms = _guard_names()
+        results = [r for r in (out.get("results") or []) if isinstance(r, dict)]
+        lines = {}
+        for name in players:
+            spans = comparison_guard._spans_words(str(name), forms)
+            ids = {i for _w, s in spans for i in s} if len(spans) == 1 else set()
+            if len(ids) != 1:
+                continue
+            element = next(iter(ids))
+            f = _player_flags().get(element) or {}
+            words = _name_words(f)
+            about = [str(r.get("id")) for r in results if words & set(pn.norm(f"{r.get('headline')} {r.get('text')}").split())]
+            line = availability_line_for(element, results, prefer=about)
+            if line:
+                lines[str(name)] = line
+        if lines:
+            out = {**out, "availability_lines": lines, "availability_lines_note": AVAILABILITY_LINES_NOTE}
+    except Exception as e:                              # noqa: BLE001 -- the supply never takes the search down
+        _say(f"  [availability lines not added: {type(e).__name__}: {str(e)[:200]}]")
+    return out
 
 
 def _citation_check(turn_id, text, returned_ids):
@@ -1200,6 +1237,119 @@ def _guard_names():
     value = comparison_guard.name_forms([(r["element"], r["name"], web.get(r["element"], "")) for r in rows])
     _GUARD_NAMES.update(at=time.time(), value=value)
     return value
+
+
+# ---- Prompt F2 E (2026-11-18): return dates -- supply the fact, then check the reply (availability_check.py) -----------------
+AVAILABILITY_FLAGGED = ("d", "i", "s", "u", "n")         # = model_tools.FLAG_STATUSES: FPL reports an absence
+_PLAYER_FLAGS = {"at": 0.0, "value": None}
+
+
+def _player_flags():
+    """{element: {name, web_name, status, chance, news, updated_at}} for every current player (players_live and FPL's web names),
+    cached for five minutes like the guard's player list."""
+    if _PLAYER_FLAGS["value"] is not None and time.time() - _PLAYER_FLAGS["at"] < GUARD_NAMES_TTL_S:
+        return _PLAYER_FLAGS["value"]
+    import model_tools
+    rows = model_tools._q("SELECT element, name, status, chance, news, updated_at FROM players_live")
+    web = model_tools._web_names()
+    value = {int(r["element"]): {"name": r["name"], "web_name": web.get(r["element"], ""), "status": r.get("status"),
+                                 "chance": r.get("chance"), "news": (r.get("news") or "").strip(), "updated_at": r.get("updated_at")}
+             for r in rows}
+    _PLAYER_FLAGS.update(at=time.time(), value=value)
+    return value
+
+
+def _name_words(flag):
+    import player_names as pn
+    return set(pn.norm(flag.get("name")).split()) | set(pn.norm(flag.get("web_name")).split())
+
+
+def _report_for(flag, results, prefer=()):
+    """A news report about the player the reply used: the first of `results` (search_news results of the turn) whose words name
+    him -- one cited in `prefer` first -- with its own sentence about him and its date; None when there is none."""
+    import availability_check as av
+    words = _name_words(flag)
+    by_id = {str(r.get("id")): r for r in results if isinstance(r, dict)}
+    used = [by_id[str(rid)] for rid in prefer if str(rid) in by_id]
+    used = [r for r in used if "fpl" not in str(r.get("source") or "").lower()]     # FPL's own words are the line's first half
+    for allow_headline in (False, True):                 # a sentence about his absence first, a headline only after
+        for r in used:
+            said = av.report_sentence(r.get("text"), r.get("headline") if allow_headline else None, words)
+            if said:
+                return {"source": r.get("source"), "date_words": r.get("date_words") or r.get("date"), "words": said,
+                        "id": r.get("id")}
+    return None
+
+
+def availability_line_for(element, results=(), prefer=()):
+    """The code-built availability line of one player FPL flags (None for a player it does not): FPL's words and day, and the
+    report the reply used (`prefer`: the result ids it cited), in that report's words and with its date."""
+    import availability_check as av
+    import datewords
+    import model_tools
+    f = _player_flags().get(int(element))
+    if not f or f.get("status") not in AVAILABILITY_FLAGGED:
+        return None
+    return av.availability_line(f["name"], model_tools.STATUS_WORDS.get(f["status"], f["status"]), f.get("news"),
+                                datewords.day_words(f.get("updated_at")), _report_for(f, list(results), prefer))
+
+
+def _source_words(turn_calls, extra=()):
+    """The source's own words in the turn's tool results: every FPL news text and every news headline and text."""
+    out = list(extra)
+
+    def walk(x):
+        if isinstance(x, dict):
+            for k, v in x.items():
+                if k in ("news", "headline", "text", "availability_note") and isinstance(v, str):
+                    out.append(v)
+                else:
+                    walk(v)
+        elif isinstance(x, (list, tuple)):
+            for v in x:
+                walk(v)
+    for _n, _i, r in turn_calls:
+        walk(r)
+    return out
+
+
+def _availability_checked(st, raw):
+    """Prompt F2 E: (the text to send, the replacements). A normal turn's model-written reply: a sentence about a player FPL
+    flags that gives a return timing the turn's sources do not carry is replaced by his availability line (no model call). A
+    check that fails leaves the reply as it is."""
+    if _draft_turn_now() or not raw:
+        return raw, []
+    try:
+        import availability_check as av
+        import comparison_guard
+        flags = _player_flags()
+        absent = {e for e, f in flags.items() if f.get("status") in AVAILABILITY_FLAGGED}
+        forms = _guard_names()
+        seen = _known_player_ids(st)
+
+        def names(sentence):
+            out = set()
+            for _w, ids in comparison_guard._spans_words(sentence, forms):
+                if len(ids) == 1:
+                    out |= set(ids)
+                elif len(set(ids) & seen) == 1:
+                    out |= set(ids) & seen
+            return out
+        named_absent = {e for e in names(raw) if e in absent}
+        if not named_absent:                            # no flagged player named: nothing for a pronoun to point back to
+            return raw, []
+        results = list(st.get("returned_results") or [])
+        cited = av.markers(raw)
+        c = av.corpus(" ".join(str(r) for _n, _i, r in st["turn_calls"]),
+                      _source_words(st["turn_calls"], [flags[e]["news"] for e in named_absent if flags[e].get("news")]))
+
+        def lines(element, sentence):
+            mine = av.markers(sentence)
+            return availability_line_for(element, results, prefer=list(mine) + [x for x in cited if x not in mine])
+        return av.check(raw, names, absent, c, lines)
+    except Exception as e:                              # noqa: BLE001 -- the check never takes the reply down
+        _say(f"  [availability check skipped: {type(e).__name__}: {str(e)[:200]}]")
+        return raw, []
 
 
 def _comparison_turn(st):
@@ -1575,6 +1725,10 @@ def _finish(st, raw):
     """The reply path: the checks (log only), the plain-words locks, the citations, the usage row. Prompt R1: a reply cut at
     the reply cap ends with CUT_OFF_LINE on its own line, and the history keeps exactly that text."""
     turn_id, usage = st["turn_id"], st["usage"]
+    raw, swaps = _availability_checked(st, raw)                    # Prompt F2 E: a return timing its sources do not give
+    if swaps:
+        st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": raw}]}   # the history keeps what is sent
+        _say(f"  [availability check: {len(swaps)} sentence(s) replaced by the code-built availability line: {swaps}]")
     cut = st.get("cut")
     shown = f"{raw.rstrip()}\n\n{CUT_OFF_LINE}" if cut and cut.get("note") else raw
     if cut:
@@ -1593,9 +1747,10 @@ def _finish(st, raw):
         _say(f"  [raw reply: {raw}]")                             # the raw reply stays in the logs
     LAST_TURN.clear()
     LAST_TURN.update(turn_id=turn_id, tool_names_replaced=n_names, plain_words_replaced=n_words, stop_reason=stop,
-                     truncated=bool(cut), skipped_rounds=list(st.get("skipped_rounds") or []), **usage)
+                     truncated=bool(cut), skipped_rounds=list(st.get("skipped_rounds") or []),
+                     availability_replacements=swaps, **usage)
     _usage_log(turn_id, usage, n_names)
-    st["trace"].end(rendered, stop_reason=stop, truncated=bool(cut))
+    st["trace"].end(rendered, stop_reason=stop, truncated=bool(cut), **({"availability_replacements": swaps} if swaps else {}))
     _note_turn(st, raw)                                            # Prompt W4: the Chat page's structured fields
     return {"rendered": rendered}
 

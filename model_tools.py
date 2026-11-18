@@ -1348,6 +1348,10 @@ def get_player_card(player_id: int):
     if note:
         card["availability"]["fpl_figure_note"] = note
         card["fpl_figure_note"] = note
+    if card.get("status") in FLAG_STATUSES and _draft_turn() is None:
+        import availability_check as av                  # Prompt F2 E: the absence in FPL's own words and day, nothing worked out
+        card["availability"]["availability_line"] = av.availability_line(
+            card.get("name"), card["availability"]["status_word"], news, datewords.day_words(card.get("updated_at")))
     pred = get_prediction(player_id)
     if "error" not in pred:
         card["prediction"] = pred
