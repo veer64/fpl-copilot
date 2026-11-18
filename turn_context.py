@@ -29,6 +29,9 @@ _MESSAGE = contextvars.ContextVar("fpl_turn_user_message", default=None)
 # model_tools.resolve_player when a name the user wrote is ambiguous, read by the agent's guard and by set_my_squad.
 _EARLIER = contextvars.ContextVar("fpl_turn_earlier_messages", default=())
 _UNSETTLED = contextvars.ContextVar("fpl_turn_unsettled", default=None)
+# Prompt F2 F (2026-11-18): the player ids the chat's tool results have given, handed by the agent to the ONE call it is about to
+# run (set_my_squad checks its incoming players against them; None: no check -- outside the loop, or a chat with no lookup yet).
+_KNOWN_IDS = contextvars.ContextVar("fpl_turn_known_ids", default=None)
 
 
 def clock():
@@ -53,6 +56,7 @@ def begin(turn_id=None, started_at=None, thread_id=None, draft=None, consent=Non
     _MESSAGE.set(None if user_message is None else str(user_message))
     _EARLIER.set(tuple(str(m) for m in (earlier_messages or ()) if m is not None))
     _UNSETTLED.set({})
+    _KNOWN_IDS.set(None)
     return dict(turn)
 
 
@@ -86,6 +90,16 @@ def settle(key):
         held.pop(key, None)
 
 
+def set_known_ids(ids):
+    """Prompt F2 F: the ids the chat's tools have given, for the call about to run (None: no check)."""
+    _KNOWN_IDS.set(None if ids is None else frozenset(int(i) for i in ids))
+
+
+def known_ids():
+    """Prompt F2 F: the ids handed to the running call, or None."""
+    return _KNOWN_IDS.get()
+
+
 def note(**fields):
     """Record what the open turn produced for the Chat page (merged into the turn's record); a no-op outside a turn."""
     rec = _RECORD.get()
@@ -110,6 +124,7 @@ def end():
     _MESSAGE.set(None)
     _EARLIER.set(())
     _UNSETTLED.set(None)
+    _KNOWN_IDS.set(None)
     rec = _RECORD.get()
     _RECORD.set(None)
     _LAST.set(dict(rec) if rec else None)

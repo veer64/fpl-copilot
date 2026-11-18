@@ -1092,6 +1092,33 @@ def _held_incoming(player_ids, kept_ids):
     return None
 
 
+UNKNOWN_INCOMING_NOTE = ("Not run: no tool in this chat has returned that player id. Look the player up by name first, then use "
+                         "the id the lookup returns.")
+
+
+def _unknown_incoming(player_ids, kept_ids):
+    """Prompt F2 F: set_my_squad's refusal when a player coming IN carries an id no tool of the chat has given (the agent hands
+    the chat's ids to this one call: turn_context.known_ids); a kept player is the user's own and never refused. None when there
+    is no check (outside the loop, a chat with no lookup yet) or every incoming id is known."""
+    known = turn_context.known_ids()
+    if known is None:
+        return None
+    incoming = {int(e) for e in (player_ids or []) if isinstance(e, int) and not isinstance(e, bool)} - {int(e) for e in kept_ids}
+    unknown = sorted(incoming - set(known))
+    return {"error": UNKNOWN_INCOMING_NOTE, "unknown_ids": unknown} if unknown else None
+
+
+def squad_ids_for_guard(user_id: int = None):
+    """Prompt F2 F: the element ids of the user's own fifteen -- the squad context the agent's id check accepts -- or None when
+    the user has no saved squad or it cannot be read (the check never takes a turn down)."""
+    try:
+        uid = DEFAULT_USER_ID() if user_id is None else user_id
+        rec = _read_active(_squad_owner(uid))
+        return {int(p["element"]) for p in rec["squad_json"]["players"]}
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
 def resolve_player(name: str, club: str = None):
     """Rank every current player the name could mean (player_names.rank_matches: the
     displayed name, then all words, then a 4+ letter prefix -- on accent-folded WORDS, so
@@ -1991,9 +2018,13 @@ def set_my_squad(player_ids: list, captain_id: int, vice_id: int, bench_order_id
         return _no_squad(user_id)
     except squad_store.SquadStateError as e:
         return {"error": str(e)}
-    held = _held_incoming(player_ids, [p["element"] for p in active["squad_json"]["players"]])
+    kept = [p["element"] for p in active["squad_json"]["players"]]
+    held = _held_incoming(player_ids, kept)
     if held is not None:                                     # Prompt F1 B: the user has not said which player comes in
         return held
+    guessed = _unknown_incoming(player_ids, kept)
+    if guessed is not None:                                  # Prompt F2 F: an incoming id no tool of the chat has given
+        return guessed
     try:
         current = _current_gw()
     except RuntimeError as e:

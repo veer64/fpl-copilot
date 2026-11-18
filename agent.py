@@ -736,6 +736,18 @@ _ARMBAND_RE = re.compile(r"\b(?:captain\w*|captaincy|armband|vice|skipper)\b")
 # the candidates and says to ask (model_tools.unsettled_note). set_my_squad checks its incoming players itself.
 PLAYER_ID_FIELDS = ("player_id", "player_ids", "player_id_a", "player_id_b", "lock_player_ids", "start_player_ids", "ban_player_ids")
 UNSETTLED_EXEMPT = ("resolve_player", "set_my_squad", "captain_pick")
+# Prompt F2 F (2026-11-18): F1's L8, laptop and production -- after the user's "Cole" the model's FIRST call was
+# get_player_card(328), Pascal Struijk, before any lookup (R3g's run 2 guessed 448 the same way). Once the chat has used lookups
+# (resolve_player has run in it), a call carrying a player id runs only when that id came back in an earlier tool result of
+# the chat or is in the user's own fifteen; otherwise it is not run and gets this note. A chat with no lookup yet is left as
+# before (the measured literal rule held 49 existing tests' scripted calls). captain_pick checks its players against the
+# squad itself. Draft turns: never.
+UNKNOWN_ID_NOTE = ("Not run: no tool in this chat has returned that player id. Look the player up with resolve_player first, "
+                   "then use the id it returns.")
+KNOWN_ID_FIELDS = PLAYER_ID_FIELDS + ("captain_id", "vice_id", "bench_order_ids")
+# set_my_squad: its kept players are the active squad, which the tool reads -- the agent hands it the chat's ids instead and the
+# tool refuses an INCOMING player no tool gave (model_tools._unknown_incoming)
+UNKNOWN_ID_EXEMPT = ("resolve_player", "search_news", "captain_pick", "set_my_squad")
 _KNOWN_ID_RE = re.compile(r"'(?:\w*_)?(?:player_id|element|id)(?:_\w+)?': (\d+)")
 _KNOWN_IDS_RE = re.compile(r"'\w*(?:player_ids|elements|_ids)': \[([0-9, ]*)\]")
 GUARD_NAMES_TTL_S = 300.0
@@ -1379,9 +1391,9 @@ def _armband_turn():
     return bool(_ARMBAND_RE.search(pn.norm(turn_context.user_message() or "")))
 
 
-def _input_player_ids(tool_input):
+def _input_player_ids(tool_input, fields=PLAYER_ID_FIELDS):
     ids = set()
-    for k in PLAYER_ID_FIELDS:
+    for k in fields:
         v = tool_input.get(k)
         for x in (v if isinstance(v, (list, tuple)) else [v]):
             if (isinstance(x, int) and not isinstance(x, bool)) or (isinstance(x, str) and x.strip().isdigit()):
@@ -1402,6 +1414,39 @@ def _known_player_ids(st):
         for group in _KNOWN_IDS_RE.findall(t):
             ids |= {int(x) for x in group.replace(" ", "").split(",") if x}
     return ids
+
+
+def _chat_used_lookups(st):
+    """Prompt F2 F: resolve_player has run in this chat -- this turn, or an earlier one the history carries."""
+    if any(n == "resolve_player" for n, _i, _r in st["turn_calls"]):
+        return True
+    for m in st["messages"]:
+        if m.get("role") == "assistant" and isinstance(m.get("content"), list):
+            for b in m["content"]:
+                kind = b.get("type") if isinstance(b, dict) else getattr(b, "type", None)
+                name = b.get("name") if isinstance(b, dict) else getattr(b, "name", None)
+                if kind == "tool_use" and name == "resolve_player":
+                    return True
+    return False
+
+
+def _unknown_ids(st, tool_name, tool_input):
+    """Prompt F2 F: the player ids of this call that no tool result in this chat has given and that are not in the user's own
+    fifteen (the squad context code reads) -- once the chat has used lookups. Empty: the call runs. set_my_squad with no
+    readable squad is left to the tool (it refuses without one)."""
+    if tool_name in UNKNOWN_ID_EXEMPT or not isinstance(tool_input, dict):
+        return set()
+    ids = _input_player_ids(tool_input, KNOWN_ID_FIELDS)
+    if not ids or not _chat_used_lookups(st):
+        return set()
+    unknown = ids - _known_player_ids(st)
+    if unknown:
+        import model_tools
+        squad = model_tools.squad_ids_for_guard()
+        if squad is None:
+            return set() if tool_name == "set_my_squad" else unknown
+        unknown -= squad
+    return unknown
 
 
 def _unsettled_call(st, tool_name, tool_input):
@@ -1480,10 +1525,22 @@ def _run_tools(st):
                 st["skipped_rounds"].append({"why": "second_card", "calls": 1, "tools": ["get_player_card"]})
                 continue
 
+            unknown = set() if _draft_turn_now() else _unknown_ids(st, tool_name, tool_input)
+            if unknown:
+                # Prompt F2 F: an id no tool has given in this chat is a guess (F1 L8: get_player_card(328) after "Cole")
+                _say(f"  [{tool_name} not run: {tool_input}; id(s) {sorted(unknown)} came from no tool -- the app note says look up first]")
+                tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": UNKNOWN_ID_NOTE})
+                st["skipped_rounds"].append({"why": "unknown_id", "calls": 1, "tools": [tool_name]})
+                continue
             _say(f"  [calling tool: {tool_name}({tool_input})]")
 
             span = trace.tool(tool_name, tool_input)
-            result = call_tool(tool_name, tool_input)
+            if tool_name == "set_my_squad" and not _draft_turn_now():      # Prompt F2 F: the chat's ids, for its incoming players
+                turn_context.set_known_ids(_known_player_ids(st) if _chat_used_lookups(st) else None)
+            try:
+                result = call_tool(tool_name, tool_input)
+            finally:
+                turn_context.set_known_ids(None)
             trace.tool_done(span, tool_name, result)
             st["turn_calls"].append((tool_name, tool_input, result))
             if tool_name == "search_news" and isinstance(result, dict):
