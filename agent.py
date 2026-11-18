@@ -725,6 +725,12 @@ SECOND_CARD_NOTE = "For two or more players, use compare_players — it writes t
 # the round cap like any other. A draft chat's turn is never guarded.
 COMPARISON_NOTE = "This compares named players: call compare_players with every player's id — it writes the comparison, flags included."
 SINGLE_PLAYER_LOOKUPS = ("get_player_card", "get_prediction")
+# Prompt F1 C (2026-11-18): the 17 Nov deploy smoke's item 7, "Is Ekitike or Havertz the better pick?" -- the guard read the
+# comparison (both players resolved), but the model called compare_predictions, which it did not hold, and wrote the answer
+# itself. On a comparison of named players compare_predictions is held too, unless the message is about the armband (captain_pick
+# is its route, and compare_predictions sends it there).
+COMPARISON_HELD = SINGLE_PLAYER_LOOKUPS + ("compare_predictions",)
+_ARMBAND_RE = re.compile(r"\b(?:captain\w*|captaincy|armband|vice|skipper)\b")
 # Prompt F1 B (2026-11-18): while the turn holds a name unsettled (model_tools.resolve_player: an ambiguous lookup of a name the
 # user wrote), a call carrying one of its candidates' ids -- or an id no tool result has given -- is not run; its result names
 # the candidates and says to ask (model_tools.unsettled_note). set_my_squad checks its incoming players itself.
@@ -1217,6 +1223,12 @@ def _comparison_turn(st):
     return comparison_guard.fires(message, forms, resolved=resolved)
 
 
+def _armband_turn():
+    """Prompt F1 C: the turn's own user message is about the captain's armband."""
+    import player_names as pn
+    return bool(_ARMBAND_RE.search(pn.norm(turn_context.user_message() or "")))
+
+
 def _input_player_ids(tool_input):
     ids = set()
     for k in PLAYER_ID_FIELDS:
@@ -1303,7 +1315,8 @@ def _run_tools(st):
                 tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": model_tools.unsettled_note(held)})
                 st["skipped_rounds"].append({"why": "unsettled", "calls": 1, "tools": [tool_name]})
                 continue
-            if tool_name in SINGLE_PLAYER_LOOKUPS and not _draft_turn_now() and _comparison_turn(st):
+            if (tool_name in COMPARISON_HELD and not _draft_turn_now()
+                    and not (tool_name == "compare_predictions" and _armband_turn()) and _comparison_turn(st)):
                 # Prompt R3e: a comparison of named players is compare_players'; its single-player lookups are not run
                 _say(f"  [{tool_name} not run: {tool_input}; the turn compares named players -- the app note points at compare_players]")
                 tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": COMPARISON_NOTE})
