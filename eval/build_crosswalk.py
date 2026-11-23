@@ -308,14 +308,17 @@ NOT_LISTED = {
               "the Greek league is not covered by Understat -- so he has no Understat id "
               "anywhere; absent from every stored listing 2016-2026 (search 'mouzakitis': "
               "none); the 2026 EPL listing is frozen at GW8 by understat.com's outage, so "
-              "he cannot be listed until it returns (U1, 12 Nov 2026)", "2026-12-31"),
+              "he cannot be listed until it returns (U1, 12 Nov 2026)", "2027-01-31"),
         601: ("Luca Williams-Barnett; Spurs MID; 9 min (GW9 2 + GW10 7); Tottenham academy, "
               "never in a league Understat covers, so no Understat id anywhere; absent "
               "from every stored listing 2016-2026 (search 'williams barnett' / 'barnett': "
               "none); the 2026 EPL listing is frozen at GW8 by understat.com's outage "
-              "(U1, 12 Nov 2026)", "2026-12-31"),
+              "(U1, 12 Nov 2026)", "2027-01-31"),
     },
 }
+# S1 (23 Nov 2026, owner-approved): both expiries moved from 2026-12-31 to 2027-01-31 -- understat.com still serves its
+# maintenance page (the hourly back-check, 474 WAITING results to 23 Nov), so on 1 Jan the allowance would have turned both
+# into an ACTION REQUIRED item and /health "degraded" for players no one can match yet.
 
 
 def understat_restored(data_dir, season):

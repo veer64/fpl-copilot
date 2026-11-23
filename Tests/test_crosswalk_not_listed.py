@@ -101,12 +101,14 @@ def test_allowance_is_empty_for_a_season_without_entries(tmp_path):
     assert bc.not_listed_allowance("2023-24", _data_dir(tmp_path), now=NOW) == {}
 
 
-def test_the_real_entries_are_evidenced_and_expire_2026_12_31():
+def test_the_real_entries_are_evidenced_and_expire_2027_01_31():
+    """Owner-approved (S1, 23 Nov 2026): both expiries moved from 2026-12-31 to 2027-01-31 while understat.com stays down;
+    the allowance still ends by itself the moment understat is restored on the data dir."""
     entries = bc.NOT_LISTED["2026-27"]
     assert set(entries) == {645, 601}
     for el, (why, exp) in entries.items():
         assert isinstance(el, int)
-        assert exp == "2026-12-31"
+        assert exp == "2027-01-31"
         assert "Mouzakitis" in why or "Williams-Barnett" in why
         assert "Understat" in why and len(why) > 80
 
