@@ -1327,6 +1327,16 @@ def _prediction_window(turn_calls):
     return gws, nxt
 
 
+_DEADLINE_TOLD_RE = re.compile(r"next deadline GW(\d{1,2}), [A-Za-z]+ \d{4}-(\d{2})-(\d{2}) ")
+
+
+def _deadline_told(st):
+    """Prompt F4: (gw, (day, month)) of the next deadline as the turn's own context block told the model ("next deadline GW12,
+    Friday 2026-11-27 18:30 UTC" -- now_context.build, one clock instant per turn); None when the block carries none."""
+    m = _DEADLINE_TOLD_RE.search(str(st.get("system") or ""))
+    return (int(m.group(1)), (int(m.group(3)), int(m.group(2)))) if m else None
+
+
 def _fpl_texts_for(element, turn_calls):
     """Prompt F2b: FPL's own words for one player in the turn's tool results -- his availability block (news, the chance's
     gameweek, the as-of day, the flag's dates), never his predictions or anyone else's text."""
@@ -1414,7 +1424,8 @@ def _availability_checked(st, raw):
             mine = av.markers(sentence)
             return availability_line_for(element, results, prefer=list(mine) + [x for x in cited if x not in mine])
         return av.check(raw, names, absent, sources, lines, today=(now.day, now.month), next_gw=next_gw,
-                        fpl_text=lambda e: (flags.get(e) or {}).get("news"))   # Prompt F3 E1: no swap when FPL's words are there
+                        fpl_text=lambda e: (flags.get(e) or {}).get("news"),   # Prompt F3 E1: no swap when FPL's words are there
+                        deadline=_deadline_told(st))                         # Prompt F4: the next deadline is never a return date
     except Exception as e:                              # noqa: BLE001 -- the check never takes the reply down
         _say(f"  [availability check skipped: {type(e).__name__}: {str(e)[:200]}]")
         return raw, []

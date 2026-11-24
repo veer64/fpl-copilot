@@ -245,6 +245,20 @@ MANUAL = {
                        "player/11817 (2025-05-26), team/Strasbourg/2024 and "
                        "league/Ligue_1/2024 -- MEDIUM confidence, understat.com unreachable "
                        "on 12 Nov 2026; GW10 debutant (3 min) (U1)"),
+        # F4 (24 Nov 2026, owner-approved): the two GW11 debutants absent from the 2026
+        # listing that is still frozen at GW8 (X, eval/reports/x_crosswalk_drift.md). Both
+        # ids come from our own prior-season crosswalks, same form as U1's four.
+        2: ("5061", "Kepa Arrizabalaga = Understat 'Kepa'; Arsenal GK; Understat 2025 "
+                    "(Arsenal): 1 game 90 min v FPL 2025-26 (element 2) 90 min; 2024 "
+                    "(Bournemouth): 31 games 2790 v 2790 min (2024-25 element 152, pinned "
+                    "there to 5061); the same id in the 2024-25 and 2025-26 crosswalks; "
+                    "Chelsea 2018-22 under it too; GW11 debutant (20 min) absent from the "
+                    "2026 listing frozen at GW8 by understat.com's outage (F4, 24 Nov 2026)"),
+        416: ("7902", "Matthijs de Ligt; Man Utd DEF; Understat 2025: 13 games 1170 min 1 G "
+                      "v FPL 2025-26 (element 436) 1170 min 1 G; 2024: 29 games 2141 v 2119 "
+                      "min 2 v 2 G (element 593); exact-name match in the 2024-25 and "
+                      "2025-26 crosswalks; GW11 debutant (90 min) absent from the frozen "
+                      "2026 listing (F4, 24 Nov 2026)"),
     },
     "2024-25": {
         9: ("7752", "Gabriel Martinelli; Arsenal MID; 2284v2310 min, 8v8 G, 4v4 A"),

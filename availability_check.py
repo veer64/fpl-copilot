@@ -191,6 +191,17 @@ def is_past(kind, key, today=None, next_gw=None):
     return False
 
 
+def is_deadline(kind, key, deadline=None):
+    """Prompt F4 (2026-11-24; the owner: "the next deadline's GW and date never count"): True for the next deadline's gameweek or
+    its day-and-month -- `deadline` = (gw, (day, month)) as the turn's context block told the model. F3's live check: "You have 5
+    free transfers available for GW12" was swapped for Nathan Collins's line, and "...as the GW12 deadline approaches (Friday 27
+    Nov, 18:30 UTC)" was dropped as Rico Henry's return; both are the deadline, never a return."""
+    if not deadline:
+        return False
+    gw, (day, month) = deadline
+    return (kind == "gw" and int(key) == int(gw)) or (kind == "date" and tuple(key) == (int(day), int(month)))
+
+
 def name_sentences(text, name_words):
     """The sentences of a source text that name the player (his name words), verbatim, the search tag dropped."""
     words = {w for w in name_words if w}
@@ -248,6 +259,7 @@ def _sentences(line):
 
 
 _PREFIX = re.compile(r"^(\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)*)")
+_ITEM = re.compile(r"^\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+")   # a list item's own marker (Prompt F4: a new item is a new point)
 _EMPH = re.compile(r"^((?:\*\*|\*|__|_)*)(.*?)((?:\*\*|\*|__|_)*)$", re.S)
 
 
@@ -350,7 +362,7 @@ def _trim_adjunct(core, bad_of, ok):
     return None
 
 
-def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=None):
+def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=None, deadline=None):
     """(the reply to send, the replacements). `names(sentence)` -> the player ids the sentence names (exactly-one matches only);
     `absent` -- the ids FPL flags; `c` -- the turn's corpus, or (Prompt F2b) `c(element, sentence)` -> that player's own corpus
     for that sentence; `lines(element, sentence)` -> his availability line; (Prompt F2b) `today` (day, month) and `next_gw`: a
@@ -366,7 +378,13 @@ def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=Non
     and the [c1314] report were both already there). Narrower than briefed by one case: a line whose report the reply cites
     only inside the slip sentence is still swapped in -- Tests/test_f2b_player_sources.py::test_s1 (E3-r2, both engines) pins
     exactly that and may not be edited. A trimmed or dropped sentence is logged with line None and `kept` (the sentence as sent;
-    "" when dropped)."""
+    "" when dropped).
+
+    Prompt F4 (2026-11-24; the owner: "a timing counts only in a sentence about that player, and the next deadline's GW and date
+    never count"): `deadline` = (gw, (day, month)) of the next deadline -- its gameweek and date are never a return timing
+    (is_deadline); and a list item that names nobody and has no he/his/him is a new point, not more about the player of the item
+    before it (as a new paragraph already was) -- F3's S4 run 2 bullet "You have 5 free transfers available for GW12" was read as
+    Nathan Collins's because the bullet above named him."""
     out_lines, replaced = [], []
     supplied = set()                                     # players whose line this reply now carries
     raw_text = str(reply or "")
@@ -387,6 +405,8 @@ def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=Non
             para += 1
             out_lines.append(raw_line)
             continue
+        if _ITEM.match(raw_line):
+            para += 1                                    # Prompt F4: a new list item is a new point
         pm = _PREFIX.match(raw_line)
         head, body = raw_line[:pm.end()], raw_line[pm.end():]
         pieces, pos, dropped_any = [], 0, False
@@ -407,7 +427,8 @@ def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=Non
             new = sent
             if hit is not None and _CUE.search(sent):
                 def bad_of(text, hit=hit):
-                    return [t for t in unsourced(text, c(hit, text) if callable(c) else c) if not is_past(t[0], t[1], today, next_gw)]
+                    return [t for t in unsourced(text, c(hit, text) if callable(c) else c)
+                            if not is_past(t[0], t[1], today, next_gw) and not is_deadline(t[0], t[1], deadline)]
                 bad = bad_of(sent)
                 if bad:
                     em = _EMPH.match(sent.rstrip())
