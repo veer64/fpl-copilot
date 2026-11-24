@@ -1272,8 +1272,12 @@ def _player_flags():
 
 
 def _name_words(flag):
+    """The words that name a player in a source: his name's and his FPL web name's tokens, folded. One-letter tokens are dropped
+    (owner, 24 Nov 2026; eval/reports/f6_fixes.md section 8.1): 40 web names carry an initial -- "A.Becker" gave "a", "I.Sangaré"
+    gave "i" -- so every source sentence with the article "a" or the pronoun "I" counted as naming those players."""
     import player_names as pn
-    return set(pn.norm(flag.get("name")).split()) | set(pn.norm(flag.get("web_name")).split())
+    words = set(pn.norm(flag.get("name")).split()) | set(pn.norm(flag.get("web_name")).split())
+    return {w for w in words if len(w) > 1}
 
 
 def _report_for(flag, results, prefer=()):
