@@ -1410,8 +1410,8 @@ def _availability_checked(st, raw):
                 if next_gw is not None:                  # FPL's chance of playing is for the next round, by definition
                     fpl.append(f"GW{next_gw}")
                 said, dates = [], []
-                for r in results:
-                    s = av.name_sentences(f"{r.get('headline') or ''}\n{r.get('text') or ''}", words)
+                for r in results:                        # Prompt F6: a source's "he" after a sentence naming him alone is his
+                    s = av.name_sentences(f"{r.get('headline') or ''}\n{r.get('text') or ''}", words, names=names, element=element)
                     if s:
                         said += s
                         dates += [r.get("date"), r.get("date_words")]
@@ -1420,12 +1420,20 @@ def _availability_checked(st, raw):
             about_model = av.MODEL_WORDS.search(sentence) or av.window_range(sentence, model_gws)
             return av.player_corpus(fpl, said, dates, model_gws if about_model else ())
 
+        def own_words(element):
+            """Prompt F6: his own source words only -- FPL's news text and the source sentences that are his; no code-built field
+            (the chance's gameweek is the deadline's since run 91), no as-of day, no report date, no model window."""
+            sources(element, "")
+            _fpl, said, _dates = cache[element]
+            return av.player_corpus([(flags.get(element) or {}).get("news") or ""], said, ())
+
         def lines(element, sentence):
             mine = av.markers(sentence)
             return availability_line_for(element, results, prefer=list(mine) + [x for x in cited if x not in mine])
         return av.check(raw, names, absent, sources, lines, today=(now.day, now.month), next_gw=next_gw,
                         fpl_text=lambda e: (flags.get(e) or {}).get("news"),   # Prompt F3 E1: no swap when FPL's words are there
-                        deadline=_deadline_told(st))                         # Prompt F4: the next deadline is never a return date
+                        deadline=_deadline_told(st),                         # Prompt F4: the next deadline is never a return date --
+                        own_words=own_words)                                 # F6: except in a return claim, sourced by his own words
     except Exception as e:                              # noqa: BLE001 -- the check never takes the reply down
         _say(f"  [availability check skipped: {type(e).__name__}: {str(e)[:200]}]")
         return raw, []

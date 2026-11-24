@@ -202,14 +202,62 @@ def is_deadline(kind, key, deadline=None):
     return (kind == "gw" and int(key) == int(gw)) or (kind == "date" and tuple(key) == (int(day), int(month)))
 
 
-def name_sentences(text, name_words):
-    """The sentences of a source text that name the player (his name words), verbatim, the search tag dropped."""
+# Prompt F6 (2026-11-24; the owner): the deadline counts again only inside a return claim about the player -- a return word, up to
+# three words, then "for" / "by" / "in time for" (the / a weekday allowed) right before the deadline's words: "He'll be back for
+# GW12", "Sesko should be fit by 27 Nov", "available in time for the GW12 deadline". A negated or hedged claim gives no return timing
+# and stays exempt -- "won't be fit for GW12", "unlikely to be back by the 27 Nov deadline", "might be back for the GW12 deadline"
+# (F4's test_d2 / test_d3 pin those).
+_CLAIM_LEAD = re.compile(
+    r"\b(?:back|return\w*|fit|fitness|available|availability|recover\w*|ready)\b(?:\s+[\w'’-]+){0,3}?\s+(?:for|by|in\s+time\s+for)\s+"
+    r"(?:the\s+)?(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day(?:'s|’s)?\s+|(?:mon|tue|wed|thu|fri|sat|sun)\.?\s+)?[*_]*$", re.I)
+_NOT_A_CLAIM = re.compile(r"\b(?:not|no|never|cannot|nothing|none|neither|nor|without|hardly|barely|unlikely|doubt\w*|unclear|"
+                          r"uncertain|might|may|could|possibly|perhaps|maybe|hopes?|hoping|chance|if|whether|unless)\b|n['’]t\b", re.I)
+
+
+def return_claim(text, start):
+    """The words of the claim's own clause before its return word, when the timing at `start` of `text` closes a return claim
+    (see _CLAIM_LEAD) with no negation, hedge or condition before the return word (counted from the clause's last "but" /
+    "though" / "while"); None otherwise. The caller asks whether those words name him or say he/his/him -- the claim's subject.
+    Measured on the F2/F2b replay: "...nothing in the available information suggests he'll be back for GW11" is negated, and
+    "You have 5 free transfers available for GW11, so moving him costs nothing" has its "him" in another clause. Clauses split at
+    , ; : and dashes, not at brackets ("Sesko (shin) should be fit by 27 Nov")."""
+    clause = re.split(r"[,;:—–]|\s-\s", str(text)[:start])[-1]
+    m = _CLAIM_LEAD.search(clause)
+    if not m:
+        return None
+    lead = re.split(r"\b(?:but|though|although|whereas|while)\b", clause[:m.start()], flags=re.I)[-1]
+    return None if _NOT_A_CLAIM.search(lead) else clause[:m.start()]
+
+
+def name_sentences(text, name_words, names=None, element=None):
+    """The sentences of a source text that name the player (his name words), verbatim, the search tag dropped.
+
+    Prompt F6 (2026-11-24): with `names` (sentence -> the player ids it names) and his `element`, a sentence that names no player
+    and says he/his/him is his too when the nearest earlier sentence of the same text that names a player names him alone. F4's
+    D2 r2: Palace's "He'll not necessarily be on the pitch next week." [c1852] comes five sentences, none naming anyone, after
+    "On Sarr, it'll be touch and go ..." -- the same reading the reply-side check gives a "he" (a sentence that names him, then no
+    other player named in between). The source sentence immediately before it ("This could take a little longer.") names nobody,
+    so "the sentence before it" is read as the nearest one that names a player."""
     words = {w for w in name_words if w}
-    out = []
+    out, last = [], set()
     for s in re.split(r"(?<=[.!?])\s+|\n+", str(text or "")):
         s = _SOURCE_TAG.sub("", s.strip()).strip()
-        if s and set(_fold(s).split()) & words:
+        if not s:
+            continue
+        mine = bool(set(_fold(s).split()) & words)
+        if names is None or element is None:
+            if mine:
+                out.append(s)
+            continue
+        ids = set(names(s))
+        if mine:
+            ids.add(element)
+        if element in ids:
             out.append(s)
+        elif not ids and _PRONOUN.search(s) and last == {element}:
+            out.append(s)
+        if ids:
+            last = ids
     return out
 
 
@@ -362,7 +410,7 @@ def _trim_adjunct(core, bad_of, ok):
     return None
 
 
-def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=None, deadline=None):
+def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=None, deadline=None, own_words=None):
     """(the reply to send, the replacements). `names(sentence)` -> the player ids the sentence names (exactly-one matches only);
     `absent` -- the ids FPL flags; `c` -- the turn's corpus, or (Prompt F2b) `c(element, sentence)` -> that player's own corpus
     for that sentence; `lines(element, sentence)` -> his availability line; (Prompt F2b) `today` (day, month) and `next_gw`: a
@@ -384,7 +432,13 @@ def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=Non
     never count"): `deadline` = (gw, (day, month)) of the next deadline -- its gameweek and date are never a return timing
     (is_deadline); and a list item that names nobody and has no he/his/him is a new point, not more about the player of the item
     before it (as a new paragraph already was) -- F3's S4 run 2 bullet "You have 5 free transfers available for GW12" was read as
-    Nathan Collins's because the bullet above named him."""
+    Nathan Collins's because the bullet above named him.
+
+    Prompt F6 (2026-11-24): inside a return claim about the player (return_claim() holds at the deadline's words and the
+    claim's own clause names him or says he/his/him) the deadline counts again -- sourced only by `own_words(element)`, the
+    corpus of his own source words (FPL's news text, the source sentences that are his), when the caller passes it. Since run
+    91 FPL's chance gameweek is the deadline's (GW12), so the turn corpus holds "GW12" for every flagged player and would
+    source every "He'll be back for GW12"."""
     out_lines, replaced = [], []
     supplied = set()                                     # players whose line this reply now carries
     raw_text = str(reply or "")
@@ -427,8 +481,21 @@ def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=Non
             new = sent
             if hit is not None and _CUE.search(sent):
                 def bad_of(text, hit=hit):
-                    return [t for t in unsourced(text, c(hit, text) if callable(c) else c)
-                            if not is_past(t[0], t[1], today, next_gw) and not is_deadline(t[0], t[1], deadline)]
+                    corp = c(hit, text) if callable(c) else c
+                    out = []
+                    for k, key, w, start, _end in _scan(text):
+                        if is_past(k, key, today, next_gw):
+                            continue
+                        if is_deadline(k, key, deadline):    # F4: the deadline is no return timing -- F6: but inside a claim it is
+                            subject = return_claim(text, start)
+                            if subject is None or not (_PRONOUN.search(subject) or hit in set(names(subject))):
+                                continue
+                            if key not in (own_words(hit) if callable(own_words) else corp)[k]:
+                                out.append((k, key, w))
+                            continue
+                        if key not in corp[k]:
+                            out.append((k, key, w))
+                    return out
                 bad = bad_of(sent)
                 if bad:
                     em = _EMPH.match(sent.rstrip())
