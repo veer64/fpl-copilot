@@ -472,6 +472,40 @@ AUDIT_MIN_FRAC = 0.35       # ...or 35% of the larger of the two, whichever is l
 AUDIT_GOAL_ABS = 3
 AUDIT_MIN_MINUTES = 450     # only audit players with enough football to judge
 
+# Prompt X (24 Nov 2026): the audit compares like with like while Understat's data
+# stops before FPL's. understat.com has served a maintenance page since 3 Nov: the
+# season aggregates the audit reads are frozen at Understat's last gameweek (GW8)
+# and the per-match file carries FPL fallback rows (match_id prefix 'fpl') after
+# it. Against FPL totals through GW11, regular starters drifted past the tolerance
+# and were DROPPED as wrong matches -- 17 at the GW11 ingest (457 -> 440 ids, Dean
+# Henderson: Understat 270 min, FPL 540), and the strict top-30 preflight refused
+# every GW12 build (run 87). So while fallback rows exist, the FPL side of the
+# audit is summed only through the last gameweek Understat itself has rows for --
+# read from the per-match file, never hard-coded -- and the cap disappears by
+# itself once Understat is back (no fallback rows left).
+FALLBACK_MATCH_PREFIX = "fpl"   # understat_fallback.MATCH_PREFIX
+
+
+def understat_last_gw(season, history=None):
+    """The last gameweek Understat's own rows reach in the season's per-match file
+    (data/history/understat_matches_<tag>.parquet) WHILE fallback rows stand in
+    for later gameweeks; None when there are no fallback rows (Understat serves
+    every gameweek -- compare full seasons), or the file is missing or unreadable
+    (nothing says Understat stops early). 0 when every row is a fallback row."""
+    h = Path(history) if history is not None else HISTORY
+    pm = h / f"understat_matches_{season.replace('-', '_')}.parquet"
+    try:
+        if not pm.exists():
+            return None
+        m = pd.read_parquet(pm, columns=["match_id", "gw"])
+    except (OSError, ValueError, KeyError):
+        return None
+    fallback = m["match_id"].astype(str).str.startswith(FALLBACK_MATCH_PREFIX)
+    if not fallback.any():
+        return None
+    own = pd.to_numeric(m.loc[~fallback, "gw"], errors="coerce").dropna()
+    return int(own.max()) if len(own) else 0
+
 
 AUDIT_COLS = ["element", "name", "team", "minutes", "goals_v",
               "understat_id", "player_name", "team_title", "time", "goals"]
@@ -564,7 +598,7 @@ def build(season, verbose=True):
         print(f"  sources: {v_path.name} + {u_path.name}")
 
     v = pd.read_parquet(v_path, columns=["season", "element", "name", "team",
-                                         "minutes", "position", "goals_scored"])
+                                         "minutes", "position", "goals_scored", "GW"])
     v = v[(v.season == season) & (v.position != "AM")]
     # One row per element, carrying total minutes so coverage can be weighted by
     # who actually matters rather than by raw headcount.
@@ -699,7 +733,21 @@ def build(season, verbose=True):
             f"(KNOWN_ISSUES #3):\n{dup.to_string(index=False)}")
     assert cw.element.is_unique, "an element was matched twice"
 
-    hard = _audit(cw, vp, us, tmap, verbose=verbose)
+    # Like with like (Prompt X): while Understat's data stops before FPL's, the FPL
+    # side of the audit counts only the gameweeks Understat's own rows reach.
+    audit_gw = understat_last_gw(season)
+    vp_audit = vp
+    if audit_gw is not None:
+        capped = (v[pd.to_numeric(v["GW"], errors="coerce") <= audit_gw]
+                  .groupby("element")
+                  .agg(minutes=("minutes", "sum"), goals_v=("goals_scored", "sum")))
+        vp_audit = vp[["element", "name", "team"]].merge(
+            capped, left_on="element", right_index=True, how="left").fillna(
+            {"minutes": 0, "goals_v": 0})
+        if verbose:
+            print(f"  [audit] Understat's own rows stop at GW{audit_gw} (fallback rows "
+                  f"after it): FPL minutes/goals compared through GW{audit_gw} only")
+    hard = _audit(cw, vp_audit, us, tmap, verbose=verbose)
     # A pair the audit rejects is dropped, never kept: the element falls back to
     # the position prior, which is the lesser error. MANUAL entries are exempt --
     # they carry their own evidence (Kroupi's source-side goals discrepancy).
@@ -722,6 +770,7 @@ def build(season, verbose=True):
         "matched_manual": int((cw.match_type == "manual").sum()),
         "audit_hard_disagreements": int(len(hard)),
         "audit_dropped": int(len(drop)),
+        "audit_through_gw": audit_gw,
         "pct_elements": round(100 * got.mean(), 1),
         # The number that matters: unmatched players are overwhelmingly zero-minute
         # squad filler Understat never tracked, so headcount understates coverage.
