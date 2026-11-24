@@ -20,6 +20,7 @@ import contextvars
 import functools
 import os
 import re
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -5210,10 +5211,84 @@ def get_wildcard_gap(user_id: int = None):
 R3_NOT_IN_DRAFT = "this answer is for a saved team or General mode, not the draft chat"
 
 
+# ---- Prompt F5 (2026-11-24): the answers' prediction rows and fixture calendar, read once per version ------------------------
+# eval/reports/c_concurrency.md: a captain turn costs ~0.9 s of pure-Python CPU in ONE process, so simultaneous turns queue on
+# the GIL; about a fifth of captain_pick's went to reading every prediction row of the run into dicts on every call, a seventh
+# to rebuilding the fixture calendar (its club names from a fresh glob + sort + gunzip of the bootstrap archive). A SUCCESS
+# run's rows never change (db_write.write_run inserts the run and all its predictions in one transaction; nothing updates or
+# deletes model_predictions), so they are read once per build -- (database, run id, finished_at, config): a new run id is a
+# fresh read -- and kept as five-column tuples; every call still builds its OWN pool from them (callers add to it) and reads
+# players_live (today's prices, clubs) as before. The calendar is rebuilt when an input changes: the forward skeleton file, or
+# the bootstrap folder / its newest snapshot the club names come from; every call gets its own copy. One lock each, held for
+# the read: simultaneous first calls read once. Tests start and end with them empty (Tests/conftest.py).
+_PRED_ROWS = {}                     # build key -> ((element, gw, e_points, p_start, p_60plus), ...) in the read's own order
+_QUANT_GWS = {}                     # build key -> frozenset of the gameweeks the build has a likely range (q_p50) for
+_PRED_KEEP = 2                      # the newest builds kept: the live one and the one before it
+_PRED_LOCK = threading.Lock()
+_CAL = {"key": None, "value": None}
+_CAL_LOCK = threading.Lock()
+
+
+def _reset_answer_caches():
+    with _PRED_LOCK:
+        _PRED_ROWS.clear()
+        _QUANT_GWS.clear()
+    with _CAL_LOCK:
+        _CAL.update(key=None, value=None)
+
+
+def _answer_rows_key(run):
+    """Whose rows: the database (DB_HOST / DB_PORT / DB_NAME, db_write's defaults), the run id, the build's finished_at (a
+    reseeded or restored database can reuse an id) and the production config."""
+    return (os.getenv("DB_HOST", "localhost"), os.getenv("DB_PORT", "5432"), os.getenv("DB_NAME", "fpl"),
+            int(run["run_id"]), str(run.get("finished_at")), PRODUCTION_CONFIG)
+
+
+def _kept(cache, key, value):
+    cache[key] = value
+    for old in list(cache)[:-_PRED_KEEP]:
+        del cache[old]
+    return value
+
+
+def _prediction_rows(run):
+    """The build's prediction rows for the answers' pool, read once per build (Prompt F5)."""
+    key = _answer_rows_key(run)
+    with _PRED_LOCK:
+        rows = _PRED_ROWS.get(key)
+        if rows is None:
+            rows = _kept(_PRED_ROWS, key, tuple(
+                (r["element"], r["gw"], r["e_points"], r["p_start"], r.get("p_60plus"))
+                for r in _q("SELECT element, gw, e_points, p_start, p_60plus FROM model_predictions WHERE run_id = %s AND config = %s",
+                            (run["run_id"], PRODUCTION_CONFIG))))
+        return rows
+
+
+def _run_quantile_gws(run):
+    """The gameweeks this build has a likely range for (any q_p50), read once per build (Prompt F5). captain_pick skips its
+    per-starter range reads for a gameweek outside it: each would come back "not computed" (get_prediction's quantile block
+    reads q_p50 per row). A schema without the column has none (get_prediction then selects no quantile column); a failed
+    look at the schema is not kept."""
+    key = _answer_rows_key(run)
+    with _PRED_LOCK:
+        hit = _QUANT_GWS.get(key)
+        if hit is not None:
+            return hit
+        cols = _table_columns("model_predictions")
+        if not cols:
+            return frozenset()
+        if "q_p50" not in cols:
+            return _kept(_QUANT_GWS, key, frozenset())
+        return _kept(_QUANT_GWS, key, frozenset(int(r["gw"]) for r in _q(
+            "SELECT DISTINCT gw FROM model_predictions WHERE run_id = %s AND config = %s AND q_p50 IS NOT NULL",
+            (run["run_id"], PRODUCTION_CONFIG))))
+
+
 def _answer_pool(run):
     """{element: {element, name, position, team, price_tenths, pts: {gw: e_points}, start: {gw: p_start}}} -- EVERY player the
     build has predictions for (model_predictions, the rows get_prediction reads), with today's price, club and position
-    (players_live) and the name FPL shows (the full name when the snapshot archive cannot be read)."""
+    (players_live) and the name FPL shows (the full name when the snapshot archive cannot be read). Prompt F5: the prediction
+    rows come from _prediction_rows (once per build); the pool itself is built fresh on every call, as before."""
     web = _web_names()
     pool = {}
     for r in _q("SELECT element, name, position, team, price_tenths FROM players_live"):
@@ -5221,26 +5296,53 @@ def _answer_pool(run):
         pool[e] = {"element": e, "name": web.get(e) or r["name"], "full_name": r["name"], "position": r["position"],
                    "team": r["team"], "price_tenths": r["price_tenths"], "pts": {}, "start": {}, "p60": {}}
     seen = set()
-    for r in _q("SELECT element, gw, e_points, p_start, p_60plus FROM model_predictions WHERE run_id = %s AND config = %s",
-                (run["run_id"], PRODUCTION_CONFIG)):
-        e = int(r["element"])
+    for element, gw, e_points, p_start, p_60plus in _prediction_rows(run):
+        e = int(element)
         if e not in pool:
             continue
         seen.add(e)
-        pool[e]["pts"][int(r["gw"])] = float(r["e_points"] or 0.0)
-        pool[e]["start"][int(r["gw"])] = None if r["p_start"] is None else float(r["p_start"])
-        pool[e]["p60"][int(r["gw"])] = None if r.get("p_60plus") is None else float(r["p_60plus"])
+        pool[e]["pts"][int(gw)] = float(e_points or 0.0)
+        pool[e]["start"][int(gw)] = None if p_start is None else float(p_start)
+        pool[e]["p60"][int(gw)] = None if p_60plus is None else float(p_60plus)
     return {e: r for e, r in pool.items() if e in seen}
+
+
+def _calendar_key(skel, boot, cached):
+    """What the answers' calendar is built from, as file identities: the skeleton (path, mtime_ns, size), the bootstrap folder
+    (path, mtime_ns -- a new snapshot changes it) and its newest snapshot (path, mtime_ns, size -- one rewritten in place). The
+    newest is looked up again only when the folder changed. Raises OSError when the skeleton cannot be read."""
+    s = skel.stat()
+    try:
+        b = (str(boot), boot.stat().st_mtime_ns)
+    except OSError:
+        b = (str(boot), None)
+    if cached is not None and cached[1] == b and cached[2] is not None:
+        newest = Path(cached[2][0])
+    else:
+        snaps = sorted(boot.glob("*.json.gz")) if b[1] is not None else []
+        newest = snaps[-1] if snaps else None
+    try:
+        n = (str(newest), newest.stat().st_mtime_ns, newest.stat().st_size) if newest is not None else None
+    except OSError:
+        n = None
+    return (str(skel), s.st_mtime_ns, s.st_size), b, n
 
 
 def _answer_calendar():
     """{(club, gw): [fixture, ...]} from the forward skeleton -- the calendar the fixture list reads -- or None when it cannot
-    be read: a missing file must read "not known", never "no fixture"."""
+    be read: a missing file must read "not known", never "no fixture". Prompt F5: built once per fixtures version
+    (_calendar_key); every call gets its own copy."""
     try:
         import pandas as pd
         import fixtures_tool as ft
-        cal, n_names = ft.calendar(df=pd.read_parquet(ft.SKELETON, columns=ft.SKELETON_COLS))
-        return cal if (cal and n_names) else None
+        with _CAL_LOCK:
+            key = _calendar_key(Path(ft.SKELETON), Path(ft.BOOTSTRAP_DIR), _CAL["key"])
+            if _CAL["key"] == key:
+                cal, n_names = _CAL["value"]
+            else:
+                cal, n_names = ft.calendar(df=pd.read_parquet(ft.SKELETON, columns=ft.SKELETON_COLS))
+                _CAL.update(key=key, value=(cal, n_names))
+        return {k: [dict(f) for f in v] for k, v in cal.items()} if (cal and n_names) else None
     except Exception:                                   # noqa: BLE001 -- the fixtures column then says so
         return None
 
@@ -5911,7 +6013,10 @@ def captain_pick(player_ids: list = None, gw: int = None, user_id: int = None):
             pool[e] = {"element": e, "name": web.get(e) or r["name"], "full_name": r["name"], "position": r["position"],
                        "team": r["team"], "price_tenths": None, "pts": {}, "start": {}, "p60": {}}
     ids = list(dict.fromkeys(starters + named))
-    ranges = {e: draft_tools._captain_range(e, target) for e in ids}
+    if target in _run_quantile_gws(run):
+        ranges = {e: draft_tools._captain_range(e, target) for e in ids}
+    else:                                               # Prompt F5: no likely range in this build for the gameweek -- every
+        ranges = {e: None for e in ids}                 # read (one get_prediction each) would come back "not computed"
     parts = draft_tools._breakdowns(ids, target) or {}
     shares = {}
     for e in ids:

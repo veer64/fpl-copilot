@@ -32,6 +32,22 @@ def _no_fact_check_log_writes(request, monkeypatch):
     yield
 
 
+def _reset_model_tools_caches():
+    mt = sys.modules.get("model_tools")
+    if mt is not None and hasattr(mt, "_reset_answer_caches"):
+        mt._reset_answer_caches()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_answer_caches():
+    """Prompt F5 (2026-11-24): model_tools keeps a build's prediction rows and the fixture calendar between calls (keyed by
+    database, run id and build; by file version). Tests reseed their databases under the same run id and rewrite rows in
+    place -- production never does -- so every test starts and ends with them empty. Never imports model_tools itself."""
+    _reset_model_tools_caches()
+    yield
+    _reset_model_tools_caches()
+
+
 # Prompt P6 Part 5 (2026-11-01): no test leaves rows in the developer's database (`fpl`). Measured on the full suite of 1 Nov
 # (a read-only plugin counting every table after every test): 7 tests left rows there -- test_agent_prompt (4) and
 # test_now_context (2) one chat_usage, numeric_checks and citation_checks row per turn (their turns' logs were not stubbed),
