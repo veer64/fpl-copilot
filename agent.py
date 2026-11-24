@@ -1413,7 +1413,8 @@ def _availability_checked(st, raw):
         def lines(element, sentence):
             mine = av.markers(sentence)
             return availability_line_for(element, results, prefer=list(mine) + [x for x in cited if x not in mine])
-        return av.check(raw, names, absent, sources, lines, today=(now.day, now.month), next_gw=next_gw)
+        return av.check(raw, names, absent, sources, lines, today=(now.day, now.month), next_gw=next_gw,
+                        fpl_text=lambda e: (flags.get(e) or {}).get("news"))   # Prompt F3 E1: no swap when FPL's words are there
     except Exception as e:                              # noqa: BLE001 -- the check never takes the reply down
         _say(f"  [availability check skipped: {type(e).__name__}: {str(e)[:200]}]")
         return raw, []
@@ -1840,7 +1841,8 @@ def _finish(st, raw):
     raw, swaps = _availability_checked(st, raw)                    # Prompt F2 E: a return timing its sources do not give
     if swaps:
         st["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": raw}]}   # the history keeps what is sent
-        _say(f"  [availability check: {len(swaps)} sentence(s) replaced by the code-built availability line: {swaps}]")
+        _say(f"  [availability check: {len(swaps)} sentence(s) changed -- line None = FPL's words were already there, so only "
+             f"the timing went ('kept'; '' = the sentence went): {swaps}]")
     cut = st.get("cut")
     shown = f"{raw.rstrip()}\n\n{CUT_OFF_LINE}" if cut and cut.get("note") else raw
     if cut:

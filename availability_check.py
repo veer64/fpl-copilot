@@ -32,7 +32,11 @@ _GW = re.compile(r"\bGW\s?(\d{1,2})(?:\s*[–—-]\s*(?:GW\s?)?(\d{1,2}))?\b")
 _GAMEWEEK = re.compile(r"\b[Gg]ame\s?weeks?\s+(\d{1,2})(?:\s*(?:[–—-]|to|and)\s*(\d{1,2}))?\b")
 ANCHORS = ("christmas", "boxing day", "new year", "festive", "next month", "end of the month", "end of the year", "end of the season",
            "next season", "international break", "winter break", "turn of the year", "next week", "next weekend", "the spring",
-           "the summer")
+           "the summer",
+           # Prompt F3 S5 (2026-11-24): "now" as the end of a reported absence. F2's E2 run 2: "That eight-week window, if it ran
+           # from late October, would only be expiring around now" -- a worked-out return timing with no calendar word (23 Oct +
+           # eight weeks is mid-December), so the check never read it. Read like any other anchor: kept only when his sources say it.
+           "around now", "about now", "any day now", "any time now")
 _ANCHOR = re.compile(r"\b(" + "|".join(re.escape(a) for a in ANCHORS) + r")\b", re.I)
 # a word about his absence or return -- a timing without one ("Saka's December fixtures look kind.") is not a return timing
 _CUE = re.compile(r"\b(?:back|return\w*|comeback|recover\w*|fit|fitness|available|availability|out|sidelined|miss\w*|absen\w*|"
@@ -52,38 +56,43 @@ def _fold(text):
 
 
 # ---- the timings a text carries ------------------------------------------------------------------------------------------------
-def timings(text):
-    """[(kind, key, the words)] in `text`: ("gw", n), ("date", (day, month)), ("month", month), ("anchor", phrase). A month that
-    is part of a date is the date only; "May" only where it is plainly the month ("in May", "May 3")."""
+def _scan(text):
+    """[(kind, key, the words, start, end)] in `text` -- timings() with where each one sits (Prompt F3 E1 trims the phrase)."""
     out, taken = [], []
     t = str(text or "")
     for m in _GW.finditer(t):
         for g in (m.group(1), m.group(2)):
             if g:
-                out.append(("gw", int(g), m.group(0)))
+                out.append(("gw", int(g), m.group(0), m.start(), m.end()))
     for m in _GAMEWEEK.finditer(t):
         for g in (m.group(1), m.group(2)):
             if g:
-                out.append(("gw", int(g), m.group(0)))
+                out.append(("gw", int(g), m.group(0), m.start(), m.end()))
     for rx, d_i, m_i in ((_DATE_DM, 1, 2), (_DATE_MD, 2, 1)):
         for m in rx.finditer(t):
             if m.group(m_i) == "May" and not _MAY_OK.search(t[max(0, m.start() - 12): m.end() + 3]):
                 continue
             day, mon = int(m.group(d_i)), MONTHS[m.group(m_i).lower()]
             if 1 <= day <= 31:
-                out.append(("date", (day, mon), m.group(0)))
+                out.append(("date", (day, mon), m.group(0), m.start(), m.end()))
                 taken.append((m.start(), m.end()))
     for m in _DATE_ISO.finditer(t):
-        out.append(("date", (int(m.group(2)), int(m.group(1))), m.group(0)))
+        out.append(("date", (int(m.group(2)), int(m.group(1))), m.group(0), m.start(), m.end()))
     for m in _MONTH_WORD.finditer(t):
         if any(a <= m.start() < b for a, b in taken):
             continue
         if m.group(1) == "May" and not _MAY_OK.search(t[max(0, m.start() - 12): m.end() + 3]):
             continue
-        out.append(("month", MONTHS[m.group(1).lower()], m.group(0)))
+        out.append(("month", MONTHS[m.group(1).lower()], m.group(0), m.start(), m.end()))
     for m in _ANCHOR.finditer(t):
-        out.append(("anchor", m.group(1).lower(), m.group(0)))
+        out.append(("anchor", m.group(1).lower(), m.group(0), m.start(), m.end()))
     return out
+
+
+def timings(text):
+    """[(kind, key, the words)] in `text`: ("gw", n), ("date", (day, month)), ("month", month), ("anchor", phrase). A month that
+    is part of a date is the date only; "May" only where it is plainly the month ("in May", "May 3")."""
+    return [(k, key, w) for k, key, w, _s, _e in _scan(text)]
 
 
 def corpus(all_text, source_words):
@@ -242,13 +251,125 @@ _PREFIX = re.compile(r"^(\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)*)")
 _EMPH = re.compile(r"^((?:\*\*|\*|__|_)*)(.*?)((?:\*\*|\*|__|_)*)$", re.S)
 
 
-def check(reply, names, absent, c, lines, today=None, next_gw=None):
+_DASH_SPLIT = re.compile(r"(\s+[—–]\s+|\s+-\s+)")
+_TAIL_CLAUSE = re.compile(r",\s+(?:which|so|meaning|putting|taking|though|although|suggesting|implying|pointing|but|and|while)\b")
+# a time adjunct that can go without breaking the sentence: "dead weight for at least the next month of fixtures", "a dead squad
+# slot through December" -- never "back by", "in", "around", "to", "until" (the timing IS the sentence: "won't be back until X")
+_PP_HEAD = re.compile(r"(?:\s*,)?\s+(?:(?:well|at least|probably|likely|possibly|easily)\s+)?(?:for|through|throughout|over|within|"
+                      r"beyond)\s+", re.I)
+_PP_GAP = re.compile(r"^[^,;:—–()\[\]!?.]*$")
+_PP_TAIL = re.compile(r"^(?:\s+of\s+(?:the\s+)?(?:fixtures|games|matches|season|action|football))?(?:\s+or\s+so)?"
+                      r"(?:\s+at\s+(?:the\s+)?(?:very\s+)?(?:earliest|latest|least|most|minimum))?", re.I)
+# a phrase whose clause is about his return keeps it: removing the timing would change what is said ("he won't return [within a
+# month]", "he'll miss every game [through December]")
+_RETURN_CLAUSE = re.compile(r"\b(?:back|return\w*|comeback|availab\w*|fit|fitness|feature\w*|play\w*|start\w*|miss\w*|rejoin\w*|"
+                            r"resum\w*|recover\w*|expected|estimat\w*|window|timeline|time-?frame|approaching|puts?|takes?|points|"
+                            r"weeks? from|months? from)\b", re.I)
+_TERMINAL = re.compile(r"([.!?])((?:[*_)\]\"'’”]*)\s*)$")
+
+
+def _norm_words(text):
+    """Text for a 'does the reply already say FPL's words' test: lower case, one kind of dash, no quotes, single spaces."""
+    t = re.sub(r"[‘’“”\"']", "", str(text or "").lower())
+    t = re.sub(r"\s*[—–-]\s*", " - ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def fpl_text_in(text, news):
+    """Prompt F3 E1: True when `text` already carries FPL's news for the player -- the whole text ("Knee injury - Unknown return
+    date"), or its part after the injury ("Unknown return date") when that is a phrase of its own (12+ letters)."""
+    n = _norm_words(news)
+    if not n:
+        return False
+    t = _norm_words(text)
+    if n in t:
+        return True
+    tail = n.rsplit(" - ", 1)[-1] if " - " in n else ""
+    return len(tail) >= 12 and tail in t
+
+
+def _ended(text, terminal):
+    """`text` closed like the sentence it came from: trailing commas / spaces dropped, the sentence's own end mark added back."""
+    body = text.rstrip(" ,;:")
+    return body if _TERMINAL.search(body) else body + terminal
+
+
+def trim_timing(core, bad_of):
+    """Prompt F3 E1: `core` (one sentence) without its unsourced return timing, or None when the timing cannot go alone.
+    `bad_of(text)` -> the (kind, key) pairs of `text` that are unsourced return timings. Tried in order, the smallest cut first:
+    a time adjunct ("...dead weight for at least the next month of fixtures" -> "...dead weight."); a dash clause after the first
+    ("...for eight weeks [c2002] — which ... puts a return around mid-to-late December."); a trailing ", which / so / but ..."
+    clause (the latest cut that leaves no timing). The first clause of a sentence is never dropped, and what is left must carry
+    no unsourced timing and keep at least four words."""
+    m_end = _TERMINAL.search(core)
+    terminal = m_end.group(1) if m_end else "."
+
+    def ok(cand):
+        return bool(cand) and len(cand.split()) >= 4 and not bad_of(cand) and cand != core
+
+    cand = _trim_adjunct(core, bad_of, ok)
+    if cand:
+        return cand
+    parts = _DASH_SPLIT.split(core)
+    if len(parts) >= 3:
+        texts, seps = parts[0::2], parts[1::2]
+        if not bad_of(texts[0]):
+            keep = [i for i, t in enumerate(texts) if not bad_of(t)]
+            out = texts[0]
+            for i in keep[1:]:
+                out += seps[i - 1] + texts[i]
+            cand = _ended(out, terminal) if keep[-1] != len(texts) - 1 else out
+            if ok(cand):
+                return cand
+    for m in reversed(list(_TAIL_CLAUSE.finditer(core))):
+        if not bad_of(core[:m.start()]):
+            cand = _ended(core[:m.start()], terminal)
+            if ok(cand):
+                return cand
+    return None
+
+
+def _trim_adjunct(core, bad_of, ok):
+    """trim_timing's first cut: the time adjunct that holds the unsourced timing, when its clause is not about his return."""
+    bad = set(bad_of(core))
+    for kind, key, _w, s, e in sorted(_scan(core), key=lambda x: x[3]):
+        if (kind, key) not in bad:
+            continue
+        heads = [h for h in _PP_HEAD.finditer(core) if h.end() <= s and _PP_GAP.match(core[h.end():s])
+                 and len(core[h.end():s].split()) <= 5]
+        if not heads:
+            continue
+        h = heads[-1]
+        clause_start = max(core.rfind(ch, 0, h.start()) for ch in ",;:—–")
+        if _RETURN_CLAUSE.search(core[clause_start + 1:h.start()]):
+            continue
+        end = e + _PP_TAIL.match(core[e:]).end()
+        cand = re.sub(r"\s{2,}", " ", core[:h.start()] + core[end:]).replace(" .", ".").replace(" ,", ",")
+        if ok(cand):
+            return cand
+    return None
+
+
+def check(reply, names, absent, c, lines, today=None, next_gw=None, fpl_text=None):
     """(the reply to send, the replacements). `names(sentence)` -> the player ids the sentence names (exactly-one matches only);
     `absent` -- the ids FPL flags; `c` -- the turn's corpus, or (Prompt F2b) `c(element, sentence)` -> that player's own corpus
     for that sentence; `lines(element, sentence)` -> his availability line; (Prompt F2b) `today` (day, month) and `next_gw`: a
     timing before now is no return timing. Table rows and code are left alone; a sentence whose players are none of them absent
-    is left alone."""
+    is left alone.
+
+    Prompt F3 E1 (2026-11-24; the owner: "no swap when FPL's text is already in the reply; replace only the timing phrase"):
+    `fpl_text(element)` -> FPL's news for him. When the reply already says what his line would add -- FPL's words for him
+    anywhere outside the sentence and, when the line also carries a report, that report cited outside the sentence -- or his
+    line is already in it, nothing is swapped in: only the timing goes (trim_timing), or the sentence when the timing is all it
+    says. Measured: F2b's Semenyo run 1 lost "...frees up a slot that is currently dead weight for at least the next month of
+    fixtures" with its free-transfer advice and showed his line twice; run 2's line repeated the sentence before it (FPL's words
+    and the [c1314] report were both already there). Narrower than briefed by one case: a line whose report the reply cites
+    only inside the slip sentence is still swapped in -- Tests/test_f2b_player_sources.py::test_s1 (E3-r2, both engines) pins
+    exactly that and may not be edited. A trimmed or dropped sentence is logged with line None and `kept` (the sentence as sent;
+    "" when dropped)."""
     out_lines, replaced = [], []
+    supplied = set()                                     # players whose line this reply now carries
+    raw_text = str(reply or "")
     topic, topic_para, para, fence = set(), -1, 0, False
     for raw_line in str(reply or "").split("\n"):
         stripped = raw_line.strip()
@@ -268,7 +389,7 @@ def check(reply, names, absent, c, lines, today=None, next_gw=None):
             continue
         pm = _PREFIX.match(raw_line)
         head, body = raw_line[:pm.end()], raw_line[pm.end():]
-        pieces, pos = [], 0
+        pieces, pos, dropped_any = [], 0, False
         for a, b in _sentences(body):
             sent = body[a:b]
             ids = set(names(sent))
@@ -285,17 +406,39 @@ def check(reply, names, absent, c, lines, today=None, next_gw=None):
             hit = next((e for e in sorted(subject) if e in absent), None)
             new = sent
             if hit is not None and _CUE.search(sent):
-                bad = [t for t in unsourced(sent, c(hit, sent) if callable(c) else c) if not is_past(t[0], t[1], today, next_gw)]
+                def bad_of(text, hit=hit):
+                    return [t for t in unsourced(text, c(hit, text) if callable(c) else c) if not is_past(t[0], t[1], today, next_gw)]
+                bad = bad_of(sent)
                 if bad:
                     em = _EMPH.match(sent.rstrip())
                     lead, core, tail = em.group(1), em.group(2), em.group(3)
                     line = lines(hit, sent)
-                    new = f"{lead}{line}{tail}" + sent[len(sent.rstrip()):]
-                    replaced.append({"element": hit, "sentence": core.strip(), "timing": [w for _k, _key, w in bad], "line": line})
-            pieces.append(body[pos:a] + new)
+                    outside = raw_text.replace(sent, " ", 1)
+                    said = hit in supplied or (fpl_text is not None and fpl_text_in(outside, fpl_text(hit))
+                                               and all(re.search(rf"\b{m}\b", outside) for m in markers(line)))
+                    if not said:
+                        new = f"{lead}{line}{tail}" + sent[len(sent.rstrip()):]
+                        supplied.add(hit)
+                        replaced.append({"element": hit, "sentence": core.strip(), "timing": [w for _k, _key, w in bad], "line": line})
+                    else:
+                        kept = trim_timing(core.strip(), lambda t: [(k, key) for k, key, _w in bad_of(t)])
+                        new = f"{lead}{kept}{tail}" + sent[len(sent.rstrip()):] if kept else ""
+                        replaced.append({"element": hit, "sentence": core.strip(), "timing": [w for _k, _key, w in bad], "line": None,
+                                         "kept": kept or ""})
+            if new == "":                                # the sentence goes with the space before it (after it, when first)
+                dropped_any = True
+                pos = b
+                continue
+            gap = body[pos:a]
+            if dropped_any and not pieces:
+                gap = ""
+            pieces.append(gap + new)
             pos = b
-        pieces.append(body[pos:])
-        out_lines.append(head + "".join(pieces))
+        pieces.append(body[pos:] if pieces or not dropped_any else body[pos:].lstrip())
+        text = "".join(pieces)
+        if dropped_any and not text.strip():
+            continue                                     # every sentence of the line went: the line goes too
+        out_lines.append(head + text)
     return "\n".join(out_lines), replaced
 
 

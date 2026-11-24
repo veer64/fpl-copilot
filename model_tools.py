@@ -1379,10 +1379,68 @@ def get_player_card(player_id: int):
         import availability_check as av                  # Prompt F2 E: the absence in FPL's own words and day, nothing worked out
         card["availability"]["availability_line"] = av.availability_line(
             card.get("name"), card["availability"]["status_word"], news, datewords.day_words(card.get("updated_at")))
+    if _draft_turn() is None:
+        rank = _price_rank_words(card.get("price"), card.get("position"))     # Prompt F3 S1: where his price sits
+        if rank:
+            card["price_rank"] = rank
+        yours = _your_squad_words(player_id, card.get("price"))               # Prompt F3 S4: his price in the user's squad
+        if yours:
+            card["your_squad"] = yours
     pred = get_prediction(player_id)
     if "error" not in pred:
         card["prediction"] = pred
     return card
+
+
+def _price_rank_words(price, position):
+    """Prompt F3 S1 (2026-11-24): where a price sits in the game, in words -- R3f's P4 said Ibrahim Sangaré "at £4.7m is among
+    the cheapest in the game" with no tool saying so (players from £3.9m to £4.6m were in the same check's listings). The count
+    of every player in the game (players_live) and of his position that cost less / the same / more, with the cheapest and the
+    dearest. None when it cannot be read (the card never fails for it)."""
+    import answers
+    try:
+        if price is None:
+            return None
+        t = int(round(float(price) * 10))
+        rows = _q("SELECT position, price_tenths FROM players_live WHERE price_tenths IS NOT NULL")
+        if not rows:
+            return None
+
+        def part(prices, what):
+            less = sum(1 for p in prices if p < t)
+            more = sum(1 for p in prices if p > t)
+            return (f"{less} of the {len(prices)} {what} cost less, {more} cost more and {len(prices) - less - more} cost the same "
+                    f"(from £{min(prices) / 10:.1f}m to £{max(prices) / 10:.1f}m)")
+        out = f"£{t / 10:.1f}m: {part([int(r['price_tenths']) for r in rows], 'players in the game')}"
+        mine = [int(r["price_tenths"]) for r in rows if r.get("position") == position]
+        if mine and position in answers.POS_WORDS:
+            out += f"; {part(mine, answers.POS_WORDS[position][1])}"
+        return out + " (him included)."
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
+def _your_squad_words(element, price):
+    """Prompt F3 S4 (2026-11-24): whether the player is in the user's saved squad, and if so what he was bought at and sells for
+    (squad_state.sell_price, the one rule). F2's smoke ("Is Semenyo worth keeping?", user 1, who does not own him): "He sells
+    for £8.2m (he was £8.4m at purchase based on the news ...)" -- a purchase price from an article's price tag, for a player
+    the user never bought. None when there is no saved squad or it cannot be read."""
+    try:
+        uid = DEFAULT_USER_ID()
+        players = _read_active(_squad_owner(uid))["squad_json"]["players"]
+    except Exception:                                    # noqa: BLE001 -- no squad (a guest, General mode) or no database
+        return None
+    now = None if price is None else int(round(float(price) * 10))
+    for p in players:
+        if int(p["element"]) == int(element):
+            from squad_state import sell_price
+            pp = int(p["purchase_price"])
+            if now is None:
+                return f"In your squad: you bought him at £{pp / 10:.1f}m."
+            return (f"In your squad: you bought him at £{pp / 10:.1f}m; he costs £{now / 10:.1f}m now and sells for "
+                    f"£{sell_price(pp, now) / 10:.1f}m (FPL's selling rule).")
+    return ("Not in your squad: you have no purchase or selling price for him -- £%.1fm is his price now; a price in a news "
+            "item is that item's own." % (now / 10) if now is not None else "Not in your squad.")
 
 
 # -------------------------------------------------------------- predictions
@@ -5464,6 +5522,29 @@ def _range_number(v):
     return str(int(f)) if f == int(f) else f"{f:.2f}"
 
 
+def _with_gameweek_order(out):
+    """Prompt F3 S2 + S3 (2026-11-24): two facts the model worked out itself, now on the answer.
+    S2 `average_per_gameweek`: the total over the answer's gameweeks divided by their count (half-up, 2 dp) -- R3f's P1 wrote
+       "He's averaging about 4.0 pts/gw across the six gameweeks" (24.32 / 6 = 4.05), F2's gate "consistently around 6-7 per
+       gameweek" over a 4.31 GW12.
+    S3 `gameweeks_best_first`: every gameweek by predicted points, highest first (level figures: the earlier gameweek first) --
+       F1's L8 called "GW11 and GW13 ... his strongest (4.19 and 4.69)" with GW16's 4.34 above GW11.
+    Only for two or more gameweeks."""
+    import answers
+    rows = [r for r in out.get("predictions") or [] if isinstance(r, dict) and r.get("gw") is not None]
+    if len(rows) < 2:
+        return out
+    span = out.get("span") if isinstance(out.get("span"), dict) else None
+    gws = list(span["gameweeks"]) if span and span.get("gameweeks") else sorted({int(r["gw"]) for r in rows})
+    total = sum(float(r.get("e_points") or 0.0) for r in rows)
+    avg = answers.hu(total / len(gws))
+    out["average_per_gameweek"] = (f"{avg:.2f} predicted points a gameweek on average: {answers.hu(total):.2f} over "
+                                   f"{answers.gw_label(gws)} divided by its {len(gws)} gameweeks")
+    order = sorted(rows, key=lambda r: (-float(answers.hu(r.get("e_points") or 0.0)), int(r["gw"])))
+    out["gameweeks_best_first"] = ", ".join(f"GW{int(r['gw'])} {answers.hu(r.get('e_points') or 0.0):.2f}" for r in order)
+    return out
+
+
 def _with_prediction_words(out):
     """A prediction answer with `in_words` on every gameweek row (the figure at 2 dp and each chance as a whole percentage,
     the one rounding) and `range_words` on every likely range (low end / middle / top; a manufactured low end is not given)."""
@@ -5479,6 +5560,7 @@ def _with_prediction_words(out):
             if r.get(key) is not None:
                 bits.append(f"{answers.pct_words(r[key])} {what}")
         r["in_words"] = "; ".join(bits)
+    _with_gameweek_order(out)
     for q in ((out.get("quantiles") or {}).get("per_gw") or []):
         if not isinstance(q, dict) or q.get("p50") is None:
             continue
