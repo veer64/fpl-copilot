@@ -1,3 +1,4 @@
+import type { DraftNotice } from "@/components/draft/BuildFlow";
 import type { Feedback, Source, SquadApplied, SquadPreview } from "@/lib/api";
 
 /** The thread as the page holds it (Prompt W4): the stored rows plus the client-only system messages and the thinking row. */
@@ -23,7 +24,9 @@ export type SystemMsg =
   | { kind: "system"; key: string; variant: "team"; threadId: string | null }
   | { kind: "system"; key: string; variant: "error"; question: string; why: string }
   | { kind: "system"; key: string; variant: "guest"; code: "guest" | "guest_budget" | "guest_off"; text: string } // W9
-  | { kind: "system"; key: string; variant: "rebuilt" }; // W11: "Draft rebuilt from the best picks." (the card's Rebuild)
+  | { kind: "system"; key: string; variant: "rebuilt" } // W11: "Draft rebuilt from the best picks." (the card's Rebuild)
+  | { kind: "system"; key: string; variant: "site"; resetAt: string } // P3: the site's daily wallet (live countdown to 00:00 UTC)
+  | { kind: "system"; key: string; variant: "draft"; notice: DraftNotice }; // P3: a refused rebuild (hourly limit / busy)
 /** `resumed` (W7b): the answer was in flight when the page loaded (a pending row from the server) -- "Still working on this
  *  answer…" and the page re-reads the thread until it lands. */
 export type ThinkingMsg = { kind: "thinking"; key: string; startedAt: number; resumed?: boolean; question?: string };

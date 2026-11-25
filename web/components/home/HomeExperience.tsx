@@ -18,7 +18,7 @@ import { loginSignedOut, useSignedOutRedirect } from "@/lib/session";
 import { useNow, useResource } from "./useResource";
 import { GuestSession } from "@/components/guest/GuestSession";
 import { BuildChoice, BuildPill, DraftHomeCard, SlimAddRow } from "@/components/draft/DraftParts";
-import { BuildFailedDialog, BuildingDialog, RebuildConfirm, useDraftBuild } from "@/components/draft/BuildFlow";
+import { BuildFailedDialog, BuildingDialog, DraftLimitNote, RebuildConfirm, useDraftBuild } from "@/components/draft/BuildFlow";
 import { EnterGuide } from "@/components/draft/EnterGuide";
 
 export const MAX_TEAMS = 3;
@@ -256,118 +256,123 @@ export function HomeExperience() {
       <div className="hm-col">
         <HomeHeader deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} />
         <GuestSession banner />
-        <div aria-hidden="true" className="hm-band" />
-        <DeadlinePill deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} band />
+        {/* P3: the page's one <main> (the header and the guest banner stay outside; .hm-main repeats .hm-col's column and gap) */}
+        <main className="hm-main">
+          <div aria-hidden="true" className="hm-band" />
+          <DeadlinePill deadlines={deadlines} now={now} onExpired={onDeadlinesExpired} band />
 
-        {greeting}
+          {greeting}
+          {/* P3: a refused build (the hourly limit, a busy server) -- the amber note, not a toast; the next build clears it */}
+          {builder.notice && <DraftLimitNote notice={builder.notice} onExpired={builder.clearNotice} reveal />}
 
-        {teams.status === "error" ? (
-          <ErrorBox what="your teams" error={teams.error} onRetry={reloadTeams} />
-        ) : teams.status === "loading" ? (
-          <TeamsSkeleton />
-        ) : isNew ? (
-          <>
-            <div className="hm-choices three" data-testid="new-user-choices">
-              <section className="hm-glass hm-choice primary" aria-labelledby="choice-team">
+          {teams.status === "error" ? (
+            <ErrorBox what="your teams" error={teams.error} onRetry={reloadTeams} />
+          ) : teams.status === "loading" ? (
+            <TeamsSkeleton />
+          ) : isNew ? (
+            <>
+              <div className="hm-choices three" data-testid="new-user-choices">
+                <section className="hm-glass hm-choice primary" aria-labelledby="choice-team">
+                  <span className="hm-br hm-tl" aria-hidden="true" />
+                  <span className="hm-br hm-brr" aria-hidden="true" />
+                  <span className="hm-add-plus" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                  </span>
+                  <h2 id="choice-team">Add my FPL team</h2>
+                  <p>Paste your FPL team ID or the link to your team. We fetch your squad, points and rank from FPL.</p>
+                  <div className="hm-team-cta">
+                    <button type="button" className="hm-btn-p" onClick={() => setAddOpen(true)} data-testid="choice-add-team">
+                      Add my FPL team
+                    </button>
+                  </div>
+                </section>
+                <BuildChoice d={draft} busy={busy !== null || builder.state === "building"} onBuild={builder.build} onOpen={openDraft} />
+                <section className="hm-glass hm-choice" aria-labelledby="choice-ask">
+                  <span className="hm-br hm-tl" aria-hidden="true" />
+                  <span className="hm-br hm-brr" aria-hidden="true" />
+                  <span className="hm-gen-icon" aria-hidden="true">
+                    <BallIcon />
+                  </span>
+                  <h2 id="choice-ask">Just ask a question</h2>
+                  <p>Player form, who to buy, captaincy, fixtures — no team needed.</p>
+                  <div className="hm-team-cta">
+                    <button type="button" className="hm-btn-o" onClick={general} disabled={busy !== null} data-testid="choice-general" style={{ width: "100%", justifyContent: "center" }}>
+                      {busy?.kind === "general" ? (
+                        <>
+                          <Spinner /> Opening chat…
+                        </>
+                      ) : (
+                        "Start a general chat"
+                      )}
+                    </button>
+                  </div>
+                </section>
+              </div>
+              <section className="hm-glass hm-gen wide" aria-label="Example questions" style={{ gridColumn: "auto" }}>
                 <span className="hm-br hm-tl" aria-hidden="true" />
                 <span className="hm-br hm-brr" aria-hidden="true" />
-                <span className="hm-add-plus" aria-hidden="true">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </span>
-                <h2 id="choice-team">Add my FPL team</h2>
-                <p>Paste your FPL team ID or the link to your team. We fetch your squad, points and rank from FPL.</p>
-                <div className="hm-team-cta">
-                  <button type="button" className="hm-btn-p" onClick={() => setAddOpen(true)} data-testid="choice-add-team">
-                    Add my FPL team
-                  </button>
-                </div>
+                <Chips nextGw={nextGw} onChip={chip} />
               </section>
-              <BuildChoice d={draft} busy={busy !== null || builder.state === "building"} onBuild={builder.build} onOpen={openDraft} />
-              <section className="hm-glass hm-choice" aria-labelledby="choice-ask">
-                <span className="hm-br hm-tl" aria-hidden="true" />
-                <span className="hm-br hm-brr" aria-hidden="true" />
-                <span className="hm-gen-icon" aria-hidden="true">
-                  <BallIcon />
-                </span>
-                <h2 id="choice-ask">Just ask a question</h2>
-                <p>Player form, who to buy, captaincy, fixtures — no team needed.</p>
-                <div className="hm-team-cta">
-                  <button type="button" className="hm-btn-o" onClick={general} disabled={busy !== null} data-testid="choice-general" style={{ width: "100%", justifyContent: "center" }}>
-                    {busy?.kind === "general" ? (
-                      <>
-                        <Spinner /> Opening chat…
-                      </>
-                    ) : (
-                      "Start a general chat"
-                    )}
-                  </button>
-                </div>
-              </section>
-            </div>
-            <section className="hm-glass hm-gen wide" aria-label="Example questions" style={{ gridColumn: "auto" }}>
-              <span className="hm-br hm-tl" aria-hidden="true" />
-              <span className="hm-br hm-brr" aria-hidden="true" />
-              <Chips nextGw={nextGw} onChip={chip} />
-            </section>
-          </>
-        ) : (
-          <section className="hm-sec" aria-labelledby="teams-title" data-testid="teams-section">
-            <div className="hm-sec-head">
-              <h2 id="teams-title" className="hm-lbl">
-                Your teams
-              </h2>
-              <span className="dr-head-r">
-                {!draft && draftRes.status === "ready" && <BuildPill onBuild={builder.build} busy={busy !== null || builder.state === "building"} />}
-                <span className="hm-count" data-testid="teams-count">
-                  {cards.length} of {MAX_TEAMS} teams{draft ? " · 1 draft" : ""}
-                </span>
-              </span>
-            </div>
-            <div className="hm-teams">
-              {cards.map((t) => (
-                <TeamCard
-                  key={t.fpl_team_id}
-                  team={t}
-                  lastUsed={t.fpl_team_id === lastUsedId}
-                  now={now}
-                  isNew={t.fpl_team_id === newId}
-                  busy={busy && "id" in busy && busy.id === t.fpl_team_id ? busy.kind : null}
-                  refreshFailed={!!refreshFailed[t.fpl_team_id]}
-                  onAsk={() => ask(t)}
-                  onRefresh={() => refresh(t)}
-                  onRemove={() => {
-                    removeOpener.current = document.activeElement as HTMLElement | null;
-                    setRemoving(t);
-                  }}
-                />
-              ))}
-              {draft && cards.length < MAX_TEAMS && <DraftHomeCard d={draft} layout="card" {...draftActions} />}
-              {draft ? (
-                cards.length < MAX_TEAMS - 1 && <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} />
-              ) : cards.length < MAX_TEAMS ? (
-                <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} />
-              ) : (
-                <TeamsFull max={MAX_TEAMS} />
-              )}
-            </div>
-            {draft && cards.length === MAX_TEAMS - 1 && <SlimAddRow slotsLeft={1} onOpen={() => setAddOpen(true)} />}
-            {draft && cards.length >= MAX_TEAMS && <DraftHomeCard d={draft} layout="row" {...draftActions} />}
-          </section>
-        )}
-
-        {!isNew &&
-          (threads.status === "error" ? (
-            <ErrorBox what="your recent chats" error={threads.error} onRetry={reloadThreads} />
-          ) : threads.status === "loading" ? (
-            <LowerSkeleton />
+            </>
           ) : (
-            <div className="hm-lower">
-              <GeneralCard nextGw={nextGw} wide={threads.data.length === 0} busy={busy?.kind === "general"} onGeneral={general} onChip={chip} />
-              {threads.data.length > 0 && <RecentChats threads={threads.data} now={now} />}
-            </div>
-          ))}
+            <section className="hm-sec" aria-labelledby="teams-title" data-testid="teams-section">
+              <div className="hm-sec-head">
+                <h2 id="teams-title" className="hm-lbl">
+                  Your teams
+                </h2>
+                <span className="dr-head-r">
+                  {!draft && draftRes.status === "ready" && <BuildPill onBuild={builder.build} busy={busy !== null || builder.state === "building"} />}
+                  <span className="hm-count" data-testid="teams-count">
+                    {cards.length} of {MAX_TEAMS} teams{draft ? " · 1 draft" : ""}
+                  </span>
+                </span>
+              </div>
+              <div className="hm-teams">
+                {cards.map((t) => (
+                  <TeamCard
+                    key={t.fpl_team_id}
+                    team={t}
+                    lastUsed={t.fpl_team_id === lastUsedId}
+                    now={now}
+                    isNew={t.fpl_team_id === newId}
+                    busy={busy && "id" in busy && busy.id === t.fpl_team_id ? busy.kind : null}
+                    refreshFailed={!!refreshFailed[t.fpl_team_id]}
+                    onAsk={() => ask(t)}
+                    onRefresh={() => refresh(t)}
+                    onRemove={() => {
+                      removeOpener.current = document.activeElement as HTMLElement | null;
+                      setRemoving(t);
+                    }}
+                  />
+                ))}
+                {draft && cards.length < MAX_TEAMS && <DraftHomeCard d={draft} layout="card" {...draftActions} />}
+                {draft ? (
+                  cards.length < MAX_TEAMS - 1 && <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} />
+                ) : cards.length < MAX_TEAMS ? (
+                  <AddTeamCard slotsLeft={MAX_TEAMS - cards.length} onOpen={() => setAddOpen(true)} />
+                ) : (
+                  <TeamsFull max={MAX_TEAMS} />
+                )}
+              </div>
+              {draft && cards.length === MAX_TEAMS - 1 && <SlimAddRow slotsLeft={1} onOpen={() => setAddOpen(true)} />}
+              {draft && cards.length >= MAX_TEAMS && <DraftHomeCard d={draft} layout="row" {...draftActions} />}
+            </section>
+          )}
+
+          {!isNew &&
+            (threads.status === "error" ? (
+              <ErrorBox what="your recent chats" error={threads.error} onRetry={reloadThreads} />
+            ) : threads.status === "loading" ? (
+              <LowerSkeleton />
+            ) : (
+              <div className="hm-lower">
+                <GeneralCard nextGw={nextGw} wide={threads.data.length === 0} busy={busy?.kind === "general"} onGeneral={general} onChip={chip} />
+                {threads.data.length > 0 && <RecentChats threads={threads.data} now={now} />}
+              </div>
+            ))}
+        </main>
 
         <footer className="hm-foot">
           <Link href="/privacy">Privacy</Link>

@@ -21,6 +21,8 @@
 
 /* ---- the column ------------------------------------------------------------------------------------------------------ */
 .hm-col{position:relative;max-width:1200px;margin:0 auto;padding:0 40px 32px;display:flex;flex-direction:column;gap:28px}
+/* P3: Home's <main> sits inside .hm-col and lays its children out exactly as .hm-col did (same column, same gap) */
+.hm-main{display:flex;flex-direction:column;gap:inherit;min-width:0}
 
 /* The avatar gradient's dark end is #2398AE, not the reference's #1C7C8F: the initials (#021016) on #1C7C8F are 3.98:1 and the brief
    asks for >= 4.5:1 (5.67:1 now); the Add card's dashed border is .45 alpha, not .4, for the 3:1 non-text line (3.34:1). */

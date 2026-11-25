@@ -172,47 +172,51 @@ export function LoginExperience() {
             <MusicButton className="sound-btn" />
           </header>
 
-          <div className="headline rise">
-            <span className="eyebrow mono">AI ASSISTANT FOR FPL MANAGERS</span>
-            <h1>
-              Every decision,
-              <br className="br-lg" /> scouted.
-            </h1>
-          </div>
-
-          <div className="card-wrap">
-            <div className="card-col">
-              {signedOutNote && !deletedNote && (
-                <div role="status" className="deleted-note signed-out-note" data-testid="signed-out-note">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 8v5M12 16h.01" />
-                  </svg>
-                  You were signed out — sign in to continue.
-                </div>
-              )}
-              {guestEndedNote && !deletedNote && (
-                <div role="status" className="deleted-note" data-testid="guest-ended-note">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M5 12l5 5L20 7" />
-                  </svg>
-                  Your guest session ended and its data was deleted.
-                </div>
-              )}
-              {deletedNote && (
-                <div role="status" className="deleted-note" data-testid="deleted-note">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M5 12l5 5L20 7" />
-                  </svg>
-                  Your account and data were deleted.
-                </div>
-              )}
-              {/* the card reads ?sso= (useSearchParams), which the static page can only do behind Suspense */}
-              <Suspense fallback={null}>
-                <SignInCard ref={cardRef} />
-              </Suspense>
+          {/* P3: the page's one <main>. The headline and the card are placed absolutely against .stage, so this static
+              wrapper moves nothing on screen. */}
+          <main>
+            <div className="headline rise">
+              <span className="eyebrow mono">AI ASSISTANT FOR FPL MANAGERS</span>
+              <h1>
+                Every decision,
+                <br className="br-lg" /> scouted.
+              </h1>
             </div>
-          </div>
+
+            <div className="card-wrap">
+              <div className="card-col">
+                {signedOutNote && !deletedNote && (
+                  <div role="status" className="deleted-note signed-out-note" data-testid="signed-out-note">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 8v5M12 16h.01" />
+                    </svg>
+                    You were signed out — sign in to continue.
+                  </div>
+                )}
+                {guestEndedNote && !deletedNote && (
+                  <div role="status" className="deleted-note" data-testid="guest-ended-note">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M5 12l5 5L20 7" />
+                    </svg>
+                    Your guest session ended and its data was deleted.
+                  </div>
+                )}
+                {deletedNote && (
+                  <div role="status" className="deleted-note" data-testid="deleted-note">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M5 12l5 5L20 7" />
+                    </svg>
+                    Your account and data were deleted.
+                  </div>
+                )}
+                {/* the card reads ?sso= (useSearchParams), which the static page can only do behind Suspense */}
+                <Suspense fallback={null}>
+                  <SignInCard ref={cardRef} />
+                </Suspense>
+              </div>
+            </div>
+          </main>
 
           <footer className="footer rise">
             <span className="mono ticker">INJURY FLAGS · POINTS PREDICTIONS · FIXTURES · CITED NEWS</span>

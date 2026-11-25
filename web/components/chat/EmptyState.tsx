@@ -84,14 +84,17 @@ export function EmptyState({
             : "Best picks for the week, captains, who to buy — ask about any player or club."}
         </p>
       </div>
-      <div role="list" aria-label="Suggested questions" className="ch-chips">
+      {/* P3: real list markup (ul > li > button); role="list" keeps the list for VoiceOver, which drops it under list-style:none */}
+      <ul role="list" aria-label="Suggested questions" className="ch-chips">
         {chips.map((q) => (
-          <button type="button" role="listitem" className="ch-chip" key={q} onClick={() => onChip(q)} data-testid="empty-chip">
-            <span>{q}</span>
-            <Arrow />
-          </button>
+          <li key={q}>
+            <button type="button" className="ch-chip" onClick={() => onChip(q)} data-testid="empty-chip">
+              <span>{q}</span>
+              <Arrow />
+            </button>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }
@@ -112,14 +115,16 @@ function DraftEmpty({ d, onChip, onGuide }: { d: DraftCard | null; onChip: (q: s
         <h2 data-testid="empty-title">Ask anything about your draft.</h2>
         <p data-testid="empty-sub">Changes are free — the only limits are £100.0m and FPL’s squad rules.</p>
       </div>
-      <div role="list" aria-label="Suggested questions" className="ch-chips">
+      <ul role="list" aria-label="Suggested questions" className="ch-chips">
         {chips.map((c) => (
-          <button type="button" role="listitem" className="ch-chip" key={c.text} onClick={() => (c.action === "guide" ? onGuide?.() : onChip(c.text))} data-testid="empty-chip">
-            <span>{c.text}</span>
-            <Arrow />
-          </button>
+          <li key={c.text}>
+            <button type="button" className="ch-chip" onClick={() => (c.action === "guide" ? onGuide?.() : onChip(c.text))} data-testid="empty-chip">
+              <span>{c.text}</span>
+              <Arrow />
+            </button>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

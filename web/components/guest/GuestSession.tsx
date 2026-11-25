@@ -21,7 +21,8 @@ export function GuestSession({ me: given, banner = false }: { me?: Me | null; ba
   return (
     <>
       {banner && (
-        <div className="gm-banner" role="note" data-testid="guest-banner">
+        // P3: a named <section> is a region landmark, so the banner's text is inside a landmark on Home and on Chat alike
+        <section className="gm-banner" aria-label="Guest mode" data-testid="guest-banner">
           <span className="gm-banner-dot" aria-hidden="true" />
           <span className="gm-banner-text">
             <b>Guest mode</b> — everything here is deleted when you leave or after {mins} minutes idle. Sign in with Google or email for an account that keeps your chats.
@@ -29,7 +30,7 @@ export function GuestSession({ me: given, banner = false }: { me?: Me | null; ba
           <button type="button" className="gm-banner-link" onClick={() => setConfirm(true)} data-testid="guest-banner-sign-in">
             Sign in
           </button>
-        </div>
+        </section>
       )}
       <ConfirmDelete
         open={confirm}

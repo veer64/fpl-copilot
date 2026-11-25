@@ -1,10 +1,12 @@
 "use client";
 
+import { DraftLimitNote } from "@/components/draft/BuildFlow";
 import { leftClock, leftWords } from "@/lib/time";
 import type { SystemMsg } from "./types";
 
 /** The four inline system messages (never modals): a daily limit (amber, live countdown to the reset), b 429 (amber,
- *  countdown), c 409 (cyan, "Start a new chat"), d anything else (coral, role="alert", Retry). */
+ *  countdown), c 409 (cyan, "Start a new chat"), d anything else (coral, role="alert", Retry). P3 adds the site's daily
+ *  wallet (amber, live countdown, the "everyone" icon) and a refused rebuild (the draft's amber note). */
 export function SystemMessage({ msg, now, onRetry, onStartNew }: { msg: SystemMsg; now: Date | null; onRetry: (question: string) => void; onStartNew: () => void }) {
   const nowMs = now ? now.getTime() : null;
   if (msg.variant === "rebuilt") {
@@ -39,6 +41,30 @@ export function SystemMessage({ msg, now, onRetry, onStartNew }: { msg: SystemMs
       </div>
     );
   }
+  if (msg.variant === "site") {
+    // P3: the site's daily wallet for everyone -- the words are the page's (not the server's frozen "in 3 h 12 m"), the
+    // countdown is live, and the icon is "everyone" (two people), not the guest's single person
+    return (
+      <div className="ch-sys limit" role="status" data-testid="system-site">
+        <span className="ch-sys-ic">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" data-icon="everyone">
+            <circle cx="9" cy="8" r="3.5" />
+            <path d="M2.5 20c.8-3.6 3.4-5.6 6.5-5.6s5.7 2 6.5 5.6" />
+            <path d="M16 4.7a3.5 3.5 0 0 1 0 6.6M18 14.6c2 .7 3.2 2.6 3.6 5.4" />
+          </svg>
+        </span>
+        <div className="ch-sys-body">
+          <div>
+            <b>FPL Copilot has reached its daily limit for everyone today.</b>
+            <p>
+              It resets at 00:00 UTC (in <span className="mono" data-testid="site-countdown">{now ? leftWords(msg.resetAt, now) : "…"}</span>).
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (msg.variant === "draft") return <DraftLimitNote notice={msg.notice} />;
   if (msg.variant === "guest") {
     // W9: a guest's turn refused -- the cap, the shared budget or the switch; the wording is the server's (checkpoint 4)
     return (

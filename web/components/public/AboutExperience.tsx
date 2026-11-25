@@ -170,219 +170,222 @@ export function AboutExperience() {
       <Backdrop page="about" />
       <PublicHeader />
 
-      <div className="pp-hero">
-        <div className="pp-hero-text">
-          <span className="pp-eyebrow">ABOUT FPL COPILOT</span>
-          <h1>Outsmart your mini-league with an AI that knows the data.</h1>
-          <p className="pp-p pp-hero-sub">
-            FPL Copilot is your AI assistant for Fantasy Premier League. Ask about players, captains, transfers and your own team — and get answers built on real data, not hunches.
-          </p>
-          <div className="pp-hero-cta">
-            <Link href={primary.href} prefetch={signedIn ? undefined : false} className="pp-btn-p" data-testid="hero-primary">
-              {primary.text}
-              <Arrow />
-            </Link>
-            <a href="#features" className="pp-btn-s" data-testid="hero-secondary">
-              See what it does
-            </a>
-          </div>
-        </div>
-        <div className="pp-example-wrap">
-          <div className="hm-glass pp-example" aria-label="Example conversation" data-testid="example-chat">
-            <span className="hm-br hm-tl" aria-hidden="true" />
-            <span className="hm-br hm-brr" aria-hidden="true" />
-            <div className="pp-example-top">
-              <span className="pp-example-lbl">EXAMPLE</span>
-              <span className="pp-tag">VEER’S XI</span>
+      {/* P3: the hero sits inside the page's one <main> (a plain block: nothing moves; .pp-main keeps its own styles) */}
+      <main>
+        <div className="pp-hero">
+          <div className="pp-hero-text">
+            <span className="pp-eyebrow">ABOUT FPL COPILOT</span>
+            <h1>Outsmart your mini-league with an AI that knows the data.</h1>
+            <p className="pp-p pp-hero-sub">
+              FPL Copilot is your AI assistant for Fantasy Premier League. Ask about players, captains, transfers and your own team — and get answers built on real data, not hunches.
+            </p>
+            <div className="pp-hero-cta">
+              <Link href={primary.href} prefetch={signedIn ? undefined : false} className="pp-btn-p" data-testid="hero-primary">
+                {primary.text}
+                <Arrow />
+              </Link>
+              <a href="#features" className="pp-btn-s" data-testid="hero-secondary">
+                See what it does
+              </a>
             </div>
-            <div className="pp-example-q">Who should I captain for GW10?</div>
-            <div className="pp-example-a">
-              <span className="pp-example-av" aria-hidden="true">
-                <Hex size={14} />
-              </span>
-              <div className="pp-example-body">
-                <p>
-                  <strong>Captain Haaland.</strong> Best fixture and the top predicted score in your XI.
-                </p>
-                <div className="pp-example-tbl">
-                  <div className="head">
-                    <span>PLAYER</span>
-                    <span>GW10</span>
-                    <span>PRED.</span>
+          </div>
+          <div className="pp-example-wrap">
+            <div className="hm-glass pp-example" aria-label="Example conversation" data-testid="example-chat">
+              <span className="hm-br hm-tl" aria-hidden="true" />
+              <span className="hm-br hm-brr" aria-hidden="true" />
+              <div className="pp-example-top">
+                <span className="pp-example-lbl">EXAMPLE</span>
+                <span className="pp-tag">VEER’S XI</span>
+              </div>
+              <div className="pp-example-q">Who should I captain for GW10?</div>
+              <div className="pp-example-a">
+                <span className="pp-example-av" aria-hidden="true">
+                  <Hex size={14} />
+                </span>
+                <div className="pp-example-body">
+                  <p>
+                    <strong>Captain Haaland.</strong> Best fixture and the top predicted score in your XI.
+                  </p>
+                  <div className="pp-example-tbl">
+                    <div className="head">
+                      <span>PLAYER</span>
+                      <span>GW10</span>
+                      <span>PRED.</span>
+                    </div>
+                    <div className="best">
+                      <b>Haaland</b>
+                      <span className="mono">BOU (H)</span>
+                      <b className="cyan">7.8</b>
+                    </div>
+                    <div>
+                      <b>Salah</b>
+                      <span className="mono">AVL (H)</span>
+                      <span>6.4</span>
+                    </div>
                   </div>
-                  <div className="best">
-                    <b>Haaland</b>
-                    <span className="mono">BOU (H)</span>
-                    <b className="cyan">7.8</b>
-                  </div>
-                  <div>
-                    <b>Salah</b>
-                    <span className="mono">AVL (H)</span>
-                    <span>6.4</span>
-                  </div>
+                  <span className="pp-example-src">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 4h12l4 4v12H4z" />
+                      <path d="M8 12h8M8 16h5" />
+                    </svg>
+                    Club news · 3 Nov
+                  </span>
                 </div>
-                <span className="pp-example-src">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4 4h12l4 4v12H4z" />
-                    <path d="M8 12h8M8 16h5" />
-                  </svg>
-                  Club news · 3 Nov
-                </span>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <main className="pp-main">
-        <section id="features" className="pp-sec" aria-labelledby="features-title">
-          <div className="pp-sec-head">
-            <span className="pp-eyebrow">WHAT IT HELPS YOU WITH</span>
-            <h2 id="features-title" className="pp-h2">
-              Every decision before the deadline, sorted.
-            </h2>
-          </div>
-          <div className="pp-tiles" data-testid="feature-tiles">
-            {FEATURES.map((f) => (
-              <div className="hm-glass pp-tile" key={f.title}>
-                <span className="pp-ic lg" aria-hidden="true">
-                  {f.icon}
-                </span>
-                <b>{f.title}</b>
-                <span className="d">{f.text}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="pp-sec" aria-labelledby="ask-title">
-          <div className="hm-glass pp-ask">
-            <span className="hm-br hm-tl" aria-hidden="true" />
-            <span className="hm-br hm-brr" aria-hidden="true" />
-            <div aria-hidden="true" className="pp-ask-glow" />
-            <div className="pp-ask-head">
-              <span className="pp-eyebrow">JUST ASK</span>
-              <h2 id="ask-title" className="pp-h2">
-                Ask it like you’d ask your mate who never misses a press conference.
+        <div className="pp-main">
+          <section id="features" className="pp-sec" aria-labelledby="features-title">
+            <div className="pp-sec-head">
+              <span className="pp-eyebrow">WHAT IT HELPS YOU WITH</span>
+              <h2 id="features-title" className="pp-h2">
+                Every decision before the deadline, sorted.
               </h2>
             </div>
-            <div className="pp-chips" data-testid="ask-chips">
-              {askChips(gw).map((c) => (
-                <Link href={chipHref(signedIn, c.team, teamId, c.text)} prefetch={signedIn ? undefined : false} className="pp-chip" key={c.text} data-testid="ask-chip" data-team={c.team}>
-                  <Chat />
-                  {c.text}
-                </Link>
+            <div className="pp-tiles" data-testid="feature-tiles">
+              {FEATURES.map((f) => (
+                <div className="hm-glass pp-tile" key={f.title}>
+                  <span className="pp-ic lg" aria-hidden="true">
+                    {f.icon}
+                  </span>
+                  <b>{f.title}</b>
+                  <span className="d">{f.text}</span>
+                </div>
               ))}
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section className="pp-sec pp-two" aria-label="The fine print and who made it">
-          <div className="hm-glass pp-box" data-testid="fine-print">
-            <span className="pp-eyebrow" style={{ color: "#FFC23D" }}>
-              THE FINE PRINT
-            </span>
-            <ul className="pp-fine">
-              <li>
-                <span>
-                  <Info />
-                </span>
-                <span>
-                  <strong>Predictions are estimates</strong> — not certainties.
-                </span>
-              </li>
-              <li>
-                <span>
-                  <Info />
-                </span>
-                <span>
-                  <strong>Your FPL team is as of the last deadline</strong> — FPL makes picks public only then. Tap Refresh after a deadline to update it; transfers made since aren’t seen yet.
-                </span>
-              </li>
-              <li>
-                <span>
-                  <Info />
-                </span>
-                <span>
-                  <strong>“Yes, apply” stays inside FPL Copilot</strong> — it changes our saved copy of your squad, never your real FPL team.
-                </span>
-              </li>
-              <li>
-                <span>
-                  <Info />
-                </span>
-                <span>
-                  <strong>Not betting advice</strong> — it’s for playing Fantasy Premier League.
-                </span>
-              </li>
-            </ul>
-            <div className="pp-indep">
-              <span>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z" />
-                  <path d="M8.5 12l2.5 2.5 4.5-5" />
-                </svg>
-              </span>
-              <span>FPL Copilot is an independent project, not affiliated with or endorsed by the Premier League or Fantasy Premier League.</span>
-            </div>
-          </div>
-          <div className="hm-glass pp-box made" data-testid="made-by">
-            <span className="pp-eyebrow">MADE BY</span>
-            <div className="pp-made-who">
-              <span className="hm-avatar" aria-hidden="true">
-                VS
-              </span>
-              <div>
-                <b>Veer Sanghavi</b>
-                <span>Built FPL Copilot.</span>
+          <section className="pp-sec" aria-labelledby="ask-title">
+            <div className="hm-glass pp-ask">
+              <span className="hm-br hm-tl" aria-hidden="true" />
+              <span className="hm-br hm-brr" aria-hidden="true" />
+              <div aria-hidden="true" className="pp-ask-glow" />
+              <div className="pp-ask-head">
+                <span className="pp-eyebrow">JUST ASK</span>
+                <h2 id="ask-title" className="pp-h2">
+                  Ask it like you’d ask your mate who never misses a press conference.
+                </h2>
+              </div>
+              <div className="pp-chips" data-testid="ask-chips">
+                {askChips(gw).map((c) => (
+                  <Link href={chipHref(signedIn, c.team, teamId, c.text)} prefetch={signedIn ? undefined : false} className="pp-chip" key={c.text} data-testid="ask-chip" data-team={c.team}>
+                    <Chat />
+                    {c.text}
+                  </Link>
+                ))}
               </div>
             </div>
-            <div className="pp-links">
-              <a className="pp-lk" href={`mailto:${CONTACT}`}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="5" width="18" height="14" rx="2" />
-                  <path d="M3 7l9 6 9-6" />
-                </svg>
-                Email
-              </a>
-              <a className="pp-lk" href="https://www.linkedin.com/in/veer-sanghavi" target="_blank" rel="noreferrer">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
-                  <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
-                </svg>
-                LinkedIn
-              </a>
-              <a className="pp-lk" href="https://github.com/veer64" target="_blank" rel="noreferrer">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M8 8l-5 4 5 4M16 8l5 4-5 4M14 4l-4 16" />
-                </svg>
-                GitHub
-              </a>
-              <a className="pp-lk" href="https://veer-sanghavi-64.vercel.app/" target="_blank" rel="noreferrer">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" />
-                </svg>
-                Website
-              </a>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <section className="pp-sec" aria-labelledby="closing-title">
-          <div className="pp-closing">
-            <span className="hm-br hm-tl" aria-hidden="true" />
-            <span className="hm-br hm-brr" aria-hidden="true" />
-            <h2 id="closing-title" className="pp-h2">
-              The next deadline is coming.
-            </h2>
-            <p className="pp-p">Get your squad sorted before it does.</p>
-            <Link href={primary.href} prefetch={signedIn ? undefined : false} className="pp-btn-p" data-testid="closing-primary">
-              {primary.text}
-              <Arrow />
-            </Link>
-          </div>
-        </section>
+          <section className="pp-sec pp-two" aria-label="The fine print and who made it">
+            <div className="hm-glass pp-box" data-testid="fine-print">
+              <span className="pp-eyebrow" style={{ color: "#FFC23D" }}>
+                THE FINE PRINT
+              </span>
+              <ul className="pp-fine">
+                <li>
+                  <span>
+                    <Info />
+                  </span>
+                  <span>
+                    <strong>Predictions are estimates</strong> — not certainties.
+                  </span>
+                </li>
+                <li>
+                  <span>
+                    <Info />
+                  </span>
+                  <span>
+                    <strong>Your FPL team is as of the last deadline</strong> — FPL makes picks public only then. Tap Refresh after a deadline to update it; transfers made since aren’t seen yet.
+                  </span>
+                </li>
+                <li>
+                  <span>
+                    <Info />
+                  </span>
+                  <span>
+                    <strong>“Yes, apply” stays inside FPL Copilot</strong> — it changes our saved copy of your squad, never your real FPL team.
+                  </span>
+                </li>
+                <li>
+                  <span>
+                    <Info />
+                  </span>
+                  <span>
+                    <strong>Not betting advice</strong> — it’s for playing Fantasy Premier League.
+                  </span>
+                </li>
+              </ul>
+              <div className="pp-indep">
+                <span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z" />
+                    <path d="M8.5 12l2.5 2.5 4.5-5" />
+                  </svg>
+                </span>
+                <span>FPL Copilot is an independent project, not affiliated with or endorsed by the Premier League or Fantasy Premier League.</span>
+              </div>
+            </div>
+            <div className="hm-glass pp-box made" data-testid="made-by">
+              <span className="pp-eyebrow">MADE BY</span>
+              <div className="pp-made-who">
+                <span className="hm-avatar" aria-hidden="true">
+                  VS
+                </span>
+                <div>
+                  <b>Veer Sanghavi</b>
+                  <span>Built FPL Copilot.</span>
+                </div>
+              </div>
+              <div className="pp-links">
+                <a className="pp-lk" href={`mailto:${CONTACT}`}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="5" width="18" height="14" rx="2" />
+                    <path d="M3 7l9 6 9-6" />
+                  </svg>
+                  Email
+                </a>
+                <a className="pp-lk" href="https://www.linkedin.com/in/veer-sanghavi" target="_blank" rel="noreferrer">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+                    <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+                  </svg>
+                  LinkedIn
+                </a>
+                <a className="pp-lk" href="https://github.com/veer64" target="_blank" rel="noreferrer">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M8 8l-5 4 5 4M16 8l5 4-5 4M14 4l-4 16" />
+                  </svg>
+                  GitHub
+                </a>
+                <a className="pp-lk" href="https://veer-sanghavi-64.vercel.app/" target="_blank" rel="noreferrer">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" />
+                  </svg>
+                  Website
+                </a>
+              </div>
+            </div>
+          </section>
+
+          <section className="pp-sec" aria-labelledby="closing-title">
+            <div className="pp-closing">
+              <span className="hm-br hm-tl" aria-hidden="true" />
+              <span className="hm-br hm-brr" aria-hidden="true" />
+              <h2 id="closing-title" className="pp-h2">
+                The next deadline is coming.
+              </h2>
+              <p className="pp-p">Get your squad sorted before it does.</p>
+              <Link href={primary.href} prefetch={signedIn ? undefined : false} className="pp-btn-p" data-testid="closing-primary">
+                {primary.text}
+                <Arrow />
+              </Link>
+            </div>
+          </section>
+        </div>
       </main>
       <PublicFooter page="about" />
     </div>

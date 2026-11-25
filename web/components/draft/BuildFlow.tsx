@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { ApiError, api, type DraftResult } from "@/lib/api";
+import { useNow } from "@/components/home/useResource";
+import { leftClock } from "@/lib/time";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { NARROW, useMediaQuery } from "@/lib/useMediaQuery";
@@ -18,17 +19,35 @@ const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
 export type BuildState = "idle" | "building" | "failed";
 
+/** Prompt P3: a refused build, mapped from the HTTP status (and the body's error_kind where one status means two things) --
+ *  never the server's words. `hourly`: 429 draft_limited, the 10 builds + rebuilds in a rolling hour (`untilMs` only when
+ *  the response carries a Retry-After the browser may read; else the note says "within the hour"). `rate`: any other 429
+ *  (the per-minute request limit). `busy`: 503 draft_busy (a third build at once). Anything else is the failed dialog. */
+export type DraftNotice = { kind: "hourly"; untilMs: number | null } | { kind: "rate"; untilMs: number } | { kind: "busy" };
+
+export function draftNotice(err: ApiError, nowMs: number = Date.now()): DraftNotice | null {
+  if (err.status === 429) {
+    if (err.errorKind === "draft_limited") return { kind: "hourly", untilMs: err.retryAfter !== undefined ? nowMs + err.retryAfter * 1000 : null };
+    return { kind: "rate", untilMs: nowMs + (err.retryAfter ?? 60) * 1000 };
+  }
+  if (err.status === 503 && err.errorKind === "draft_busy") return { kind: "busy" };
+  return null;
+}
+
 /** One build or rebuild at a time: the building card while it runs; "Couldn't build your draft" (Try again / Cancel) on a
- *  failure; a 429 (10 an hour) or a busy server is a toast with the server's words. onDone gets the draft (and the chat to
- *  open after a first build). */
-export function useDraftBuild(onDone: (r: DraftResult, kind: "build" | "rebuild") => void) {
+ *  failure; a refusal (P3: the hourly limit, the request limit, a busy server) is `notice` -- an amber note the page shows,
+ *  never a toast -- and goes to `onNotice` too (a draft chat puts it in the thread). The next build clears it. onDone gets
+ *  the draft (and the chat to open after a first build). */
+export function useDraftBuild(onDone: (r: DraftResult, kind: "build" | "rebuild") => void, onNotice?: (n: DraftNotice) => void) {
   const { getToken } = useAuth();
   const router = useRouter();
   const [state, setState] = useState<BuildState>("idle");
+  const [notice, setNotice] = useState<DraftNotice | null>(null);
   const last = useRef<"build" | "rebuild">("build");
   const run = useCallback(
     async (kind: "build" | "rebuild") => {
       last.current = kind;
+      setNotice(null);
       setState("building");
       try {
         const [r] = await Promise.all([kind === "build" ? api.buildDraft(getToken) : api.rebuildDraft(getToken), sleep(MIN_BUILD_MS)]);
@@ -36,20 +55,92 @@ export function useDraftBuild(onDone: (r: DraftResult, kind: "build" | "rebuild"
         onDone(r, kind);
       } catch (e) {
         const err = e instanceof ApiError ? e : new ApiError(0, String(e));
+        const refused = draftNotice(err);
         if (err.status === 401) {
           setState("idle");
           loginSignedOut(router);
-        } else if (err.status === 429 || (err.status === 503 && /busy|right now/i.test(err.detail))) {
+        } else if (refused) {
           setState("idle");
-          toast.error(err.detail);
+          setNotice(refused);
+          onNotice?.(refused);
         } else {
           setState("failed");
         }
       }
     },
-    [getToken, onDone, router],
+    [getToken, onDone, onNotice, router],
   );
-  return { state, build: () => run("build"), rebuild: () => run("rebuild"), retry: () => run(last.current), cancel: () => setState("idle") };
+  const clearNotice = useCallback(() => setNotice(null), []);
+  return { state, notice, clearNotice, build: () => run("build"), rebuild: () => run("rebuild"), retry: () => run(last.current), cancel: () => setState("idle") };
+}
+
+const ClockIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </svg>
+);
+const HourglassIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9" />
+  </svg>
+);
+
+/** Prompt P3: a refused build as the amber note the other caps use (the chat's .ch-sys look: `limit` for the hourly cap,
+ *  `rate` for a short wait) -- Home shows it under the greeting, a draft chat in its thread. A countdown runs only when the
+ *  wait is known; when it ends the line says so, and `onExpired` (Home) clears the note. `reveal` (Home): a note that
+ *  appears off screen -- the phone's Build button sits below the fold -- is scrolled into view. */
+export function DraftLimitNote({ notice, onExpired, reveal = false }: { notice: DraftNotice; onExpired?: () => void; reveal?: boolean }) {
+  const box = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!reveal || !el) return;
+    const r = el.getBoundingClientRect();
+    if (r.top < 0 || r.bottom > window.innerHeight) {
+      el.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    }
+  }, [reveal, notice]);
+  const until = notice.kind === "busy" ? null : notice.untilMs;
+  const now = useNow(until !== null ? 1000 : 60_000);
+  const over = until !== null && now !== null && now.getTime() >= until;
+  useEffect(() => {
+    if (over) onExpired?.();
+  }, [over, onExpired]);
+  const wait = (lead: string, again: string) =>
+    until === null ? null : over ? (
+      `${again} now.`
+    ) : (
+      <>
+        {lead}{" "}
+        <span className="mono" data-testid="draft-limit-countdown">
+          {now ? leftClock(until, now.getTime()) : "…"}
+        </span>
+        .
+      </>
+    );
+  let title: string;
+  let line: ReactNode;
+  if (notice.kind === "hourly") {
+    title = "You’ve reached the hourly limit for building drafts.";
+    line = wait("You can build or rebuild again in", "You can build or rebuild again") ?? "You can build or rebuild again within the hour.";
+  } else if (notice.kind === "rate") {
+    title = "Too many requests — wait a minute.";
+    line = wait("You can try again in", "You can try again");
+  } else {
+    title = "Lots of drafts are being built right now.";
+    line = "Nothing was changed — try again in a moment.";
+  }
+  return (
+    <div ref={box} className={`ch-sys ${notice.kind === "hourly" ? "limit" : "rate"} dr-limit-note`} role="status" data-testid="draft-limit-note" data-kind={notice.kind}>
+      <span className="ch-sys-ic">{notice.kind === "hourly" ? <ClockIcon /> : <HourglassIcon />}</span>
+      <div className="ch-sys-body">
+        <div>
+          <b>{title}</b>
+          <p>{line}</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Dots() {

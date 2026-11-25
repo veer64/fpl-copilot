@@ -178,7 +178,7 @@ export type Me = {
 /** Prompt W9: a guest's own numbers (null for a signed-in person). */
 export type GuestInfo = { idle_minutes: number; leave_grace_seconds: number; cap_usd: number; spent_usd: number; budget_open: boolean };
 export type GuestStatus = { enabled: boolean; idle_minutes: number; cap_usd: number; leave_grace_seconds: number };
-export type GuestLimitKind = "daily" | "guest" | "guest_budget" | "guest_off";
+export type GuestLimitKind = "daily" | "site" | "guest" | "guest_budget" | "guest_off"; // P3: "site" = the site's daily wallet
 
 // ---- Prompt W5 (2026-11-10): delete account / remove team / delete chat ------------------------------------------------------
 export type DeleteAccountResult = {
@@ -281,6 +281,8 @@ export class ApiError extends Error {
   detail: string;
   retryAfter?: number;
   threadId?: string;
+  /** Prompt P3: the body's machine-readable `error_kind` (e.g. draft_limited / draft_busy / draft_failed), when it has one */
+  errorKind?: string;
   constructor(status: number, detail: string) {
     super(status ? `HTTP ${status}: ${detail}` : detail);
     this.name = "ApiError";
@@ -346,6 +348,7 @@ async function doFetch<T>(getToken: TokenGetter, path: string, init: Init): Prom
     const ra = res.headers.get("Retry-After");
     if (ra && /^\d+$/.test(ra)) err.retryAfter = Number(ra);
     if (data && typeof data === "object" && "thread_id" in data) err.threadId = String((data as { thread_id: unknown }).thread_id);
+    if (data && typeof data === "object" && "error_kind" in data) err.errorKind = String((data as { error_kind: unknown }).error_kind);
     throw err;
   }
   return data as T;

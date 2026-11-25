@@ -242,7 +242,10 @@
 .ch-empty.general .ch-empty-icon{width:52px;height:52px;border-radius:15px;box-shadow:0 0 40px rgba(59,232,255,.18)}
 .ch-empty h1{margin:0;font-size:40px;line-height:46px;font-weight:600;letter-spacing:-.035em;color:#F2FBFF}
 .ch-empty.general p{font-size:16px;line-height:24px}
-.ch-chips{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.ch-chips{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;list-style:none;margin:0;padding:0}
+/* P3: each chip sits in an li (the grid/flex item now); the button fills it, as it filled the cell before */
+.ch-chips>li{display:flex;min-width:0}
+.ch-chips>li>.ch-chip{flex:1 1 auto;min-width:0}
 .ch-chip{min-height:60px;padding:14px 16px;border-radius:14px;border:1px solid #24384A;background:rgba(8,15,24,.8);color:#E8F6FF;font-size:14.5px;line-height:20px;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px}
 .ch-empty.general .ch-chip{min-height:64px}
 .ch-chip:hover{border-color:#3BE8FF;background:rgba(59,232,255,.06)}

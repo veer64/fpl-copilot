@@ -118,394 +118,398 @@ export function PrivacyExperience() {
       <Backdrop page="privacy" />
       <PublicHeader />
 
-      <div className="pp-phero">
-        <span className="pp-eyebrow">PRIVACY</span>
-        <h1>Your data, in plain words.</h1>
-        <p className="pp-p pp-hero-sub">What we keep, who handles it, and how to delete it.</p>
-        <div className="pp-phero-pills">
-          <span className="pp-pill" data-testid="last-updated">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 7v5l3 2" />
-            </svg>
-            Last updated {PRIVACY_UPDATED}
-          </span>
+      {/* P3: the hero, the chip nav and the body sit inside the page's one <main> (plain blocks: nothing moves). The table of
+          contents keeps its <nav>; its wrapper is a div, since a complementary landmark belongs at the top level. */}
+      <main>
+        <div className="pp-phero">
+          <span className="pp-eyebrow">PRIVACY</span>
+          <h1>Your data, in plain words.</h1>
+          <p className="pp-p pp-hero-sub">What we keep, who handles it, and how to delete it.</p>
+          <div className="pp-phero-pills">
+            <span className="pp-pill" data-testid="last-updated">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+              Last updated {PRIVACY_UPDATED}
+            </span>
+          </div>
         </div>
-      </div>
-      <div className="pp-chipnav-wrap">{nav("pp-chipnav", "On this page")}</div>
+        <div className="pp-chipnav-wrap">{nav("pp-chipnav", "On this page")}</div>
 
-      <div className="pp-pbody">
-        <aside className="pp-toc-wrap" data-testid="toc">
-          <span className="pp-toc-lbl">ON THIS PAGE</span>
-          {nav("pp-toc", "On this page")}
-        </aside>
-        <main className="pp-pmain">
-          <section id="keep" className="pp-psec" aria-labelledby="keep-title">
-            <span className="pp-sec-n">01</span>
-            <h2 id="keep-title">What we keep</h2>
-            <div className="hm-glass pp-rows">
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="8" r="4" />
-                    <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Your account</b>
-                  <span className="d">Your name, email, how you sign in (Google or an email code), and when you joined and were last active.</span>
+        <div className="pp-pbody">
+          <div className="pp-toc-wrap" data-testid="toc">
+            <span className="pp-toc-lbl">ON THIS PAGE</span>
+            {nav("pp-toc", "On this page")}
+          </div>
+          <div className="pp-pmain">
+            <section id="keep" className="pp-psec" aria-labelledby="keep-title">
+              <span className="pp-sec-n">01</span>
+              <h2 id="keep-title">What we keep</h2>
+              <div className="hm-glass pp-rows">
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="8" r="4" />
+                      <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Your account</b>
+                    <span className="d">Your name, email, how you sign in (Google or an email code), and when you joined and were last active.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="16" rx="2" />
+                      <path d="M3 12h18" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Your FPL teams</b>
+                    <span className="d">The FPL team IDs you add, the names you give them, their public FPL data, and our saved copy of each squad with the changes you apply.</span>
+                  </div>
+                </div>
+                <div className="pp-row" data-testid="privacy-draft">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="16" rx="2" />
+                      <path d="M3 12h18" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Your draft team</b>
+                    <span className="d">If you build a draft team, we keep its 15 players until you delete it or your account.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 5h16v11H9l-5 4z" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Your chats</b>
+                    <span className="d">Your questions and the answers, plus what the assistant looked up and worked out for them — like transfer plans and change previews.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M7 11v9H4v-9z" />
+                      <path d="M7 11l4-7c1.3 0 2.3 1 2.3 2.3V10h5.2a2 2 0 0 1 2 2.4l-1.3 6A2 2 0 0 1 17.2 20H7" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Your feedback</b>
+                    <span className="d">Thumbs up and thumbs down on answers.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 18a8 8 0 1 1 16 0" />
+                      <path d="M12 18l4-5" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Usage</b>
+                    <span className="d">How many answers you get, what they cost, and when you hit the daily limit.</span>
+                  </div>
                 </div>
               </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                    <path d="M3 12h18" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Your FPL teams</b>
-                  <span className="d">The FPL team IDs you add, the names you give them, their public FPL data, and our saved copy of each squad with the changes you apply.</span>
-                </div>
-              </div>
-              <div className="pp-row" data-testid="privacy-draft">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                    <path d="M3 12h18" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Your draft team</b>
-                  <span className="d">If you build a draft team, we keep its 15 players until you delete it or your account.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4 5h16v11H9l-5 4z" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Your chats</b>
-                  <span className="d">Your questions and the answers, plus what the assistant looked up and worked out for them — like transfer plans and change previews.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M7 11v9H4v-9z" />
-                    <path d="M7 11l4-7c1.3 0 2.3 1 2.3 2.3V10h5.2a2 2 0 0 1 2 2.4l-1.3 6A2 2 0 0 1 17.2 20H7" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Your feedback</b>
-                  <span className="d">Thumbs up and thumbs down on answers.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4 18a8 8 0 1 1 16 0" />
-                    <path d="M12 18l4-5" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Usage</b>
-                  <span className="d">How many answers you get, what they cost, and when you hit the daily limit.</span>
-                </div>
-              </div>
-            </div>
-          </section>
+            </section>
 
-          <section id="never" className="pp-psec" aria-labelledby="never-title">
-            <span className="pp-sec-n">02</span>
-            <h2 id="never-title">What we never do</h2>
-            <div className="pp-never">
-              <div className="hm-glass">
-                <Ic kind="green">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M5.6 5.6l12.8 12.8" />
-                  </svg>
-                </Ic>
-                <b>Sell your data</b>
-                <span className="d">Not to anyone, ever.</span>
+            <section id="never" className="pp-psec" aria-labelledby="never-title">
+              <span className="pp-sec-n">02</span>
+              <h2 id="never-title">What we never do</h2>
+              <div className="pp-never">
+                <div className="hm-glass">
+                  <Ic kind="green">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M5.6 5.6l12.8 12.8" />
+                    </svg>
+                  </Ic>
+                  <b>Sell your data</b>
+                  <span className="d">Not to anyone, ever.</span>
+                </div>
+                <div className="hm-glass">
+                  <Ic kind="green">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </Ic>
+                  <b>Show ads</b>
+                  <span className="d">There are no ads on FPL Copilot.</span>
+                </div>
+                <div className="hm-glass">
+                  <Ic kind="green">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="8" cy="15" r="4" />
+                      <path d="M11 12l9-9M16 7l3 3" />
+                    </svg>
+                  </Ic>
+                  <b>Ask for your FPL password</b>
+                  <span className="d">We never log into FPL — your team ID is enough.</span>
+                </div>
               </div>
-              <div className="hm-glass">
-                <Ic kind="green">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </Ic>
-                <b>Show ads</b>
-                <span className="d">There are no ads on FPL Copilot.</span>
-              </div>
-              <div className="hm-glass">
-                <Ic kind="green">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="8" cy="15" r="4" />
-                    <path d="M11 12l9-9M16 7l3 3" />
-                  </svg>
-                </Ic>
-                <b>Ask for your FPL password</b>
-                <span className="d">We never log into FPL — your team ID is enough.</span>
-              </div>
-            </div>
-          </section>
+            </section>
 
-          <section id="who" className="pp-psec" aria-labelledby="who-title">
-            <span className="pp-sec-n">03</span>
-            <h2 id="who-title">Who handles it for us</h2>
-            <p className="pp-p pp-lead">A few services do part of the work. Each one only gets what it needs for its job.</p>
-            <div className="hm-glass pp-provs" data-testid="providers">
-              {PROVIDERS.map(([name, text]) => (
-                <div className="pp-prov" key={name}>
-                  <b>{name}</b>
-                  <span>{text}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section id="cookies" className="pp-psec" aria-labelledby="cookies-title">
-            <span className="pp-sec-n">04</span>
-            <h2 id="cookies-title">Cookies</h2>
-            <div className="hm-glass pp-rows">
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 3a9 9 0 1 0 9 9 3 3 0 0 1-3-3 3 3 0 0 1-3-3 3 3 0 0 1-3-3z" />
-                    <path d="M8.5 11.5h.01M12 16h.01M15.5 13.5h.01M8 16h.01" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Only sign-in cookies</b>
-                  <span className="d">The ones that keep you signed in. No analytics or advertising cookies.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Small preferences</b>
-                  <span className="d">Your browser remembers little things, like whether the chat sidebar is collapsed or the music is muted.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="8" r="4" />
-                    <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Guest mode</b>
-                  <span className="d">One extra cookie, fpl_guest, marks this browser as a guest and disappears when the browser closes.</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section id="how-long" className="pp-psec" aria-labelledby="how-long-title">
-            <span className="pp-sec-n">05</span>
-            <h2 id="how-long-title">How long we keep it</h2>
-            <div className="hm-glass pp-rows" data-testid="how-long">
-              <div className="pp-row">
-                <Ic>
-                  <Clock />
-                </Ic>
-                <div>
-                  <b>Until you delete your account</b>
-                  <span className="d">Everything listed above stays until you delete your account.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <Clock />
-                </Ic>
-                <div>
-                  <b>The monitoring copy</b>
-                  <span className="d">Langfuse keeps it under an account number, not your name or email. Deleting your account doesn’t remove it.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <Clock />
-                </Ic>
-                <div>
-                  <b>Backups</b>
-                  <span className="d">Our database backups keep a copy for up to 30 days.</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section id="delete" className="pp-psec" aria-labelledby="delete-title">
-            <span className="pp-sec-n">06</span>
-            <h2 id="delete-title">Delete your data</h2>
-            <div className="pp-danger" data-testid="delete-section" data-signed-in={isLoaded ? signedIn : "loading"}>
-              <div className="pp-danger-head">
-                <Ic kind="coral">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Delete your account any time</b>
-                  <span>
-                    {signedIn ? (
-                      <>
-                        Open your account menu (top right) and choose <strong>Delete account</strong>.
-                      </>
-                    ) : (
-                      <>
-                        <Link href="/login" prefetch={false}>Sign in</Link>, then open your account menu (top right) and choose <strong>Delete account</strong>.
-                      </>
-                    )}{" "}
-                    It removes everything below straight away — this can’t be undone. Our backups and the monitoring copy are kept as described in How long we keep it, and usage totals stay without your name.
-                  </span>
-                </div>
-              </div>
-              <div className="pp-danger-pills">
-                {["Your account", "Your FPL teams", "Saved squads", "Chats", "Feedback"].map((p) => (
-                  <span className="pp-pill" key={p}>
-                    {p}
-                  </span>
+            <section id="who" className="pp-psec" aria-labelledby="who-title">
+              <span className="pp-sec-n">03</span>
+              <h2 id="who-title">Who handles it for us</h2>
+              <p className="pp-p pp-lead">A few services do part of the work. Each one only gets what it needs for its job.</p>
+              <div className="hm-glass pp-provs" data-testid="providers">
+                {PROVIDERS.map(([name, text]) => (
+                  <div className="pp-prov" key={name}>
+                    <b>{name}</b>
+                    <span>{text}</span>
+                  </div>
                 ))}
               </div>
-              <span className="pp-danger-mail">
-                Can’t sign in? Email <a href={`mailto:${CONTACT}`}>{CONTACT}</a> and we’ll delete it for you.
-              </span>
-            </div>
-          </section>
+            </section>
+
+            <section id="cookies" className="pp-psec" aria-labelledby="cookies-title">
+              <span className="pp-sec-n">04</span>
+              <h2 id="cookies-title">Cookies</h2>
+              <div className="hm-glass pp-rows">
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 3a9 9 0 1 0 9 9 3 3 0 0 1-3-3 3 3 0 0 1-3-3 3 3 0 0 1-3-3z" />
+                      <path d="M8.5 11.5h.01M12 16h.01M15.5 13.5h.01M8 16h.01" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Only sign-in cookies</b>
+                    <span className="d">The ones that keep you signed in. No analytics or advertising cookies.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Small preferences</b>
+                    <span className="d">Your browser remembers little things, like whether the chat sidebar is collapsed or the music is muted.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="8" r="4" />
+                      <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Guest mode</b>
+                    <span className="d">One extra cookie, fpl_guest, marks this browser as a guest and disappears when the browser closes.</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="how-long" className="pp-psec" aria-labelledby="how-long-title">
+              <span className="pp-sec-n">05</span>
+              <h2 id="how-long-title">How long we keep it</h2>
+              <div className="hm-glass pp-rows" data-testid="how-long">
+                <div className="pp-row">
+                  <Ic>
+                    <Clock />
+                  </Ic>
+                  <div>
+                    <b>Until you delete your account</b>
+                    <span className="d">Everything listed above stays until you delete your account.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <Clock />
+                  </Ic>
+                  <div>
+                    <b>The monitoring copy</b>
+                    <span className="d">Langfuse keeps it under an account number, not your name or email. Deleting your account doesn’t remove it.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <Clock />
+                  </Ic>
+                  <div>
+                    <b>Backups</b>
+                    <span className="d">Our database backups keep a copy for up to 30 days.</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="delete" className="pp-psec" aria-labelledby="delete-title">
+              <span className="pp-sec-n">06</span>
+              <h2 id="delete-title">Delete your data</h2>
+              <div className="pp-danger" data-testid="delete-section" data-signed-in={isLoaded ? signedIn : "loading"}>
+                <div className="pp-danger-head">
+                  <Ic kind="coral">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Delete your account any time</b>
+                    <span>
+                      {signedIn ? (
+                        <>
+                          Open your account menu (top right) and choose <strong>Delete account</strong>.
+                        </>
+                      ) : (
+                        <>
+                          <Link href="/login" prefetch={false}>Sign in</Link>, then open your account menu (top right) and choose <strong>Delete account</strong>.
+                        </>
+                      )}{" "}
+                      It removes everything below straight away — this can’t be undone. Our backups and the monitoring copy are kept as described in How long we keep it, and usage totals stay without your name.
+                    </span>
+                  </div>
+                </div>
+                <div className="pp-danger-pills">
+                  {["Your account", "Your FPL teams", "Saved squads", "Chats", "Feedback"].map((p) => (
+                    <span className="pp-pill" key={p}>
+                      {p}
+                    </span>
+                  ))}
+                </div>
+                <span className="pp-danger-mail">
+                  Can’t sign in? Email <a href={`mailto:${CONTACT}`}>{CONTACT}</a> and we’ll delete it for you.
+                </span>
+              </div>
+            </section>
 
 
-          <section id="guest" className="pp-psec" aria-labelledby="guest-title">
-            <span className="pp-sec-n">07</span>
-            <h2 id="guest-title">Guest mode</h2>
-            <div className="hm-glass pp-rows" data-testid="guest-section">
-              <div className="pp-row">
+            <section id="guest" className="pp-psec" aria-labelledby="guest-title">
+              <span className="pp-sec-n">07</span>
+              <h2 id="guest-title">Guest mode</h2>
+              <div className="hm-glass pp-rows" data-testid="guest-section">
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="8" r="4" />
+                      <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>What it is</b>
+                    <span className="d">Continue as guest creates a temporary account with no email address of yours.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="4" y="4" width="16" height="16" rx="3" />
+                      <path d="M8 10h8M8 14h5" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>What we keep</b>
+                    <span className="d">The same as for a signed-in user while the session lasts: your chats, the teams you add and the usage ledger.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <Clock />
+                  </Ic>
+                  <div>
+                    <b>When it is deleted</b>
+                    <span className="d">
+                      Everything is deleted about two minutes after you close the last FPL Copilot tab on a computer, or after 30 minutes without a click, key, scroll or touch — whichever comes first. On a phone, switching to another app doesn’t end it; 30 minutes without activity does. You can also end it yourself from the account menu.
+                    </span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>What remains</b>
+                    <span className="d">Only the anonymous cost line of each answer (model and amount — no text, no link to you), the monitoring copy in Langfuse under a number that no longer exists, and our backups for up to 30 days.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Abuse limit</b>
+                    <span className="d">To limit abuse we keep a salted hash of your IP address for 24 hours (three guest sessions a day per address).</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 3a9 9 0 1 0 9 9 3 3 0 0 1-3-3 3 3 0 0 1-3-3 3 3 0 0 1-3-3z" />
+                      <path d="M8.5 11.5h.01M12 16h.01M15.5 13.5h.01M8 16h.01" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Cookies</b>
+                    <span className="d">One extra cookie, fpl_guest, marks this browser as a guest and disappears when the browser closes.</span>
+                  </div>
+                </div>
+                <div className="pp-row">
+                  <Ic>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 7v10M9.5 9.5h3.5a1.75 1.75 0 0 1 0 3.5H11a1.75 1.75 0 0 0 0 3.5h3.5" />
+                    </svg>
+                  </Ic>
+                  <div>
+                    <b>Spending</b>
+                    <span className="d">A guest session can use at most $0.25 of model time (about five answers); guest mode closes for the day when all guests together reach $3.00.</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="contact" className="pp-psec" aria-labelledby="contact-title">
+              <span className="pp-sec-n">08</span>
+              <h2 id="contact-title">Contact</h2>
+              <a href={`mailto:${CONTACT}`} className="hm-glass pp-card" data-testid="contact-email">
                 <Ic>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="8" r="4" />
-                    <path d="M4 21c1-4.5 4.3-7 8-7s7 2.5 8 7" />
+                    <rect x="3" y="5" width="18" height="14" rx="2" />
+                    <path d="M3 7l9 6 9-6" />
                   </svg>
                 </Ic>
-                <div>
-                  <b>What it is</b>
-                  <span className="d">Continue as guest creates a temporary account with no email address of yours.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <rect x="4" y="4" width="16" height="16" rx="3" />
-                    <path d="M8 10h8M8 14h5" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>What we keep</b>
-                  <span className="d">The same as for a signed-in user while the session lasts: your chats, the teams you add and the usage ledger.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <Clock />
-                </Ic>
-                <div>
-                  <b>When it is deleted</b>
-                  <span className="d">
-                    Everything is deleted about two minutes after you close the last FPL Copilot tab on a computer, or after 30 minutes without a click, key, scroll or touch — whichever comes first. On a phone, switching to another app doesn’t end it; 30 minutes without activity does. You can also end it yourself from the account menu.
-                  </span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>What remains</b>
-                  <span className="d">Only the anonymous cost line of each answer (model and amount — no text, no link to you), the monitoring copy in Langfuse under a number that no longer exists, and our backups for up to 30 days.</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Abuse limit</b>
-                  <span className="d">To limit abuse we keep a salted hash of your IP address for 24 hours (three guest sessions a day per address).</span>
-                </div>
-              </div>
-              <div className="pp-row">
-                <Ic>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 3a9 9 0 1 0 9 9 3 3 0 0 1-3-3 3 3 0 0 1-3-3 3 3 0 0 1-3-3z" />
-                    <path d="M8.5 11.5h.01M12 16h.01M15.5 13.5h.01M8 16h.01" />
-                  </svg>
-                </Ic>
-                <div>
-                  <b>Cookies</b>
-                  <span className="d">One extra cookie, fpl_guest, marks this browser as a guest and disappears when the browser closes.</span>
-                </div>
-              </div>
-              <div className="pp-row">
+                <span>
+                  <b>Questions about your data?</b>
+                  <span className="cy">{CONTACT}</span>
+                </span>
+                <Arrow />
+              </a>
+              <Link href="/about" className="hm-glass pp-card" data-testid="contact-about">
                 <Ic>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <circle cx="12" cy="12" r="9" />
-                    <path d="M12 7v10M9.5 9.5h3.5a1.75 1.75 0 0 1 0 3.5H11a1.75 1.75 0 0 0 0 3.5h3.5" />
+                    <path d="M12 11v5M12 8h.01" />
                   </svg>
                 </Ic>
-                <div>
-                  <b>Spending</b>
-                  <span className="d">A guest session can use at most $0.25 of model time (about five answers); guest mode closes for the day when all guests together reach $3.00.</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section id="contact" className="pp-psec" aria-labelledby="contact-title">
-            <span className="pp-sec-n">08</span>
-            <h2 id="contact-title">Contact</h2>
-            <a href={`mailto:${CONTACT}`} className="hm-glass pp-card" data-testid="contact-email">
-              <Ic>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="5" width="18" height="14" rx="2" />
-                  <path d="M3 7l9 6 9-6" />
-                </svg>
-              </Ic>
-              <span>
-                <b>Questions about your data?</b>
-                <span className="cy">{CONTACT}</span>
-              </span>
-              <Arrow />
-            </a>
-            <Link href="/about" className="hm-glass pp-card" data-testid="contact-about">
-              <Ic>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 11v5M12 8h.01" />
-                </svg>
-              </Ic>
-              <span>
-                <b>About FPL Copilot</b>
-                <span className="d">How it works and where the data comes from</span>
-              </span>
-              <Arrow />
-            </Link>
-          </section>
-        </main>
-      </div>
+                <span>
+                  <b>About FPL Copilot</b>
+                  <span className="d">How it works and where the data comes from</span>
+                </span>
+                <Arrow />
+              </Link>
+            </section>
+          </div>
+        </div>
+      </main>
       <PublicFooter page="privacy" />
     </div>
   );

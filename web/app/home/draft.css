@@ -96,7 +96,9 @@
 .ch-card.dr-card .ch-card-line b.over{color:#FF8A7A}
 .ch-panel-top .line b{color:#FFE2A0;font-weight:500}
 .ch-panel-top .line b.over{color:#FF8A7A}
-.dr-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.dr-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;margin-bottom:0;padding:0;list-style:none}
+/* P3: the li is the flex item now; display:flex lets its chip stretch to the row's height as before */
+.dr-chips>li{display:flex}
 .dr-chip{min-height:36px;padding:7px 12px;border-radius:999px;border:1px solid rgba(255,194,61,.4);background:rgba(255,194,61,.06);color:#FFE2A0;font-size:13.5px;line-height:19px;text-align:left;display:inline-flex;align-items:center;gap:6px}
 .dr-chip:hover{background:rgba(255,194,61,.14);border-color:#FFC23D}
 .dr-chip.guide{border-style:dashed}
@@ -138,3 +140,17 @@
 .dr-chip{min-height:44px}
 .hm-sec-head{flex-wrap:wrap;gap:8px}
 }
+
+/* P3: a refused build's note on Home wears the chat's amber system-note look (chat.css .ch-sys*, which Home does not load);
+   the same values, scoped to Home's <main> */
+.hm-main .ch-sys{border-radius:12px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start;background:rgba(8,15,24,.85);max-width:100%}
+.hm-main .ch-sys.limit{border:1px solid rgba(255,194,61,.4)}
+.hm-main .ch-sys.rate{border:1px solid rgba(255,194,61,.3)}
+.hm-main .ch-sys-ic{width:32px;height:32px;flex-shrink:0;border-radius:9px;display:flex;align-items:center;justify-content:center}
+.hm-main .ch-sys.limit .ch-sys-ic{background:rgba(255,194,61,.14);color:#FFC23D}
+.hm-main .ch-sys.rate .ch-sys-ic{background:rgba(255,194,61,.1);color:#FFC23D}
+.hm-main .ch-sys-body{display:flex;flex-direction:column;gap:10px;min-width:0}
+.hm-main .ch-sys b{display:block;font-size:14.5px;font-weight:600;color:#F2FBFF;line-height:20px}
+.hm-main .ch-sys p{margin:3px 0 0;font-size:13.5px;line-height:19px;color:#A9BACB}
+.hm-main .ch-sys p .mono{color:#F2FBFF}
+.hm-main .dr-limit-note{align-self:center;width:100%;max-width:720px}

@@ -102,13 +102,16 @@ function SavedBlock({ applied, plural }: { applied: SquadApplied; plural: boolea
 function DraftChips({ chips, onChip, testId }: { chips: DraftChip[]; onChip: (c: DraftChip) => void; testId: string }) {
   if (!chips.length) return null;
   return (
-    <div className="dr-chips" role="list" aria-label="Suggested questions" data-testid={testId}>
+    // P3: real list markup (ul > li > button), as the empty state's chips
+    <ul className="dr-chips" role="list" aria-label="Suggested questions" data-testid={testId}>
       {chips.map((c) => (
-        <button type="button" role="listitem" className={`dr-chip${c.action === "guide" ? " guide" : ""}`} key={c.text} onClick={() => onChip(c)} data-testid="draft-chip" data-action={c.action ?? "send"}>
-          {c.text}
-        </button>
+        <li key={c.text}>
+          <button type="button" className={`dr-chip${c.action === "guide" ? " guide" : ""}`} onClick={() => onChip(c)} data-testid="draft-chip" data-action={c.action ?? "send"}>
+            {c.text}
+          </button>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 

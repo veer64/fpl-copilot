@@ -144,7 +144,7 @@ export function AccountMenu({ isOwner, isAdmin, isGuest }: { isOwner?: boolean |
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger ref={trigger} className="hm-acct" aria-label="Account menu" data-testid="account-menu">
+        <DropdownMenuTrigger ref={trigger} className="hm-acct" aria-label={ini ? `${ini}, account menu` : "Account menu"} data-testid="account-menu">
           <span className="hm-avatar" aria-hidden="true">
             {ini}
           </span>

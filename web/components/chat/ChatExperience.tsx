@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { ApiError, api, type DraftResult, type Feedback, type MessageRow, type TeamCardData, type ThreadRow } from "@/lib/api";
 import { OPENING_CHIPS, answerChips, unusedChips, type DraftChip } from "@/lib/draft-chips";
 import { AddTeamDialog, ADD_COPY } from "@/components/home/AddTeamDialog";
-import { BuildFailedDialog, BuildingDialog, RebuildConfirm, useDraftBuild } from "@/components/draft/BuildFlow";
+import { BuildFailedDialog, BuildingDialog, RebuildConfirm, useDraftBuild, type DraftNotice } from "@/components/draft/BuildFlow";
 import { EnterGuide } from "@/components/draft/EnterGuide";
 import { DraftPanel, MobileDraft } from "./DraftPanel";
 import { nextEvent } from "@/lib/time";
@@ -88,6 +88,12 @@ function titleOf(msgs: Msg[], row: ThreadRow | undefined, draft = false): string
   return t.length <= 60 ? t : `${t.slice(0, 59).trimEnd()}…`;
 }
 
+/** P3: the next 00:00 UTC, for a site-limit reply without reset_at (the server always sends one). */
+function nextUtcMidnight(): string {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)).toISOString();
+}
+
 /** /chat (General), /chat?team={id} (Team), /chat?q= (prefilled, General -- or Team with ?team=), /chat/{id} (a past chat in
  *  its own team). Everything on the page comes from the backend with the browser's Clerk token; the team is activated on
  *  SEND, never on open (checkpoint C1). */
@@ -108,6 +114,7 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
   const [prefilled, setPrefilled] = useState(!!q);
   const [busy, setBusy] = useState(false);
   const [limitUntil, setLimitUntil] = useState<string | null>(null);
+  const [limitKind, setLimitKind] = useState<"daily" | "site">("daily"); // P3: whose daily limit disabled the box
   const [guestBlocked, setGuestBlocked] = useState<string | null>(null); // W9: a guest refusal disables the box with its own text
   const [rateUntil, setRateUntil] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -336,7 +343,9 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
     : guestBlocked
       ? guestBlocked
       : limited
-        ? "Daily limit reached — back at 00:00 UTC"
+        ? limitKind === "site"
+          ? "FPL Copilot’s daily limit reached — back at 00:00 UTC"
+          : "Daily limit reached — back at 00:00 UTC"
         : rated
           ? "Wait a minute…"
           : draftGone
@@ -388,6 +397,14 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
           if (reply.limit.kind === "daily" && reply.limit.reset_at) {
             replaceThinking(thinkKey, { kind: "system", key: key("s"), variant: "limit", resetAt: reply.limit.reset_at });
             setLimitUntil(reply.limit.reset_at);
+            setLimitKind("daily");
+          } else if (reply.limit.kind === "site") {
+            // P3: the site's daily wallet -- the page's own note with a live countdown; the box comes back by itself at
+            // 00:00 UTC (the same clock as the daily limit), no reload
+            const resetAt = reply.limit.reset_at ?? nextUtcMidnight();
+            replaceThinking(thinkKey, { kind: "system", key: key("s"), variant: "site", resetAt });
+            setLimitUntil(resetAt);
+            setLimitKind("site");
           } else {
             // W9: a guest refusal (the cap, the shared budget, the switch) -- the server's wording, the box disabled with it
             replaceThinking(thinkKey, { kind: "system", key: key("s"), variant: "guest", code: reply.limit.kind === "daily" ? "guest" : reply.limit.kind, text: reply.answer });
@@ -552,7 +569,11 @@ export function ChatExperience({ team, q, chatId, draft: draftParam }: { team?: 
     reloadDraft();
     setMsgs((m) => [...finishReveal(m), { kind: "system", key: key("s"), variant: "rebuilt" }]);
   }, [reloadDraft]);
-  const builder = useDraftBuild(rebuilt);
+  // P3: a refused rebuild (the hourly limit, a busy server) is an amber note in the thread, not a toast
+  const refusedRebuild = useCallback((notice: DraftNotice) => {
+    setMsgs((m) => [...finishReveal(m), { kind: "system", key: key("s"), variant: "draft", notice }]);
+  }, []);
+  const builder = useDraftBuild(rebuilt, refusedRebuild);
   const askRebuild = () => {
     rebuildOpener.current = document.activeElement as HTMLElement | null;
     setRebuildOpen(true);
