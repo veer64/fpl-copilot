@@ -21,7 +21,8 @@ test.describe.configure({ mode: "serial" });
 const NAME = userName("p3limits");
 const SHOTS = process.env.P3_SHOTS ?? path.join("C:", "dev", "fpl-backups", "p3_files", "shots");
 const DRAFT_TID = "p3-draft-thread";
-const P1_RULES = ["label-content-name-mismatch", "landmark-one-main", "region", "aria-allowed-role"];
+// P4 adds page-has-heading-one: the phone draft chat had no h1 (its title row was display:none)
+const P1_RULES = ["label-content-name-mismatch", "landmark-one-main", "region", "aria-allowed-role", "page-has-heading-one"];
 let userId: string | null = null;
 let context: BrowserContext;
 let page: Page;
@@ -210,6 +211,8 @@ test("a11y: the chips are ul > li > button (general and draft chats); axe clean 
   await openChat(page, `/chat/${DRAFT_TID}`);
   const chips = page.locator('ul.dr-chips[aria-label="Suggested questions"]:visible > li > button[data-testid="draft-chip"]');
   await expect(chips).toHaveCount(4);
+  // P4: the draft chat has its h1 on the phone too (visually hidden there), named by the chat's title
+  await expect(page.getByRole("heading", { level: 1, name: "Your draft team" })).toHaveCount(1);
   await axe(page, "chat draft (opening chips)");
   await shot(page, "chat_draft_chips");
 });

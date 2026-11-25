@@ -47,6 +47,22 @@ async function cta(p: Page) {
   });
 }
 
+/** P4: since Prompt W7b (F7, 11 Nov -- after this spec) a touch device plays and downloads NOTHING until the first tap anywhere
+ *  after a full load. The mobile project's contexts are touch devices (its isMobile / hasTouch reach browser.newContext, as
+ *  its baseURL does), so there a step that starts on a full load starts on that tap: asserted silent and source-less before
+ *  it, everything after it exactly as on the desktop. A desktop context returns at once. `at`: a spot with nothing tappable,
+ *  or "key" -- a Shift press (the site takes pointerdown / touchstart / keydown), for a keyboard step: a tap would move the
+ *  browser's Tab starting point to where it landed. */
+async function firstTapOnTouch(p: Page, at: [number, number] | "key", label: string): Promise<void> {
+  if (!(await p.evaluate(() => window.matchMedia("(pointer: coarse)").matches))) return;
+  await p.waitForTimeout(2000);
+  expect((await audioState(p)).paused, `${label}: a touch device plays nothing before the first tap`).toBe(true);
+  expect(await p.locator('[data-testid="site-audio"]').getAttribute("src"), `${label}: a touch device downloads nothing before the first tap`).toBeNull();
+  if (at === "key") await p.keyboard.press("Shift");
+  else await p.touchscreen.tap(at[0], at[1]);
+  log(`${label}: touch device -- silent and no source until the first ${at === "key" ? "key press" : "tap"}`);
+}
+
 test.beforeAll(async ({ browser }) => {
   if (!SHARED_USER) for (const id of await findTestUsers(NAME)) await deleteUser(id);
   context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -124,6 +140,7 @@ test("2 autoplay allowed: the music starts on Login and keeps playing across Hom
   await page.goto("/home");
   await signOutViaMenu(page); // a signed-in visit to /login goes to /home: start the journey signed out
   await page.goto("/login");
+  await firstTapOnTouch(page, [720, 495], "2 /login"); // P4: the stage between the players
   await expect.poll(async () => (await audioState(page)).paused, { timeout: 10_000 }).toBe(false);
   await expect(page.locator(".stage").first()).toHaveAttribute("data-music", "playing");
   // the intro's level (1.0) reached through the ~1.5 s fade-in
@@ -216,6 +233,7 @@ test("4 mute on Chat: paused, no audio request while muted, stays muted across n
   test.setTimeout(300_000);
   await page.goto("/chat");
   await expect(page.locator('[data-testid="chat"][data-ready="true"]:visible')).toBeVisible({ timeout: 30_000 });
+  await firstTapOnTouch(page, [1350, 300], "4 /chat"); // P4: the background beside the chat
   await expect.poll(async () => (await audioState(page)).paused, { timeout: 10_000 }).toBe(false);
   const before = await audioState(page);
   await vis(page, "sound-toggle").click();
@@ -262,10 +280,12 @@ test("4 mute on Chat: paused, no audio request while muted, stays muted across n
 test("5 reload while playing -> the same track within ±2 s; default autoplay policy -> silent until the first click", async ({ browser }) => {
   test.setTimeout(300_000);
   await page.goto("/privacy");
+  await firstTapOnTouch(page, [1350, 300], "5 /privacy"); // P4: the background right of the hero
   await expect.poll(async () => (await audioState(page)).paused, { timeout: 10_000 }).toBe(false);
   await page.waitForTimeout(4000); // past a save tick
   const before = await audioState(page);
   await page.reload();
+  await firstTapOnTouch(page, [1350, 300], "5 /privacy after the reload");
   await expect.poll(async () => (await audioState(page)).paused, { timeout: 10_000 }).toBe(false);
   const after = await audioState(page);
   expect(after.track).toBe(before.track);
@@ -330,6 +350,7 @@ test("6 the button on every page at 1440 / 390 / 360, keyboard, label + aria-pre
   // keyboard: Tab to the button, Enter mutes (label + aria-pressed switch), Space plays again
   await page.goto("/about");
   await expect(page.locator('[data-testid="about"][data-signed-in="true"]')).toBeVisible({ timeout: 20_000 });
+  await firstTapOnTouch(page, "key", "6 /about"); // P4: a key press (a tap would move the Tab starting point)
   await expect.poll(async () => (await audioState(page)).paused, { timeout: 10_000 }).toBe(false);
   await page.keyboard.press("Tab");
   for (let i = 0; i < 10; i++) {

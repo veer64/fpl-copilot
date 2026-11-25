@@ -76,6 +76,7 @@ const savedRows = () => {
 type Answer = { text: string; delayMs: number; sources?: unknown[]; preview?: unknown };
 const answer: Answer = { text: LONG, delayMs: 1500 };
 let chatCalls = 0;
+const previewAnswers: { thread_id: string; message_id: string; answer: string }[] = []; // P4: the X1 route's bodies
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
 async function seed(p: Page, opts: { teams?: number; threads?: number } = {}) {
@@ -92,6 +93,15 @@ async function seed(p: Page, opts: { teams?: number; threads?: number } = {}) {
   await p.route(`${API}/me/active-team`, (r) => r.fulfill({ json: { active_team: null, deactivated: null, thread_id: "w10-general-default", preview_tickets_cancelled: 0 } }));
   await p.route(new RegExp(`^${esc(API)}/me/teams/\\d+/card$`), (r) => r.fulfill({ status: 503, json: { detail: "card mocked away for W10" } }));
   await p.route(new RegExp(`^${esc(API)}/messages/[^/]+/feedback$`), (r) => r.fulfill({ json: { ok: true } }));
+  // Prompt X1 (13 Nov): the preview's Yes / No answer THAT preview through POST /me/preview/answer (decided by the server from
+  // code, no model call; the reply has /chat's shape) -- never /chat (P4: the mock this spec lacked since X1)
+  await p.route(`${API}/me/preview/answer`, async (r) => {
+    const body = r.request().postDataJSON() as { thread_id: string; message_id: string; answer: string };
+    previewAnswers.push(body);
+    const a = { ...answer };
+    await new Promise((res) => setTimeout(res, a.delayMs));
+    await r.fulfill({ json: { answer: a.text, thread_id: body.thread_id, message_id: `w10-pa-${previewAnswers.length}`, sources: a.sources ?? SOURCES, squad_preview: a.preview ?? null, squad_applied: null } }).catch(() => {});
+  });
   await p.route(`${API}/chat`, async (r) => {
     chatCalls += 1;
     const a = { ...answer };
@@ -556,12 +566,17 @@ test("the W4 message steps, seeded: Sources pop-up, thumbs, the preview's Yes / 
   // Yes sends "Yes": the question at the top, the reply writes itself out
   answer.text = "Done: **Haaland** is your captain for GW11.";
   answer.preview = undefined;
+  const chatCallsBeforeYes = chatCalls;
+  previewAnswers.length = 0;
   await a1.locator('[data-testid="preview-yes"]').click();
   await expect(vis(page, "user-message").last()).toHaveText("Yes");
   await page.waitForTimeout(250);
   const yes = await chatMetrics(page);
   expect.soft(Math.abs(yes.lastUserTop - GAP)).toBeLessThanOrEqual(4);
   await expect(page.locator('[data-testid="assistant-message"][data-revealing="false"]:visible')).toHaveCount(2, { timeout: 15_000 });
+  // X1: the Yes answered THAT preview (the first answer's message id) through /me/preview/answer, never /chat
+  expect(previewAnswers).toEqual([{ thread_id: NEW_TID, message_id: `w10-msg-${chatCallsBeforeYes}`, answer: "yes" }]);
+  expect(chatCalls).toBe(chatCallsBeforeYes);
   // 429: the rate system message (0 answers added)
   await page.route(`${API}/chat`, (r) => r.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { detail: "Too many requests -- wait a minute" } }));
   await send(page, "mock 429");

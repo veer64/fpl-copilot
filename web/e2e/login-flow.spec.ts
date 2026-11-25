@@ -14,7 +14,11 @@ function shotName(page: Page, name: string) {
   return path.join(SHOTS, `${name}_${vp.width}x${vp.height}.png`);
 }
 
-const stage = (page: Page) => page.locator(".stage");
+// P4: while the login page streams in, a second .stage can exist for a moment (the W3 / W5b lesson; w4.ts signIn and
+// w5b-music scope the same way) -- the live stage is the first; assertions retry until the copy is gone
+const stage = (page: Page) => page.locator(".stage").first();
+// P4: the same moment holds a second intro overlay, so its Skip button too -- the visible first one (as w4.ts signIn does)
+const skipIntro = (page: Page) => page.locator('[data-testid="skip-intro"]:visible').first();
 const audio = (page: Page) =>
   page.evaluate(() => {
     const a = document.querySelector("audio")!;
@@ -27,6 +31,15 @@ const centre = (page: Page) => {
 /** the intro's start is stamped on the stage (performance.now()) by the page itself */
 const introStarted = (page: Page) => page.waitForSelector(".stage[data-intro-started]", { timeout: 15_000 });
 const playing = (page: Page) => expect.poll(async () => (await audio(page)).paused, { timeout: 5000 }).toBe(false);
+/** P4: every start fades in from 0 to its level over FADE_MS (1.5 s, components/music/MusicProvider.tsx, Prompt W5b): the
+ *  intro asks for 1.0, everything else is 0.35 -- the level is reached exactly, through the fade */
+const FADE_MS = 1500;
+const fadedTo = (page: Page, level: 1 | 0.35) =>
+  level === 1
+    ? expect.poll(async () => (await audio(page)).volume, { timeout: FADE_MS + 2500 }).toBe(1) // exact, as before the fade
+    : expect.poll(async () => (await audio(page)).volume, { timeout: FADE_MS + 2500 }).toBeCloseTo(0.35, 2); // the old tolerance
+/** P4: the phone project. Since Prompt W7b (F7) a touch device plays and downloads NOTHING until the first tap anywhere. */
+const phone = (page: Page) => page.viewportSize()!.width < 600;
 
 test.beforeAll(() => {
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -47,7 +60,7 @@ test("A2: the intro starts by itself and reaches login within 7 s, with screensh
   await page.goto("/login");
   await expect(stage(page)).toHaveAttribute("data-phase", "intro");
   await expect(page.getByTestId("hud")).toBeVisible();
-  await expect(page.getByTestId("skip-intro")).toBeVisible();
+  await expect(skipIntro(page)).toBeVisible();
   await introStarted(page);
   const t0 = Date.now();
   await page.waitForTimeout(Math.max(0, 1000 - (Date.now() - t0)));
@@ -80,7 +93,7 @@ test("protected: /teams signed-out ends on /login", async ({ page }) => {
 test("A2: Skip intro, and Esc, go straight to login", async ({ page }) => {
   await page.goto("/login");
   await expect(stage(page)).toHaveAttribute("data-phase", "intro");
-  await page.getByTestId("skip-intro").click();
+  await skipIntro(page).click();
   await expect(stage(page)).toHaveAttribute("data-phase", "login");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Every decision");
 
@@ -90,13 +103,23 @@ test("A2: Skip intro, and Esc, go straight to login", async ({ page }) => {
   await expect(stage(page)).toHaveAttribute("data-phase", "login");
 });
 
-test("audio: autoplay on load -- the song plays from 0 s at volume 1 with no interaction, then 35 % on login", async ({ page }) => {
+test("audio: autoplay on load -- the song plays from 0 s with no interaction, fading in to volume 1, then 35 % on login (a phone: nothing before the first tap)", async ({ page }) => {
   await page.goto("/login");
   await introStarted(page);
+  if (phone(page)) {
+    // W7b (F7): no play attempt and no download before the first tap anywhere -- and no prompt asking for one
+    await page.waitForTimeout(1200);
+    expect((await audio(page)).paused).toBe(true);
+    expect(await page.locator('[data-testid="site-audio"]').getAttribute("src")).toBeNull();
+    await expect(stage(page)).toHaveAttribute("data-music", "off");
+    await expect(page.getByTestId("tap-for-sound")).toHaveCount(0);
+    const { x, y } = centre(page);
+    await page.touchscreen.tap(x, y); // nothing tappable there
+  }
   await playing(page);
   const a1 = await audio(page);
   expect(a1.t).toBeLessThan(2); // AUDIO_START_OFFSET = 0
-  expect(a1.volume).toBe(1);
+  await fadedTo(page, 1); // volume 1, the intro's level -- reached through the 1.5 s fade-in (W5b) every start has
   expect(a1.muted).toBe(false);
   await expect(stage(page)).toHaveAttribute("data-music", "playing");
   await expect(page.getByTestId("tap-for-sound")).toHaveCount(0); // no prompt of any kind
@@ -106,7 +129,7 @@ test("audio: autoplay on load -- the song plays from 0 s at volume 1 with no int
   const toggle = page.getByTestId("sound-toggle");
   await expect(toggle).toHaveAttribute("aria-pressed", "false"); // ON state by default: the action offered is Mute
   await expect(toggle).toHaveAttribute("aria-label", "Mute music");
-  console.log(`autoplay on load: t=${a1.t.toFixed(3)} s, volume ${a1.volume} -> ${(await audio(page)).volume} on login`);
+  console.log(`autoplay on load${phone(page) ? " (phone: after the first tap)" : ""}: t=${a1.t.toFixed(3)} s, volume ${a1.volume} at the first sample (fading in) -> ${(await audio(page)).volume} on login`);
 });
 
 /** The browser's autoplay rule, reproduced: play() is refused (NotAllowedError) until the page has seen a real gesture
@@ -142,25 +165,29 @@ for (const how of ["click", "key"] as const) {
     await playing(page);
     const a1 = await audio(page);
     expect(a1.t).toBeLessThan(1.5);
-    expect(a1.volume).toBe(1);
+    await fadedTo(page, 1); // volume 1, the intro's level -- reached through the 1.5 s fade-in (W5b) every start has
     expect(a1.muted).toBe(false);
     await expect(stage(page)).toHaveAttribute("data-music", "playing");
     console.log(`blocked autoplay, first ${how}: started at t=${a1.t.toFixed(3)} s`);
   });
 }
 
-test("audio: Mute is remembered; a remembered mute never auto-starts; Unmute starts it at 35 %", async ({ page }) => {
+test("audio: Mute is remembered; a remembered mute never auto-starts; Play starts it at 35 %", async ({ page }) => {
   await page.goto("/login");
   await introStarted(page);
+  if (phone(page)) {
+    const { x, y } = centre(page);
+    await page.touchscreen.tap(x, y); // W7b (F7): a phone starts the music on the first tap
+  }
   await playing(page);
-  await page.getByTestId("skip-intro").click();
+  await skipIntro(page).click();
   await expect(stage(page)).toHaveAttribute("data-phase", "login");
   const toggle = page.getByTestId("sound-toggle");
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(toggle).toHaveAttribute("aria-label", "Mute music");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  await expect(toggle).toHaveAttribute("aria-label", "Unmute music");
+  await expect(toggle).toHaveAttribute("aria-label", "Play music"); // W5b's site-wide button: "Mute music" / "Play music"
   expect((await audio(page)).muted).toBe(true);
   expect(await page.evaluate(() => localStorage.getItem("fpl-sound"))).toBe("0");
 
@@ -172,14 +199,14 @@ test("audio: Mute is remembered; a remembered mute never auto-starts; Unmute sta
   await page.keyboard.press("Shift");
   await page.waitForTimeout(1200);
   expect((await audio(page)).paused).toBe(true);
-  await page.getByTestId("skip-intro").click();
+  await skipIntro(page).click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  await expect(toggle).toHaveAttribute("aria-label", "Unmute music");
+  await expect(toggle).toHaveAttribute("aria-label", "Play music");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await playing(page);
+  await fadedTo(page, 0.35); // through the same fade-in
   const a2 = await audio(page);
-  expect(a2.volume).toBeCloseTo(0.35, 2);
   expect(a2.muted).toBe(false);
   expect(await page.evaluate(() => localStorage.getItem("fpl-sound"))).toBe("1");
 });
@@ -188,7 +215,7 @@ test("audio: Mute is remembered; a remembered mute never auto-starts; Unmute sta
 
 async function clickGoogle(page: Page) {
   await page.goto("/login");
-  await page.getByTestId("skip-intro").click();
+  await skipIntro(page).click();
   const google = page.getByTestId("google");
   await expect(google).toBeEnabled({ timeout: 15_000 }); // Clerk loaded
   await google.click();
@@ -240,7 +267,7 @@ test("A5: reduced motion shows the login state at once, with no running animatio
 test("A5: a failed player image falls back to the SVG figures", async ({ page }) => {
   await page.route("**/players/vandijk-body.webp", (route) => route.abort());
   await page.goto("/login");
-  await page.getByTestId("skip-intro").click();
+  await skipIntro(page).click();
   await expect(page.locator(".ath")).toHaveCount(2);
   await expect(page.locator(".pl")).toHaveCount(0);
   await expect(page.locator(".tag")).toHaveCount(2);
@@ -260,7 +287,7 @@ test("A6: keyboard-only order reaches every control with visible focus", async (
     });
   // the intro: Skip intro is its one control
   await page.keyboard.press("Tab");
-  await expect(page.getByTestId("skip-intro")).toBeFocused();
+  await expect(skipIntro(page)).toBeFocused();
   expect((await focusInfo())?.ring).toBe(true);
   await page.keyboard.press("Enter"); // Skip -> login
   await expect(stage(page)).toHaveAttribute("data-phase", "login");

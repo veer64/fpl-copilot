@@ -83,8 +83,8 @@ const PREVIEW = {
   draft: true, kind: "change",
 };
 
-type State = { teams: number; threads: unknown[]; draft: Draft | null; messages: unknown[]; buildFails: number; answers: { text: string; preview?: unknown; applied?: unknown; after?: () => void }[]; chatBodies: string[]; deletes: number; rebuilds: number; builds: number; explains: { thread_id: string; question: string }[] };
-const S: State = { teams: 0, threads: [], draft: null, messages: [], buildFails: 0, answers: [], chatBodies: [], deletes: 0, rebuilds: 0, builds: 0, explains: [] };
+type State = { teams: number; threads: unknown[]; draft: Draft | null; messages: unknown[]; buildFails: number; answers: { text: string; preview?: unknown; applied?: unknown; after?: () => void }[]; chatBodies: string[]; deletes: number; rebuilds: number; builds: number; explains: { thread_id: string; question: string }[]; previewAnswers: { thread_id: string; message_id: string; answer: string }[] };
+const S: State = { teams: 0, threads: [], draft: null, messages: [], buildFails: 0, answers: [], chatBodies: [], deletes: 0, rebuilds: 0, builds: 0, explains: [], previewAnswers: [] };
 // Prompt W11e E2: the squad explanation the server answers the "Why these players?" chip with (from code, no model call)
 const EXPLANATION =
   "How the 15 were picked: the most predicted points for GW11, the XI's (captain counted twice) plus 0.2 × the bench's, within £100.0m and FPL's squad rules.\nCaptain: Haaland, 7.90 predicted points, 15.80 with the armband.\nBiggest picks, by what the best legal alternative would cost the build's score: Haaland 3.10 (Isak, £10.5m), Salah 1.40 (Palmer, £9.5m), Saka 0.90 (Rogers, £5.5m).\nBench and budget: XI £82.0m, bench £17.6m; bench points count 0.2×, so most of the budget goes on the XI.\n\nWhich player would you like me to go into, or is there anyone you'd like to bring in?";
@@ -140,6 +140,16 @@ async function seed(p: Page) {
     if (body.thread_id === DRAFT_TID && !(S.threads as { thread_id: string }[]).some((t) => t.thread_id === DRAFT_TID)) S.threads = [draftRow(body.question), ...S.threads];
     await r.fulfill({ json: { answer: EXPLANATION, thread_id: body.thread_id, message_id: "w11e-explain-1", sources: [], squad_preview: null, squad_applied: null } });
   });
+  // Prompt X1 (13 Nov): the preview card's Yes / No buttons answer THAT preview through POST /me/preview/answer (decided by the
+  // server from code, no model call; the reply has /chat's shape) -- never /chat (P4: the mock this spec lacked since X1)
+  await p.route(`${API}/me/preview/answer`, async (r) => {
+    const body = r.request().postDataJSON() as { thread_id: string; message_id: string; answer: string };
+    S.previewAnswers.push(body);
+    const a = S.answers.shift() ?? { text: "No change made." };
+    await new Promise((res) => setTimeout(res, 600));
+    a.after?.();
+    await r.fulfill({ json: { answer: a.text, thread_id: body.thread_id, message_id: `w11-pa-${S.previewAnswers.length}`, sources: [], squad_preview: a.preview ?? null, squad_applied: a.applied ?? null } }).catch(() => {});
+  });
   await p.route(`${API}/chat`, async (r) => {
     const body = r.request().postDataJSON() as { message: string; thread_id?: string };
     S.chatBodies.push(body.message);
@@ -168,7 +178,7 @@ async function waitTyped(p: Page) {
   await expect(p.locator('[data-testid="assistant-message"][data-revealing="true"]:visible')).toHaveCount(0, { timeout: 15_000 });
 }
 function reset(over: Partial<State> = {}) {
-  Object.assign(S, { teams: 0, threads: [], draft: null, messages: [], buildFails: 0, answers: [], chatBodies: [], deletes: 0, rebuilds: 0, builds: 0, explains: [] }, over);
+  Object.assign(S, { teams: 0, threads: [], draft: null, messages: [], buildFails: 0, answers: [], chatBodies: [], deletes: 0, rebuilds: 0, builds: 0, explains: [], previewAnswers: [] }, over);
 }
 function withDraft(title?: string) {
   S.draft = draftCard();
@@ -235,6 +245,9 @@ test("cp2: chat in draft mode -- the opening message + chips, a pending change, 
   });
   await vis(page, "preview-yes").click();
   await expect(vis(page, "saved-block")).toHaveText("Saved to your draft.", { timeout: 15_000 });
+  // X1: the Yes answered THAT preview (its answer's message id) through /me/preview/answer; /chat saw only the question
+  expect(S.previewAnswers).toEqual([{ thread_id: DRAFT_TID, message_id: "w11-msg-1", answer: "yes" }]);
+  expect(S.chatBodies).toEqual(["Swap Lewis for Mykolenko"]);
   await waitTyped(page);
   if (!phone()) await expect(vis(page, "card-line")).toHaveText("4-4-2 · £99.9m / £100.0m · £0.1m LEFT", { timeout: 10_000 });
   else {
